@@ -32,7 +32,7 @@ __all__ = ["cartoon_settings_from_form"]
 
 def cartoon_settings_from_form(
     cartoon_intensity: int = Form(8, ge=1, le=10),
-    cartoon_style: str = Form(CartoonStyle.WESTERN_CARTOON),
+    cartoon_style: str = Form(CartoonStyle.PIXAR_LIKE),
     likeness_strength: str = Form(LikenessStrength.STRICT),
     aspect_ratio: str = Form(AspectRatio.LANDSCAPE),
     portrait_background: str = Form(PortraitBackground.PLAIN),

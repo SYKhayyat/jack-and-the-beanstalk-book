@@ -20,11 +20,15 @@ export const elements = {
   reviewPortrait: () => document.getElementById("review-portrait"),
   approve: () => document.getElementById("approve-portrait"),
   reject: () => document.getElementById("reject-portrait"),
+  rejectBody: () => document.getElementById("reject-body"),
+  rejectChips: () => document.getElementById("reject-chips"),
+  rejectRetry: () => document.getElementById("reject-retry"),
   reviewMessage: () => document.getElementById("review-message"),
 
   bookStage: () => document.getElementById("book-stage"),
   bookProgress: () => document.getElementById("book-progress"),
-  bookPages: () => document.getElementById("book-pages"),
+  pdfPanel: () => document.getElementById("book-pdf-panel"),
+  pdfFrame: () => document.getElementById("book-pdf-frame"),
   pdfLink: () => document.getElementById("book-pdf-link"),
   restart: () => document.getElementById("book-restart"),
 
@@ -128,6 +132,30 @@ export function hideReview() {
   elements.reviewStage().classList.add("hidden");
 }
 
+/* The review stage's feedback flow: "Not right" opens the chip panel, the
+   retry inside it re-runs the portrait with the ticked reasons as corrections.
+   The chips are a closed set the server validates, so the controller only ever
+   ships their values. */
+export function showRejectBody(open) {
+  elements.rejectBody().classList.toggle("hidden", !open);
+  elements.reject().setAttribute("aria-expanded", String(open));
+}
+
+export function rejectBodyOpen() {
+  return !elements.rejectBody().classList.contains("hidden");
+}
+
+export function rejectChipValues() {
+  const chips = elements.rejectChips().querySelectorAll('input[name="reason"]:checked');
+  return Array.from(chips, (chip) => chip.value);
+}
+
+export function resetRejectChips() {
+  for (const chip of elements.rejectChips().querySelectorAll('input[name="reason"]')) {
+    chip.checked = false;
+  }
+}
+
 export function showBookStage() {
   elements.bookStage().classList.remove("hidden");
 }
@@ -150,29 +178,14 @@ export function renderBookProgress(done, total) {
       : `Making page ${done + 1} of ${total}…\u2014 check back in a moment`;
 }
 
-export function renderBookPages(state) {
-  const grid = elements.bookPages();
-  grid.replaceChildren();
-  for (const page of state.pages) {
-    const figure = document.createElement("figure");
-    figure.className = `book-page book-page-${page.status}`;
-    const number = document.createElement("span");
-    number.className = "book-page-number";
-    number.textContent = `Page ${page.number}`;
-    const image = document.createElement("img");
-    image.alt = `Page ${page.number}`;
-    if (page.url) {
-      image.src = page.url;
-    } else {
-      image.classList.add("placeholder");
-      image.title = "Not generated yet";
-    }
-    figure.append(number, image);
-    grid.append(figure);
-  }
+export function showPdfViewer(pdfUrl) {
+  /* The finished book, in one big box: the PDF itself, not page pictures. */
+  elements.pdfFrame().src = pdfUrl;
+  elements.pdfPanel().classList.remove("hidden");
 }
 
 export function renderBookFinished(bookId, pdfUrl) {
+  showPdfViewer(pdfUrl);
   const link = elements.pdfLink();
   link.href = pdfUrl;
   link.download = `book-${bookId}.pdf`;
@@ -186,9 +199,10 @@ export function renderBookFinished(bookId, pdfUrl) {
 }
 
 export function resetBookStage() {
+  elements.pdfFrame().removeAttribute("src");
+  elements.pdfPanel().classList.add("hidden");
   elements.pdfLink().classList.add("hidden");
   elements.restart().classList.add("hidden");
-  elements.bookPages().replaceChildren();
   hideBookError();
   elements.bookProgress().textContent = "";
 }

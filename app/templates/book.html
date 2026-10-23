@@ -91,7 +91,7 @@
         </div>
         <div class="control">
           <label for="details">About</label>
-          <textarea id="details" name="details" rows="4"></textarea>
+          <textarea id="details" name="details" rows="8"></textarea>
         </div>
       </fieldset>
 
@@ -235,7 +235,31 @@
       </div>
       <div class="review-actions">
         <button type="button" id="approve-portrait" class="primary">Approve — make my book</button>
-        <button type="button" id="reject-portrait" class="button secondary">Not right — try again</button>
+        <button type="button" id="reject-portrait" class="button secondary"
+                aria-expanded="false" aria-controls="reject-body">Not right — try again</button>
+      </div>
+
+      <!-- Hidden until "Not right": precise feedback to the model, chip by
+           chip. Closed-set options only — no free text can reach a prompt. -->
+      <div id="reject-body" class="reject hidden">
+        <h3>Not right? Tick what went wrong</h3>
+        <p class="field-help">
+          Each tick becomes a correction in the next attempt's prompt. There is
+          no free-text box on purpose — every option here is a tested
+          instruction.
+        </p>
+        <div id="reject-chips" class="chips">
+          {% for reason in rejection_reasons %}
+          <label class="chip">
+            <input type="checkbox" name="reason" value="{{ reason.value }}">
+            <span>{{ reason.label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="review-actions">
+          <button type="button" id="reject-retry" class="button secondary">Try again with these fixes</button>
+          <span class="cost-note">+1 image call</span>
+        </div>
       </div>
       <p id="review-message" class="inline-message hidden" role="status" aria-live="polite"></p>
     </section>
@@ -244,7 +268,12 @@
     <section id="book-stage" class="panel hidden">
       <h2>Your book</h2>
       <p id="book-progress" class="inline-message" role="status" aria-live="polite"></p>
-      <div id="book-pages" class="book-pages"></div>
+      <!-- The finished book is the PDF itself, viewed in one big box (UAT: no
+           four little page pictures). It is filled the moment rendering
+           completes; the download link sits below it. -->
+      <div id="book-pdf-panel" class="pdf-panel hidden">
+        <iframe id="book-pdf-frame" class="pdf-frame" title="Your picture book"></iframe>
+      </div>
       <div class="download-block">
         <a id="book-pdf-link" class="button primary hidden" download="book.pdf">Download the book (PDF)</a>
         <a id="book-restart" class="button secondary hidden" href="/">Start a new book</a>

@@ -3,8 +3,10 @@
 The one place where art and text meet. Rules it enforces:
 
 * the art is full-bleed on every page;
-* the story line is drawn as **real PDF text** on top of the art — the image
-  model never draws it, so no garbled letters are ever baked into the pictures;
+* the story line is drawn as **real PDF text** on a solid, opaque panel over
+  the art — the image model never draws it, so no garbled letters are ever
+  baked into the pictures, and the panel is a designed text section the art
+  can never bleed through;
 * the last page is the About page, built only from what the uploader typed.
 
 Fonts ship with the app (``app/assets/fonts``): Comic Neue (SIL OFL) for Latin
@@ -60,8 +62,11 @@ for _zone in TextZone:
     if _zone not in _TEXT_ZONE_BANDS:
         raise KeyError(f"No panel band defined for text zone {_zone!r}")
 
-_PANEL_FILL = (24, 24, 46)
-_PANEL_TEXT = (255, 252, 240)
+# The story panel: a solid designed text section, opaque over the art — the
+# paper tone and the About page's ink, so text and page belong together and
+# nothing behind the panel reads through the words.
+_PANEL_FILL = (250, 247, 238)
+_PANEL_TEXT = (74, 56, 38)
 _ABOUT_BG = (247, 239, 222)
 _ABOUT_TEXT = (74, 56, 38)
 
@@ -109,7 +114,7 @@ def build_book_pdf(about: AboutMe, pages: Sequence[PageArt]) -> bytes:
 
 
 def _draw_page(pdf: FPDF, entry: PageArt) -> None:
-    """One book page: full-bleed art with the story line drawn on a panel."""
+    """One book page: full-bleed art with the story line on a solid text panel."""
     width, height = pdf.w, pdf.h
     pdf.add_page()
     pdf.image(io.BytesIO(entry.image), x=0, y=0, w=width, h=height)
@@ -124,7 +129,8 @@ def _draw_page(pdf: FPDF, entry: PageArt) -> None:
     available = (band_bottom - band_top) * height - 2 * _PANEL_TEXT_INSET
 
     # Fit the story inside its zone: shrink the font before ever leaving the
-    # band. A zone-bounded panel never drifts into the art's busy areas.
+    # band, then draw the panel sized exactly to the fitted text, opaque so
+    # the art behind it can never bleed through the words.
     lines, font_size, line_height = _fit_text(
         story,
         "ComicNeue",
@@ -138,15 +144,14 @@ def _draw_page(pdf: FPDF, entry: PageArt) -> None:
     pdf.set_text_color(*_PANEL_TEXT)
     panel_height = len(lines) * line_height + 2 * _PANEL_TEXT_INSET
     panel_y = band_top * height + (available - (panel_height - 2 * _PANEL_TEXT_INSET)) / 2
-    with pdf.local_context(fill_opacity=0.55):
-        pdf.set_fill_color(*_PANEL_FILL)
-        pdf.rect(
-            x=(width - panel_width) / 2,
-            y=panel_y,
-            w=panel_width,
-            h=panel_height,
-            style="F",
-        )
+    pdf.set_fill_color(*_PANEL_FILL)
+    pdf.rect(
+        x=(width - panel_width) / 2,
+        y=panel_y,
+        w=panel_width,
+        h=panel_height,
+        style="F",
+    )
     pdf.set_xy(width * _SIDE_MARGIN, panel_y + _PANEL_TEXT_INSET)
     pdf.multi_cell(panel_width, line_height, "\n".join(lines), align="C")
 

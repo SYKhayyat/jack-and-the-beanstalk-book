@@ -5,6 +5,12 @@ without knowing the internal module layout.
 """
 
 from app.models.book import BOOK_PAGES, AboutMe, BookPage, TextZone, get_book_page
+from app.models.feedback import (
+    REJECTION_CLAUSES,
+    REJECTION_LABELS,
+    RejectionFeedback,
+    RejectionReason,
+)
 from app.models.scenes import Scene
 from app.models.settings import (
     ApparentAge,
@@ -24,6 +30,8 @@ from app.models.settings import (
 
 __all__ = [
     "BOOK_PAGES",
+    "REJECTION_CLAUSES",
+    "REJECTION_LABELS",
     "AboutMe",
     "ApparentAge",
     "AspectRatio",
@@ -38,6 +46,8 @@ __all__ = [
     "Outfit",
     "PhotoGender",
     "PortraitBackground",
+    "RejectionFeedback",
+    "RejectionReason",
     "Scene",
     "SkinTone",
     "TextZone",

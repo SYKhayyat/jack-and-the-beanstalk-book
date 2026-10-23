@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from uuid import uuid4
 
-from app.models import CartoonSettings
+from app.models import CartoonSettings, RejectionFeedback
 from app.services.image_providers.base import GeneratedImage, ImageProvider, ImageRequest
 from app.services.prompts import build_cartoon_prompt
 from app.services.storage import Draft, GenerationStore
@@ -52,6 +52,7 @@ class GenerationPipeline:
         settings: CartoonSettings,
         generation_id: str | None = None,
         persist: bool = True,
+        rejection: RejectionFeedback | None = None,
     ) -> Draft:
         """Turn the photo into a cartoon portrait and persist it as a draft.
 
@@ -59,12 +60,16 @@ class GenerationPipeline:
         book runner can send both as references without the browser
         re-uploading anything. The returned draft carries the id and the
         prompt that produced it.
+
+        `rejection` carries the user's ticked faults from the review stage;
+        None (or an empty set) is a byte-identical first-attempt prompt.
         """
         draft = self._build_cartoon(
             photo_data=photo_data,
             photo_media_type=photo_media_type,
             settings=settings,
             generation_id=generation_id or uuid4().hex,
+            rejection=rejection,
         )
         if persist:
             self._store.save_draft(draft)
@@ -77,16 +82,18 @@ class GenerationPipeline:
         photo_media_type: str,
         settings: CartoonSettings,
         generation_id: str,
+        rejection: RejectionFeedback | None = None,
     ) -> Draft:
         """The portrait pass's work, returned as a draft without persisting it."""
-        prompt = build_cartoon_prompt(settings)
+        prompt = build_cartoon_prompt(settings, rejection=rejection)
 
         logger.info(
-            "pipeline.cartoonify id=%s provider=%s style=%s intensity=%s",
+            "pipeline.cartoonify id=%s provider=%s style=%s intensity=%s retry=%s",
             generation_id,
             self._provider.name,
             settings.cartoon_style,
             settings.cartoon_intensity,
+            bool(rejection and not rejection.is_empty),
         )
 
         # One API call for the whole set of alternatives. Providers that cannot

@@ -18,7 +18,7 @@ class TestCartoonSettings:
     def test_defaults_are_sensible(self) -> None:
         defaults = CartoonSettings()
         assert defaults.cartoon_intensity == 8
-        assert defaults.cartoon_style is CartoonStyle.WESTERN_CARTOON
+        assert defaults.cartoon_style is CartoonStyle.PIXAR_LIKE
         assert defaults.likeness_strength is LikenessStrength.STRICT
 
     @pytest.mark.parametrize("bad", [0, 11, -3])

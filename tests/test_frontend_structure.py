@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from app.models import CartoonSettings
+from app.models import CartoonSettings, RejectionReason
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC = PROJECT_ROOT / "app" / "static"
@@ -303,16 +303,40 @@ def test_review_offers_approve_or_redo(page_html: str) -> None:
     assert re.search(r'id="review-stage"[^>]*class="[^"]*hidden', page_html)
 
 
-def test_book_stage_has_progress_pages_and_pdf_link(page_html: str) -> None:
+def test_review_offers_feedback_chips_on_the_cartoon(page_html: str) -> None:
+    """UAT 3: report feedback to the model — the closed-set chip flow.
+
+    The chips are rendered server-side from the rejection vocabulary, hidden
+    behind the "Not right" path. There is no free-text input to the model on
+    this page at all: the only way to send feedback is a fixed chip.
+    """
+    for element_id in ("reject-body", "reject-chips", "reject-retry"):
+        assert f'id="{element_id}"' in page_html
+    assert re.search(r'id="reject-body"[^>]*class="[^"]*hidden', page_html)
+    # The full closed set is offered, and every chip posts `reason`:
+    assert page_html.count('name="reason"') >= len(RejectionReason)
+    assert re.search(r'id="reject-retry"[^>]*>Try again with these fixes', page_html)
+    assert 'aria-controls="reject-body"' in page_html, "the toggle wires the panel"
+
+
+def test_book_stage_has_progress_viewer_and_pdf_link(page_html: str) -> None:
+    """The finished book is the PDF in one big box, plus a download link.
+
+    The little page grid is gone (UAT 8): the stage carries a progress line,
+    the PDF viewport, and the download/secondary controls.
+    """
     for element_id in (
         "book-stage",
         "book-progress",
-        "book-pages",
+        "book-pdf-panel",
+        "book-pdf-frame",
         "book-pdf-link",
         "book-restart",
     ):
         assert f'id="{element_id}"' in page_html
+    assert "book-pages" not in page_html, "the four-little-pictures grid is retired"
     assert re.search(r'id="book-stage"[^>]*class="[^"]*hidden', page_html)
+    assert re.search(r'id="book-pdf-panel"[^>]*class="[^"]*hidden', page_html)
     assert re.search(r'id="book-pdf-link"[^>]*class="[^"]*hidden', page_html)
 
 

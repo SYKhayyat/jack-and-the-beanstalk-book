@@ -19,7 +19,10 @@ tail = "Do not include any text, letters, numbers, watermark, signature, logo, c
 manga = "black-and-white Japanese manga style, crisp confident ink linework, heavy black outlines, screentone dot shading, dramatic speed lines, high-contrast monochrome, large expressive eyes, hand-drawn manga panel aesthetic"
 anime = "modern Japanese anime style, clean cel shading with two-tone shadows, bright saturated colours, soft gradient skies, large sparkling expressive eyes, delicate linework, detailed hair strands, polished studio-anime finish"
 western_cartoon = "classic hand-drawn western cartoon style, bold rounded ink outlines, flat blocks of warm colour, simplified friendly shapes, gentle squash-and-stretch, vintage storybook cel animation look"
-pixar_like = "high-end 3D animated feature style, soft global illumination, subsurface-scattered skin, large expressive eyes with real catchlights, appealing stylised proportions, shallow depth of field, warm cinematic colour grading, polished family-film design"
+# The app's default — and the whole book's one fixed style. Written once here
+# (the UAT wording) and keyed by name from [book].style, so portrait and book
+# pages can never drift apart: edit it here, both change together.
+pixar_like = "Modern 3D animated feature: rounded sculpted forms, large expressive eyes with real catchlights, soft rim light on the characters, smooth subsurface skin shading, appealing stylised proportions, warm cinematic colour grading, polished family-film design"
 disney_like = "classic hand-painted 2D animation style, fluid confident curves, soft painted backgrounds, expressive appealing character design, warm colour, generous rounded shapes, storybook cel animation finish"
 comic_book = "American comic book style, heavy black ink outlines, halftone Ben-Day dot shading, flat saturated four-colour palette, dynamic heroic composition, bold panel energy"
 pencil_sketch = "graphite pencil sketch, confident cross-hatched shading, visible pencil grain, loose expressive linework on warm off-white paper, monochrome hand-drawn study"
@@ -164,6 +167,23 @@ remove_glasses = "Remove any glasses or sunglasses."
 keep_facial_hair = "If the person has facial hair, keep it, drawn in the same style as the rest of the image."
 remove_facial_hair = "Remove any facial hair."
 
+# Corrective clauses for the portrait retry step. Closed-set feedback for the
+# review stage (UAT: "a button to report feedback to the model on the cartoon"):
+# every possible answer is fixed, reviewed text, so no visitor wording ever
+# reaches a prompt. Keyed by RejectionReason.
+[rejections]
+face_changed = "The previous attempt did not look like the person. Identity outranks style this time: reproduce the reference's proportions exactly — the skull shape, jaw width, distance between the eyes, size and angle of the nose, mouth width and lip shape, brow thickness, forehead height and hairline — and resist any stylisation that would alter them."
+style_wrong = "The previous attempt was in the wrong art style. Follow the ART STYLE section exactly this time, in its medium, line weight and shading."
+age_wrong = "The previous attempt's age read wrong. Follow the stated age precisely in face shape, proportions and skin."
+hair_wrong = "The previous attempt's hair was wrong. Follow the stated hair style, length, part and colour exactly."
+skin_tone_wrong = "The previous attempt's skin tone was wrong. Match the stated tone exactly, including any warmth or undertone."
+expression_wrong = "The previous attempt's expression was wrong. Read the stated expression literally and change the brows, eyelids and mouth accordingly."
+outfit_wrong = "The previous attempt's clothing was wrong. Wear exactly the stated outfit, and keep it readable against the background."
+background_distracting = "The previous attempt's background competed with the face. Put nothing behind the head: no objects, no pattern, no strong colour. Keep the whole face unobstructed and clearly lit."
+too_cartoon = "The previous attempt was over-stylised and lost the person. Pull back towards a realistic rendering while keeping light outlines."
+not_cartoon_enough = "The previous attempt looked like a photograph rather than a cartoon. Commit harder to the art style: visible outlines and simplified shapes."
+no_specific_fault = "The previous attempt was rejected without a specific fault. Make this attempt clearly different from it — do not repeat the previous result."
+
 # Fixed scaffolding around the variable parts. {braces} are filled at build time.
 [assembly]
 task_cartoon = "TASK: Turn the person in the supplied photograph into a single character portrait, in the art style described below."
@@ -180,6 +200,9 @@ lighting = "LIGHTING: {time_of_day}."
 camera = "CAMERA: {camera}."
 checklist = "Every one of these must be clearly visible: {items}."
 avoid = "Do not show any of the following: {items}."
+# Prefaced to the portrait-retry prompt only when the user ticked reasons; the
+# retry is otherwise byte-identical to a first attempt.
+rejection_preamble = "This is a retry. The previous attempt was rejected, so do not reproduce it."
 # ---------------------------------------------------------------------------
 # The picture book.
 #
@@ -198,11 +221,29 @@ avoid = "Do not show any of the following: {items}."
 
 [book]
 book_title = "Jack and the Beanstalk"
-# The one style sentence for the whole book. Word it identically in every call.
-style = "Modern 3D animated feature: rounded sculpted forms, large expressive eyes with real catchlights, soft rim light on the characters, smooth subsurface skin shading, appealing stylised proportions, warm cinematic colour grading, polished family-film design"
+# The one style sentence for the whole book, worded identically in every call.
+# Not a second copy of the wording: it is the *key* of the shared default style
+# in [styles], so portrait and book read exactly the same sentence from one
+# place — a book must never change style mid-story, and editing the default
+# here is a one-line edit.
+style = "pixar_like"
 # The child wears the same clothes on every page; consistency beat used by every
 # page prompt.
 same_clothes = "The child wears exactly the same clothes on every page of this book."
+# Cross-page consistency (UAT: "the cow changes colours between pictures"). Every
+# character of every kind is one persistent being across the book — pose, angle
+# and distance may change, identity may not.
+same_characters = "Every character in this book — person, animal or object — is exactly the same character on every page: the same colours, proportions, clothing and distinguishing features from page to page. A page may change a pose, a camera angle or a distance, never the identity of who or what a character is; characters remain the same across the book the way real people, real animals and real things do."
+# Milky-White's pinned look, named explicitly because the UAT caught her coat
+# drifting between pages.
+same_cow = "Milky-White the cow is the same white cow everywhere she appears: a plain white coat, unchanged from page to page, at whatever distance the scene shows her."
+# Whole-body coherence (UAT: "the character's face is grotesquely big — like a
+# bobblehead — in one scene"). A guard line on every page prompt.
+body_coherence = "The child is one coherent figure at natural storybook proportions: a natural head-to-body ratio in every scene, the head never enlarged for the frame, with no oversized faces and no bobblehead proportions anywhere in the book."
+# One art style for the whole scene (UAT: "the whole scene is drawn in the same
+# cartoon style"). Characters, background, props and environment in a single
+# medium — no mixed media within a page.
+one_art_style = "Draw the entire scene — character, animals, background, props and environment — in exactly the one art style stated for this book: the same medium, line weight, shading and finish everywhere. Mix no styles: nothing photorealistic, painterly, sketched or flat beside a 3D-rendered figure."
 # The model must not imitate the story text: the PDF draws it.
 no_text = "Do not draw any text, lettering, numbers, watermark, signature, logo, caption or speech bubble anywhere in the image — the page's story text is added later, outside this image, so any writing you draw would be doubled up and garbled."
 
@@ -213,10 +254,14 @@ no_text = "Do not draw any text, lettering, numbers, watermark, signature, logo,
 [book.about]
 heading = "About {child_name}"
 age_line = "{child_age} years old"
-details_heading = "A few things you should know about"
 
 # Per-page scaffolding. task_doorstep explains the book concept; the
 # "story text is added later, outside this image" rationale lives in no_text.
+# Pages can be retired without deleting their prose: `retired = true` drops the
+# page from the assembled book (generation, page count, PDF) while the entry and
+# its artwork spec stay here — re-adding it later is a one-flag change. The
+# assignment brief retires "beanstalk-at-dawn" (page 4): the book is the About
+# page + the three story beats below for now.
 [book.assembly]
 task = "TASK: Draw page {page_number} of {total_pages} of the picture book \"{book_title}\". Every page of the book shows the same child character: {name}. The reference images are the same person: the first is their cartoon portrait, the second is their original photograph."
 page_identity = "PAGE IDENTITY: this child is the single recurring character across all pages of this book — the same face, the same hair, the same clothes as every other page."
@@ -243,7 +288,7 @@ subject_action = "standing side by side at the table, {name}'s face fully toward
 environment = "a cosy but bare historic cottage kitchen: a big worn wooden table, nearly-empty open shelves, a cupboard with its doors open showing almost nothing inside, pale plaster walls, a window with soft daylight, and through the wide open cottage door the white cow Milky-White standing outside in the farmyard, clearly visible"
 time_of_day = "bright morning, soft warm light falling on {name}'s face"
 camera = "eye-level medium shot at table height, both faces clearly readable, the cow framed through the open door behind them, generous quiet space across the lower third of the frame"
-must_include = ["{name}'s face front-lit and fully visible", "{possessive} mother beside the table", "an almost-empty cupboard or shelves", "the white cow visible through the open door"]
+must_include = ["{name}'s face front-lit and fully visible", "{possessive} mother beside the table", "an almost-empty cupboard or shelves", "Milky-White the same white cow, plainly visible through the open door"]
 must_avoid = ["anything written on the pages or walls", "an open book or letter with visible letters", "the mother pushing {name} or looking angry", "extra children or extra cows"]
 
 [[book_pages]]
@@ -254,7 +299,7 @@ settling = "the open sky across the top of the frame, kept free of branches and 
 story = "\"Five magic beans,\" said the old man. \"For one cow.\""
 caption = "Five magic beans, said the old man, for one cow. {name} is halfway down the road to market holding Milky-White's rope when a weathered old man with a tall hat steps out to meet {object} and holds out five magic beans in his open palm — one red, one blue, one green, one gold, one violet — each faintly glowing."
 subject_action = "three-quarter view from behind one shoulder, {name} leaning forward to look into the old man's open palm while holding the cow's rope in one hand"
-environment = "a dusty dirt road winding through green fields towards a distant market town, low stone walls, a few round trees, puffy open sky with soft clouds across the top of the frame, the cow's head visible at the edge waiting patiently"
+environment = "a dusty dirt road winding through green fields towards a distant market town, low stone walls, a few round trees, puffy open sky with soft clouds across the top of the frame, Milky-White's head visible at the edge waiting patiently — the same plain white cow, unchanged"
 time_of_day = "late morning, clear sky, the light gentle"
 camera = "over-the-shoulder three-quarter medium close shot centred on the old man's outstretched palm of beans, {name}'s profile strong and readable, lots of open sky at the top"
 must_include = ["five different coloured beans in an open palm", "{name} holding the cow's rope", "a dirt road to market", "the old man's friendly weathered face"]
@@ -275,6 +320,10 @@ must_include = ["the mother leaning out of the lit window throwing beans", "scat
 must_avoid = ["the mother also standing in the doorway", "the beans already sprouted or growing", "a giant watching the house", "any pets or extra children in the garden"]
 
 [[book_pages]]
+# Retired per the assignment brief ("page 4 is the beanstalk at dawn — don't
+# build it yet"). The prose stays: flipping this to false puts the page back
+# into the book with no other change.
+retired = true
 key = "beanstalk-at-dawn"
 title = "The beanstalk at dawn"
 text_zone = "sky"

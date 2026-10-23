@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 
 import pytest
 from PIL import Image
@@ -18,7 +19,7 @@ try:
 except ImportError:  # nixOS runs without libstdc++ by default
     HAS_SHAPING = False
 
-PAGE_KEYS = ("empty-cupboard", "the-trade", "beans-out-the-window", "beanstalk-at-dawn")
+PAGE_KEYS = ("empty-cupboard", "the-trade", "beans-out-the-window")
 
 
 def art_bytes(width: int = 1152, height: int = 864, colour: str = "#4a7fbf") -> bytes:
@@ -55,7 +56,16 @@ def pages(story: bool = True) -> list[PageArt]:
 class TestAssembly:
     def test_one_page_per_story_page_plus_about_me(self) -> None:
         reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages())))
-        assert len(reader.pages) == 5
+        # About page + the three active story beats (page 4 is retired data).
+        assert len(reader.pages) == 4
+
+    def test_retired_page_is_not_in_the_pdf(self) -> None:
+        """The flag retires the page from output, not just from generation."""
+        data = build_book_pdf(about(), pages())
+        text = " ".join(
+            (page.extract_text() or "") for page in PdfReader(io.BytesIO(data)).pages
+        )
+        assert "sunrise the beanstalk had grown" not in text
 
     def test_story_text_is_real_pdf_text(self) -> None:
         data = build_book_pdf(about(), pages())
@@ -91,6 +101,22 @@ class TestAssembly:
         reader = PdfReader(io.BytesIO(data))
         text = reader.pages[-1].extract_text()
         assert "אוהבת" in text
+
+    def test_story_panel_is_opaque_over_the_art(self) -> None:
+        """The text sits on a solid panel, never washed over busy art (UAT 7).
+
+        The page stream must show a plain opaque fill (`re f`) for the panel —
+        no graphics-state opacity (`gs`) — so the art behind the words cannot
+        bleed through them.
+        """
+        data = build_book_pdf(about(), pages())
+        for page in PdfReader(io.BytesIO(data)).pages[:-1]:  # art pages only
+            stream = page.get_contents().get_data().decode("latin-1")
+            assert " gs\n" not in stream, "no translucent panel may be drawn"
+            assert re.search(r"0\.9804 0\.9686 0\.9333 rg", stream), (
+                "the paper-tone panel fill must be present"
+            )
+            assert re.search(r"re\s+f", stream), "the panel is a filled rect"
 
     def test_empty_pages_rejected(self) -> None:
         with pytest.raises(ValueError, match="at least one page"):

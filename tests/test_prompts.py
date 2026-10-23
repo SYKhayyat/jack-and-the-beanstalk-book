@@ -20,7 +20,7 @@ class TestCartoonPrompt:
     def test_defaults_carry_identity_and_style(self) -> None:
         prompt = build_cartoon_prompt(CartoonSettings())
         assert "Preserve the identity" in prompt
-        assert "western cartoon" in prompt.lower()
+        assert "modern 3d animated feature" in prompt.lower()
         assert "no writing in it" in prompt
 
     def test_no_text_artifacts_requested(self) -> None:

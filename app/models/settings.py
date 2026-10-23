@@ -186,7 +186,7 @@ class CartoonSettings(BaseModel):
     likeness_strength: LikenessStrength = LikenessStrength.STRICT
 
     # --- art direction ---
-    cartoon_style: CartoonStyle = CartoonStyle.WESTERN_CARTOON
+    cartoon_style: CartoonStyle = CartoonStyle.PIXAR_LIKE
     aspect_ratio: AspectRatio = AspectRatio.LANDSCAPE
     portrait_background: PortraitBackground = PortraitBackground.PLAIN
     candidates: int = Field(

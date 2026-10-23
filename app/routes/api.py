@@ -9,11 +9,12 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, TypeVar
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
 
 from app.dependencies import ContainerDep
-from app.errors import GenerationRateLimited, GenerationTimeout, ServerBusy
+from app.errors import GenerationRateLimited, GenerationTimeout, InvalidSettings, ServerBusy
 from app.models import (
+    REJECTION_LABELS,
     ApparentAge,
     AspectRatio,
     CartoonSettings,
@@ -26,6 +27,8 @@ from app.models import (
     Outfit,
     PhotoGender,
     PortraitBackground,
+    RejectionFeedback,
+    RejectionReason,
     SkinTone,
 )
 from app.models.labels import choices_for
@@ -61,6 +64,10 @@ def list_settings_options() -> dict[str, object]:
         "hair_style": _options(HairStyle),
         "hair_color": _options(HairColour),
         "expression": _options(Expression),
+        "rejection_reasons": [
+            {"value": reason.value, "label": REJECTION_LABELS[reason]}
+            for reason in RejectionReason
+        ],
         "defaults": CartoonSettings().model_dump(mode="json"),
         "limits": {"cartoon_intensity": {"min": 1, "max": 10}},
     }
@@ -72,18 +79,25 @@ async def cartoonify(
     container: ContainerDep,
     settings: SettingsDep,
     photo: UploadFile = File(..., description="A photo of a person. JPEG, PNG or WEBP."),
+    # Wire name is the singular "reason" because that is what each chip checkbox
+    # in the form is called; it simply repeats. Aliased so the Python side can
+    # read as a plural without the two drifting apart.
+    reasons: Annotated[list[str] | None, Form(alias="reason")] = None,
 ) -> dict[str, object]:
     """Turn the upload into a cartoon portrait and stop there.
 
     This is the book's portrait pass: the user sees and judges the likeness
     before the book pages (the expensive part) are rendered. Re-calling this
     with tweaked settings is one call; starting the book is what costs the
-    page calls.
+    page calls. The optional `reason` fields carry the review stage's
+    closed-set feedback as prompt corrections — no free text ever arrives
+    here, so nothing the visitor writes can reach a prompt.
     """
     _check_generation_rate(request, container, tokens=settings.candidates)
     raw = await _read_upload(photo, container)
     pipeline = container.pipeline
     budget = container.settings.generation_timeout_seconds
+    feedback = _rejection_from_form(reasons or [])
 
     def work() -> Draft:
         decoded = decode_upload(raw)
@@ -91,6 +105,7 @@ async def cartoonify(
             photo_data=decoded.data,
             photo_media_type=decoded.media_type,
             settings=settings,
+            rejection=feedback,
         )
 
     draft = await _run_gated(container, work, "cartoonify")
@@ -98,6 +113,21 @@ async def cartoonify(
 
 
 # --- shared helpers ---------------------------------------------------------
+
+
+def _rejection_from_form(reasons: list[str]) -> RejectionFeedback:
+    """Validate the review stage's rejection chips into closed-set feedback.
+
+    The guard that closed-set feedback buys us: an unknown or malformed reason
+    is a validation error here, not a sentence smuggled into a prompt.
+    """
+    try:
+        return RejectionFeedback(reasons=tuple(RejectionReason(reason) for reason in reasons))
+    except ValueError as exc:
+        raise InvalidSettings(
+            f"Unknown rejection reason in {reasons!r}. "
+            f"Valid values: {', '.join(r.value for r in RejectionReason)}."
+        ) from exc
 
 
 def _check_generation_rate(request: Request, container: ContainerDep, tokens: int = 1) -> None:

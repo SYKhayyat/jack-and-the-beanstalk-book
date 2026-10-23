@@ -59,7 +59,7 @@ _STYLE = {
     CartoonStyle.MANGA: "Manga (black & white ink and screentone)",
     CartoonStyle.ANIME: "Anime (cel-shaded colour)",
     CartoonStyle.WESTERN_CARTOON: "Western cartoon (bold outlines, flat colour)",
-    CartoonStyle.PIXAR_LIKE: "3D animated feature (soft, cinematic)",
+    CartoonStyle.PIXAR_LIKE: "Modern 3D animated feature",
     CartoonStyle.DISNEY_LIKE: "Hand-painted 2D animation",
     CartoonStyle.COMIC_BOOK: "Comic book (heavy ink, halftone)",
     CartoonStyle.PENCIL_SKETCH: "Pencil sketch (graphite, cross-hatched)",

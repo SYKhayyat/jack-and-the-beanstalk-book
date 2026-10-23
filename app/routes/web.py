@@ -22,6 +22,7 @@ from app.models import (
     SkinTone,
 )
 from app.models.book import BOOK_PAGES
+from app.models.feedback import REJECTION_LABELS, RejectionReason
 from app.models.labels import choices_for
 from app.prompt_data import prompt_text
 from app.services.prompts import render_book_page
@@ -58,6 +59,10 @@ def index(request: Request, container: ContainerDep) -> HTMLResponse:
             "expressions": choices_for(Expression),
             "likeness_levels": choices_for(LikenessStrength),
             "backgrounds": choices_for(PortraitBackground),
+            "rejection_reasons": [
+                {"value": reason.value, "label": REJECTION_LABELS[reason]}
+                for reason in RejectionReason
+            ],
             "max_upload_mb": container.settings.max_upload_mb,
             "provider": container.provider_status(),
             "auth_enabled": container.settings.auth_enabled,

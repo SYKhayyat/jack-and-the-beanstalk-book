@@ -106,9 +106,14 @@ def _assemble_page(spec: Mapping[str, object], number: int) -> BookPage:
 
 # An unknown `text_zone` value in the TOML raises a ValueError the first time
 # this module is imported — a data mistake must fail at boot, not on a request.
+# Pages carrying `retired = true` are skipped entirely: no generation, no page
+# number, no PDF. Their prose stays in the TOML, so retiring is reversible with
+# a one-flag change — the catalogue is never written into a corner.
+_BOOK_PAGE_SPECS: tuple[Mapping[str, object], ...] = tuple(
+    spec for spec in prompt_text()["book_pages"] if not bool(spec.get("retired", False))
+)
 BOOK_PAGES: tuple[BookPage, ...] = tuple(
-    _assemble_page(spec, number)
-    for number, spec in enumerate(prompt_text()["book_pages"], start=1)
+    _assemble_page(spec, number) for number, spec in enumerate(_BOOK_PAGE_SPECS, start=1)
 )
 
 _BOOK_PAGES_BY_KEY: dict[str, BookPage] = {page.key: page for page in BOOK_PAGES}
@@ -197,7 +202,6 @@ class AboutMe(BaseModel):
         if self.title:
             lines.append(self.title)
         if self.details:
-            lines.append(about["details_heading"])
             lines.append(self.details)
         return [heading, *lines]
 

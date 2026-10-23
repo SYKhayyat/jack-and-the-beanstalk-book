@@ -7,18 +7,34 @@ from pydantic import ValidationError
 
 from app.models.book import BOOK_PAGES, AboutMe, TextZone, get_book_page
 from app.models.settings import CartoonSettings
+from app.prompt_data import prompt_text
 from app.services.prompts import render_book_page
 
 
 class TestPageCatalogue:
     def test_page_numbers_run_in_story_order(self) -> None:
-        assert [page.number for page in BOOK_PAGES] == [1, 2, 3, 4]
+        assert [page.number for page in BOOK_PAGES] == [1, 2, 3]
         assert [page.key for page in BOOK_PAGES] == [
             "empty-cupboard",
             "the-trade",
             "beans-out-the-window",
-            "beanstalk-at-dawn",
         ]
+
+    def test_the_retired_page_renders_to_nothing(self) -> None:
+        """Page 4 is catalogue data only: flagged, present, never assembled.
+
+        The brief says "don't build page 4 yet" and this repo must not write
+        itself into a corner — so the entry keeps its prose and the flag can be
+        reverted without touching anything else.
+        """
+        specs = {str(spec["key"]): spec for spec in prompt_text()["book_pages"]}
+        retired = specs["beanstalk-at-dawn"]
+        assert retired.get("retired") is True
+        assert retired["story"].strip(), "the retired page keeps its story line"
+        assert retired["caption"].strip(), "and its image spec"
+        # Not in the assembled book, and not reachable by key:
+        assert all(page.key != "beanstalk-at-dawn" for page in BOOK_PAGES)
+        assert get_book_page("beanstalk-at-dawn") is None
 
     def test_every_page_has_a_story_line(self) -> None:
         assert all(page.story.strip() for page in BOOK_PAGES)
@@ -27,7 +43,6 @@ class TestPageCatalogue:
         assert BOOK_PAGES[0].text_zone is TextZone.LOWER_THIRD
         assert BOOK_PAGES[1].text_zone is TextZone.SKY
         assert BOOK_PAGES[2].text_zone is TextZone.GRASS
-        assert BOOK_PAGES[3].text_zone is TextZone.SKY
 
     def test_lookup_by_key(self) -> None:
         assert get_book_page("the-trade") is BOOK_PAGES[1]
@@ -89,7 +104,8 @@ class TestAboutMe:
             AboutMe(prompt_name="A", about_name="A", about_age=-1)
 
     def test_rendered_lines_compose_the_page(self) -> None:
-        # Display order: name (heading), age, title, then the About lines.
+        # Display order: name (heading), age, title, then the details —
+        # with no "A few things you should know about" heading between them.
         about = AboutMe(
             prompt_name="Jack",
             about_name="Shai",
@@ -101,8 +117,11 @@ class TestAboutMe:
         assert lines[0] == "About Shai"
         assert lines[1] == "7 years old"
         assert lines[2] == "an astronaut"
-        assert lines[3] == "A few things you should know about"
-        assert lines[4] == "Loves dinosaurs"
+        assert lines[3] == "Loves dinosaurs"
+        assert "A few things you should know about" not in " ".join(lines)
+        assert "details_heading" not in prompt_text()["book"]["about"], (
+            "the heading is gone from the data, not just unused"
+        )
 
     def test_empty_optional_fields_add_no_lines(self) -> None:
         about = AboutMe(prompt_name="Shai", about_name="Shai")

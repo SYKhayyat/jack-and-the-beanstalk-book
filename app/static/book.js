@@ -19,9 +19,10 @@ const photoInput = view.elements.photo();
 const filePicker = createFilePickerSource(photoInput);
 const camera = createCameraSource(view.elements.cameraVideo());
 
-/* Story-page total. Seeded (four beats today) and then corrected from the
-   server's own page list, so the first progress line cannot lie. */
-let totalPages = 4;
+/* Story-page total. Seeded (three beats today — page 4 is retired brief data)
+   and then corrected from the server's own page list, so the first progress
+   line cannot lie. */
+let totalPages = 3;
 seedTotalPages();
 
 wirePhotoInput();
@@ -118,29 +119,32 @@ function wirePortraitFlow() {
     void cartoonify();
   });
   view.elements.approve().addEventListener("click", () => approveAndStart());
-  view.elements.reject().addEventListener("click", () => rejectPortrait());
+  view.elements.reject().addEventListener("click", () => view.showRejectBody(!view.rejectBodyOpen()));
+  view.elements.rejectRetry().addEventListener("click", () => void retryPortrait());
 }
 
 /* --- helpers ------------------------------------------------------------- */
 
 /* The portrait pass reuses /api/cartoonify with default server settings for
    anything the book form does not offer; only the fields we ship may differ.
-   postForm() appends the photo once (settingsForm owns it) and throws on
-   non-ok responses, mapping the server's `detail` into the message. */
-function settingsForm() {
+   `reasons` are the ticked rejection chips, sent as repeated `reason` fields
+   for closed-set retry feedback. postForm() appends the photo once (settingsForm
+   owns it) and throws on non-ok responses, mapping the server's `detail`. */
+function settingsForm(reasons = []) {
   const form = view.readCharacterSettings();
   form.append("photo", book.photo, book.photoName);
+  for (const reason of reasons) form.append("reason", reason);
   return form;
 }
 
-async function cartoonify() {
+async function cartoonify(reasons = []) {
   if (!book.photo) {
     view.showPhotoMessage("Choose a photo first.", "error");
     return;
   }
-  view.setBusyPortrait("Making the portrait…");
+  view.setBusyPortrait(reasons.length ? "Making a better portrait…" : "Making the portrait…");
   try {
-    const payload = await postForm("/api/cartoonify", settingsForm());
+    const payload = await postForm("/api/cartoonify", settingsForm(reasons));
     state.setDraft(book, payload.generation_id);
     if (view.oneStepChecked()) {
       // Fast mode: skip the preview, start the book right away.
@@ -150,19 +154,32 @@ async function cartoonify() {
     }
     view.showReview(
       payload.images.cartoon_url,
-      "This portrait will appear on every page of the book.",
+      reasons.length
+        ? "A new portrait, with the fixes you ticked."
+        : "This portrait will appear on every page of the book.",
     );
     view.showPrompts({ cartoonPrompt: payload.prompts?.cartoon || "", bookId: book.bookId });
+    if (reasons.length) view.showRejectBody(false);
   } catch (error) {
     view.setBusyPortrait("");
     view.showPhotoMessage(error.message || "The portrait did not come out — try again.", "error");
   }
 }
 
+/* "Not right" opens the chip panel; the retry inside it re-runs the portrait
+   with the ticked faults as corrections. With nothing ticked the state simply
+   resets to the form, exactly as before chips existed. */
 function rejectPortrait() {
+  view.showRejectBody(true);
+}
+
+async function retryPortrait() {
+  const reasons = view.rejectChipValues();
+  view.showRejectBody(false);
+  view.resetRejectChips();
   state.retryPortrait(book);
   view.hideReview();
-  view.setBusyPortrait("Try again with different settings below.");
+  await cartoonify(reasons);
 }
 
 /* --- the book ------------------------------------------------------------ */
@@ -226,16 +243,15 @@ function pollBook() {
       if (payload.pages?.length) totalPages = payload.pages.length;
       const done = book.pages.filter((page) => page.status === "done").length;
       const total = book.pages.length || totalPages;
-      view.renderBookPages(book);
       if (state.isBookFailed(book)) {
         view.showBookError(book.error || "The book failed. Try again.");
         view.showRestart();
         return;
       }
       if (state.isBookFinished(book)) {
+        // The finished book is the PDF itself, shown in the big viewer; the
+        // link below it downloads the same file.
         view.renderBookFinished(book.bookId, `/book-media/${book.bookId}/pdf`);
-        // The last status update may not have shown every page — refresh once.
-        await refreshStatusOnce();
         return;
       }
       view.renderBookProgress(done, total);
@@ -251,14 +267,4 @@ function pollBook() {
       view.showRestart();
     }
   }, POLL_MS);
-}
-
-async function refreshStatusOnce() {
-  try {
-    const payload = await bookApi.status(book.bookId);
-    state.applyStatus(book, payload);
-    view.renderBookPages(book);
-  } catch {
-    /* the PDF link is already live; the page grid is best-effort */
-  }
 }

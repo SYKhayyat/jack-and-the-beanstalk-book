@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from app.models import CartoonSettings, CartoonStyle, Scene
+from app.models import CartoonSettings, CartoonStyle, RejectionFeedback, Scene
 from app.models.book import BookPage
 from app.models.settings import (
     ApparentAge,
@@ -125,6 +125,13 @@ _INTENSITY_DESCRIPTIONS: dict[int, str] = {
 
 _PHOTOREAL: dict[str, str] = _DATA["photoreal"]
 
+# The book's one fixed style sentence. `[book].style` holds the *key* of the
+# shared [styles] entry (the app default), so portrait and book pages read the
+# identical wording from one place — the sentence exists exactly once in the
+# data file. A book must never change style mid-story.
+_BOOK_STYLE_KEY = str(cast("dict[str, object]", _BOOK)["style"])
+_BOOK_STYLE: str = _STYLE_DESCRIPTIONS[CartoonStyle(_BOOK_STYLE_KEY)]
+
 
 def _intensity_text(intensity: int) -> str:
     return _INTENSITY_DESCRIPTIONS[max(1, min(10, intensity))]
@@ -216,6 +223,10 @@ def build_book_page_prompt(
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
         str(_BOOK["same_clothes"]),
+        str(_BOOK["same_characters"]),
+        str(_BOOK["same_cow"]),
+        str(_BOOK["body_coherence"]),
+        str(_BOOK["one_art_style"]),
         task_book["quiet_zone"].format(area=page.settling),
         _ASSEMBLY["scene_to_draw"].format(caption=page.scene.caption),
         _ASSEMBLY["character_doing"].format(action=page.scene.subject_action),
@@ -225,8 +236,9 @@ def build_book_page_prompt(
         page.scene.checklist,
         _common_character_block(settings),
         # The fixed book style, injected verbatim — the same wording on every
-        # page of the book by construction.
-        _ASSEMBLY["art_style"].format(style=str(_BOOK["style"])),
+        # page of the book by construction, and the same sentence the portrait
+        # default resolves to (both read the shared [styles] entry).
+        _ASSEMBLY["art_style"].format(style=_BOOK_STYLE),
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
         _avoid_clause(page.scene),
         _ASSEMBLY["stylisation"].format(intensity=_intensity_text(settings.cartoon_intensity)),
@@ -253,14 +265,19 @@ def _common_character_block(settings: CartoonSettings) -> str:
     )
 
 
-def build_cartoon_prompt(settings: CartoonSettings) -> str:
+def build_cartoon_prompt(
+    settings: CartoonSettings, *, rejection: RejectionFeedback | None = None
+) -> str:
     """Prompt for pass 1: stylise the uploaded photo into a cartoon portrait.
 
     A retry sends the *tweaked settings*, never the previous image as a
     reference: showing a rejected portrait invites the model to converge on its
-    faults rather than move away from them.
+    faults rather than move away from them. `rejection` carries the user's
+    ticked faults as closed-set corrections; omitting it (or passing an empty
+    one) yields a first-attempt prompt, byte for byte.
     """
     style_text = _STYLE_DESCRIPTIONS[settings.cartoon_style]
+    retry_clauses = rejection.prompt_block() if rejection else ""
     sections = [
         _ASSEMBLY["task_cartoon"],
         settings.identity_directive(),
@@ -272,6 +289,7 @@ def build_cartoon_prompt(settings: CartoonSettings) -> str:
         _ASSEMBLY["framing"],
         _PORTRAIT_BACKGROUNDS[settings.portrait_background],
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
+        retry_clauses,
         NEGATIVE_PROMPT_TAIL,
     ]
     return _join_sections(sections)
