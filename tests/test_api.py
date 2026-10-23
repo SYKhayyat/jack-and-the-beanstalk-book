@@ -186,7 +186,10 @@ class TestGenerateValidation:
     def test_generation_rate_limit_stops_repeat_billable_requests(
         self, settings: Settings
     ) -> None:
-        tight = settings.model_copy(update={"max_generations_per_minute": 1})
+        # The allowance counts billable images, not requests: one /api/generate
+        # is two image calls (portrait + scene), so the tightest window that
+        # admits one such request is 2.
+        tight = settings.model_copy(update={"max_generations_per_minute": 2})
         client = TestClient(create_app(tight, provider=StubProvider(b"x")))
 
         assert client.post("/api/generate", **multipart(generate_form())).status_code == 201

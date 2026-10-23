@@ -40,14 +40,21 @@ export function showPhotoMessage(message, kind = "info") {
   node.classList.remove("hidden");
 }
 
+/* Track the current blob URL so a re-pick never leaks the previous blob. */
+let previewUrl = null;
+
 export function renderPhotoPreview(blob) {
-  elements.preview().src = URL.createObjectURL(blob);
+  const preview = elements.preview();
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = URL.createObjectURL(blob);
+  preview.src = previewUrl;
   elements.previewWrap().classList.remove("hidden");
 }
 
 export function clearPhotoPreview() {
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = null;
   const preview = elements.preview();
-  if (preview.src) URL.revokeObjectURL(preview.src);
   preview.removeAttribute("src");
   elements.previewWrap().classList.add("hidden");
 }
@@ -109,6 +116,7 @@ export function hideBookError() {
 
 export function renderBookProgress(done, total) {
   const node = elements.bookProgress();
+  node.classList.remove("error");
   node.textContent =
     done >= total
       ? "Assembling the pages into a PDF…"

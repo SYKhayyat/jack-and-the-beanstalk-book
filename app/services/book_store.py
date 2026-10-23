@@ -4,21 +4,23 @@ One directory per book under ``<storage>/books``:
 
     books/<book_id>/book.json      what the uploader asked for + the draft id
     books/<book_id>/status.json    job status, updated as pages land
-    books/<book_id>/photo.jpg      child's normalised photo (copied from the draft)
     books/<book_id>/portrait.png   the approved cartoon portrait
-    books/<book_id>/prompts.json   the exact prompt per page (grading artefact)
     books/<book_id>/page-<n>.png   finished page art, one file per page
+    books/<book_id>/prompts.json   the exact prompt per page (grading artefact)
     books/<book_id>/book.pdf       the assembled book, written last
 
-The status file is written after every page so the browser can show progress,
-and so a page that did land stays visible even if a later page failed. As with
-`storage.py`, Render's disk is ephemeral: a restart loses unfinished books,
-which is acceptable for this iteration.
+The status file is rewritten after every page **atomically** (temporary file +
+``os.replace``): a poll racing a write reads either the old or the new file,
+never a torn one, and a write interrupted by a crash cannot leave a finished
+book unreadable. As with `storage.py`, Render's disk is ephemeral: a restart
+loses books — `BookRunner.reap_incomplete` marks the ones that were mid-render
+as failed so they do not poll as "pending" forever.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,6 +29,8 @@ from typing import cast
 from app.models.book import AboutMe
 
 __all__ = ["BookRecord", "BookStatus", "BookStore"]
+
+logger = logging.getLogger(__name__)
 
 
 class BookStatus:
@@ -69,9 +73,7 @@ class BookStore:
             "pages": [],
         }
         self._book_dir(book_id).mkdir(parents=True, exist_ok=True)
-        self.path(book_id, "book.json").write_text(
-            json.dumps(payload, indent=2), encoding="utf-8"
-        )
+        self._atomic_write_json(self.path(book_id, "book.json"), payload)
         self.save_status(book_id, cast(str, payload["status"]), [])
 
     def load_record(self, book_id: str) -> BookRecord | None:
@@ -111,9 +113,7 @@ class BookStore:
             "pdf_url": self.pdf_url(book_id) if status == BookStatus.COMPLETE else None,
             "updated_at": _now(),
         }
-        self.path(book_id, "status.json").write_text(
-            json.dumps(payload, indent=2), encoding="utf-8"
-        )
+        self._atomic_write_json(self.path(book_id, "status.json"), payload)
 
     def load_status(self, book_id: str) -> dict[str, object] | None:
         if not _safe(book_id):
@@ -145,18 +145,30 @@ class BookStore:
             return None
         return self._read_image(book_id, f"page-{page_number}")
 
-    def read_pages(self, book_id: str, count: int) -> list[bytes | None]:
-        """Every page in order; missing pages appear as None."""
-        return [self.read_page(book_id, number) for number in range(1, count + 1)]
-
     def save_prompts(self, book_id: str, prompts: list[dict[str, str]]) -> None:
         """The prompt per page: the record of what was actually sent."""
-        self.path(book_id, "prompts.json").write_text(
-            json.dumps({"prompts": prompts}, indent=2), encoding="utf-8"
-        )
+        self._atomic_write_json(self.path(book_id, "prompts.json"), {"prompts": prompts})
+
+    def append_prompt(self, book_id: str, prompt: dict[str, str]) -> None:
+        """Add one page's prompt progressively, so a failed book keeps the
+        record of the pages that were really sent."""
+        self.save_prompts(book_id, (self.load_prompts(book_id) or []) + [prompt])
+
+    def load_prompts(self, book_id: str) -> list[dict[str, str]] | None:
+        if not _safe(book_id):
+            return None
+        path = self.path(book_id, "prompts.json")
+        if not path.is_file():
+            return None
+        try:
+            value: object = json.loads(path.read_text(encoding="utf-8"))
+            prompts = cast("list[dict[str, str]]", cast("dict[str, object]", value)["prompts"])
+            return [dict(entry) for entry in prompts]
+        except (OSError, json.JSONDecodeError):
+            return None
 
     def save_pdf(self, book_id: str, data: bytes) -> None:
-        self.path(book_id, "book.pdf").write_bytes(data)
+        self._atomic_write_bytes(self.path(book_id, "book.pdf"), data)
 
     def read_pdf(self, book_id: str) -> bytes | None:
         path = self.path(book_id, "book.pdf")
@@ -184,14 +196,46 @@ class BookStore:
         directory = self._book_dir(book_id)
         if directory.is_dir():
             for child in directory.iterdir():
-                child.unlink()
+                if child.is_file():
+                    child.unlink()
+            directory.rmdir()
+
+    def reap_incomplete(self) -> int:
+        """Mark books still pending or rendering as failed.
+
+        Called once at boot: a restart orphans every mid-run job (the asyncio
+        task died with the process), so its stale status must not keep polling
+        as "pending" forever. Returns the number of books marked.
+        """
+        reaped = 0
+        for directory in self.root.iterdir():
+            if not directory.is_dir() or not _safe(directory.name):
+                continue
+            status = self.load_status(directory.name)
+            if status is None or status.get("status") != BookStatus.RENDERING:
+                continue
+            pages = cast(
+                "list[dict[str, object]]",
+                cast("dict[str, object]", status).get("pages", []),
+            )
+            self.save_status(
+                directory.name,
+                BookStatus.FAILED,
+                pages,
+                error="The server restarted while this book was rendering. "
+                "Start a new one — the finished pages shown here were kept.",
+            )
+            reaped += 1
+            logger.warning("book.reaped id=%s (server restart)", directory.name)
+        return reaped
 
     def _book_dir(self, book_id: str) -> Path:
+        _guard(book_id)
         return self.root / book_id
 
     def _write_image(self, book_id: str, stem: str, data: bytes) -> None:
         suffix = "jpg" if data[:2] == b"\xff\xd8" else "png"
-        self.path(book_id, f"{stem}.{suffix}").write_bytes(data)
+        self._atomic_write_bytes(self.path(book_id, f"{stem}.{suffix}"), data)
 
     def _read_image(self, book_id: str, stem: str) -> bytes | None:
         directory = self._book_dir(book_id)
@@ -200,6 +244,17 @@ class BookStore:
             if candidate.is_file():
                 return candidate.read_bytes()
         return None
+
+    @staticmethod
+    def _atomic_write_bytes(path: Path, data: bytes) -> None:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_bytes(data)
+        tmp.replace(path)
+
+    def _atomic_write_json(self, path: Path, payload: object) -> None:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.replace(path)
 
 
 def _guard(book_id: str) -> None:

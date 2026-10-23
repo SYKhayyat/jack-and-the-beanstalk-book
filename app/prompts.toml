@@ -209,8 +209,8 @@ no_specific_fault = "The previous attempt was rejected without a specific fault.
 # 2. The model never draws story text. The story line ("prose") is drawn onto
 #    the page by the PDF layer only; the prompt says so explicitly.
 # 3. Pages are ordered: adding a page means adding one [[book_pages]] entry in
-#    story order. The beanstalk-at-dawn page (page 4) is deliberately not here
-#    yet — the book pipeline needs zero code changes to accept it.
+#    story order (plus updating the tests that read the catalogue — they kept
+#    this file honest when the beanstalk-at-dawn page was added).
 # ---------------------------------------------------------------------------
 
 [book]
@@ -223,11 +223,12 @@ same_clothes = "The child wears exactly the same clothes on every page of this b
 # The model must not imitate the story text: the PDF draws it.
 no_text = "Do not draw any text, lettering, numbers, watermark, signature, logo, caption or speech bubble anywhere in the image — the page's story text is added later, outside this image, so any writing you draw would be doubled up and garbled."
 
-# PDF-layer copy for the About Me page. {child_name} and {child_details} are
-# filled from what the uploader typed; these strings never reach the model.
+# PDF-layer copy for the About Me page. {child_name} is filled from what the
+# uploader typed; these strings never reach the model. The child's name is also
+# drawn large as the page's centrepiece (see pdf.py), so it appears below the
+# heading by design.
 [book.about_me]
 heading = "About {child_name}"
-name_line = "This book was made for"
 age_line = "{child_age} years old"
 details_heading = "A few things you should know about"
 
@@ -279,7 +280,7 @@ must_avoid = ["the old man grabbing the rope or the cow", "money or coins changi
 [[book_pages]]
 key = "beans-out-the-window"
 title = "Out the window"
-text_zone = "lower_third"
+text_zone = "grass"
 settling = "the dark grass of the garden across the bottom third of the frame, kept free of figures and clutter so the story text has somewhere calm to sit"
 story = "\"Beans!\" she cried. And out the window they went."
 caption = "Beans! she cried. And out the window they went. At dusk, {name}'s mother leans far out of the small cottage window and throws a sweep of scattered magic beans down towards the garden below, red and blue and green and gold glints tumbling through the air. {name} is caught mid-step at the open doorway, watching."
@@ -289,6 +290,20 @@ time_of_day = "dusk, a much darker palette than the morning pages: deep blue and
 camera = "wide shot showing the whole cottage front from the garden, the lit window and the doorway both readable, plenty of quiet dark grass across the bottom third"
 must_include = ["the mother leaning out of the lit window throwing beans", "scattered beans tumbling and glinting mid-air", "{name} standing in the open doorway watching", "a much darker, duskier palette than the earlier pages"]
 must_avoid = ["the mother also standing in the doorway", "the beans already sprouted or growing", "a giant watching the house", "any pets or extra children in the garden"]
+
+[[book_pages]]
+key = "beanstalk-at-dawn"
+title = "The beanstalk at dawn"
+text_zone = "sky"
+settling = "the soft open sky above the beanstalk's crown, kept clear of leaves and cloud clutter so the story text has somewhere calm to sit"
+story = "By sunrise the beanstalk had grown all the way to the clouds."
+caption = "By sunrise the beanstalk had grown all the way to the clouds. An enormous green beanstalk towers over the little cottage, its curling stem and broad leaves reaching up out of the frame, morning mist drifting around the leaves. {name} stands beside the cottage gate looking up, {possessive} mouth open in wonder, golden dawn light catching {name}'s face."
+subject_action = "seen small in the frame for scale, standing beside the gate with {possessive} head thrown back looking up at the vast beanstalk curling out of the top of the image"
+environment = "the cottage garden at dawn wrapping around an astoundingly tall beanstalk: the stalk winds up past the roof, broad green leaves reaching out of frame, a few floating beans, the night still fading low behind the hills"
+time_of_day = "sunrise, warm gold and pink light with deep green shadows on the stalk"
+camera = "very wide vertical composition with the beanstalk rising through the whole frame and out of view, {name} tiny at the bottom, open sky at the top where the story text will sit"
+must_include = ["a giant beanstalk rising out of frame with broad leaves", "{name} small at the gate looking up in wonder", "warm sunrise light", "open sky clear across the top of the frame"]
+must_avoid = ["the giant himself", "a fully visible sky castle", "the beanstalk toppling or broken", "any writing on the leaves or sky"]
 
 # The two story beats. Prose here is both the model specification and the
 # caption burned onto the result — they cannot drift apart.

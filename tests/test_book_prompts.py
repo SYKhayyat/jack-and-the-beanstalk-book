@@ -25,19 +25,19 @@ def test_book_style_is_not_the_single_scene_style() -> None:
     """A book must not silently fall back to the scene picker's style."""
     settings = CartoonSettings()  # default scene style is western_cartoon
     page = BOOK_PAGES[0]
-    prompt = build_book_page_prompt(page, settings, page_number=1, total_pages=3)
+    prompt = build_book_page_prompt(page, settings, page_number=1, total_pages=4)
     assert "classic hand-drawn western cartoon style" not in prompt
 
 
 def test_model_is_told_not_to_draw_text() -> None:
     settings = CartoonSettings()
-    prompt = build_book_page_prompt(BOOK_PAGES[0], settings, page_number=1, total_pages=3)
+    prompt = build_book_page_prompt(BOOK_PAGES[0], settings, page_number=1, total_pages=4)
     assert "no writing" in prompt or "Do not draw any text" in prompt
 
 
 def test_both_identity_anchors_are_named_in_the_task() -> None:
     settings = CartoonSettings()
-    prompt = build_book_page_prompt(BOOK_PAGES[1], settings, page_number=2, total_pages=3)
+    prompt = build_book_page_prompt(BOOK_PAGES[1], settings, page_number=2, total_pages=4)
     assert "cartoon portrait" in prompt
     assert "original photograph" in prompt
 
@@ -45,20 +45,20 @@ def test_both_identity_anchors_are_named_in_the_task() -> None:
 def test_quiet_zone_appears_with_the_page_settling_area() -> None:
     settings = CartoonSettings()
     page = BOOK_PAGES[1]  # trade: the sky must stay quiet
-    prompt = build_book_page_prompt(page, settings, page_number=2, total_pages=3)
+    prompt = build_book_page_prompt(page, settings, page_number=2, total_pages=4)
     assert "QUIET ZONE:" in prompt
     assert "open sky" in prompt
 
 
 def test_page_number_and_title_frame_the_call() -> None:
     settings = CartoonSettings()
-    prompt = build_book_page_prompt(BOOK_PAGES[2], settings, page_number=3, total_pages=3)
-    assert "page 3 of 3" in prompt
+    prompt = build_book_page_prompt(BOOK_PAGES[2], settings, page_number=3, total_pages=4)
+    assert "page 3 of 4" in prompt
     assert "Jack and the Beanstalk" in prompt
 
 
 def test_pronouns_follow_the_child() -> None:
     settings = CartoonSettings(photo_gender="girl", character_gender="match")
-    prompt = build_book_page_prompt(BOOK_PAGES[0], settings, page_number=1, total_pages=3)
+    prompt = build_book_page_prompt(BOOK_PAGES[0], settings, page_number=1, total_pages=4)
     assert "Jane" in prompt
     assert "The character's name is Jane" in prompt

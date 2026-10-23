@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.prompt_data import prompt_text
 
@@ -79,6 +79,12 @@ class RejectionFeedback(BaseModel):
     reasons: tuple[RejectionReason, ...] = Field(
         default=(), max_length=len(RejectionReason), description="Chosen fault(s)."
     )
+
+    @field_validator("reasons")
+    @classmethod
+    def _dedupe(cls, reasons: tuple[RejectionReason, ...]) -> tuple[RejectionReason, ...]:
+        """A repeated chip means one fault, not two — the prompt says it once."""
+        return tuple(dict.fromkeys(reasons))
 
     @property
     def is_empty(self) -> bool:

@@ -359,5 +359,5 @@ def _caption_scene_image(data: bytes, caption: str) -> bytes:
     )
 
     output = io.BytesIO()
-    image.save(output, format="PNG", optimize=True)
+    image.save(output, format="PNG")
     return output.getvalue()

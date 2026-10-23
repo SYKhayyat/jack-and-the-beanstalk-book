@@ -31,11 +31,3 @@ jobs:
       - name: Test
         run: pytest --cov --cov-report=term-missing
 
-  render-deploy:
-    # Render deploys from main automatically; this job surfaces a red build
-    # here instead of leaving it to be noticed in Slack.
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - run: echo "Render will pick this commit up automatically."

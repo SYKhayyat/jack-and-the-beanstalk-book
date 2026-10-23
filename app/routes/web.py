@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
-
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -115,6 +113,4 @@ def book_page(request: Request, container: ContainerDep) -> HTMLResponse:
     )
 
 
-def _choices(enum_cls: type[StrEnum]) -> list[tuple[str, str]]:
-    """`(value, label)` pairs for the template, with hand-written labels."""
-    return choices_for(enum_cls)
+_choices = choices_for

@@ -161,7 +161,7 @@ class OpenAIImageProvider(ImageProvider):
                 zip(
                     request.reference_images,
                     request.reference_media_types,
-                    strict=False,
+                    strict=True,
                 )
             )
         ]
@@ -206,9 +206,6 @@ class OpenAIImageProvider(ImageProvider):
         if count < 1:
             raise ValueError("count must be at least 1")
         return self._extract_images(self._call(request, n=count), expected=count)
-
-    def _extract_image(self, response: object) -> GeneratedImage:
-        return self._extract_images(response, expected=1)[0]
 
     def _extract_images(self, response: object, *, expected: int) -> list[GeneratedImage]:
         """Pull every image out of the response, whatever shape it arrived in."""

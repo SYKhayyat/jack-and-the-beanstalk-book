@@ -2,9 +2,9 @@
 
 The flow is three endpoints around one background job:
 
-    POST /api/book/start     -> start rendering using an approved portrait
-    GET  /api/book/{id}      -> poll: status + page list, updated as each lands
-    GET  /api/book/{id}/pdf  -> the assembled book once rendering is complete
+    POST /api/book/start       -> start rendering using an approved portrait
+    GET  /api/book/{id}        -> poll: status + page list, updated as each lands
+    GET  /book-media/{id}/pdf  -> the assembled book once rendering is complete
 
 The portrait itself is made with the existing `/api/cartoonify` endpoint and
 reviewed through the existing approve flow — the book reuses the same pass-1
@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from functools import lru_cache
 
 from fastapi import APIRouter, Form, Request, Response, status
 from pydantic import ValidationError
@@ -36,7 +37,7 @@ from app.errors import (
     UnknownBook,
 )
 from app.models import BOOK_PAGES, AboutMe, CartoonSettings
-from app.services.book_store import BookStatus
+from app.services.book_store import BookRecord, BookStatus
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import render_book_page
 
@@ -48,23 +49,32 @@ router = APIRouter(prefix="/api/book", tags=["book"])
 media_router = APIRouter(prefix="/book-media", tags=["book-media"])
 
 
+@lru_cache(maxsize=1)
+def _default_rendered_pages() -> tuple[dict[str, object], ...]:
+    """The catalogue rendered with default settings, computed once.
+
+    The rendered titles are request-invariant (defaults only vary please talk
+    with children's names, and the catalogue is name-free), so re-formatting
+    per request was pure waste.
+    """
+    defaults = CartoonSettings()
+    rendered = [render_book_page(page, defaults) for page in BOOK_PAGES]
+    return tuple(
+        {
+            "number": page.number,
+            "key": page.key,
+            "title": page.scene.title,
+            "story": page.story,
+            "text_zone": page.text_zone.value,
+        }
+        for page in rendered
+    )
+
+
 @router.get("/pages")
 def list_pages() -> dict[str, object]:
     """The book's page catalogue, so the UI can say what the book contains."""
-    defaults = CartoonSettings()
-    rendered = [render_book_page(page, defaults) for page in BOOK_PAGES]
-    return {
-        "pages": [
-            {
-                "number": page.number,
-                "key": page.key,
-                "title": page.scene.title,
-                "story": page.story,
-                "text_zone": page.text_zone.value,
-            }
-            for page in rendered
-        ]
-    }
+    return {"pages": list(_default_rendered_pages())}
 
 
 @router.post("/start", status_code=status.HTTP_201_CREATED)
@@ -81,17 +91,25 @@ async def start_book(
 ) -> dict[str, object]:
     """Start rendering the book from an already-approved cartoon portrait.
 
-    One book costs one provider call per page; the portrait call was already
-    paid in pass 1 and is reused as an identity anchor on every page. Returns
-    immediately; poll `GET /api/book/{id}` for progress and the PDF link.
+    One book costs one provider call per page (rate-billed in pages); the
+    portrait call was already paid in pass 1 and is reused as an identity
+    anchor on every page. Returns immediately; poll `GET /api/book/{id}` for
+    progress and the PDF link.
     """
-    _check_rate(request, container)
+    _check_rate(request, container, tokens=len(BOOK_PAGES))
     about = _about_from_form(child_name, child_age, child_gender, details)
     book_id = uuid.uuid4().hex
 
     container.book_store.save_record(book_id=book_id, about=about, generation_id=generation_id)
     try:
-        container.book_runner.start(container.book_store.load_record(book_id))  # type: ignore[arg-type]
+        container.book_runner.start(
+            BookRecord(
+                book_id=book_id,
+                about=about,
+                generation_id=generation_id,
+                created_at="",
+            )
+        )
     except UnknownGeneration:
         # Clean the half-created book so no zombie id is left discoverable.
         container.book_store.delete(book_id)
@@ -181,12 +199,13 @@ def _ensure_book(book_id: str, container: ContainerDep) -> None:
         raise UnknownBook("No book with that id. It may have expired — start a new one.")
 
 
-def _check_rate(request: Request, container: ContainerDep) -> None:
+def _check_rate(request: Request, container: ContainerDep, tokens: int = 1) -> None:
     client_key = request.client.host if request.client else "unknown"
-    if not container.rate_limiter.allow(client_key):
+    if not container.rate_limiter.allow(client_key, tokens):
         raise GenerationRateLimited(
             "This client has reached the image-generation limit for this minute. "
-            "Please wait and try again."
+            "A book costs one billable image per page, so it takes a few "
+            "minutes of allowance. Please wait and try again."
         )
 
 

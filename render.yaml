@@ -9,21 +9,15 @@
 services:
   - type: web
     name: jack-and-the-beanstalk-book
-    runtime: python
+    # Docker runtime, not the native python one: the Dockerfile installs the
+    # system libstdc++ that uharfbuzz (Hebrew PDF text shaping) needs.
+    runtime: docker
     plan: free
     region: oregon
-
-    buildCommand: pip install --requirement requirements.lock
-    # --factory tells uvicorn to call create_app() itself, which is how the app
-    # receives its settings from the environment.
-    startCommand: uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT
 
     healthCheckPath: /healthz
 
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.8"
-
       - key: APP_ENV
         value: production
 

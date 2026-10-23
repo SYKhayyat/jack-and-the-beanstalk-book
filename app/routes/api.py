@@ -134,7 +134,7 @@ async def cartoonify(
     Re-calling this with tweaked settings is one call; calling `/api/compose`
     afterwards is the only thing that costs a second call.
     """
-    _check_generation_rate(request, container)
+    _check_generation_rate(request, container, tokens=settings.candidates)
     raw = await _read_upload(photo, container)
     pipeline = container.pipeline
     budget = container.settings.generation_timeout_seconds
@@ -198,7 +198,7 @@ async def generate(
     wasteful, because a portrait you do not like still cost you the scene call.
     Prefer `/api/cartoonify` then `/api/compose`.
     """
-    _check_generation_rate(request, container)
+    _check_generation_rate(request, container, tokens=2)
     selected = _require_scene(scene)
     raw = await _read_upload(photo, container)
 
@@ -214,9 +214,15 @@ async def generate(
 # --- shared helpers ---------------------------------------------------------
 
 
-def _check_generation_rate(request: Request, container: ContainerDep) -> None:
+def _check_generation_rate(request: Request, container: ContainerDep, tokens: int = 1) -> None:
+    """Admit the request (or refuse it) and bill its images at once.
+
+    `tokens` is the number of billable images this request will cost —
+    candidate portraits in pass 1, the two passes of /api/generate. Counting
+    images rather than requests is what keeps the per-minute number honest.
+    """
     client_key = request.client.host if request.client else "unknown"
-    if not container.rate_limiter.allow(client_key):
+    if not container.rate_limiter.allow(client_key, tokens):
         raise GenerationRateLimited(
             "This client has reached the image-generation limit for this minute. "
             "Please wait and try again."

@@ -18,7 +18,7 @@ from app.services.image_providers.base import (
 )
 from tests.helpers import make_photo_bytes, multipart
 
-PAGE_COUNT = 3
+PAGE_COUNT = 4
 
 
 def photo_file() -> tuple[str, bytes, str]:
@@ -50,7 +50,7 @@ def wait_for_book(
 
 
 class TestCatalogue:
-    def test_lists_the_three_pages(self, client: TestClient) -> None:
+    def test_lists_the_story_pages(self, client: TestClient) -> None:
         response = client.get("/api/book/pages")
         assert response.status_code == 200
         body = response.json()
@@ -58,8 +58,9 @@ class TestCatalogue:
             "empty-cupboard",
             "the-trade",
             "beans-out-the-window",
+            "beanstalk-at-dawn",
         ]
-        assert [page["number"] for page in body["pages"]] == [1, 2, 3]
+        assert [page["number"] for page in body["pages"]] == [1, 2, 3, 4]
         # Story lines, exactly the prose the PDF will draw:
         assert "Milky-White" in body["pages"][0]["story"]
 
@@ -150,7 +151,7 @@ class TestBookErrors:
             assert status_payload["status"] == "failed", status_payload
             assert "stopped early" in str(status_payload["error"])
             statuses = [page["status"] for page in status_payload["pages"]]
-            assert statuses == ["done", "pending", "pending"]
+            assert statuses == ["done", "pending", "pending", "pending"]
             # The finished page is still there to look at.
             page1 = failing_client.get(f"/book-media/{book_id}/pages/1")
             assert page1.status_code == 200
@@ -163,17 +164,38 @@ class TestBookErrors:
         assert response.status_code == 404
         assert response.json()["error"] == "unknown_book"
 
-    def test_pdf_409_while_still_rendering(self, client: TestClient) -> None:
-        portrait = make_portrait(client)
-        start = client.post(
-            "/api/book/start",
-            data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
-        )
-        book_id = start.json()["book_id"]
-        # Straight after the start call the first page cannot have landed:
-        # three provider calls are pending behind it.
-        pdf = client.get(f"/api/book/{book_id}/pdf")
-        if wait_for_book(client, book_id, seconds=0.25).get("status") != "complete":
+    def test_pdf_409_while_still_rendering(self, client_factory) -> None:
+        class SlowProvider(ImageProvider):
+            """Slow enough that the book cannot complete inside the test."""
+
+            name = "slow-book"
+
+            def generate(self, request: ImageRequest) -> GeneratedImage:
+                time.sleep(0.05)
+                return GeneratedImage(
+                    data=make_photo_bytes(), media_type="image/png", model="demo-v1"
+                )
+
+            def generate_candidates(
+                self, request: ImageRequest, count: int = 1
+            ) -> list[GeneratedImage]:
+                return [
+                    GeneratedImage(
+                        data=make_photo_bytes(), media_type="image/png", model="demo-v1"
+                    )
+                ]
+
+        with client_factory(SlowProvider()) as slow_client:
+            portrait = make_portrait(slow_client)
+            start = slow_client.post(
+                "/api/book/start",
+                data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+            )
+            book_id = start.json()["book_id"]
+            # The first status fetch proves the book is still rendering, so the
+            # 409 below is guaranteed rather than racy on a fast machine.
+            assert wait_for_book(slow_client, book_id, seconds=0.05)["status"] == "rendering"
+            pdf = slow_client.get(f"/book-media/{book_id}/pdf")
             assert pdf.status_code == 409, "a running book must not serve its PDF yet"
 
     def test_unknown_page_number_409(self, client: TestClient) -> None:

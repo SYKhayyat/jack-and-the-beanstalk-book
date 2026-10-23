@@ -6,8 +6,9 @@ result is captioned with the exact scene specification that was sent to the
 image model.
 
 There is also a **picture book**: the same portrait becomes the hero of a
-3-page story (cupboard, trade, beans out the window) plus an About Me page,
-delivered as one downloadable PDF — see [The picture book](#the-picture-book).
+4-page story (cupboard, trade, beans out the window, beanstalk at dawn) plus an
+About Me page, delivered as one downloadable PDF — see
+[The picture book](#the-picture-book).
 
 Two scenes ship, and the same person can be put into either:
 
@@ -235,18 +236,24 @@ app/
 │   ├── concurrency.py    #     admission control for generation requests
 │   ├── pipeline.py       #     two-pass orchestration
 │   ├── images.py         #     upload validation, normalisation, EXIF stripping
-│   ├── storage.py        #     artefact persistence
+│   ├── storage.py        #     artefact persistence (drafts + scenes)
+│   ├── book_runner.py    #     the picture-book background job
+│   ├── book_store.py     #     book artefact persistence (pages, PDF, status)
+│   ├── pdf.py            #     the PDF assembler: full-bleed art + real text
+│   ├── concurrency.py    #     admission control for generation requests
+│   ├── rate_limit.py     #     per-minute billable-image brake
 │   └── image_providers/  #     the swappable backend boundary
 │       ├── base.py       #         the ImageProvider contract
 │       ├── mock.py       #         offline placeholder renderer
 │       ├── openai_provider.py #   the default real backend
 │       ├── gemini.py     #         the fallback backend
 │       └── registry.py   #         name → class
-├── routes/               # CONTROLLER: web.py, api.py, media.py, auth.py
-├── templates/index.html  # VIEW
-├── routes/settings_form.py # settings form fields, shared by both endpoints
-├── models/feedback.py     #     rejection chips and their prompt clauses
-└── static/               # VIEW: style.css, app.js
+├── routes/               # CONTROLLER: web, api, book, media, auth, settings_form
+├── templates/            # VIEW: index.html, book.html, login.html
+├── models/feedback.py    #     rejection chips and their prompt clauses
+├── models/book.py        #     book pages, text zones, About Me
+├── models/labels.py      #     UI labels for the closed enums
+└── static/               # VIEW: style.css + api/state/view/book* JS modules
 ```
 
 ### The two-pass pipeline
@@ -290,9 +297,10 @@ is only one of it.
 
 ## The picture book
 
-`/book` turns one approved portrait into a **3-page picture book PDF**. The
+`/book` turns one approved portrait into a **4-page picture book PDF**. The
 child stars on every page — the empty cupboard, the magic-beans trade, the
-beans flying out the window — followed by an **About Me** page. The story text
+beans flying out the window, the beanstalk at dawn — followed by an **About Me**
+page. The story text
 is never drawn by the model: the art carries a deliberately empty quiet zone,
 and the PDF paints the polished storybook prose as real, selectable text
 (fpdf2, Comic Neue + Noto Sans Hebrew bundled, HarfBuzz shaping when
@@ -351,6 +359,7 @@ stack trace or a key:
 | `422` | `invalid_settings` | A setting failed validation |
 | `422` | `unknown_candidate` | That portrait alternative does not exist for the draft |
 | `429` | `server_busy` | Every generation slot was busy; nothing was sent to the model |
+| `429` | `generation_rate_limited` | This client burned its per-minute allowance of billable images |
 | `502` | `provider_error` | The model was reached and failed |
 | `503` | `provider_unavailable` | No usable provider — usually a missing API key |
 | `504` | `generation_timeout` | Ran past the budget; safe to retry |

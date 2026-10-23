@@ -92,13 +92,13 @@ class BookRunner:
 
             total = len(BOOK_PAGES)
             arts: list[PageArt] = []
-            prompts: list[dict[str, str]] = []
 
             for done, page in enumerate(BOOK_PAGES, start=1):
                 # `done - 1` pages are actually on disk right now; this page is
                 # in flight, so it must not yet show as done — otherwise a
                 # mid-page failure would publish a stale "done" claim.
-                self._book_store.save_status(
+                await asyncio.to_thread(
+                    self._book_store.save_status,
                     book_id,
                     BookStatus.RENDERING,
                     self._page_view(book_id, done - 1, draft.settings),
@@ -107,8 +107,14 @@ class BookRunner:
                     draft, page, page_number=page.number, total_pages=total
                 )
                 arts.append(PageArt(image=image, page=render_book_page(page, draft.settings)))
-                prompts.append({"page": str(page.number), "key": page.key, "prompt": prompt})
-                self._book_store.save_page(book_id, page.number, image)
+                await asyncio.to_thread(
+                    self._book_store.save_page, book_id, page.number, image
+                )
+                await asyncio.to_thread(
+                    self._book_store.append_prompt,
+                    book_id,
+                    {"page": str(page.number), "key": page.key, "prompt": prompt},
+                )
                 logger.info(
                     "book.page id=%s page=%d/%d key=%s bytes=%d",
                     book_id,
@@ -118,8 +124,8 @@ class BookRunner:
                     len(image),
                 )
 
-            self._book_store.save_prompts(book_id, prompts)
-            pdf_bytes = build_book_pdf(record.about, arts)
+            pdf_bytes = await asyncio.to_thread(build_book_pdf, record.about, arts)
+            await asyncio.to_thread(self._book_store.save_pdf, book_id, pdf_bytes)
             self._book_store.save_pdf(book_id, pdf_bytes)
             self._book_store.save_status(
                 book_id, BookStatus.COMPLETE, self._page_view(book_id, total, draft.settings)
@@ -130,8 +136,9 @@ class BookRunner:
         except GateTimeout:
             self._fail(
                 book_id,
-                "The server was too busy to start this book's pages. Nothing was "
-                "charged for them — try again in a moment.",
+                "The server was too busy to render this book's pages, so it "
+                "stopped. The pages already finished were made and paid for — "
+                "starting a new book is safe, the same portrait is reused.",
             )
         except TimeoutError:
             self._fail(

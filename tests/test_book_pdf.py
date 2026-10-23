@@ -18,7 +18,7 @@ try:
 except ImportError:  # nixOS runs without libstdc++ by default
     HAS_SHAPING = False
 
-PAGE_KEYS = ("empty-cupboard", "the-trade", "beans-out-the-window")
+PAGE_KEYS = ("empty-cupboard", "the-trade", "beans-out-the-window", "beanstalk-at-dawn")
 
 
 def art_bytes(width: int = 1152, height: int = 864, colour: str = "#4a7fbf") -> bytes:
@@ -48,7 +48,7 @@ def pages(story: bool = True) -> list[PageArt]:
 class TestAssembly:
     def test_one_page_per_story_page_plus_about_me(self) -> None:
         reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages())))
-        assert len(reader.pages) == 4
+        assert len(reader.pages) == 5
 
     def test_story_text_is_real_pdf_text(self) -> None:
         data = build_book_pdf(about(), pages())

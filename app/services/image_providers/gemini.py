@@ -77,7 +77,7 @@ class GeminiImageProvider(ImageProvider):
         contents: list[Any] = [
             types.Part.from_bytes(data=image, mime_type=media_type)
             for image, media_type in zip(
-                request.reference_images, request.reference_media_types, strict=False
+                request.reference_images, request.reference_media_types, strict=True
             )
         ]
         contents.append(types.Part.from_text(text=request.prompt))

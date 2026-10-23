@@ -11,12 +11,13 @@ from app.services.prompts import render_book_page
 
 
 class TestPageCatalogue:
-    def test_three_pages_in_story_order(self) -> None:
-        assert [page.number for page in BOOK_PAGES] == [1, 2, 3]
+    def test_page_numbers_run_in_story_order(self) -> None:
+        assert [page.number for page in BOOK_PAGES] == [1, 2, 3, 4]
         assert [page.key for page in BOOK_PAGES] == [
             "empty-cupboard",
             "the-trade",
             "beans-out-the-window",
+            "beanstalk-at-dawn",
         ]
 
     def test_every_page_has_a_story_line(self) -> None:
@@ -25,7 +26,8 @@ class TestPageCatalogue:
     def test_text_zones_are_zones_the_pdf_knows(self) -> None:
         assert BOOK_PAGES[0].text_zone is TextZone.LOWER_THIRD
         assert BOOK_PAGES[1].text_zone is TextZone.SKY
-        assert BOOK_PAGES[2].text_zone is TextZone.LOWER_THIRD
+        assert BOOK_PAGES[2].text_zone is TextZone.GRASS
+        assert BOOK_PAGES[3].text_zone is TextZone.SKY
 
     def test_lookup_by_key(self) -> None:
         assert get_book_page("the-trade") is BOOK_PAGES[1]

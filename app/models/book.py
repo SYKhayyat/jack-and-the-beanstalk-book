@@ -35,6 +35,7 @@ class TextZone(StrEnum):
 
     LOWER_THIRD = "lower_third"
     SKY = "sky"
+    GRASS = "grass"
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +60,13 @@ class BookPage:
     settling: str = ""
 
     def formatted(self, substitutions: Mapping[str, str]) -> BookPage:
-        """A copy with name/pronoun placeholders filled in for this child."""
+        """A copy with name/pronoun placeholders filled in for this child.
+
+        The returned page's `story` and `settling` are filled here; the page
+        title lives on `scene` and is filled by `Scene.formatted` — consumers
+        must read the title from the *formatted* copy's scene, never from the
+        raw catalogue entry.
+        """
 
         def fill(text: str) -> str:
             return text.format(**substitutions)

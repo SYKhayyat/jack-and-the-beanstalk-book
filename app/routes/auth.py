@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 from typing import Annotated, cast
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -133,7 +134,10 @@ def _is_open_path(path: str) -> bool:
 def _refuse(request: Request) -> Response:
     """Turn away a request that has no valid session."""
     path = request.url.path
-    if path.startswith("/api") or path.startswith("/media"):
+    # Machine-facing surfaces get JSON 401, never an HTML redirect: a script
+    # polling for bytes must see "log in first", not a login page. Keep this
+    # list equal to every machine-facing prefix (media, /api, /book-media).
+    if path.startswith("/api") or path.startswith("/media") or path.startswith("/book-media"):
         return JSONResponse(
             status_code=401,
             content={
@@ -141,7 +145,7 @@ def _refuse(request: Request) -> Response:
                 "detail": "This app is behind a password. Log in at /login first.",
             },
         )
-    target = path if path.startswith("/") else "/"
+    target = quote(path, safe="/") if path.startswith("/") else "/"
     return RedirectResponse(f"/login?next={target}", status_code=303)
 
 

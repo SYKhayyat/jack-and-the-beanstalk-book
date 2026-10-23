@@ -8,9 +8,12 @@ touching global state.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response, status
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -30,6 +33,21 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
+
+# No request body may exceed this, whatever the endpoint. Uploads are already
+# capped lower by their own reader; this ceiling exists for the routes that
+# have no billable gate — /login is pre-session by definition — so an
+# anonymous body cannot push a worker into memory death.
+MAX_BODY_BYTES = 20 * 1024 * 1024
+
+
+@asynccontextmanager
+async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Boot/reap book jobs around the server's life."""
+    reaped = app.state.container.book_store.reap_incomplete()
+    if reaped:
+        logger.info("book.reaped_start reaped=%d", reaped)
+    yield
 
 
 def create_app(
@@ -54,6 +72,7 @@ def create_app(
         ),
         version="1.0.0",
         docs_url="/docs",
+        lifespan=_app_lifespan,
     )
 
     app.state.settings = resolved
@@ -73,6 +92,23 @@ def create_app(
     app.include_router(media.router)
     app.include_router(auth.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    @app.middleware("http")
+    async def _limit_body(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        # First and cheapest defence: refuse oversized bodies before reading.
+        header = request.headers.get("content-length")
+        if header and header.isdigit() and int(header) > MAX_BODY_BYTES:
+            return JSONResponse(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                content={
+                    "error": "body_too_large",
+                    "detail": "The request body is too large for this app.",
+                },
+            )
+        return await call_next(request)
+
     install_auth_gate(app, app.state.gate)
 
     logger.info(
