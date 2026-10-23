@@ -1,0 +1,3 @@
+# Compatibility entry point for tools that expect requirements.txt.
+# The exact runtime graph is committed in requirements.lock.
+-r requirements.lock

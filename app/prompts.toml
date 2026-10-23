@@ -1,0 +1,315 @@
+# Jack and the Beanstalk — every piece of prompt text the app sends.
+#
+# This file is the product. The Python is deliberately thin: it chooses which
+# line applies and joins them, but the words themselves live here so they can
+# be edited, diffed and reviewed without touching code. Values are looked up
+# by the enum values in app/models (e.g. cartoon_style = "western_cartoon" ->
+# [styles].western_cartoon). A missing key fails at startup, not at request time.
+
+# The sentence that protects the graded requirement: it must look like the person.
+[identity]
+directive = "Preserve the identity of the person in the reference image with absolute fidelity: the same bone structure, the same face shape, the same eye shape and eye colour, the same nose, the same mouth, the same eyebrows, the same hairline, the same skin tone and the same distinguishing marks such as moles, freckles, glasses and facial hair. Do not invent a new face. Do not average the face towards a generic look. A person who knows the person in the photo must recognise them immediately."
+
+# Rejects the failure modes that would fight the caption: text and extra people.
+[negative]
+tail = "Do not include any text, letters, numbers, watermark, signature, logo, caption or speech bubble anywhere in the image — the picture must be a clean illustration with no writing in it. Do not include any other people or characters; only the one person described above. Do not include extra limbs, extra fingers, duplicate faces or distorted hands."
+
+# Art styles, keyed by CartoonStyle.
+[styles]
+manga = "black-and-white Japanese manga style, crisp confident ink linework, heavy black outlines, screentone dot shading, dramatic speed lines, high-contrast monochrome, large expressive eyes, hand-drawn manga panel aesthetic"
+anime = "modern Japanese anime style, clean cel shading with two-tone shadows, bright saturated colours, soft gradient skies, large sparkling expressive eyes, delicate linework, detailed hair strands, polished studio-anime finish"
+western_cartoon = "classic hand-drawn western cartoon style, bold rounded ink outlines, flat blocks of warm colour, simplified friendly shapes, gentle squash-and-stretch, vintage storybook cel animation look"
+pixar_like = "high-end 3D animated feature style, soft global illumination, subsurface-scattered skin, large expressive eyes with real catchlights, appealing stylised proportions, shallow depth of field, warm cinematic colour grading, polished family-film design"
+disney_like = "classic hand-painted 2D animation style, fluid confident curves, soft painted backgrounds, expressive appealing character design, warm colour, generous rounded shapes, storybook cel animation finish"
+comic_book = "American comic book style, heavy black ink outlines, halftone Ben-Day dot shading, flat saturated four-colour palette, dynamic heroic composition, bold panel energy"
+pencil_sketch = "graphite pencil sketch, confident cross-hatched shading, visible pencil grain, loose expressive linework on warm off-white paper, monochrome hand-drawn study"
+watercolour = "traditional watercolour painting, soft wet-on-wet colour bleeds, visible paper texture, translucent layered washes, loose painterly edges, delicate ink accents"
+vector_flat = "flat vector illustration, perfectly smooth geometric shapes, no gradients, no texture, bold clean silhouettes, bright modern palette, minimal scalable-graphics look"
+
+# Composition phrasing, keyed by AspectRatio (the enum value is the ratio).
+[aspect_hints]
+"1:1" = "square 1:1 composition"
+"4:3" = "4:3 landscape composition"
+"3:4" = "tall 3:4 portrait composition"
+"16:9" = "wide cinematic 16:9 composition"
+
+# Apparent age, keyed by ApparentAge.
+[ages]
+as_uploaded = "Keep the subject at the same apparent age as in the photo."
+child = "Depict the subject as a child around 10 years old."
+teen = "Depict the subject as a teenager around 16 years old."
+adult = "Depict the subject as a grown adult around 30 years old."
+
+# Which gender the AI should draw, keyed by CharacterGender.
+[genders]
+match = "Keep the character's gender the same as the person in the photograph."
+boy = "Present the character unmistakably as a boy, keeping the facial bone structure from the photo."
+girl = "Present the character unmistakably as a girl, keeping the facial bone structure from the photo."
+
+# The character's name, keyed by PhotoGender (the resolved boy/girl answer).
+# Boy is Jack, girl is Jane — the story is told either way.
+[names]
+boy = "Jack"
+girl = "Jane"
+
+# Pronouns, keyed by PhotoGender, substituted into the scene prose so a girl is
+# never called "him".
+[pronouns.boy]
+subject = "he"
+object = "him"
+possessive = "his"
+reflexive = "himself"
+
+[pronouns.girl]
+subject = "she"
+object = "her"
+possessive = "her"
+reflexive = "herself"
+
+# Skin tone, keyed by SkinTone.
+[skins]
+as_uploaded = "Keep the exact natural skin tone from the photo."
+very_light = "Render the skin very light and fair."
+light = "Render the skin light and fair."
+medium = "Render the skin a medium beige tone."
+tan = "Render the skin warm and tanned."
+olive = "Render the skin an olive tone."
+brown = "Render the skin a rich brown tone."
+deep_brown = "Render the skin a deep brown tone."
+deepest_brown = "Render the skin the deepest rich brown tone."
+
+# Outfit, keyed by Outfit.
+[outfits]
+as_uploaded = "Wear the same clothing as in the photograph, redesigned in the art style of the image."
+storybook_tunic = "Wearing a classic storybook tunic and breeches in muted earth tones."
+peasant = "Wearing rough, patched peasant clothes in undyed linen and wool."
+adventurer = "Wearing an adventurer's tunic with a leather belt and shoulder strap."
+simple_shirt = "Wearing a plain shirt and trousers."
+hooded_cloak = "Wearing a hooded travelling cloak with the hood down so the face and hair are fully visible."
+none_specified = "Wearing simple, unremarkable clothing that does not draw attention."
+
+# Hair style, keyed by HairStyle.
+[hair_styles]
+as_uploaded = "Keep the hairstyle exactly as in the photograph."
+short = "Short, cropped hair."
+bob = "A chin-length bob."
+long_straight = "Long, straight hair falling past the shoulders."
+long_wavy = "Long, wavy hair falling past the shoulders."
+curly = "Defined curly hair."
+coily = "Tight coiled hair."
+ponytail = "Hair pulled back into a ponytail."
+buns = "Hair gathered into buns."
+bald = "A bald scalp, with no hair."
+
+# Hair colour, keyed by HairColour.
+[hair_colours]
+as_uploaded = "Keep the exact hair colour from the photograph."
+black = "Black hair."
+dark_brown = "Dark brown hair."
+brown = "Brown hair."
+auburn = "Auburn hair."
+red = "Red hair."
+blonde = "Blonde hair."
+platinum = "Platinum blonde hair."
+grey = "Grey hair."
+white = "White hair."
+
+# Expression, keyed by Expression.
+[expressions]
+as_uploaded = "Keep the expression from the photograph."
+focused_determined = "A focused, determined expression."
+happy = "A warm, happy expression."
+serious = "A serious, level expression."
+surprised = "A surprised expression with raised eyebrows."
+curious = "A curious, attentive expression."
+brave = "A brave, resolute expression."
+worried = "A worried expression with slightly drawn brows."
+grinning = "A broad grin showing teeth."
+
+# Portrait background (portrait pass only), keyed by PortraitBackground.
+[portrait_backgrounds]
+plain = "BACKGROUND: plain and quiet — an even, untextured field of a single soft neutral tone. Nothing behind the head, no objects, no pattern, no horizon line, no vignette. The face is the only thing in the picture that matters."
+as_uploaded = "BACKGROUND: keep the background of the original photograph, simplified into the art style but recognisably the same place. Keep the face and hairline clearly separated from it."
+soft_colour = "BACKGROUND: a soft, out-of-focus wash of one muted colour with a gentle gradient. Nothing in it is in focus and nothing is in it is a shape."
+storybook = "BACKGROUND: a hand-painted storybook backdrop — soft rolling hills, a few distant stylised trees and a warm painted sky, all low-contrast and clearly behind the figure, leaving the face unobstructed."
+
+# How hard to hold the face, keyed by LikenessStrength.
+[likeness]
+strict = "Match the uploaded face as precisely as a photograph would. Small deviations in the eyes, nose, jaw or hairline are failures, not interpretation."
+balanced = "Match the uploaded face closely while allowing small stylised departures."
+loose = "Keep the uploaded face recognisable, letting the art style shape it somewhat more."
+
+# The cartoon-vs-real dial, one entry per step from 1 to 10.
+[intensity]
+"1" = "barely stylised: keep the photograph almost intact, adding only delicate line work over the eyes and a very light ink trace on the contours"
+"2" = "very lightly stylised: retain photographic shading and texture, with soft ink lines defining the eyes, brows and jaw"
+"3" = "lightly stylised: photographic likeness with visible outline lines and slightly simplified facial shapes"
+"4" = "moderately stylised: painterly realism with clear outlines and gently simplified features, still unmistakably the same person"
+"5" = "about half stylised: an even balance between realistic rendering and cartoon simplification, with clean outlines and simplified shapes"
+"6" = "clearly stylised: unmistakable cartoon rendering, but the facial structure and every identifying feature are still faithful to the photo"
+"7" = "strongly stylised: bold cartoon shapes and confident outlines, with the face still unmistakably the person in the photo"
+"8" = "very strongly stylised: graphic cartoon shapes, heavy clean outlines and flat colour, while the face remains instantly recognisable as the same person"
+"9" = "almost entirely graphic: bold flat shapes and thick outlines, the design reads as a caricature that a friend would still identify without hesitation"
+"10" = "fully graphic: maximally simplified bold shapes, thick outlines and flat poster colour, reduced to the most iconic version of this specific person's face"
+
+# Suppress photorealism as the dial turns up (bands: 1-3 none, 4-5 soft, 6-10 strong).
+[photoreal]
+soft = "Avoid heavy simplification of the face; keep features readable."
+strong = "Simplify boldly and graphically. Do not fall back towards photographic rendering or 3D realism."
+
+# Whether real-world glasses / facial hair carry into the cartoon.
+[accessories]
+keep_glasses = "If the person in the photo wears glasses, keep those glasses on the character, drawn in the same style as the rest of the image."
+remove_glasses = "Remove any glasses or sunglasses."
+keep_facial_hair = "If the person has facial hair, keep it, drawn in the same style as the rest of the image."
+remove_facial_hair = "Remove any facial hair."
+
+# Fixed scaffolding around the variable parts. {braces} are filled at build time.
+[assembly]
+task_cartoon = "TASK: Turn the person in the supplied photograph into a single character portrait, in the art style described below."
+task_scene = "TASK: Draw the character from the reference images as {name}, performing the scene specified below. The reference images are the same person: the first is their cartoon portrait, the second is their original photograph."
+character_name = "The character's name is {name}. Use {subject} / {object} / {possessive} pronouns for this character throughout; never use pronouns of a different gender."
+framing = "FRAMING: a head-and-shoulders portrait facing the camera, head and face large and unobstructed in the centre of the frame, eyes fully visible and not hidden by hair or shadow, even flattering light on the face so every feature reads clearly."
+stylisation = "STYLISATION LEVEL (user setting, honour it exactly): {intensity}."
+art_style = "ART STYLE: {style}."
+composition = "COMPOSITION: {aspect}."
+scene_to_draw = "SCENE TO DRAW (this is the entire content of the picture): {caption}"
+character_doing = "WHAT THE CHARACTER IS DOING: {action}. Get this action right — it is what the scene is about."
+where = "WHERE: {environment}."
+lighting = "LIGHTING: {time_of_day}."
+camera = "CAMERA: {camera}."
+checklist = "Every one of these must be clearly visible: {items}."
+avoid = "Do not show any of the following: {items}."
+rejection_preamble = "This is a retry. The previous attempt was rejected, so do not reproduce it."
+
+# Corrective clauses for the retry step, keyed by RejectionReason.
+# Deliberately specific: 'try again' teaches the model nothing.
+[rejections]
+face_changed = "The previous attempt did not look like the person. Identity outranks style this time: reproduce the reference's proportions exactly — the skull shape, jaw width, distance between the eyes, size and angle of the nose, mouth width and lip shape, brow thickness, forehead height and hairline — and resist any stylisation that would alter them."
+style_wrong = "The previous attempt was in the wrong art style. Follow the ART STYLE section exactly this time, in its medium, line weight and shading."
+age_wrong = "The previous attempt's age read wrong. Follow the stated age precisely in face shape, proportions and skin."
+hair_wrong = "The previous attempt's hair was wrong. Follow the stated hair style, length, part and colour exactly."
+skin_tone_wrong = "The previous attempt's skin tone was wrong. Match the stated tone exactly, including any warmth or undertone."
+expression_wrong = "The previous attempt's expression was wrong. Read the stated expression literally and change the brows, eyelids and mouth accordingly."
+outfit_wrong = "The previous attempt's clothing was wrong. Wear exactly the stated outfit, and keep it readable against the background."
+background_distracting = "The previous attempt's background competed with the face. Put nothing behind the head: no objects, no pattern, no strong colour. Keep the whole face unobstructed and clearly lit."
+too_cartoon = "The previous attempt was over-stylised and lost the person. Pull back towards a realistic rendering while keeping light outlines."
+not_cartoon_enough = "The previous attempt looked like a photograph rather than a cartoon. Commit harder to the art style: visible outlines and simplified shapes."
+no_specific_fault = "The previous attempt was rejected without a specific fault. Make this attempt clearly different from it — do not repeat the previous result."
+
+# ---------------------------------------------------------------------------
+# The picture book.
+#
+# The book is a separate product inside the same app: same child, several pages
+# in sequence, one PDF. Three rules from the brief that this data enforces:
+#
+# 1. The style sentence is FIXED. Every page prompt in a book repeats [book]
+#    .style word for word — never varied across pages, never replaced by the
+#    single-scene style pick.
+# 2. The model never draws story text. The story line ("prose") is drawn onto
+#    the page by the PDF layer only; the prompt says so explicitly.
+# 3. Pages are ordered: adding a page means adding one [[book_pages]] entry in
+#    story order. The beanstalk-at-dawn page (page 4) is deliberately not here
+#    yet — the book pipeline needs zero code changes to accept it.
+# ---------------------------------------------------------------------------
+
+[book]
+book_title = "Jack and the Beanstalk"
+# The one style sentence for the whole book. Word it identically in every call.
+style = "Modern 3D animated feature: rounded sculpted forms, large expressive eyes with real catchlights, soft rim light on the characters, smooth subsurface skin shading, appealing stylised proportions, warm cinematic colour grading, polished family-film design"
+# The child wears the same clothes on every page; consistency beat used by every
+# page prompt.
+same_clothes = "The child wears exactly the same clothes on every page of this book."
+# The model must not imitate the story text: the PDF draws it.
+no_text = "Do not draw any text, lettering, numbers, watermark, signature, logo, caption or speech bubble anywhere in the image — the page's story text is added later, outside this image, so any writing you draw would be doubled up and garbled."
+
+# PDF-layer copy for the About Me page. {child_name} and {child_details} are
+# filled from what the uploader typed; these strings never reach the model.
+[book.about_me]
+heading = "About {child_name}"
+name_line = "This book was made for"
+age_line = "{child_age} years old"
+details_heading = "A few things you should know about"
+
+# Per-page scaffolding. task_doorstep explains the book concept; the
+# "story text is added later, outside this image" rationale lives in no_text.
+[book.assembly]
+task = "TASK: Draw page {page_number} of {total_pages} of the picture book \"{book_title}\". Every page of the book shows the same child character: {name}. The reference images are the same person: the first is their cartoon portrait, the second is their original photograph."
+page_identity = "PAGE IDENTITY: this child is the single recurring character across all pages of this book — the same face, the same hair, the same clothes as every other page."
+quiet_zone = "QUIET ZONE: {area} must stay calm and uncluttered, because the page's story text will be placed over that exact area after the image is made. Put no part of the character, no important background detail and no bright clutter there."
+
+# The three story beats for pages 1-3. Every page needs both kinds of writing:
+# `image` prose that tells the model what to draw, and `story` prose that the
+# PDF layer renders on top of the art. They are stored side by side so a page is
+# one editable block. `text_zone` is where the PDF puts the story text:
+#   lower_third — a quiet band over the bottom third of the art
+#   sky         — over the top of the picture, where the sky is calm
+#   grass       — over dark ground at the bottom, for dusk pages
+# `settling` names whatever in the frame must stay quiet, because it is where
+# the text will sit.
+
+[[book_pages]]
+key = "empty-cupboard"
+title = "{name} and the empty cupboard"
+text_zone = "lower_third"
+settling = "the table front and the lower third of the frame, kept free of detail and character limbs so the story text has somewhere calm to sit"
+story = "{name} and {possessive} mother had nothing left to sell but Milky-White."
+caption = "{name} and {possessive} mother had nothing left to sell but their cow, Milky-White. {name} stands beside {possessive} worried mother at a big worn table inside their small bare cottage kitchen, looking up at her face. Nearly-empty wooden shelves and a cupboard with its doors open hang above the table."
+subject_action = "standing side by side at the table, {name}'s face fully towards the camera and front-lit, {possessive} eyes on {possessive} mother's face while she wrings her hands"
+environment = "a cosy but bare historic cottage kitchen: a big worn wooden table, nearly-empty open shelves, a cupboard with its doors open showing almost nothing inside, pale plaster walls, a window with soft daylight, and through the wide open cottage door the white cow Milky-White standing outside in the farmyard, clearly visible"
+time_of_day = "bright morning, soft warm light falling on {name}'s face"
+camera = "eye-level medium shot at table height, both faces clearly readable, the cow framed through the open door behind them, generous quiet space across the lower third of the frame"
+must_include = ["{name}'s face front-lit and fully visible", "{possessive} mother beside the table", "an almost-empty cupboard or shelves", "the white cow visible through the open door"]
+must_avoid = ["anything written on the pages or walls", "an open book or letter with visible letters", "the mother pushing {name} or looking angry", "extra children or extra cows"]
+
+[[book_pages]]
+key = "the-trade"
+title = "The trade"
+text_zone = "sky"
+settling = "the open sky across the top of the frame, kept free of branches and clutter so the story text has somewhere calm to sit"
+story = "\"Five magic beans,\" said the old man. \"For one cow.\""
+caption = "Five magic beans, said the old man, for one cow. {name} is halfway down the road to market holding Milky-White's rope when a weathered old man with a tall hat steps out to meet {object} and holds out five magic beans in his open palm — one red, one blue, one green, one gold, one violet — each faintly glowing."
+subject_action = "three-quarter view from behind one shoulder, {name} leaning forward to look into the old man's open palm while holding the cow's rope in one hand"
+environment = "a dusty dirt road winding through green fields towards a distant market town, low stone walls, a few round trees, puffy open sky with soft clouds across the top of the frame, the cow's head visible at the edge waiting patiently"
+time_of_day = "late morning, clear sky, the light gentle"
+camera = "over-the-shoulder three-quarter medium close shot centred on the old man's outstretched palm of beans, {name}'s profile strong and readable, lots of open sky at the top"
+must_include = ["five different coloured beans in an open palm", "{name} holding the cow's rope", "a dirt road to market", "the old man's friendly weathered face"]
+must_avoid = ["the old man grabbing the rope or the cow", "money or coins changing hands", "a blade or weapon", "extra people on the road"]
+
+[[book_pages]]
+key = "beans-out-the-window"
+title = "Out the window"
+text_zone = "lower_third"
+settling = "the dark grass of the garden across the bottom third of the frame, kept free of figures and clutter so the story text has somewhere calm to sit"
+story = "\"Beans!\" she cried. And out the window they went."
+caption = "Beans! she cried. And out the window they went. At dusk, {name}'s mother leans far out of the small cottage window and throws a sweep of scattered magic beans down towards the garden below, red and blue and green and gold glints tumbling through the air. {name} is caught mid-step at the open doorway, watching."
+subject_action = "caught mid-step at the open doorway, one hand on the door frame, {name}'s face turned towards the window watching the beans arc through the air"
+environment = "the front of the small stone cottage at dusk: one lit window with the mother leaning out throwing beans, the open doorway below with {name} in it, small patches of dark garden grass across the bottom of the frame, the sky deep blue-violet with a band of sunset orange at the horizon"
+time_of_day = "dusk, a much darker palette than the morning pages: deep blue and violet shadows, beans glowing softly as the only sparks of colour"
+camera = "wide shot showing the whole cottage front from the garden, the lit window and the doorway both readable, plenty of quiet dark grass across the bottom third"
+must_include = ["the mother leaning out of the lit window throwing beans", "scattered beans tumbling and glinting mid-air", "{name} standing in the open doorway watching", "a much darker, duskier palette than the earlier pages"]
+must_avoid = ["the mother also standing in the doorway", "the beans already sprouted or growing", "a giant watching the house", "any pets or extra children in the garden"]
+
+# The two story beats. Prose here is both the model specification and the
+# caption burned onto the result — they cannot drift apart.
+[[scenes]]
+key = "planting-seeds"
+title = "{name} is planting the seeds"
+caption = "{name} is planting the seeds. Young {name} kneels in a cottage garden, pressing a handful of magic beans into a freshly dug hole in dark soil, beside {possessive} mother's cottage with a thatched roof behind {object}."
+subject_action = "kneeling on both knees in the soil, bent forward, one hand pushing beans down into the hole and the other steadying {reflexive} on the ground"
+environment = "the dirt patch behind {possessive} mother's small stone cottage, a wooden fence and a low stone wall at the edge of the plot, garden tools and an empty clay pot set aside, the magic beans glowing faintly in the hole"
+time_of_day = "early morning, soft low golden sunlight and long cool shadows"
+camera = "three-quarter eye-level medium-wide shot, subject sharp in the centre third, gentle depth of field on the cottage behind"
+must_include = ["magic beans being placed into the soil", "a dug hole in dark earth", "the thatched cottage", "{name} kneeling"]
+must_avoid = ["a beanstalk", "a giant", "{name} climbing or standing upright", "text, watermark, logo or speech bubble"]
+
+[[scenes]]
+key = "climbing-beanstalk"
+title = "{name} is climbing the beanstalk"
+caption = "{name} is climbing the beanstalk. {name} grips the thick twisting vine and clambers high above the clouds, the stalk vanishing up into a bright sky while the cottage and fields shrink to a toy-sized patchwork far below."
+subject_action = "climbing, both hands wrapped around the vine and one knee hooked around it, body pressed to the stalk and looking upward toward the clouds"
+environment = "a colossal spiralling green beanstalk rising out of the farmland below, clouds and pale blue sky all around, a vast castle with golden turrets faintly visible high above through a break in the clouds, tiny cottage and fields far beneath"
+time_of_day = "bright clear morning, sunlit clouds and luminous green stalk"
+camera = "dramatic vertical low-angle looking up the length of the stalk, extreme scale contrast between the tiny earth below and {name} high in the sky"
+must_include = ["a colossal beanstalk {name} is gripping", "clouds", "the ground and cottage far below", "hands and feet in a climbing position"]
+must_avoid = ["{name} planting or kneeling on the ground", "a giant", "the chicken or the golden hen", "text, watermark, logo or speech bubble"]

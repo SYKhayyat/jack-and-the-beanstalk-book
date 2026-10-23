@@ -1,0 +1,114 @@
+"""Provider construction and the mock provider's contract.
+
+These tests are what let the app change image backends safely: they pin the
+failure messages a misconfigured deployment will actually see.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from app.config import Settings
+from app.services.image_providers import MockImageProvider, build_provider
+from app.services.image_providers.base import (
+    ImageProvider,
+    ImageRequest,
+    ProviderUnavailable,
+)
+from app.services.image_providers.registry import KNOWN_PROVIDERS
+
+
+def make_settings(**overrides: object) -> Settings:
+    return Settings(_env_file=None, storage_dir=overrides.pop("storage_dir"), **overrides)  # type: ignore[arg-type]
+
+
+class TestRegistry:
+    def test_mock_needs_no_key(self, tmp_path) -> None:
+        provider = build_provider(make_settings(image_provider="mock", storage_dir=tmp_path))
+        assert isinstance(provider, MockImageProvider)
+
+    def test_gemini_without_a_key_is_unavailable(self, tmp_path) -> None:
+        with pytest.raises(ProviderUnavailable, match="GEMINI_API_KEY"):
+            build_provider(
+                make_settings(image_provider="gemini", gemini_api_key="", storage_dir=tmp_path)
+            )
+
+    def test_whitespace_key_counts_as_missing(self, tmp_path) -> None:
+        with pytest.raises(ProviderUnavailable):
+            build_provider(
+                make_settings(
+                    image_provider="gemini", gemini_api_key="   ", storage_dir=tmp_path
+                )
+            )
+
+    def test_unknown_provider_is_reported_clearly(self) -> None:
+        with pytest.raises(ProviderUnavailable, match="Unknown image provider"):
+            build_provider(Settings.model_construct(image_provider="dalle3"))
+
+    def test_every_registered_provider_implements_the_contract(self) -> None:
+        for name, provider_cls in KNOWN_PROVIDERS.items():
+            assert issubclass(provider_cls, ImageProvider)
+            assert provider_cls.name == name.value
+            assert callable(provider_cls.generate)
+
+
+class TestMockProvider:
+    def test_returns_a_decodable_image(self) -> None:
+        result = MockImageProvider().generate(ImageRequest(prompt="hello", label="test"))
+        assert result.data.startswith(b"\x89PNG")
+        assert result.media_type == "image/png"
+        assert result.extension == "png"
+
+    def test_is_deterministic(self) -> None:
+        request = ImageRequest(prompt="the same prompt", label="cartoonify")
+        first = MockImageProvider().generate(request)
+        second = MockImageProvider().generate(request)
+        assert first.data == second.data
+
+    def test_different_prompts_produce_different_images(self) -> None:
+        one = MockImageProvider().generate(ImageRequest(prompt="planting seeds", label="a"))
+        two = MockImageProvider().generate(
+            ImageRequest(prompt="climbing the beanstalk", label="a")
+        )
+        assert one.data != two.data
+
+    def test_labels_are_distinct_in_the_output(self) -> None:
+        portrait = MockImageProvider().generate(
+            ImageRequest(prompt="same", label="cartoonify")
+        )
+        scene = MockImageProvider().generate(
+            ImageRequest(prompt="same", label="scene-compose")
+        )
+        assert portrait.data != scene.data
+
+    def test_health_check_is_ok(self) -> None:
+        ok, reason = MockImageProvider().health_check()
+        assert ok and reason == "ok"
+
+
+class TestPipelineThroughMockProvider:
+    """End-to-end over the real pipeline with only the network faked out."""
+
+    def test_full_run_produces_two_images(self, settings: Settings) -> None:
+        from app.models import CartoonSettings, get_scene
+        from app.services.images import decode_upload
+        from app.services.pipeline import GenerationPipeline
+        from app.services.storage import GenerationStore
+        from tests.helpers import make_photo_bytes
+
+        pipeline = GenerationPipeline(
+            MockImageProvider(), GenerationStore(settings.storage_dir)
+        )
+        decoded = decode_upload(make_photo_bytes())
+
+        outcome = pipeline.run(
+            photo_data=decoded.data,
+            photo_media_type=decoded.media_type,
+            scene=get_scene("planting-seeds"),  # type: ignore[arg-type]
+            settings=CartoonSettings(),
+        )
+
+        assert outcome.result.cartoon_image.startswith(b"\x89PNG")
+        assert outcome.result.scene_image.startswith(b"\x89PNG")
+        assert outcome.result.cartoon_image != outcome.result.scene_image
+        assert outcome.result.warnings == ()

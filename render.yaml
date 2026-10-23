@@ -1,0 +1,67 @@
+# Render blueprint.
+#
+# `sync: false` means Render creates the variable in the dashboard and prompts
+# you to paste the value. That is the whole point: the key never passes through
+# this file, never lands in git, and never appears in a build log.
+#
+# Deploy with:  render blueprint launch   (or push and use "New > Blueprint")
+
+services:
+  - type: web
+    name: jack-and-the-beanstalk-book
+    runtime: python
+    plan: free
+    region: oregon
+
+    buildCommand: pip install --requirement requirements.lock
+    # --factory tells uvicorn to call create_app() itself, which is how the app
+    # receives its settings from the environment.
+    startCommand: uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT
+
+    healthCheckPath: /healthz
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+
+      - key: APP_ENV
+        value: production
+
+      # Start on the mock provider so the first deploy boots green with no key.
+      # Switch this to "openai" in the dashboard once you have added one.
+      - key: IMAGE_PROVIDER
+        value: mock
+
+      # Paste your key into the Render dashboard when prompted.
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # The shared password in front of the app. Paste it into the Render
+      # dashboard when prompted; leaving it unset makes the app open to
+      # anyone who finds the URL, and every generation costs money.
+      - key: APP_PASSWORD
+        sync: false
+
+      # Cheapest configuration OpenAI publishes: ~$0.0059 per image call.
+      - key: OPENAI_MODEL
+        value: gpt-image-2.5-flare
+      - key: OPENAI_QUALITY
+        value: low
+
+      - key: MAX_UPLOAD_MB
+        value: "10"
+
+      # One budget per request, covering queueing and both model calls.
+      - key: GENERATION_TIMEOUT_SECONDS
+        value: "600"
+
+      # Admission control. Beyond this, requests queue and then get 429 rather
+      # than fanning out into more billable calls.
+      - key: MAX_CONCURRENT_GENERATIONS
+        value: "2"
+
+      - key: MAX_GENERATIONS_PER_MINUTE
+        value: "12"
+
+      - key: STORAGE_DIR
+        value: /tmp/jack-and-the-beanstalk-book-storage

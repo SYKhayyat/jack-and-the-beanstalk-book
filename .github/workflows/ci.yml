@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --requirement requirements-dev.lock
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Type check
+        run: mypy app
+
+      # No secrets needed: the suite runs entirely against the mock provider.
+      - name: Test
+        run: pytest --cov --cov-report=term-missing
+
+  render-deploy:
+    # Render deploys from main automatically; this job surfaces a red build
+    # here instead of leaving it to be noticed in Slack.
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - run: echo "Render will pick this commit up automatically."

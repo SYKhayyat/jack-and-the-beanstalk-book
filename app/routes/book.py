@@ -1,0 +1,234 @@
+"""JSON API for the picture book, and the book's own media.
+
+The flow is three endpoints around one background job:
+
+    POST /api/book/start     -> start rendering using an approved portrait
+    GET  /api/book/{id}      -> poll: status + page list, updated as each lands
+    GET  /api/book/{id}/pdf  -> the assembled book once rendering is complete
+
+The portrait itself is made with the existing `/api/cartoonify` endpoint and
+reviewed through the existing approve flow — the book reuses the same pass-1
+call and settings machinery, so the portrait the uploader saw is exactly the
+portrait every page is anchored on.
+
+Media (portrait, pages) lives under `/book-media` and is served with the same
+no-store discipline as `/media`: the URLs carry the child's data and must not
+be cached by shared browsers or proxies.
+
+Everything the route accepts is validated like the rest of the app: closed enum
+settings for the model-facing knobs, and the free-text About Me fields confined
+to the PDF layer — visitor text never reaches a prompt.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+
+from fastapi import APIRouter, Form, Request, Response, status
+from pydantic import ValidationError
+
+from app.dependencies import ContainerDep
+from app.errors import (
+    BookNotReady,
+    GenerationRateLimited,
+    InvalidSettings,
+    UnknownBook,
+)
+from app.models import BOOK_PAGES, AboutMe, CartoonSettings
+from app.services.book_store import BookStatus
+from app.services.pipeline import UnknownGeneration
+from app.services.prompts import render_book_page
+
+__all__ = ["media_router", "router"]
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/book", tags=["book"])
+media_router = APIRouter(prefix="/book-media", tags=["book-media"])
+
+
+@router.get("/pages")
+def list_pages() -> dict[str, object]:
+    """The book's page catalogue, so the UI can say what the book contains."""
+    defaults = CartoonSettings()
+    rendered = [render_book_page(page, defaults) for page in BOOK_PAGES]
+    return {
+        "pages": [
+            {
+                "number": page.number,
+                "key": page.key,
+                "title": page.scene.title,
+                "story": page.story,
+                "text_zone": page.text_zone.value,
+            }
+            for page in rendered
+        ]
+    }
+
+
+@router.post("/start", status_code=status.HTTP_201_CREATED)
+async def start_book(
+    request: Request,
+    container: ContainerDep,
+    generation_id: str = Form(
+        ..., description="Id of the approved portrait, returned by /api/cartoonify."
+    ),
+    child_name: str = Form(..., min_length=1, max_length=60),
+    child_age: int | None = Form(None, ge=0, le=14),
+    child_gender: str | None = Form(None, max_length=60),
+    details: str = Form("", max_length=1000),
+) -> dict[str, object]:
+    """Start rendering the book from an already-approved cartoon portrait.
+
+    One book costs one provider call per page; the portrait call was already
+    paid in pass 1 and is reused as an identity anchor on every page. Returns
+    immediately; poll `GET /api/book/{id}` for progress and the PDF link.
+    """
+    _check_rate(request, container)
+    about = _about_from_form(child_name, child_age, child_gender, details)
+    book_id = uuid.uuid4().hex
+
+    container.book_store.save_record(book_id=book_id, about=about, generation_id=generation_id)
+    try:
+        container.book_runner.start(container.book_store.load_record(book_id))  # type: ignore[arg-type]
+    except UnknownGeneration:
+        # Clean the half-created book so no zombie id is left discoverable.
+        container.book_store.delete(book_id)
+        raise
+    logger.info(
+        "book.started id=%s draft=%s provider=%s",
+        book_id,
+        generation_id,
+        container.provider.name,
+    )
+    return {
+        "book_id": book_id,
+        "status": BookStatus.PENDING,
+        "status_url": f"/api/book/{book_id}",
+        "pdf_url": container.book_store.pdf_url(book_id),
+    }
+
+
+@router.get("/{book_id}")
+def book_status(book_id: str, container: ContainerDep) -> dict[str, object]:
+    """The book's progress: status, page list and any failure message."""
+    payload = container.book_store.load_status(book_id)
+    if payload is None:
+        raise UnknownBook("No book with that id. It may have expired — start a new one.")
+    return payload
+
+
+# The finished PDF is served under /book-media like every other book artefact,
+# so the status record's pdf_url and this file have exactly one canonical path.
+
+
+# --- book-media: the pages as they render -------------------------------------
+
+
+@media_router.get("/{book_id}/pdf", response_class=Response)
+def book_pdf(book_id: str, container: ContainerDep) -> Response:
+    """Serve the assembled book PDF once rendering has completed."""
+    _ensure_book(book_id, container)
+    data = container.book_store.read_pdf(book_id)
+    if data is None:
+        raise BookNotReady(
+            "The book is not ready yet — poll its status and retry once it reports complete."
+        )
+    logger.info("book.pdf id=%s bytes=%d", book_id, len(data))
+    return _no_store(
+        data,
+        media_type="application/pdf",
+        filename=f"book-{book_id}.pdf",
+    )
+
+
+@media_router.get("/{book_id}/portrait")
+def book_portrait(book_id: str, container: ContainerDep) -> Response:
+    """The approved cartoon portrait every page is anchored on."""
+    _ensure_book(book_id, container)
+    data = container.book_store.read_portrait(book_id)
+    if data is None:
+        raise UnknownBook("That book has no portrait stored.")
+    return _no_store(data, media_type=_detect_media_type(data))
+
+
+@media_router.get("/{book_id}/pages/{page_number}")
+def book_page(page_number: int, book_id: str, container: ContainerDep) -> Response:
+    """One page's art, as soon as it exists — the browser shows them landing."""
+    _ensure_book(book_id, container)
+    data = container.book_store.read_page(book_id, page_number)
+    if data is None:
+        raise BookNotReady("That page is not ready yet — poll the book's status.")
+    return _no_store(data, media_type=_detect_media_type(data))
+
+
+@media_router.get("/{book_id}/prompts.json")
+def book_prompts(book_id: str, container: ContainerDep) -> Response:
+    """The exact prompt sent for each page — the record of what was sent."""
+    _ensure_book(book_id, container)
+    path = container.book_store.path(book_id, "prompts.json")
+    if not path.is_file():
+        raise BookNotReady("The prompt record appears when the book completes.")
+    return _no_store(path.read_bytes(), media_type="application/json")
+
+
+# --- shared helpers -----------------------------------------------------------
+
+
+def _ensure_book(book_id: str, container: ContainerDep) -> None:
+    if container.book_store.load_status(book_id) is None:
+        raise UnknownBook("No book with that id. It may have expired — start a new one.")
+
+
+def _check_rate(request: Request, container: ContainerDep) -> None:
+    client_key = request.client.host if request.client else "unknown"
+    if not container.rate_limiter.allow(client_key):
+        raise GenerationRateLimited(
+            "This client has reached the image-generation limit for this minute. "
+            "Please wait and try again."
+        )
+
+
+def _about_from_form(
+    child_name: str,
+    child_age: int | None,
+    child_gender: str | None,
+    details: str,
+) -> AboutMe:
+    """Validate the uploader's words with the same strictness as the settings.
+
+    The text itself is free — it is drawn on the PDF, never sent to a model —
+    but a malformed value fails here with a 422 naming the field rather than
+    surfacing as a blank About Me page later.
+    """
+    try:
+        return AboutMe.model_validate(
+            {
+                "child_name": child_name,
+                "child_age": child_age,
+                "child_gender": child_gender,
+                "details": details,
+            }
+        )
+    except ValidationError as exc:
+        raise InvalidSettings(f"The About Me details did not validate: {exc}") from exc
+
+
+def _no_store(data: bytes, *, media_type: str, filename: str | None = None) -> Response:
+    """A response carrying child-derived data: private, never cached."""
+    headers: dict[str, str] = {
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if filename:
+        headers["Content-Disposition"] = f'inline; filename="{filename}"'
+    return Response(content=data, media_type=media_type, headers=headers)
+
+
+def _detect_media_type(data: bytes) -> str:
+    if data.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG"):
+        return "image/png"
+    return "application/octet-stream"

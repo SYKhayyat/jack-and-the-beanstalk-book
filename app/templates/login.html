@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jack and the Beanstalk — password</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+  <main class="login-shell">
+    <form id="login-form" class="login-card" method="post" action="/login">
+      <h1>Jack and the Beanstalk</h1>
+      <p class="login-tagline">This app is private. Enter the password to continue.</p>
+
+      {% if error %}
+        <p class="login-error" role="alert">{{ error }}</p>
+      {% endif %}
+
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password"
+             autofocus required>
+
+      <input type="hidden" name="next_path" value="{{ next_path }}">
+      <button type="submit" class="button">Enter</button>
+    </form>
+  </main>
+</body>
+</html>

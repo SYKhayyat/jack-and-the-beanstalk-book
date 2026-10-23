@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Make a picture book — {{ book_title }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-max-upload-mb="{{ max_upload_mb }}" data-page="book">
+  <header class="masthead">
+    <h1>Make a picture book</h1>
+    <p class="tagline">One photo. A picture book of {{ pages|length }} story pages — starring your child, written by <em>{{ book_title }}</em>.</p>
+    <p class="provider-badge {{ 'provider-live' if provider.using_real_api else 'provider-mock' }}">
+      Provider: <strong>{{ provider.name }}</strong> — {{ provider.reason }}
+      {% if not provider.using_real_api %}
+        <span class="hint">(mock mode: no API calls, placeholder images)</span>
+      {% endif %}
+    </p>
+    {% if auth_enabled %}
+      <form class="logout-form" method="post" action="/logout">
+        <button type="submit">Log out</button>
+      </form>
+    {% endif %}
+    <nav class="book-nav">
+      <a href="/">Single scene instead →</a>
+    </nav>
+  </header>
+
+  <main>
+    <form id="book-form" class="panel" enctype="multipart/form-data">
+      <!-- Step 1: the photo -->
+      <fieldset id="book-step-photo">
+        <legend>Step 1 · Your child's photo</legend>
+        <div class="photo-controls">
+          <label class="file-label" for="photo">
+            <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/webp">
+          </label>
+          <button type="button" id="use-camera" class="button secondary">Use camera</button>
+        </div>
+        <p class="field-help">Any size photo — we shrink it for you. A clear, front-facing photo works best.</p>
+        <p id="photo-message" class="inline-message hidden" role="status" aria-live="polite"></p>
+
+        <div id="camera-pane" class="camera-pane hidden">
+          <video id="camera-video" autoplay playsinline muted></video>
+          <div class="camera-actions">
+            <button type="button" id="camera-shutter" class="primary">Take the picture</button>
+            <button type="button" id="camera-cancel" class="button secondary">Cancel</button>
+          </div>
+        </div>
+        <p id="camera-message" class="inline-message error hidden" role="status" aria-live="polite"></p>
+
+        <div id="preview-wrap" class="preview-wrap hidden">
+          <img id="preview" alt="Preview of your chosen photo">
+        </div>
+      </fieldset>
+
+      <!-- Step 2: who the character is -->
+      <fieldset>
+        <legend>Step 2 · Who is the star?</legend>
+        <div class="grid-3">
+          <div class="control">
+            <label for="child-name">Child's name</label>
+            <input type="text" id="child-name" name="child_name" required maxlength="60"
+                   placeholder="e.g. Shai">
+          </div>
+          <div class="control">
+            <label for="child-age">Age (optional)</label>
+            <input type="number" id="child-age" name="child_age" min="0" max="14" placeholder="e.g. 7">
+          </div>
+          <div class="control">
+            <label for="photo_gender">The photo shows a</label>
+            <select id="photo_gender" name="photo_gender">
+              {% for value, label in photo_genders %}<option value="{{ value }}" {% if value == defaults.photo_gender %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+            <p class="field-help">A boy becomes Jack; a girl becomes Jane.</p>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Step 3: About Me details -->
+      <fieldset>
+        <legend>Step 3 · About Me details</legend>
+        <p class="field-help">
+          Everything you write here goes on the book's last page, typed exactly as
+          you write it — one line per line.
+        </p>
+        <div class="grid-2">
+          <div class="control">
+            <label for="child-gender">How you say who they are</label>
+            <input type="text" id="child-gender" name="child_gender" maxlength="60" placeholder="e.g. a boy / a girl / a valeta">
+          </div>
+        </div>
+        <div class="control">
+          <label for="details">Lines for the About Me page</label>
+          <textarea id="details" name="details" rows="4"
+            placeholder="One per line, e.g.&#10;Loves dinosaurs&#10;Due in a year&#10;Lives in Jerusalem"></textarea>
+        </div>
+      </fieldset>
+
+      <div class="submit-block">
+        <button type="submit" id="make-portrait" class="primary">Step 4 · Make the cartoon portrait</button>
+        <p class="submit-help">One image call. You approve the portrait before the book pages are made — that portrait is used on every page, so the same child appears throughout.</p>
+      </div>
+
+      <!-- Advanced options: anything you might want to pick, folded away. -->
+      <details id="book-advanced" class="advanced-options">
+        <summary>Advanced settings</summary>
+        <p class="field-help">The book always draws in its one fixed art style. Everything else is yours to pick.</p>
+
+        <fieldset>
+          <legend>Page shape</legend>
+          <div class="control">
+            <label for="aspect_ratio">Page / picture shape</label>
+            <select id="aspect_ratio" name="aspect_ratio">
+              {% for value, label in aspect_ratios %}<option value="{{ value }}" {% if value == defaults.aspect_ratio %}selected{% endif %}>{{ value }} — {{ label }}</option>{% endfor %}
+            </select>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Who the character is</legend>
+          <div class="grid-3">
+            <div class="control">
+              <label for="apparent_age">Age</label>
+              <select id="apparent_age" name="apparent_age">
+                {% for value, label in ages %}<option value="{{ value }}" {% if value == defaults.apparent_age %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="control">
+              <label for="skin_tone">Skin tone</label>
+              <select id="skin_tone" name="skin_tone">
+                {% for value, label in skin_tones %}<option value="{{ value }}" {% if value == defaults.skin_tone %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>The character's look</legend>
+          <div class="grid-3">
+            <div class="control">
+              <label for="hair_style">Hair</label>
+              <select id="hair_style" name="hair_style">
+                {% for value, label in hair_styles %}<option value="{{ value }}" {% if value == defaults.hair_style %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="control">
+              <label for="hair_color">Hair colour</label>
+              <select id="hair_color" name="hair_color">
+                {% for value, label in hair_colours %}<option value="{{ value }}" {% if value == defaults.hair_color %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="control">
+              <label for="outfit">Outfit</label>
+              <select id="outfit" name="outfit">
+                {% for value, label in outfits %}<option value="{{ value }}" {% if value == defaults.outfit %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="control">
+              <label for="expression">Expression</label>
+              <select id="expression" name="expression">
+                {% for value, label in expressions %}<option value="{{ value }}" {% if value == defaults.expression %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Fidelity to the photo</legend>
+          <div class="control">
+            <label for="likeness_strength">Likeness to the real child</label>
+            <select id="likeness_strength" name="likeness_strength">
+              {% for value, label in likeness_levels %}<option value="{{ value }}" {% if value == defaults.likeness_strength %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+            <p class="field-help">Strict keeps your child's face most recognisable.</p>
+          </div>
+        </fieldset>
+      </details>
+    </form>
+
+    <!-- Step 5: approve the portrait -->
+    <section id="review-stage" class="panel hidden">
+      <h2>Does this portrait look like your child?</h2>
+      <div class="compare-grid">
+        <figure>
+          <img id="review-portrait" alt="The cartoon portrait to approve">
+          <figcaption>The cartoon — used on every page</figcaption>
+        </figure>
+      </div>
+      <div class="review-actions">
+        <button type="button" id="approve-portrait" class="primary">Approve — make my book</button>
+        <button type="button" id="reject-portrait" class="button secondary">Not right — try again</button>
+      </div>
+      <p id="review-message" class="inline-message hidden" role="status" aria-live="polite"></p>
+    </section>
+
+    <!-- Step 6: the book itself -->
+    <section id="book-stage" class="panel hidden">
+      <h2>Your book</h2>
+      <p id="book-progress" class="inline-message" role="status" aria-live="polite"></p>
+      <div id="book-pages" class="book-pages"></div>
+      <div class="download-block">
+        <a id="book-pdf-link" class="button primary hidden" download="book.pdf">Download the book (PDF)</a>
+        <a id="book-restart" class="button secondary hidden" href="/book">Start a new book</a>
+      </div>
+      <p class="field-help">The story text on each page is drawn in your PDF reader — the image model never writes text, so it can never garble it.</p>
+    </section>
+  </main>
+
+  <script type="module" src="/static/book.js"></script>
+</body>
+</html>
