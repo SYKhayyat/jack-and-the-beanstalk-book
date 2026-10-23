@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Load-test the app without spending anything.
 
-Drives `POST /api/generate` concurrently against any base URL and reports
+Drives `POST /api/cartoonify` concurrently against any base URL and reports
 throughput, latency percentiles and the status-code breakdown. Point it at a
 local mock-mode instance for unlimited free load, or at a deployed URL for a
 light sanity check.
@@ -14,7 +14,8 @@ light sanity check.
         --concurrency 16
 
 Against the real provider this costs roughly
-`(requests / 2) x $0.039`, so run it deliberately, not reflexively:
+`requests x $0.006` (one flare-low call per portrait), so run it deliberately,
+not reflexively:
 
     python scripts/stress_test.py --url https://your-app.onrender.com \
         --requests 12 --concurrency 3 --yes-i-am-using-a-paid-key
@@ -37,9 +38,8 @@ try:
 except ImportError:  # pragma: no cover
     sys.exit("Missing dependencies. Run: pip install -r requirements-dev.txt")
 
-SCENES = ("planting-seeds", "climbing-beanstalk")
-COST_PER_GENERATION_USD = 0.039
-CALLS_PER_GENERATION = 2
+COST_PER_CALL_USD = 0.00588
+CALLS_PER_REQUEST = 1
 
 
 def make_photo(seed: int, size: int = 512) -> bytes:
@@ -76,13 +76,11 @@ async def one_request(
     client: httpx.AsyncClient,
     url: str,
     seed: int,
-    scene: str,
     intensity: int,
     stats: Stats,
 ) -> None:
     photo = make_photo(seed)
     form = {
-        "scene": scene,
         "cartoon_intensity": str(intensity),
         "cartoon_style": "western_cartoon",
         "likeness_strength": "strict",
@@ -91,14 +89,14 @@ async def one_request(
 
     started = time.perf_counter()
     try:
-        response = await client.post(f"{url}/api/generate", data=form, files=files)
+        response = await client.post(f"{url}/api/cartoonify", data=form, files=files)
         elapsed = time.perf_counter() - started
         stats.latencies.append(elapsed)
         stats.statuses[response.status_code] += 1
 
         if response.status_code == 201:
             payload = response.json()
-            if not payload["caption"].strip():
+            if not payload["images"]["cartoon_url"].strip():
                 stats.caption_mismatches += 1
         elif response.headers.get("content-type", "").startswith("application/json"):
             detail = response.json().get("detail", response.text)
@@ -131,7 +129,6 @@ async def run(args: argparse.Namespace) -> Stats:
                         client,
                         args.url,
                         seed + worker_id * 100_000,
-                        SCENES[seed % len(SCENES)],
                         1 + (seed % 10),
                         stats,
                     )
@@ -158,7 +155,7 @@ def report(stats: Stats, args: argparse.Namespace) -> int:
             f"  max {max(stats.latencies):.3f}s"
             f"  mean {statistics.fmean(stats.latencies):.3f}s"
         )
-    print(f"  missing captions {stats.caption_mismatches}")
+    print(f"  missing cartoon urls {stats.caption_mismatches}")
 
     if stats.errors:
         print("\n  error samples (unique):")
@@ -168,7 +165,7 @@ def report(stats: Stats, args: argparse.Namespace) -> int:
     if not args.paid_key:
         print("\n  cost: $0.00 — mock mode makes no API calls.")
     else:
-        spend = successes * CALLS_PER_GENERATION * COST_PER_GENERATION_USD
+        spend = successes * CALLS_PER_REQUEST * COST_PER_CALL_USD
         print(f"\n  estimated spend: ${spend:.2f} ({successes} generations)")
 
     print("─" * 70)
@@ -202,7 +199,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if args.paid_key:
-        estimate = args.requests * CALLS_PER_GENERATION * COST_PER_GENERATION_USD
+        estimate = args.requests * CALLS_PER_REQUEST * COST_PER_CALL_USD
         print(
             f"About {args.requests} generations against a paid provider: "
             f"~${estimate:.2f}. Proceeding."

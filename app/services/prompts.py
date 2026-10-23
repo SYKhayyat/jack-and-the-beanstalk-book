@@ -9,9 +9,6 @@ The pipeline runs two passes:
 
 1. `build_cartoon_prompt` — stylise the uploaded photo into a cartoon portrait,
    applying every user setting. The output is the identity anchor.
-2. `build_scene_prompt` — place that cartoon person into the requested scene,
-   re-stating the identity constraints because models drift when the scene
-   action is interesting.
 
 Passing the original photo alongside the cartoon portrait in pass 2 gives the
 model two independent anchors on the same face, which is the single biggest
@@ -24,7 +21,6 @@ from typing import cast
 
 from app.models import CartoonSettings, CartoonStyle, Scene
 from app.models.book import BookPage
-from app.models.feedback import RejectionFeedback
 from app.models.settings import (
     ApparentAge,
     AspectRatio,
@@ -42,11 +38,10 @@ from app.prompt_data import prompt_text
 
 __all__ = [
     "NEGATIVE_PROMPT_TAIL",
+    "book_name_for",
     "build_book_page_prompt",
     "build_cartoon_prompt",
-    "build_scene_prompt",
     "render_book_page",
-    "render_scene",
 ]
 
 _DATA = prompt_text()
@@ -157,24 +152,39 @@ def _accessory_directives(settings: CartoonSettings) -> list[str]:
     return [glasses, facial_hair]
 
 
-def _substitutions(settings: CartoonSettings) -> dict[str, str]:
-    """The name and pronouns the scene prose is written with, for this setting."""
+def book_name_for(settings: CartoonSettings) -> str:
+    """The default character name: Jack or Jane, from the photo's gender answer.
+
+    This is what a blank name resolves to, everywhere a name is shown.
+    """
+    return _NAMES[settings.effective_gender]
+
+
+def _substitutions(
+    settings: CartoonSettings, prompt_name: str | None = None
+) -> dict[str, str]:
+    """The name and pronouns the prose is written with.
+
+    `prompt_name`, when given (star name), overrides the gender default.
+    """
     gender = settings.effective_gender
-    return {"name": _NAMES[gender], **_PRONOUNS[gender]}
+    return {"name": prompt_name or _NAMES[gender], **_PRONOUNS[gender]}
 
 
-def render_scene(scene: Scene, settings: CartoonSettings) -> Scene:
-    """Fill a scene's name/pronoun placeholders for the chosen gender."""
-    return scene.formatted(_substitutions(settings))
-
-
-def render_book_page(page: BookPage, settings: CartoonSettings) -> BookPage:
+def render_book_page(
+    page: BookPage, settings: CartoonSettings, *, prompt_name: str | None = None
+) -> BookPage:
     """Fill a book page's name/pronoun placeholders for the chosen child."""
-    return page.formatted(_substitutions(settings))
+    return page.formatted(_substitutions(settings, prompt_name))
 
 
 def build_book_page_prompt(
-    page: BookPage, settings: CartoonSettings, *, page_number: int, total_pages: int
+    page: BookPage,
+    settings: CartoonSettings,
+    *,
+    page_number: int,
+    total_pages: int,
+    prompt_name: str | None = None,
 ) -> str:
     """Prompt for one picture-book page.
 
@@ -186,19 +196,21 @@ def build_book_page_prompt(
 
     Args:
         page: The resolved page (callers pass the raw catalogue entry; the
-            name/pronoun placeholders are filled here, like `compose` does).
+            name/pronoun placeholders are filled here).
         settings: The character settings.
         page_number: This page's one-based position in story order.
         total_pages: The book's page count, for the "you are page N of M" framing.
+        prompt_name: The star name; None falls back to the gender default
+            (Jack/Jane).
     """
     task_book = cast("dict[str, str]", _BOOK["assembly"])
-    page = render_book_page(page, settings)
+    page = render_book_page(page, settings, prompt_name=prompt_name)
     sections = [
         task_book["task"].format(
             page_number=page_number,
             total_pages=total_pages,
             book_title=str(_BOOK["book_title"]),
-            name=_substitutions(settings)["name"],
+            name=_substitutions(settings, prompt_name)["name"],
         ),
         task_book["page_identity"],
         settings.identity_directive(),
@@ -241,27 +253,16 @@ def _common_character_block(settings: CartoonSettings) -> str:
     )
 
 
-def build_cartoon_prompt(
-    settings: CartoonSettings,
-    rejection: RejectionFeedback | None = None,
-) -> str:
+def build_cartoon_prompt(settings: CartoonSettings) -> str:
     """Prompt for pass 1: stylise the uploaded photo into a cartoon portrait.
 
-    Args:
-        settings: The user's settings.
-        rejection: What was wrong with the previous attempt, if any. Rendered as
-            corrective instructions near the top, where they outrank the general
-            style guidance.
-
-    Note:
-        The previous attempt is deliberately *not* sent as a reference image.
-        Showing a rejected portrait invites the model to converge on its faults
-        rather than move away from them; only the corrections carry over.
+    A retry sends the *tweaked settings*, never the previous image as a
+    reference: showing a rejected portrait invites the model to converge on its
+    faults rather than move away from them.
     """
     style_text = _STYLE_DESCRIPTIONS[settings.cartoon_style]
     sections = [
         _ASSEMBLY["task_cartoon"],
-        *([rejection.prompt_block()] if rejection and not rejection.is_empty else []),
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
         _common_character_block(settings),
@@ -271,41 +272,6 @@ def build_cartoon_prompt(
         _ASSEMBLY["framing"],
         _PORTRAIT_BACKGROUNDS[settings.portrait_background],
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
-        NEGATIVE_PROMPT_TAIL,
-    ]
-    return _join_sections(sections)
-
-
-def build_scene_prompt(scene: Scene, settings: CartoonSettings) -> str:
-    """Prompt for pass 2: place the cartoon character into the scene.
-
-    The first reference image is the cartoon portrait from pass 1; the second,
-    when supplied, is the original photograph. They are the same person, and the
-    model should treat them as a matched pair.
-
-    The scene's name/pronoun placeholders are resolved here, so the prompt always
-    matches the chosen character even if the caller passes the raw catalogue entry.
-    """
-    scene = render_scene(scene, settings)
-    style_text = _STYLE_DESCRIPTIONS[settings.cartoon_style]
-    sections = [
-        _ASSEMBLY["task_scene"].format(**_substitutions(settings)),
-        settings.identity_directive(),
-        _LIKENESS_EMPHASIS[settings.likeness_strength],
-        # Repeated rather than assumed: this is what models drop when the scene
-        # action is exciting, and it is the first of the two graded requirements.
-        _ASSEMBLY["scene_to_draw"].format(caption=scene.caption),
-        _ASSEMBLY["character_doing"].format(action=scene.subject_action),
-        _ASSEMBLY["where"].format(environment=scene.environment),
-        _ASSEMBLY["lighting"].format(time_of_day=scene.time_of_day),
-        _ASSEMBLY["camera"].format(camera=scene.camera),
-        scene.checklist,
-        _common_character_block(settings),
-        _ASSEMBLY["stylisation"].format(intensity=_intensity_text(settings.cartoon_intensity)),
-        _photoreal_keywords(settings.cartoon_intensity),
-        _ASSEMBLY["art_style"].format(style=style_text),
-        _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
-        _avoid_clause(scene),
         NEGATIVE_PROMPT_TAIL,
     ]
     return _join_sections(sections)

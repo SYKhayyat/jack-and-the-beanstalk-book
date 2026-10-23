@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -10,28 +9,9 @@ from pydantic import ValidationError
 
 from app.config import ProviderName, Settings
 from app.models import CartoonSettings
-from app.models.generation import GenerationResult
 from app.models.settings import CartoonStyle, LikenessStrength
-from app.services.storage import GenerationStore
+from app.services.storage import Draft, GenerationStore
 from tests.helpers import tiny_png_bytes
-
-CAPTION = "Jack is planting the seeds."
-
-
-def make_result(generation_id: str = "abc123") -> GenerationResult:
-    return GenerationResult(
-        generation_id=generation_id,
-        provider="recording",
-        model="recording-v1",
-        scene_key="planting-seeds",
-        caption=CAPTION,
-        settings=CartoonSettings(),
-        cartoon_prompt="cartoon prompt",
-        scene_prompt="scene prompt",
-        cartoon_image=tiny_png_bytes(),
-        scene_image=tiny_png_bytes(),
-        created_at=datetime(2026, 1, 1, tzinfo=UTC),
-    )
 
 
 class TestCartoonSettings:
@@ -95,40 +75,43 @@ class TestSettingsConfig:
         assert not Settings(_env_file=None, app_env="development").is_production
 
 
+def make_draft(generation_id: str = "abc123") -> Draft:
+    """A minimal valid draft: one cartoon, one photo, default settings."""
+    return Draft(
+        generation_id=generation_id,
+        settings=CartoonSettings(),
+        cartoon_prompt="cartoon prompt",
+        candidates=(tiny_png_bytes(),),
+        photo_data=tiny_png_bytes(),
+        photo_media_type="image/png",
+        provider="recording",
+        model="recording-v1",
+    )
+
+
 class TestGenerationStore:
-    def test_round_trips_a_generation(self, tmp_path: Path) -> None:
+    def test_round_trips_a_draft(self, tmp_path: Path) -> None:
         store = GenerationStore(tmp_path)
-        store.save(make_result())
+        store.save_draft(make_draft())
 
-        assert store.read_image("abc123", "scene") is not None
-        assert store.read_meta("abc123") is not None
+        assert store.read_image("abc123", "cartoon") is not None
+        assert store.read_image("abc123", "photo") is not None
 
-    def test_meta_contains_the_audit_trail(self, tmp_path: Path) -> None:
+    def test_drafts_are_isolated_from_each_other(self, tmp_path: Path) -> None:
         store = GenerationStore(tmp_path)
-        store.save(make_result())
+        store.save_draft(make_draft("first"))
+        store.save_draft(make_draft("second"))
 
-        meta = store.read_meta("abc123")
-        assert meta is not None
-        assert meta["caption"] == CAPTION
-        assert meta["model"] == "recording-v1"
-        assert meta["created_at"] == "2026-01-01T00:00:00+00:00"
+        assert store.read_image("first", "cartoon") is not None
+        assert store.read_image("second", "cartoon") is not None
 
-    def test_generations_are_isolated_from_each_other(self, tmp_path: Path) -> None:
+    def test_missing_draft_returns_none(self, tmp_path: Path) -> None:
         store = GenerationStore(tmp_path)
-        store.save(make_result("first"))
-        store.save(make_result("second"))
-
-        assert store.read_meta("first") is not None
-        assert store.read_meta("second") is not None
-
-    def test_missing_generation_returns_none(self, tmp_path: Path) -> None:
-        store = GenerationStore(tmp_path)
-        assert store.read_meta("nope") is None
-        assert store.read_image("nope", "scene") is None
+        assert store.read_image("nope", "cartoon") is None
 
     def test_unknown_stem_returns_none(self, tmp_path: Path) -> None:
         store = GenerationStore(tmp_path)
-        store.save(make_result())
+        store.save_draft(make_draft())
         assert store.read_image("abc123", "passwd") is None
 
     @pytest.mark.parametrize(
@@ -137,24 +120,16 @@ class TestGenerationStore:
     )
     def test_traversal_attempts_are_refused(self, tmp_path: Path, generation_id: str) -> None:
         store = GenerationStore(tmp_path)
-        store.save(make_result())
-        assert store.read_meta(generation_id) is None
-        assert store.read_image(generation_id, "scene") is None
+        store.save_draft(make_draft())
+        assert store.read_image(generation_id, "cartoon") is None
 
-    def test_delete_removes_the_generation(self, tmp_path: Path) -> None:
+    def test_delete_removes_the_draft(self, tmp_path: Path) -> None:
         store = GenerationStore(tmp_path)
-        stored = store.save(make_result())
+        stored = store.save_draft(make_draft())
         store.delete("abc123")
 
         assert not stored.directory.exists()
-        assert store.read_meta("abc123") is None
-
-    def test_corrupt_meta_does_not_crash(self, tmp_path: Path) -> None:
-        store = GenerationStore(tmp_path)
-        stored = store.save(make_result())
-        stored.path("meta.json").write_text("{not json", encoding="utf-8")
-
-        assert store.read_meta("abc123") is None
+        assert store.read_image("abc123", "cartoon") is None
 
 
 def get_settings_cache_clear() -> None:

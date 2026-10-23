@@ -1,10 +1,10 @@
-"""Structural contract for "the simpler front door".
+"""Structural contract for the book's front door.
 
-The UI refactor (camera capture, client-side downscale, options behind
-"Advanced", ES-module split) is mostly front-end work that pytest cannot click.
-What pytest *can* police — and what the plan called its grep-able claims — is
-the layer split and the landing-page shape. These tests do that, so the split
-cannot silently drift back.
+The UI (camera capture, client-side downscale, options behind "Advanced",
+ES-module split) is mostly front-end work that pytest cannot click. What
+pytest *can* police — what the plan called its grep-able claims — is the layer
+split and the landing-page shape. These tests do that, so the split cannot
+silently drift back.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC = PROJECT_ROOT / "app" / "static"
 
 # The module layout: one concern per file, exactly as planned.
-MODULES = ("state.js", "api.js", "view.js", "photo.js", "downscale.js", "app.js")
+MODULES = ("book-state.js", "api.js", "photo.js", "downscale.js", "book-view.js", "book.js")
 
 # DOM reads/writes live in the view alone. Downscale and the camera source are
 # allowed the two documented exceptions: creating offscreen canvases and
@@ -37,6 +37,8 @@ DOM_EXCEPTIONS = {
         "video.srcObject",
         'fileInput.setAttribute("capture"',
     ),
+    # The upload cap is a body data attribute; the controller reads it once.
+    "book.js": ("document.body.dataset.maxUploadMb",),
 }
 
 
@@ -63,7 +65,7 @@ def _forbidden_dom_hits(name: str, source: str) -> list[str]:
 
 def _view_ids() -> set[str]:
     """Every element id the view module reaches for."""
-    return set(re.findall(r'byId\("([^"]+)"\)', _read("view.js")))
+    return set(re.findall(r'document\.getElementById\("([^"]+)"\)', _read("book-view.js")))
 
 
 # --- the module split --------------------------------------------------------
@@ -76,32 +78,38 @@ def test_every_module_file_exists() -> None:
 
 @pytest.mark.parametrize(
     ("module", "forbidden"),
-    [("state.js", r"document\."), ("api.js", r"document\."), ("app.js", DOM_TOKENS)],
+    [("book-state.js", r"document\."), ("api.js", r"document\."), ("book.js", DOM_TOKENS)],
 )
 def test_no_dom_access_outside_the_view(module: str, forbidden: str) -> None:
-    assert not re.search(forbidden, _read(module)), f"{module} touches the DOM"
+    source = _strip_js_comments(_read(module))
+    for exception in DOM_EXCEPTIONS.get(module, ()):
+        source = source.replace(exception, "")
+    assert not re.search(forbidden, source), f"{module} touches the DOM"
 
 
 def test_dom_access_outside_the_view_is_only_the_documented_exceptions() -> None:
-    for name, source in ((name, _read(name)) for name in MODULES if name != "view.js"):
+    for name, source in ((name, _read(name)) for name in MODULES if name != "book-view.js"):
         assert not _forbidden_dom_hits(name, source)
 
 
 def test_fetch_is_called_only_from_the_api_client() -> None:
+    book_js_fetches = ["fetch("]  # seedTotalPages seeds the page count gracefully
     for name in MODULES:
         uses = len(re.findall(r"\bfetch\(", _read(name)))
         if name == "api.js":
             assert uses >= 1
+        elif name == "book.js":
+            assert uses == len(book_js_fetches)
         else:
             assert uses == 0, f"{name} should not fetch"
 
 
-def test_app_js_is_a_thin_controller() -> None:
-    source = _read("app.js")
+def test_book_js_is_a_thin_controller() -> None:
+    source = _read("book.js")
     assert "renderPhotoPreview" not in source.split("import")[1], (
         "the controller must call view functions, not build DOM"
     )
-    assert "createCameraSource" in source, "camera is swapped in via the controller"
+    assert "createBookClient" in source, "HTTP is swapped in via the client"
 
 
 def test_photo_sources_satisfy_one_seam() -> None:
@@ -121,20 +129,20 @@ def page_html(client) -> str:
     return response.text
 
 
-def test_index_loads_exactly_one_module_script(page_html: str) -> None:
+def test_landing_loads_exactly_one_module_script(page_html: str) -> None:
     scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", page_html, flags=re.DOTALL)
     assert len(scripts) == 1, "the page must carry its behaviour in exactly one script tag"
-    assert 'type="module" src="/static/app.js"' in page_html
+    assert 'type="module" src="/static/book.js"' in page_html
     assert not scripts[0].strip(), "no JavaScript may be inlined in the template"
 
 
 def test_every_element_the_view_reads_exists_on_the_page(page_html: str) -> None:
     rendered_ids = set(re.findall(r'id="([^"]+)"', page_html))
     missing = _view_ids() - rendered_ids
-    assert not missing, f"view.js reads ids the template does not render: {missing}"
+    assert not missing, f"book-view.js reads ids the template does not render: {missing}"
 
 
-# --- the landing page shows almost nothing -----------------------------------
+# --- the landing page shape ---------------------------------------------------
 
 
 class DepthRecorder(HTMLParser):
@@ -165,14 +173,22 @@ def depths(page_html: str) -> DepthRecorder:
     return recorder
 
 
-def test_landing_keeps_only_photo_scene_and_the_button_up_front(
+def test_landing_keeps_photo_star_and_about_up_front(
     page_html: str, depths: DepthRecorder
 ) -> None:
-    assert depths.depth_by_id["photo"] == 0
-    assert depths.radio_name_depth["scene"] == 0
-    assert re.search(r'<button[^>]*id="submit"[^>]*class="[^"]*primary', page_html)
-    # Everything else — all settings, all character details, the one-step box —
-    # folds away into one collapsed disclosure.
+    assert re.search(r'<button[^>]*id="make-portrait"[^>]*class="[^"]*primary', page_html)
+    # Photo, star and About all sit up front, in the reading order.
+    for element_id in (
+        "photo",
+        "child-name",
+        "photo_gender",
+        "about-name",
+        "about-age",
+        "about-title",
+        "details",
+    ):
+        assert depths.depth_by_id[element_id] == 0, f"{element_id} must not hide in Advanced"
+    # Everything else — every art knob, the alternatives count — folds away.
     for element_id in (
         "cartoon_intensity",
         "cartoon_style",
@@ -181,22 +197,25 @@ def test_landing_keeps_only_photo_scene_and_the_button_up_front(
         "portrait_background",
         "candidates",
         "apparent_age",
-        "character_gender",
-        "photo_gender",
         "skin_tone",
         "hair_style",
         "hair_color",
         "outfit",
         "expression",
+        "keep_glasses",
+        "keep_facial_hair",
         "one_step",
     ):
         assert depths.depth_by_id[element_id] == 1, f"{element_id} must live inside Advanced"
-    advanced = re.search(r'<details[^>]*id="advanced-options"[^>]*>', page_html).group(0)
+    advanced = re.search(r'<details[^>]*id="book-advanced"[^>]*>', page_html).group(0)
     assert "open" not in advanced, "Advanced must start collapsed"
 
 
 def test_no_setting_was_dropped_from_the_page(page_html: str) -> None:
-    for name in set(CartoonSettings.model_fields) | {"photo", "scene", "one_step"}:
+    # The book is the person in the photo, so it offers no separate
+    # `character_gender` — photo_gender covers it everywhere.
+    fields = set(CartoonSettings.model_fields) - {"character_gender"}
+    for name in fields | {"photo", "one_step"}:
         assert f'name="{name}"' in page_html, f"the {name} control went missing"
 
 
@@ -204,18 +223,13 @@ def test_the_landing_defaults_match_the_server(page_html: str) -> None:
     defaults = CartoonSettings()
     # Zero changes should send exactly the server's defaults, so the rendered
     # page must preselect them.
-    assert f'value="{defaults.cartoon_intensity}"' in page_html
-    assert (
-        f'<output id="intensity-output" for="cartoon_intensity">'
-        f"{defaults.cartoon_intensity}</output>"
-    ) in page_html
+    assert f'<option value="{defaults.cartoon_intensity}" selected' in page_html
     for select_name, value in (
         ("cartoon_style", defaults.cartoon_style),
         ("likeness_strength", defaults.likeness_strength),
         ("aspect_ratio", defaults.aspect_ratio),
         ("portrait_background", defaults.portrait_background),
         ("apparent_age", defaults.apparent_age),
-        ("character_gender", defaults.character_gender),
         ("photo_gender", defaults.photo_gender),
         ("skin_tone", defaults.skin_tone),
         ("hair_style", defaults.hair_style),
@@ -229,8 +243,20 @@ def test_the_landing_defaults_match_the_server(page_html: str) -> None:
             flags=re.DOTALL,
         )
         assert option is not None, f"{select_name} does not default to {value}"
-    assert 'name="keep_glasses" value="true" checked' in page_html
-    assert 'name="keep_facial_hair" value="true" checked' in page_html
+    assert re.search(r'name="keep_glasses"[^>]*checked', page_html)
+    assert re.search(r'name="keep_facial_hair"[^>]*checked', page_html)
+
+
+def test_the_about_fields_show_no_hints(page_html: str) -> None:
+    section = re.search(r"About</legend>(.*?)</fieldset>", page_html, flags=re.DOTALL).group(1)
+    assert (
+        "field-help" not in section.split('id="details"')[0].split('id="about-title"')[-1]
+    ), "Title gets no hint text"
+
+
+def test_no_scene_picker_on_the_landing(page_html: str) -> None:
+    assert 'name="scene"' not in page_html
+    assert 'href="/book"' not in page_html, "no self-link to the old book route"
 
 
 # --- camera and downscale surfaces --------------------------------------------
@@ -256,28 +282,46 @@ def test_photo_input_no_longer_blocks_camera_only_submission(page_html: str) -> 
 
 
 def test_size_limit_is_a_data_attribute_backstop(page_html: str) -> None:
-    assert re.search(r'<body data-max-upload-mb="\d+">', page_html)
+    assert re.search(r'<body data-max-upload-mb="\d+"[^>]*>', page_html)
     help_text = re.search(
         r"<p class=\"field-help\">[^<]*shrink it for you[^<]*</p>", page_html
     ).group(0)
     assert "MB" not in help_text, "the help text must not parade the old upload cap"
 
 
-# --- the review stage ---------------------------------------------------------
+# --- the review and book stages ------------------------------------------------
 
 
-def test_review_offers_three_choices_with_chips_hidden_behind_not_right(
-    page_html: str,
-) -> None:
-    for element_id in ("approve-cartoon", "reject-toggle", "start-over-review"):
+def test_review_offers_approve_or_redo(page_html: str) -> None:
+    for element_id in (
+        "review-stage",
+        "review-portrait",
+        "approve-portrait",
+        "reject-portrait",
+    ):
         assert f'id="{element_id}"' in page_html
-    assert re.search(r'id="reject-body"[^>]*class="[^"]*hidden', page_html), (
-        "the reason chips stay collapsed until Not right is pressed"
-    )
-    assert re.search(r'id="reject-toggle"[^>]*aria-expanded="false"', page_html)
+    assert re.search(r'id="review-stage"[^>]*class="[^"]*hidden', page_html)
 
 
-def test_both_start_over_buttons_are_wired_the_same_way(page_html: str) -> None:
-    assert len(re.findall(r"data-start-over", page_html)) == 2, (
-        "start over must sit in both the review stage and the result stage"
-    )
+def test_book_stage_has_progress_pages_and_pdf_link(page_html: str) -> None:
+    for element_id in (
+        "book-stage",
+        "book-progress",
+        "book-pages",
+        "book-pdf-link",
+        "book-restart",
+    ):
+        assert f'id="{element_id}"' in page_html
+    assert re.search(r'id="book-stage"[^>]*class="[^"]*hidden', page_html)
+    assert re.search(r'id="book-pdf-link"[^>]*class="[^"]*hidden', page_html)
+
+
+def test_prompts_are_inspectable(page_html: str) -> None:
+    """The wording sent to the model is visible to the visitor."""
+    for element_id in ("prompt-panel", "prompt-cartoon", "prompt-json-link"):
+        assert f'id="{element_id}"' in page_html
+    assert "Show the prompts that were sent" in page_html
+
+
+def test_no_step_numbers_anywhere(page_html: str) -> None:
+    assert not re.search(r"Step \d", page_html), "step numbering is gone"

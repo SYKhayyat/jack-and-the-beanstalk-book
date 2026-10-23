@@ -15,17 +15,14 @@ from fastapi.responses import JSONResponse
 
 from app.services.image_providers.base import ProviderError, ProviderUnavailable
 from app.services.images import InvalidImage
-from app.services.pipeline import UnknownCandidate as _UnknownCandidate
 from app.services.pipeline import UnknownGeneration
 
 __all__ = [
     "AppError",
     "BookNotReady",
     "GenerationRateLimited",
-    "InvalidRejection",
     "InvalidSettings",
     "UnknownBook",
-    "UnknownScene",
     "register_exception_handlers",
 ]
 
@@ -37,13 +34,6 @@ class AppError(Exception):
 
     status_code = status.HTTP_400_BAD_REQUEST
     error_code = "app_error"
-
-
-class InvalidRejection(AppError):
-    """A rejection chip that is not one of the allowed values."""
-
-    status_code = 400
-    error_code = "invalid_rejection"
 
 
 class UnknownScene(AppError):
@@ -128,14 +118,6 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=404,
             content={"error": "unknown_draft", "detail": str(exc)},
-        )
-
-    @app.exception_handler(_UnknownCandidate)
-    async def _unknown_candidate(_: Request, exc: _UnknownCandidate) -> JSONResponse:
-        logger.info("app_error unknown_candidate: %s", exc)
-        return JSONResponse(
-            status_code=422,
-            content={"error": "unknown_candidate", "detail": str(exc)},
         )
 
     @app.exception_handler(ProviderUnavailable)

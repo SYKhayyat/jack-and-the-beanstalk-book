@@ -30,7 +30,5 @@ export function createBookClient() {
 export function createApiClient() {
   return {
     cartoonify: (body) => postForm("/api/cartoonify", body),
-    compose: (body) => postForm("/api/compose", body),
-    generate: (body) => postForm("/api/generate", body),
   };
 }

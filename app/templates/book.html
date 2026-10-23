@@ -8,8 +8,8 @@
 </head>
 <body data-max-upload-mb="{{ max_upload_mb }}" data-page="book">
   <header class="masthead">
-    <h1>Make a picture book</h1>
-    <p class="tagline">One photo. A picture book of {{ pages|length }} story pages — starring your child, written by <em>{{ book_title }}</em>.</p>
+    <h1>{{ book_title }}</h1>
+    <p class="tagline">Jack and the Beanstalk, starring You!</p>
     <p class="provider-badge {{ 'provider-live' if provider.using_real_api else 'provider-mock' }}">
       Provider: <strong>{{ provider.name }}</strong> — {{ provider.reason }}
       {% if not provider.using_real_api %}
@@ -21,16 +21,13 @@
         <button type="submit">Log out</button>
       </form>
     {% endif %}
-    <nav class="book-nav">
-      <a href="/">Single scene instead →</a>
-    </nav>
   </header>
 
   <main>
     <form id="book-form" class="panel" enctype="multipart/form-data">
-      <!-- Step 1: the photo -->
-      <fieldset id="book-step-photo">
-        <legend>Step 1 · Your child's photo</legend>
+      <!-- The photo -->
+      <fieldset id="book-photo">
+        <legend>Your photo</legend>
         <div class="photo-controls">
           <label class="file-label" for="photo">
             <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/webp">
@@ -54,58 +51,76 @@
         </div>
       </fieldset>
 
-      <!-- Step 2: who the character is -->
+      <!-- Who is the star: the character the story is drawn around -->
       <fieldset>
-        <legend>Step 2 · Who is the star?</legend>
-        <div class="grid-3">
+        <legend>Who is the star?</legend>
+        <div class="grid-2">
           <div class="control">
-            <label for="child-name">Child's name</label>
-            <input type="text" id="child-name" name="child_name" required maxlength="60"
-                   placeholder="e.g. Shai">
-          </div>
-          <div class="control">
-            <label for="child-age">Age (optional)</label>
-            <input type="number" id="child-age" name="child_age" min="0" max="14" placeholder="e.g. 7">
+            <label for="child-name">Name</label>
+            <input type="text" id="child-name" name="child_name" maxlength="60"
+                   placeholder="Jack">
+            <p class="field-help">Optional — leave it out and the star is simply Jack or Jane, whichever matches the photo.</p>
           </div>
           <div class="control">
             <label for="photo_gender">The photo shows a</label>
             <select id="photo_gender" name="photo_gender">
               {% for value, label in photo_genders %}<option value="{{ value }}" {% if value == defaults.photo_gender %}selected{% endif %}>{{ label }}</option>{% endfor %}
             </select>
-            <p class="field-help">A boy becomes Jack; a girl becomes Jane.</p>
           </div>
         </div>
       </fieldset>
 
-      <!-- Step 3: About Me details -->
+      <!-- The About page: displayed exactly as written -->
       <fieldset>
-        <legend>Step 3 · About Me details</legend>
-        <p class="field-help">
-          Everything you write here goes on the book's last page, typed exactly as
-          you write it — one line per line.
-        </p>
+        <legend>About</legend>
         <div class="grid-2">
           <div class="control">
-            <label for="child-gender">How you say who they are</label>
-            <input type="text" id="child-gender" name="child_gender" maxlength="60" placeholder="e.g. a boy / a girl / a valeta">
+            <label for="about-name">Name</label>
+            <input type="text" id="about-name" name="about_name" maxlength="60"
+                   placeholder="Jack">
+            <p class="field-help">Shown on the About page — it can be different from the star's name.</p>
+          </div>
+          <div class="control">
+            <label for="about-age">Age (optional)</label>
+            <input type="number" id="about-age" name="about_age" min="0" max="99" placeholder="e.g. 7">
           </div>
         </div>
         <div class="control">
-          <label for="details">Lines for the About Me page</label>
-          <textarea id="details" name="details" rows="4"
-            placeholder="One per line, e.g.&#10;Loves dinosaurs&#10;Due in a year&#10;Lives in Jerusalem"></textarea>
+          <label for="about-title">Title</label>
+          <input type="text" id="about-title" name="about_title" maxlength="60" placeholder="e.g. an astronaut">
+        </div>
+        <div class="control">
+          <label for="details">About</label>
+          <textarea id="details" name="details" rows="4"></textarea>
         </div>
       </fieldset>
 
       <div class="submit-block">
-        <button type="submit" id="make-portrait" class="primary">Step 4 · Make the cartoon portrait</button>
-        <p class="submit-help">One image call. You approve the portrait before the book pages are made — that portrait is used on every page, so the same child appears throughout.</p>
+        <button type="submit" id="make-portrait" class="primary">Make the cartoon portrait</button>
+        <p class="submit-help">One image call. You approve the portrait before the book pages are made — that portrait is used on every page, so it looks like you throughout.</p>
       </div>
 
       <!-- Advanced options: anything you might want to pick, folded away. -->
       <details id="book-advanced" class="advanced-options">
         <summary>Advanced settings</summary>
-        <p class="field-help">The book always draws in its one fixed art style. Everything else is yours to pick.</p>
+
+        <fieldset>
+          <legend>Art style</legend>
+          <div class="grid-2">
+            <div class="control">
+              <label for="cartoon_style">Style</label>
+              <select id="cartoon_style" name="cartoon_style">
+                {% for value, label in styles %}<option value="{{ value }}" {% if value == defaults.cartoon_style %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="control">
+              <label for="cartoon_intensity">Cartoon intensity</label>
+              <select id="cartoon_intensity" name="cartoon_intensity">
+                {% for level in range(1, 11) %}<option value="{{ level }}" {% if level == defaults.cartoon_intensity %}selected{% endif %}>{{ level }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+        </fieldset>
 
         <fieldset>
           <legend>Page shape</legend>
@@ -167,20 +182,51 @@
 
         <fieldset>
           <legend>Fidelity to the photo</legend>
+          <div class="grid-2">
+            <div class="control">
+              <label for="likeness_strength">Likeness to the real you</label>
+              <select id="likeness_strength" name="likeness_strength">
+                {% for value, label in likeness_levels %}<option value="{{ value }}" {% if value == defaults.likeness_strength %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+              <p class="field-help">Strict keeps your face most recognisable.</p>
+            </div>
+            <div class="control">
+              <label for="portrait_background">Portrait background</label>
+              <select id="portrait_background" name="portrait_background">
+                {% for value, label in backgrounds %}<option value="{{ value }}" {% if value == defaults.portrait_background %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="control">
+              <label><input type="checkbox" id="keep_glasses" name="keep_glasses" {% if defaults.keep_glasses %}checked{% endif %}> Keep glasses</label>
+            </div>
+            <div class="control">
+              <label><input type="checkbox" id="keep_facial_hair" name="keep_facial_hair" {% if defaults.keep_facial_hair %}checked{% endif %}> Keep facial hair</label>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Portrait alternatives</legend>
           <div class="control">
-            <label for="likeness_strength">Likeness to the real child</label>
-            <select id="likeness_strength" name="likeness_strength">
-              {% for value, label in likeness_levels %}<option value="{{ value }}" {% if value == defaults.likeness_strength %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            <label for="candidates">How many alternatives</label>
+            <select id="candidates" name="candidates">
+              {% for count in range(1, 4) %}<option value="{{ count }}" {% if count == defaults.candidates %}selected{% endif %}>{{ count }}</option>{% endfor %}
             </select>
-            <p class="field-help">Strict keeps your child's face most recognisable.</p>
+            <p class="field-help">One call covers all of them; three costs three images worth of your per-minute allowance.</p>
+          </div>
+          <div class="control">
+            <label><input type="checkbox" id="one_step" name="one_step" value="true"> Make it in one go</label>
+            <p class="field-help">Skip the portrait preview — the book starts as soon as the cartoon is ready.</p>
           </div>
         </fieldset>
       </details>
     </form>
 
-    <!-- Step 5: approve the portrait -->
+    <!-- Approve the portrait -->
     <section id="review-stage" class="panel hidden">
-      <h2>Does this portrait look like your child?</h2>
+      <h2>Does this portrait look like you?</h2>
       <div class="compare-grid">
         <figure>
           <img id="review-portrait" alt="The cartoon portrait to approve">
@@ -194,15 +240,21 @@
       <p id="review-message" class="inline-message hidden" role="status" aria-live="polite"></p>
     </section>
 
-    <!-- Step 6: the book itself -->
+    <!-- The book itself -->
     <section id="book-stage" class="panel hidden">
       <h2>Your book</h2>
       <p id="book-progress" class="inline-message" role="status" aria-live="polite"></p>
       <div id="book-pages" class="book-pages"></div>
       <div class="download-block">
         <a id="book-pdf-link" class="button primary hidden" download="book.pdf">Download the book (PDF)</a>
-        <a id="book-restart" class="button secondary hidden" href="/book">Start a new book</a>
+        <a id="book-restart" class="button secondary hidden" href="/">Start a new book</a>
       </div>
+      <details id="prompt-panel" class="prompt-panel">
+        <summary>Show the prompts that were sent</summary>
+        <p class="field-help">The portrait prompt, exactly as the image model received it:</p>
+        <pre id="prompt-cartoon"></pre>
+        <p><a id="prompt-json-link" target="_blank" rel="noopener" class="hidden">Open this book's page-by-page prompts (prompts.json)</a></p>
+      </details>
       <p class="field-help">The story text on each page is drawn in your PDF reader — the image model never writes text, so it can never garble it.</p>
     </section>
   </main>

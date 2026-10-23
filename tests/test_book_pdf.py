@@ -1,4 +1,4 @@
-"""The PDF assembler: real text over real art, About Me last."""
+"""The PDF assembler: real text over real art, About last."""
 
 from __future__ import annotations
 
@@ -27,10 +27,17 @@ def art_bytes(width: int = 1152, height: int = 864, colour: str = "#4a7fbf") -> 
     return buffer.getvalue()
 
 
+PDF_ABOUT_DEFAULTS: dict[str, object] = {
+    "prompt_name": "Shai",
+    "about_name": "Shai",
+}
+
+
 def about(**overrides: object) -> AboutMe:
     fields: dict[str, object] = {
-        "child_name": "Shai",
-        "child_age": 7,
+        "prompt_name": "Shai",
+        "about_name": "Shai",
+        "about_age": 7,
         "details": "Loves dinosaurs",
     }
     fields.update(overrides)
@@ -65,7 +72,7 @@ class TestAssembly:
 
     def test_about_me_carries_the_typed_words(self) -> None:
         data = build_book_pdf(
-            about(child_name="Noa", details="Loves the sea\nTells jokes"),
+            about(about_name="Noa", details="Loves the sea\nTells jokes"),
             pages(),
         )
         reader = PdfReader(io.BytesIO(data))
@@ -78,7 +85,7 @@ class TestAssembly:
     @pytest.mark.skipif(not HAS_SHAPING, reason="RTL text shaping needs uharfbuzz")
     def test_hebrew_details_render_glyphs(self) -> None:
         data = build_book_pdf(
-            about(child_name="Noa", details="אוהבת דינוזאורים"),
+            about(about_name="Noa", details="אוהבת דינוזאורים"),
             pages(),
         )
         reader = PdfReader(io.BytesIO(data))

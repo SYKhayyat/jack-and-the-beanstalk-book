@@ -1,6 +1,6 @@
 """Picture-book domain models.
 
-A book is one child, a sequence of pages, and an About Me page, exported as a
+A book is one person, a sequence of pages, and an About page, exported as a
 single PDF. The page catalogue is data (``app/prompts.toml``, ``[[book_pages]]``)
 because pages are prose; the models here hold the typed shape and the values the
 uploader typed in.
@@ -120,39 +120,54 @@ def get_book_page(key: str) -> BookPage | None:
 
 
 class AboutMe(BaseModel):
-    """What the uploader typed about the child; rendered on the About Me page.
+    """Who stars in the book and what the About page prints.
 
-    This text goes **only** into the PDF. It never enters a prompt, so a closed
-    vocabulary is not needed here the way it is for settings — but length caps
-    and control-character stripping still keep one upload from turning a page
-    into a poster or a mess.
+    Two names, deliberately: `prompt_name` is the name the story and the page
+    prompts use for the character; `about_name` is what the About page shows,
+    and may be a pseudonym. Both are resolved to a non-blank value by the
+    caller: a blank name becomes Jack or Jane, following the photo-gender
+    answer the settings carry (see `book_name_for`).
+
+    All of this text goes **only** into the PDF — it never enters a prompt,
+    except for `prompt_name` as a substitution — so length caps and
+    control-character stripping still apply to every field.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    child_name: str = Field(min_length=1, max_length=60)
-    child_age: int | None = Field(default=None, ge=0, le=14)
-    child_gender: str | None = Field(
+    prompt_name: str = Field(min_length=1, max_length=60)
+    about_name: str = Field(min_length=1, max_length=60)
+    about_age: int | None = Field(default=None, ge=0, le=99)
+    title: str | None = Field(
         default=None,
-        description='Optional, e.g. "boy" or "girl"; drawn as written.',
+        max_length=60,
+        description="What the person calls themselves, e.g. 'an astronaut'.",
     )
     details: str = Field(
         default="",
-        description="Free text the uploader wants on the About Me page.",
+        description="Free text the uploader wants on the About page.",
     )
 
-    @field_validator("child_name")
+    @field_validator("prompt_name")
     @classmethod
-    def _clean_name(cls, value: str) -> str:
+    def _clean_prompt_name(cls, value: str) -> str:
         cleaned = _sanitize(value)
         if not cleaned:
-            raise ValueError("child_name must not be blank")
+            raise ValueError("prompt_name must not be blank")
         return cleaned
 
-    @field_validator("child_gender")
+    @field_validator("about_name")
     @classmethod
-    def _clean_gender(cls, value: str | None) -> str | None:
-        """An optional single line: blank means \"not given\"."""
+    def _clean_about_name(cls, value: str) -> str:
+        cleaned = _sanitize(value)
+        if not cleaned:
+            raise ValueError("about_name must not be blank")
+        return cleaned
+
+    @field_validator("title")
+    @classmethod
+    def _clean_title(cls, value: str | None) -> str | None:
+        """An optional single line: blank means "not given"."""
         if value is None:
             return None
         return _sanitize(value) or None
@@ -166,19 +181,21 @@ class AboutMe(BaseModel):
         return "\n".join(line for line in lines if line).strip()
 
     def rendered_about_lines(self) -> list[str]:
-        """The About Me page as PDF copy, built entirely from what was typed.
+        """The About page as PDF copy, built entirely from what was typed.
 
-        Copy text (headings) comes from ``prompts.toml``; field values come from
-        the uploader. Supplied-but-empty fields simply add no line.
+        Copy text (headings) comes from ``prompts.toml``; field values come
+        from the uploader. Supplied-but-empty fields simply add no line. The
+        display order is the About page's reading order: name, age, title,
+        then the About lines.
         """
-        about = prompt_text()["book"]["about_me"]
-        heading = about["heading"].format(child_name=self.child_name)
+        about = prompt_text()["book"]["about"]
+        heading = about["heading"].format(child_name=self.about_name)
         # The name itself is drawn as the page's title; it is not repeated here.
         lines: list[str] = []
-        if self.child_age is not None:
-            lines.append(about["age_line"].format(child_age=self.child_age))
-        if self.child_gender:
-            lines.append(self.child_gender)
+        if self.about_age is not None:
+            lines.append(about["age_line"].format(child_age=self.about_age))
+        if self.title:
+            lines.append(self.title)
         if self.details:
             lines.append(about["details_heading"])
             lines.append(self.details)

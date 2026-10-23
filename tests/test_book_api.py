@@ -26,11 +26,16 @@ def photo_file() -> tuple[str, bytes, str]:
 
 
 def make_portrait(client: TestClient, **overrides: object) -> dict[str, object]:
-    form: dict[str, object] = {"photo": photo_file(), "scene": "planting-seeds"}
+    form: dict[str, object] = {"photo": photo_file()}
     form.update(overrides)
     response = client.post("/api/cartoonify", **multipart(form))
     assert response.status_code == 201, response.text
     return dict(response.json())
+
+
+def _pdf_text(data: bytes) -> str:
+    """The extractable text layer of a book PDF, joined."""
+    return " ".join((page.extract_text() or "") for page in PdfReader(io.BytesIO(data)).pages)
 
 
 def wait_for_book(
@@ -98,7 +103,7 @@ class TestBookEndToEnd:
         assert pdf.headers["content-type"] == "application/pdf"
         assert pdf.content[:5] == b"%PDF-"
         reader = PdfReader(io.BytesIO(pdf.content))
-        assert len(reader.pages) == PAGE_COUNT + 1  # story pages + About Me
+        assert len(reader.pages) == PAGE_COUNT + 1  # story pages + About
 
     def test_portrait_media_available(self, client: TestClient) -> None:
         portrait = make_portrait(client)
@@ -224,13 +229,19 @@ class TestBookErrors:
         assert response.status_code == 404
         assert response.json()["error"] == "unknown_draft"
 
-    def test_missing_child_name_422(self, client: TestClient) -> None:
-        portrait = make_portrait(client)
-        response = client.post(
-            "/api/book/start",
-            data={"generation_id": portrait["generation_id"]},
+    def test_blank_names_resolve_to_jack_or_jane(self, client: TestClient) -> None:
+        portrait = make_portrait(client, photo_gender="girl")
+        start = client.post(
+            "/api/book/start", data={"generation_id": portrait["generation_id"]}
         )
-        assert response.status_code == 422  # FastAPI Form(min_length) catches it
+        assert start.status_code == 201
+
+        book_id = start.json()["book_id"]
+        wait_for_book(client, book_id)
+        pdf = client.get(f"/book-media/{book_id}/pdf")
+        assert pdf.status_code == 200
+        text = _pdf_text(pdf.content)
+        assert "About Jane" in text.replace("\n", " ")
 
     def test_about_me_never_reaches_any_prompt(self, client: TestClient) -> None:
         """The free text the uploader types is PDF-only: no prompt may contain it."""

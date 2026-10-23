@@ -1,19 +1,9 @@
 # Jack and the Beanstalk
 
-Upload a photo of yourself. The app cartoonifies it with settings you control,
-then places that cartoon person into a scene from *Jack and the Beanstalk*. The
-result is captioned with the exact scene specification that was sent to the
-image model.
-
-There is also a **picture book**: the same portrait becomes the hero of a
-4-page story (cupboard, trade, beans out the window, beanstalk at dawn) plus an
-About Me page, delivered as one downloadable PDF — see
-[The picture book](#the-picture-book).
-
-Two scenes ship, and the same person can be put into either:
-
-- **Jack is planting the seeds** — kneeling behind the cottage, beans in the soil.
-- **Jack is climbing the beanstalk** — high above the clouds, ground tiny below.
+Upload one photo. The app cartoonifies it with settings you control, then
+renders a **picture book**: a 4-page story (empty cupboard, magic-beans trade,
+beans out the window, beanstalk at dawn) plus an About page, delivered as one
+downloadable PDF — see [The picture book](#the-picture-book).
 
 ---
 
@@ -83,23 +73,23 @@ Prices move; re-check before you rely on them.
 
 ### What actually costs money
 
-**Read this bit first: one picture costs two API calls.** The pipeline
-cartoonifies the photo (call 1) and then composes the scene (call 2), so 200
-finished pictures is **400 billed image generations**. Every figure below is per
-*call*.
+**Read this bit first: one finished book costs five API calls.** The pipeline
+cartoonifies the photo (call 1), then renders the four story pages (calls 2–5).
+So 200 finished books is **1,000 billed image generations**. Every figure below
+is per *call*.
 
-| Provider | Per call (1K image) | 200 pictures (400 calls) | Free tier? |
+| Provider | Per call (1K image) | 200 books (1,000 calls) | Free tier? |
 | --- | --- | --- | --- |
-| **OpenAI `gpt-image-2.5-flare`, `quality=low`** (default) | **$0.00588** | **~$2.35** | No |
+| **OpenAI `gpt-image-2.5-flare`, `quality=low`** (default) | **$0.00588** | **~$5.88** | No |
 | OpenAI `gpt-image-2.5-*`, `quality=medium` | not published | — | No |
-| Cloudflare `flux-2-klein-9b` | $0.015 / MP | ~$6.00 | **Yes — ~6 images/day free** |
-| Gemini `gemini-3.1-flash-lite-image` | $0.0336 | ~$13.50 | No |
-| Gemini `gemini-3.1-flash-image` | $0.067 | ~$26.80 | No |
+| Cloudflare `flux-2-klein-9b` | $0.015 / MP | ~$15.00 | **Yes — ~6 images/day free** |
+| Gemini `gemini-3.1-flash-lite-image` | $0.0336 | ~$33.60 | No |
+| Gemini `gemini-3.1-flash-image` | $0.067 | ~$67.00 | No |
 
 **OpenAI is the default here**, because at `quality=low` it is roughly 5.7×
-cheaper than the cheapest Gemini image model for the same job, and the two-step
-flow below makes the quality question cheap to settle empirically rather than by
-guesswork. If likeness turns out to need more than `low`, raise
+cheaper than the cheapest Gemini image model for the same job, and the
+portrait-then-approve flow below makes the quality question cheap to settle
+empirically rather than by guesswork. If likeness turns out to need more than `low`, raise
 `OPENAI_QUALITY` — an environment change, not a code change. Gemini stays
 wired up as the fallback; `IMAGE_PROVIDER=gemini` switches to it.
 
@@ -116,7 +106,7 @@ docs state that the $300 Google Cloud welcome credit *cannot* be used for
 Gemini API or AI Studio usage, and that Gemini API was excluded from the Cloud
 Free Trial from March 2026. Since March 2026, paid Gemini API access is on a
 prepay plan with a **$5 minimum** and credits that are non-refundable and expire
-after a year. For a 200-picture run, prepay about **$15**.
+after a year. For a 200-book run, prepay about **$40**.
 
 Two corrections worth stating plainly, because the obvious assumptions are wrong:
 
@@ -134,9 +124,8 @@ Two corrections worth stating plainly, because the obvious assumptions are wrong
   the Lite model, and a test fails if the default ever reverts to the retired
   one.
 
-At roughly $0.034 per image and two calls per generation, one generation costs
-about **7 cents**. Twenty test generations across several photos is roughly
-$1.40 — comfortably inside a free trial budget.
+At roughly $0.034 per image and five calls per finished book, one book costs
+about **17 cents**. Twenty test books across several photos is roughly $3.40.
 
 ### Testing your prompts for free, before you pay
 
@@ -145,7 +134,7 @@ You can iterate on this project's prompt strategy without an API key:
 1. **Google AI Studio web UI — free, no key, no billing.** Upload a photo,
    paste the prompt, look at the result. Copy a prompt straight out of this
    app via the *Show the prompts that were sent* panel in the UI, or from
-   `meta.json`. This is the fastest loop and it costs nothing.
+   `prompts.json`. This is the fastest loop and it costs nothing.
    Sign in at <https://aistudio.google.com>.
 2. **Cloudflare Workers AI — a free tier that actually covers image editing.**
    Their docs: *"Our free allocation allows anyone to use a total of 10,000
@@ -164,16 +153,15 @@ You can iterate on this project's prompt strategy without an API key:
    policy, so treat it as small but effectively free rather than unlimited.
    <https://gen.pollinations.ai/image/models>
 
-For the graded checks — several different uploads, both scenes — option 1 is
-enough, and option 2 covers you if you want to test *through this app* without
+For the graded checks — several different uploads, every book page — option 1
+is enough, and option 2 covers you if you want to test *through this app* without
 spending. Adding either as a third provider is a config change; see
 *Adding a provider*.
 
 ### Limits this app is designed around
 
-- **A small number of reference images per prompt.** The pipeline sends 2
-  (cartoon portrait + original photo) in the scene pass and 1 in the cartoon
-  pass, which is within every model's limit.
+- **A small number of reference images per prompt.** Calls send at most 2
+  reference images, which is within every model's limit.
 - **Around 7MB per inline image.** Uploads are normalised to JPEG at up to
   1536px in `images.py`, well under that.
 - **Aspect ratios** `1:1`, `3:2`, `2:3`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`,
@@ -211,7 +199,6 @@ spending. Adding either as a third provider is a config change; see
 | Outfit | closed choices | Defaults to storybook costume. |
 | Expression | closed choices | Defaults to *focused and determined*. |
 | Keep my glasses / Keep my facial hair | checkboxes | Whether real-world accessories carry into the cartoon. |
-| Scene | 2 options | The story beat to draw. |
 
 ## Architecture
 
@@ -227,20 +214,19 @@ app/
 ├── auth.py               # the shared-password gate: password check, signed cookie
 ├── prompts.toml          # THE PROMPTS — every word sent to the model, as data
 ├── prompt_data.py        # the one loader for prompts.toml
-├── models/               # MODEL: scenes, cartoon settings, results
-│   ├── scenes.py         #     the two story beats, loaded from prompts.toml
+├── models/               # MODEL: book pages, cartoon settings, results
+│   ├── scenes.py         #     the image spec shared by every page
 │   └── settings.py       #     the user-facing knobs, validated by pydantic
 ├── scripts/stress_test.py  # free load testing
 ├── services/             # domain logic, no HTTP
 │   ├── prompts.py        #     prompt assembly: which line applies, joined how
 │   ├── concurrency.py    #     admission control for generation requests
-│   ├── pipeline.py       #     two-pass orchestration
+│   ├── pipeline.py       #     the cartoonify pass: build prompt, call provider
 │   ├── images.py         #     upload validation, normalisation, EXIF stripping
-│   ├── storage.py        #     artefact persistence (drafts + scenes)
+│   ├── storage.py        #     artefact persistence (drafts)
 │   ├── book_runner.py    #     the picture-book background job
 │   ├── book_store.py     #     book artefact persistence (pages, PDF, status)
 │   ├── pdf.py            #     the PDF assembler: full-bleed art + real text
-│   ├── concurrency.py    #     admission control for generation requests
 │   ├── rate_limit.py     #     per-minute billable-image brake
 │   └── image_providers/  #     the swappable backend boundary
 │       ├── base.py       #         the ImageProvider contract
@@ -248,102 +234,88 @@ app/
 │       ├── openai_provider.py #   the default real backend
 │       ├── gemini.py     #         the fallback backend
 │       └── registry.py   #         name → class
-├── routes/               # CONTROLLER: web, api, book, media, auth, settings_form
-├── templates/            # VIEW: index.html, book.html, login.html
-├── models/feedback.py    #     rejection chips and their prompt clauses
-├── models/book.py        #     book pages, text zones, About Me
+├── routes/               # CONTROLLER: book (the UI), api, media, auth, settings_form
+├── templates/            # VIEW: book.html, login.html
+├── models/book.py        #     book pages, text zones, About
 ├── models/labels.py      #     UI labels for the closed enums
-└── static/               # VIEW: style.css + api/state/view/book* JS modules
+└── static/               # VIEW: style.css + book.js, book-view.js
 ```
 
-### The two-pass pipeline
+### The pipeline: portrait first, book second
 
-One API call per step, no loops:
+One API call per phase, no loops:
 
 1. **cartoonify** — the photo goes in, a cartoon portrait comes out. Every user
    setting is applied here.
-2. **scene-compose** — the cartoon portrait *and the original photo* both go in
-   as reference images, and the scene specification comes out.
+2. **book render** — call `POST /api/book/start` only on an approved portrait;
+   the four story pages render sequentially on the same concurrency gate.
 
-The second pass takes both anchors deliberately. Models drift towards a generic
-face when the scene action is interesting — a kid climbing a beanstalk is a much
-stronger instruction than "draw this person" — and giving the model two
-independent images of the same face is the single biggest lever on "does this
-look like the person".
+The pages take the portrait deliberately. Models drift towards a generic
+face when the story action is interesting — a giant beanstalk at dawn is a much
+stronger instruction than "draw this person" — so every page prompt carries the
+portrait as a reference image and repeats the identity directive.
 
-### Where identity and scene fidelity come from
+### Where identity and story fidelity come from
 
 These are the two graded requirements, so they are worth naming explicitly:
 
-**It looks like the person.** Both passes carry an identity directive that names
+**It looks like the person.** Every call carries an identity directive that names
 the specific features to preserve (bone structure, eye shape and colour, nose,
 mouth, eyebrows, hairline, skin tone, moles, freckles, glasses, facial hair) and
-forbids inventing a new face or averaging towards a generic one. The scene pass
-repeats it rather than assuming pass 1's result survived. `likeness_strength`
-lets the user trade fidelity against style when they conflict.
+forbids inventing a new face or averaging towards a generic one. The story-page
+prompts repeat it rather than assuming the portrait's result survived.
+`likeness_strength` lets the user trade fidelity against style when they conflict.
 
-**It is faithful to the scene.** Each scene carries a caption, a subject action,
-an environment, a lighting note, a camera note, a checklist of objects that must
-be visible, and a list of things that would make the image unfaithful. The two
-scenes explicitly ban each other's content — the planting scene bans the beanstalk
-and bans Jack standing upright; the climbing scene bans planting and kneeling — so
-one beat cannot bleed into the other. The negative instructions also forbid text
-anywhere in the image, which is what keeps the picture honest against its own
-caption.
-
-**The caption is the spec.** `Scene.caption` is both the string sent to the model
-and the string rendered under the result. They cannot drift apart, because there
-is only one of it.
+**It is faithful to the story.** Each page carries its own caption, a subject
+action, an environment, a lighting note, a camera note, a checklist of objects
+that must be visible (`must_include`) and a list of things that would make the
+image unfaithful (`must_avoid`). The negative instructions also forbid text
+anywhere in the image — the story words are painted by the PDF layer, not by the
+model, which is what keeps the picture honest against its page.
 
 ## The picture book
 
-`/book` turns one approved portrait into a **4-page picture book PDF**. The
-child stars on every page — the empty cupboard, the magic-beans trade, the
-beans flying out the window, the beanstalk at dawn — followed by an **About Me**
-page. The story text
-is never drawn by the model: the art carries a deliberately empty quiet zone,
-and the PDF paints the polished storybook prose as real, selectable text
+`/` turns one approved portrait into a **4-page picture book PDF**. You star on
+every page — the empty cupboard, the magic-beans trade, the beans flying out
+the window, the beanstalk at dawn — followed by an **About** page. The story
+text is never drawn by the model: the art carries a deliberately empty quiet
+zone, and the PDF paints the polished storybook prose as real, selectable text
 (fpdf2, Comic Neue + Noto Sans Hebrew bundled, HarfBuzz shaping when
-available). The About Me free text you type is PDF-only and never reaches a
+available). The About free text you type is PDF-only and never reaches a
 prompt — that is enforced by a test.
 
-- `GET /book` — the book UI (photo → who the star is → About Me → portrait →
-  approve → book grows page by page → download the PDF)
-- `POST /api/book/start` — multipart: `generation_id` + `child_name` (+ age,
-  gender, details, optional About-able extras) → renders in the background
+- `GET /` — the book UI (photo → who is the star → About → portrait →
+  approve → the book grows page by page → download the PDF)
+- `POST /api/book/start` — multipart: `generation_id` (+ optional `child_name`,
+  `about_name`, `about_age`, `about_title`, `details`) → renders in the
+  background. A blank name resolves to Jack or Jane, following the photo's
+  gender answer; the two names exist so the About page can show a pseudonym.
 - `GET /api/book/{id}` — poll: `rendering | complete | failed`, page grid
 - `GET /book-media/{id}/portrait`, `GET /book-media/{id}/pages/{n}`,
   `GET /book-media/{id}/pdf`, `GET /book-media/{id}/prompts.json`
 
 Pages render sequentially on the same concurrency gate as everything else;
-adding a page is one new `[[book_pages]]` block in `app/prompts.toml`. The
-three-story beat catalogue lives with every other story wording in
-`app/prompts.toml` — the single prompts file — as required.
+adding a page is one new `[[book_pages]]` block in `app/prompts.toml`. Every
+story wording lives in that single prompts file — as required.
 
 ## HTTP API
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/` | The UI |
-| `GET` | `/book` | The picture-book UI |
+| `GET` | `/` | The book UI |
 | `GET` | `/healthz` | Liveness plus the active provider. Never includes secrets. |
-| `GET` | `/api/scenes` | The scene catalogue, with captions |
 | `GET` | `/api/settings-options` | Every enum, the defaults, and the slider limits |
 | `GET` | `/api/book/pages` | The book's page identities (titles, text zones) |
-| `POST` | `/api/cartoonify` | multipart: `photo` + settings + repeated `reason` chips → the portrait (1 call) |
-| `POST` | `/api/compose` | form: `generation_id` + `scene` + `candidate` → the scene image (1 call) |
-| `POST` | `/api/generate` | multipart: `photo` + `scene` + settings → both, in one shot (2 calls) |
-| `POST` | `/api/book/start` | multipart: `generation_id` + `child_name` + About Me → background book (1 call/page) |
+| `POST` | `/api/cartoonify` | multipart: `photo` + settings → the portrait (1 call) |
+| `POST` | `/api/book/start` | multipart: `generation_id` (+ optional star/About fields) → background book (1 call/page) |
 | `GET` | `/api/book/{id}` | Book status: rendering / complete / failed + page grid |
 | `GET` | `/media/{id}/cartoon` | The cartoon portrait |
-| `GET` | `/media/{id}/scene` | The scene image |
-| `GET` | `/media/{id}/meta.json` | Prompts, caption, provider and model used |
 | `GET` | `/book-media/{id}/portrait` | The book's approved portrait |
 | `GET` | `/book-media/{id}/pages/{n}` | One story page's art, once it exists |
 | `GET` | `/book-media/{id}/pdf` | The finished 4-page PDF (409 until complete) |
 | `GET` | `/book-media/{id}/prompts.json` | The exact prompt sent for every page |
 
-`POST /api/generate` returns image *URLs* rather than inline bytes, so the
+`POST /api/cartoonify` returns image *URLs* rather than inline bytes, so the
 browser can fetch them lazily and the response stays small. Interactive docs are
 at `/docs`.
 
@@ -352,14 +324,13 @@ stack trace or a key:
 
 | Status | `error` | Meaning |
 | --- | --- | --- |
-| `400` | `unknown_scene` | That scene key is not in the catalogue |
-| `400` | `invalid_rejection` | A rejection chip that is not one of the allowed values |
 | `404` | `unknown_draft` | That `generation_id` expired or never existed |
 | `400` | `invalid_image` | Not a readable still image, or too large |
 | `422` | `invalid_settings` | A setting failed validation |
-| `422` | `unknown_candidate` | That portrait alternative does not exist for the draft |
 | `429` | `server_busy` | Every generation slot was busy; nothing was sent to the model |
 | `429` | `generation_rate_limited` | This client burned its per-minute allowance of billable images |
+| `404` | `unknown_book` | That book id expired or never existed |
+| `409` | `book_not_ready` | The book is still rendering — poll `/api/book/{id}` |
 | `502` | `provider_error` | The model was reached and failed |
 | `503` | `provider_unavailable` | No usable provider — usually a missing API key |
 | `504` | `generation_timeout` | Ran past the budget; safe to retry |
@@ -367,24 +338,18 @@ stack trace or a key:
 Example:
 
 ```bash
-# Two calls, so a likeness you dislike costs one call rather than two.
-DRAFT=$(curl -s -X POST http://localhost:8000/api/cartoonify \
+# Call 1 — one portrait, all settings applied here.
+ID=$(curl -s -X POST http://localhost:8000/api/cartoonify \
   -F photo=@me.jpg -F cartoon_intensity=9 -F cartoon_style=manga \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_id"])')
 
-curl -X POST http://localhost:8000/api/compose \
-  -F generation_id="$DRAFT" -F scene=planting-seeds
+# Calls 2–5 — the four story pages, rendered in the background.
+BOOK=$(curl -s -X POST http://localhost:8000/api/book/start \
+  -F generation_id="$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["book_id"])')
 
-# Swap scene for the other beat; the portrait is reused, so it is still one call.
-curl -X POST http://localhost:8000/api/compose \
-  -F generation_id="$DRAFT" -F scene=climbing-beanstalk
-```
-
-`POST /api/generate` remains for one-shot use:
-
-```bash
-curl -X POST http://localhost:8000/api/generate \
-  -F photo=@me.jpg -F scene=planting-seeds -F cartoon_intensity=9
+# Poll while rendering, then download:
+curl -s http://localhost:8000/api/book/"$BOOK"
+curl -o book.pdf http://localhost:8000/book-media/"$BOOK"/pdf
 ```
 
 ## Adding a provider
@@ -396,12 +361,6 @@ curl -X POST http://localhost:8000/api/generate \
 
 Nothing else changes. The pipeline, prompts, routes and UI are unaware of which
 backend is running.
-
-## Adding a scene
-
-Add one `[[scenes]]` table to `app/prompts.toml`. The UI, the API and the
-prompts pick it up automatically. Fill in `must_include` and `must_avoid` — the
-negative list is what stops scene-to-scene contamination.
 
 ## Editing the prompts
 
@@ -415,87 +374,47 @@ lines apply and how they are joined.
 
 ## Two steps, so you only pay for what you keep
 
-The pipeline is two calls, and the interface keeps them apart on purpose:
+The book is five calls, and the interface keeps the portrait apart on purpose:
 
 ```
   upload + settings
-        │
-        ▼
-  ┌───────────────┐   1 call    ┌──────────────────────────┐
-  │  /api/cartoonify │──────────▶  cartoon portrait         │
-  └───────────────┘             │  "does this look like me?" │
-        ▲                      └──────────┬───────────────┘
-        │  tweak settings, retry           │ approve
-        └───────────────────────────────────┤
-                                            │ 1 call
-                                            ▼
-                              ┌──────────────────────────┐
-                              │  /api/compose             │
-                              │  portrait + photo → scene │
-                              └──────────────────────────┘
+        |
+        v
+  +-------------+   1 call   +------------------------------+
+  | /api/cartoonify |------->| cartoon portrait             |
+  +-------------+            | "does this look like me?"    |
+        ^                    +---------------+--------------+
+        |  tweak settings, retry             | approve
+        +-------------------------------------+
+                                             | 4 calls
+                                             v
+                               +------------------------------+
+                               | /api/book/start              |
+                               | portrait -> the 4 story pages|
+                               +------------------------------+
 ```
 
 Three things fall out of that split, and all three are cost or quality wins:
 
-- **A likeness you dislike costs one call, not two.** Change the intensity, the
+- **A likeness you dislike costs one call, not six.** Change the intensity, the
   style, the hair, the likeness strength, and retry — the settings panel stays
-  live while you look at the portrait. Ticking *why* it was wrong makes the next
-  attempt better rather than merely different. Only an approved portrait is
-  worth a scene call.
-- **Both scenes from one portrait is one call, not two.** That is how "two
-  scenes, same story, same person" is meant to be produced.
+  live while you look at the portrait. Only an approved portrait is worth
+  the four story pages.
+- **Every page is built from the portrait you approved.** Not one you hoped
+  would look better by page four.
 - **The judgement happens where it is cheap.** Deciding whether the face
   survived is a question about the portrait, and the portrait is the cheap
-  half. Settling it after paying for the scene is backwards.
+  phase. Settling it after paying for the book is backwards.
 
-`POST /api/generate` still does both in one request for scripts and API
-clients. The UI does not use it.
-
-The draft — the portrait *and* the normalised photo — is persisted, which is
-what lets pass 2 send both identity anchors without the browser re-uploading
-anything.
-
-### The review stage
-
-After the cartoon portrait is drawn you get to judge it, and there are exactly
-two ways forward:
-
-**Approve** — one call puts the approved portrait into the selected scene.
-
-**Reject** — tick what went wrong. Each checkbox is a fixed, reviewed
-instruction that becomes a correction in the next attempt:
-
-| Chip | What it tells the model |
-| --- | --- |
-| The face changed | Identity outranks style; reproduce the reference's proportions exactly |
-| Wrong art style | Follow the ART STYLE section exactly |
-| Age is wrong | Follow the stated age precisely |
-| Hair is wrong | Follow the stated style, length, part and colour |
-| Skin tone is wrong | Match the stated tone including undertone |
-| Expression is wrong | Read the stated expression literally |
-| Outfit is wrong | Wear exactly the stated outfit |
-| Background is distracting | Put nothing behind the head |
-| Too cartoonish | Pull back towards realism, keep light outlines |
-| Not cartoonish enough | Commit harder to the style |
-| Something else, just different | Vary it; do not repeat the previous result |
-
-**There is no free-text box, on purpose.** Visitor text going into a system
-prompt cannot be validated, cannot be tested for, grows without bound, and is a
-prompt-injection surface. A closed enum has none of those problems, and an
-unknown chip is a 400 rather than being silently dropped. The rejected image is
-also *not* sent back to the model — showing it the attempt it got wrong invites
-it to converge on the faults instead of moving away from them.
-
-Alongside the chips: your photo beside the cartoon, either clickable to enlarge,
-a filmstrip of earlier attempts, and a running count of image calls.
+The draft — the portrait — is persisted, which is what lets the book pass send
+the approved likeness without the browser re-uploading anything.
 
 ### Portrait background
 
 Applies to the cartoon portrait only, and every variant still demands an
-unobstructed face. It is deliberately not passed to the scene pass: pass 2 draws
-the scene from its own specification, so a background asked for here would not
-survive into the final image, and a busy one in the reference fights the
-caption. If you want to steer the final background, change the scene.
+unobstructed face. The story pages draw their environment from their own page
+specification, so a background asked for here would not survive into the story
+art anyway.
 
 ### Options to choose from
 
@@ -508,13 +427,13 @@ and worth turning on while settling a likeness.
 
 ### One-step mode
 
-A checkbox that skips the review and takes the two-call path, for when you
-already know your settings. `POST /api/generate` is that path; the UI uses
-`/api/cartoonify` then `/api/compose` otherwise.
+A checkbox that skips the preview gate and goes straight from upload to the
+rendered book, for when you already know your settings or just want the result.
+The UI calls `/api/cartoonify` and immediately starts the book on it.
 
 ## Stress testing, for free
 
-`scripts/stress_test.py` drives `POST /api/generate` concurrently and reports
+`scripts/stress_test.py` drives `POST /api/cartoonify` concurrently and reports
 throughput, latency percentiles, the status-code breakdown and the estimated
 spend. Point it at a **mock-mode** instance for unlimited, zero-cost load:
 
@@ -530,20 +449,22 @@ python scripts/stress_test.py --url http://localhost:8000 --requests 120 --concu
   requests       120 in 64.9s  (1.9/s)
   status codes   {201: 120}
   latency        p50 6.515s  p95 16.529s  max 21.200s  mean 7.939s
+  missing cartoon urls 0
+
   cost: $0.00 — mock mode makes no API calls.
 PASS: every request succeeded.
 ```
 
 Mock mode still exercises everything that can break in production: upload
-validation, Pillow decoding, the concurrency gate, the two-call pipeline,
+validation, Pillow decoding, the concurrency gate, the cartoonify pass,
 file writes, and the media routes. Each request uploads a distinct synthetic
 image, so nothing is served from a cache.
 
 The p50 above is the gate working, not a bottleneck: 16 requests against
 `MAX_CONCURRENT_GENERATIONS=2` means most of them wait their turn.
 
-Against a real provider it costs roughly `(successful / 2) × $0.039`, so the
-script requires an explicit acknowledgement first:
+Against a real provider it costs roughly `successful × $0.006` (one flare-low
+call per portrait), so the script requires an explicit acknowledgement first:
 
 ```bash
 python scripts/stress_test.py --url https://your-app.onrender.com \
@@ -557,13 +478,14 @@ testing. Use mock mode for load and the free tier for picture quality.
 ### What the timeout and the gate actually do
 
 `GENERATION_TIMEOUT_SECONDS` (default 600) is **one budget for the whole
-request**, covering the wait for a free slot *and* both model calls. It is not
-one allowance each — otherwise a request could sit in the queue for the full
+request**, covering the wait for a free slot *and* the model call. The book
+applies the same budget per story page. It is not a queue allowance plus a
+generation allowance — otherwise a request could sit in the queue for the full
 timeout and then get another full timeout on top.
 
 | Situation | Result |
 | --- | --- |
-| Generation finishes inside the budget | `201`, with images and the caption |
+| Generation finishes inside the budget | `201`, with the images it asked for |
 | Queues longer than its remaining budget | `429 server_busy`, "retry in a moment", **nothing sent to the model** |
 | Runs past the budget | `504 generation_timeout` |
 
@@ -602,23 +524,24 @@ path-traversal refusal.
 
 ### Checking the two graded requirements
 
-Automated tests can prove the *prompts* demand identity and scene fidelity. They
+Automated tests can prove the *prompts* demand identity and story fidelity. They
 cannot prove the *pixels* do. That check is yours to run by eye:
 
 1. Run the app for real (`IMAGE_PROVIDER=gemini`).
 2. Upload several photos that are not the developer: different faces, skin
    tones, glasses, facial hair, ages. Two or three at minimum.
-3. Generate both scenes for each person.
-4. For each image ask two questions, and be honest about the answers:
+3. Render whole books for each person.
+4. For each page ask two questions, and be honest about the answers:
    - *Is this recognisably the person who was uploaded?* Show the photo and the
      output side by side to someone who does not know either of you.
-   - *Does the picture show what the caption says?* Read the caption, then
-     describe the picture. No invented props, no second person, no text.
+   - *Does the picture show the page's moment?* Read the page's `must_include`
+     and `must_avoid`, then describe the picture. No invented props, no second
+     person, no text.
 5. If identity slips, tighten `identity_directive()` and switch
-   `likeness_strength` to `strict`. If the scene drifts, add to that scene's
-   `must_include` and `must_avoid`.
-6. Re-run. Each generated image is captioned with its own scene specification,
-   so you can check several attempts side by side without confusion.
+   `likeness_strength` to `strict`. If a page drifts, adjust that page's
+   `must_include` and `must_avoid` in `app/prompts.toml`.
+6. Re-run. `prompts.json` for each book shows the exact prompt behind every
+   page, so you can check attempts side by side without confusion.
 
 Use a few different uploads and iterate the prompt. One photo that happens to
 work is not evidence.
@@ -641,10 +564,10 @@ The repo ships a blueprint, so this is short:
 6. Put the live URL in the hand-in and in Slack.
 
 Render's free plan sleeps after inactivity, so the first request to the deployed
-URL takes a while. The two-step review draft lives on the instance filesystem;
-if Render restarts between steps, the UI will ask the user to upload again. Use
-the one-step checkbox for a single-request demo, or add durable object storage
-before scaling beyond a classroom deployment.
+URL takes a while. The portrait draft lives on the instance filesystem; if
+Render restarts between the portrait and the book, the UI will ask the user to
+upload again. Add durable object storage before scaling beyond a classroom
+deployment.
 
 ## Configuration reference
 
@@ -661,7 +584,7 @@ before scaling beyond a classroom deployment.
 | `APP_SESSION_MAX_AGE_DAYS` | `7` | How long one successful login stays valid. Changing the password invalidates every session. |
 | `APP_LOGIN_MAX_ATTEMPTS` | `8` | Wrong passwords per client before a 15-minute lockout. |
 | `MAX_UPLOAD_MB` | `10` | Enforced before decoding |
-| `GENERATION_TIMEOUT_SECONDS` | `600` | One budget per request: queue + both model calls. Also applied to the provider's HTTP client. |
+| `GENERATION_TIMEOUT_SECONDS` | `600` | One budget per request: queue + model call. Also applied to the provider's HTTP client. |
 | `MAX_CONCURRENT_GENERATIONS` | `2` | Admission control per process. Beyond this, requests queue and then get 429. |
 | `MAX_GENERATIONS_PER_MINUTE` | `30` | Per-client abuse brake for billable requests; Render's blueprint uses `12`. |
 | `STORAGE_DIR` | `./storage` | Created on startup |

@@ -6,7 +6,7 @@ Flow of one book, in story order:
 
 The portrait was made and approved before the book started; the runner sends it
 into **every** page alongside the original photo — the same double identity
-anchor the single-scene pipeline uses. That is the mechanism that keeps the
+anchor the portrait pipeline uses. That is the mechanism that keeps the
 child the same child from page 1 to page 3: no page is ever generated without
 both anchors.
 
@@ -93,6 +93,7 @@ class BookRunner:
             total = len(BOOK_PAGES)
             arts: list[PageArt] = []
 
+            prompt_name = record.about.prompt_name
             for done, page in enumerate(BOOK_PAGES, start=1):
                 # `done - 1` pages are actually on disk right now; this page is
                 # in flight, so it must not yet show as done — otherwise a
@@ -101,12 +102,21 @@ class BookRunner:
                     self._book_store.save_status,
                     book_id,
                     BookStatus.RENDERING,
-                    self._page_view(book_id, done - 1, draft.settings),
+                    self._page_view(book_id, done - 1, draft.settings, prompt_name),
                 )
                 image, prompt = await self._render_page(
-                    draft, page, page_number=page.number, total_pages=total
+                    draft,
+                    page,
+                    page_number=page.number,
+                    total_pages=total,
+                    prompt_name=prompt_name,
                 )
-                arts.append(PageArt(image=image, page=render_book_page(page, draft.settings)))
+                arts.append(
+                    PageArt(
+                        image=image,
+                        page=render_book_page(page, draft.settings, prompt_name=prompt_name),
+                    )
+                )
                 await asyncio.to_thread(
                     self._book_store.save_page, book_id, page.number, image
                 )
@@ -128,7 +138,9 @@ class BookRunner:
             await asyncio.to_thread(self._book_store.save_pdf, book_id, pdf_bytes)
             self._book_store.save_pdf(book_id, pdf_bytes)
             self._book_store.save_status(
-                book_id, BookStatus.COMPLETE, self._page_view(book_id, total, draft.settings)
+                book_id,
+                BookStatus.COMPLETE,
+                self._page_view(book_id, total, draft.settings, prompt_name),
             )
             logger.info("book.complete id=%s pdf_bytes=%d", book_id, len(pdf_bytes))
         except UnknownGeneration as exc:
@@ -153,11 +165,21 @@ class BookRunner:
     # --- one page ---------------------------------------------------------------
 
     async def _render_page(
-        self, draft: Draft, page: BookPage, *, page_number: int, total_pages: int
+        self,
+        draft: Draft,
+        page: BookPage,
+        *,
+        page_number: int,
+        total_pages: int,
+        prompt_name: str,
     ) -> tuple[bytes, str]:
         """One page: prompt pinned first (cheap), then the billable call."""
         prompt = build_book_page_prompt(
-            page, draft.settings, page_number=page_number, total_pages=total_pages
+            page,
+            draft.settings,
+            page_number=page_number,
+            total_pages=total_pages,
+            prompt_name=prompt_name,
         )
         image = await self._on_worker_thread_with_slot(self._page_call(draft, prompt))
         return image, prompt
@@ -210,7 +232,11 @@ class BookRunner:
         logger.error("book.failure id=%s pages_done=%d message=%s", book_id, done, message)
 
     def _page_view(
-        self, book_id: str, done_count: int, settings: CartoonSettings
+        self,
+        book_id: str,
+        done_count: int,
+        settings: CartoonSettings,
+        prompt_name: str,
     ) -> list[dict[str, object]]:
         """The full page list for status: done pages, then the rest pending."""
         view: list[dict[str, object]] = []
@@ -220,7 +246,9 @@ class BookRunner:
                 {
                     "number": page.number,
                     "key": page.key,
-                    "title": render_book_page(page, settings).scene.title,
+                    "title": render_book_page(
+                        page, settings, prompt_name=prompt_name
+                    ).scene.title,
                     "url": self._book_store.page_url(book_id, page.number)
                     if finished
                     else None,

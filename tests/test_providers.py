@@ -89,8 +89,8 @@ class TestMockProvider:
 class TestPipelineThroughMockProvider:
     """End-to-end over the real pipeline with only the network faked out."""
 
-    def test_full_run_produces_two_images(self, settings: Settings) -> None:
-        from app.models import CartoonSettings, get_scene
+    def test_full_run_produces_a_persisted_portrait(self, settings: Settings) -> None:
+        from app.models import CartoonSettings
         from app.services.images import decode_upload
         from app.services.pipeline import GenerationPipeline
         from app.services.storage import GenerationStore
@@ -101,14 +101,13 @@ class TestPipelineThroughMockProvider:
         )
         decoded = decode_upload(make_photo_bytes())
 
-        outcome = pipeline.run(
+        draft = pipeline.cartoonify(
             photo_data=decoded.data,
             photo_media_type=decoded.media_type,
-            scene=get_scene("planting-seeds"),  # type: ignore[arg-type]
             settings=CartoonSettings(),
         )
 
-        assert outcome.result.cartoon_image.startswith(b"\x89PNG")
-        assert outcome.result.scene_image.startswith(b"\x89PNG")
-        assert outcome.result.cartoon_image != outcome.result.scene_image
-        assert outcome.result.warnings == ()
+        assert draft.cartoon_image.startswith(b"\x89PNG")
+        stored_draft = GenerationStore(settings.storage_dir).load_draft(draft.generation_id)
+        assert stored_draft is not None
+        assert stored_draft.cartoon_image == draft.cartoon_image

@@ -112,7 +112,7 @@ def test_html_request_is_redirected_to_the_login_page(locked_client: TestClient)
 
 
 def test_api_request_is_refused_with_a_401(locked_client: TestClient) -> None:
-    response = locked_client.get("/api/scenes")
+    response = locked_client.get("/api/settings-options")
     assert response.status_code == 401
     assert response.json()["error"] == "password_required"
 
@@ -145,7 +145,7 @@ def test_right_password_hands_out_a_session(locked_client: TestClient) -> None:
     assert "SameSite=lax" in cookie
 
     assert locked_client.get("/").status_code == 200
-    assert locked_client.get("/api/scenes").status_code == 200
+    assert locked_client.get("/api/settings-options").status_code == 200
 
 
 def test_logout_drops_the_session(locked_client: TestClient) -> None:
@@ -160,7 +160,7 @@ def test_logout_drops_the_session(locked_client: TestClient) -> None:
 def test_forged_cookie_does_not_get_in(locked_client: TestClient) -> None:
     locked_client.cookies.set(SESSION_COOKIE, "9999999999.forged")
     assert locked_client.get("/", follow_redirects=False).status_code == 303
-    assert locked_client.get("/api/scenes").status_code == 401
+    assert locked_client.get("/api/settings-options").status_code == 401
 
 
 def test_login_cannot_be_used_to_redirect_off_site(locked_client: TestClient) -> None:
@@ -169,8 +169,8 @@ def test_login_cannot_be_used_to_redirect_off_site(locked_client: TestClient) ->
 
 
 def test_login_keeps_the_intra_site_target(locked_client: TestClient) -> None:
-    response = _login(locked_client, next_path="/api/scenes")
-    assert response.headers["location"] == "/api/scenes"
+    response = _login(locked_client, next_path="/api/settings-options")
+    assert response.headers["location"] == "/api/settings-options"
 
 
 def test_lockout_blocks_further_logins(locked_client: TestClient) -> None:

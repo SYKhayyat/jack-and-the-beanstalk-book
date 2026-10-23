@@ -27,6 +27,10 @@ export const elements = {
   bookPages: () => document.getElementById("book-pages"),
   pdfLink: () => document.getElementById("book-pdf-link"),
   restart: () => document.getElementById("book-restart"),
+
+  promptPanel: () => document.getElementById("prompt-panel"),
+  promptCartoon: () => document.getElementById("prompt-cartoon"),
+  promptJsonLink: () => document.getElementById("prompt-json-link"),
 };
 
 export function showPhotoMessage(message, kind = "info") {
@@ -73,10 +77,33 @@ export function showCameraMessage(message) {
   node.classList.remove("hidden");
 }
 
+export function oneStepChecked() {
+  return Boolean(document.getElementById("one_step")?.checked);
+}
+
+export function showRestart() {
+  elements.restart().classList.remove("hidden");
+}
+
+/* Transparency: the wording the model actually received. The cartoon prompt
+   text arrives with the cartoonify response; the page-by-page JSON becomes
+   linkable once the book exists. */
+export function showPrompts({ cartoonPrompt, bookId }) {
+  if (cartoonPrompt) {
+    elements.promptCartoon().textContent = cartoonPrompt;
+  }
+  if (bookId) {
+    const link = elements.promptJsonLink();
+    link.href = `/book-media/${bookId}/prompts.json`;
+    link.classList.remove("hidden");
+  }
+  elements.promptPanel().classList.remove("hidden");
+}
+
 export function setBusyPortrait(message) {
   const button = elements.makePortrait();
   button.disabled = Boolean(message);
-  button.textContent = message || "Step 4 · Make the cartoon portrait";
+  button.textContent = message || "Make the cartoon portrait";
 }
 
 export function showReview(portraitUrl, message) {
@@ -189,14 +216,20 @@ export function readCharacterSettings() {
 }
 
 export function readAboutMe() {
-  const name = document.getElementById("child-name");
-  const age = document.getElementById("child-age");
-  const gender = document.getElementById("child-gender");
-  const details = document.getElementById("details");
-  return {
+  const byId = (id) => document.getElementById(id);
+  const name = byId("child-name");
+  const aboutName = byId("about-name");
+  const aboutAge = byId("about-age");
+  const aboutTitle = byId("about-title");
+  const details = byId("details");
+  const about = {
     child_name: name.value.trim(),
-    child_age: age.value === "" ? null : age.value,
-    child_gender: gender.value.trim(),
+    about_name: aboutName.value.trim(),
+    about_age: aboutAge.value === "" ? null : aboutAge.value,
+    about_title: aboutTitle.value.trim(),
     details: details.value,
   };
+  if (!about.about_name) about.about_name = about.child_name;
+  if (!about.child_name) about.child_name = about.about_name;
+  return about;
 }

@@ -104,9 +104,9 @@ class Settings(BaseSettings):
         ge=1,
         le=3600,
         description=(
-            "Wall-clock ceiling for one /api/generate request, covering upload "
-            "decoding and both model calls. Also applied to the provider's HTTP "
-            "client so an in-flight request is actually aborted, not just abandoned."
+            "Wall-clock ceiling for one API request, covering upload decoding and "
+            "the model call. Also applied to the provider's HTTP client so an "
+            "in-flight request is actually aborted, not just abandoned."
         ),
     )
     max_concurrent_generations: int = Field(

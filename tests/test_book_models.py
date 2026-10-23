@@ -1,4 +1,4 @@
-"""The book's domain models: page catalogue and About Me validation."""
+"""The book's domain models: page catalogue and About validation."""
 
 from __future__ import annotations
 
@@ -34,54 +34,76 @@ class TestPageCatalogue:
         assert get_book_page("no-such-page") is None
 
     def test_render_fills_name_and_pronouns(self) -> None:
-        settings = CartoonSettings(photo_gender="girl", character_gender="match")
+        settings = CartoonSettings(photo_gender="girl")
         rendered = render_book_page(BOOK_PAGES[0], settings)
         assert rendered.story.startswith("Jane and her mother")
         assert "{name}" not in rendered.story
         assert "{possessive}" not in rendered.scene.caption
 
     def test_boy_renders_jack(self) -> None:
-        settings = CartoonSettings(photo_gender="boy", character_gender="match")
+        settings = CartoonSettings(photo_gender="boy")
         rendered = render_book_page(BOOK_PAGES[2], settings)
         assert "Jack" in rendered.scene.caption or rendered.story
 
 
 class TestAboutMe:
-    def test_name_is_required(self) -> None:
+    def test_both_names_are_required(self) -> None:
         with pytest.raises(ValidationError):
-            AboutMe(child_name="   ")
+            AboutMe(prompt_name="   ", about_name="Shai")
+        with pytest.raises(ValidationError):
+            AboutMe(prompt_name="Shai", about_name="   ")
 
     def test_control_characters_and_newlines_in_one_line_fields(self) -> None:
-        about = AboutMe(child_name="  Shai\t Ben  ", details="")
-        assert about.child_name == "Shai Ben"
+        about = AboutMe(prompt_name="  Shai\t Ben  ", about_name="Shai", details="")
+        assert about.prompt_name == "Shai Ben"
+
+    def test_the_star_name_and_the_about_name_may_differ(self) -> None:
+        # The pseudonym case: the story's Jack, the About page's Avi.
+        about = AboutMe(prompt_name="Jack", about_name="Avi")
+        assert about.prompt_name != about.about_name
+
+    def test_title_is_optional_and_cleaned(self) -> None:
+        assert AboutMe(prompt_name="Shai", about_name="Shai").title is None
+        assert AboutMe(prompt_name="Shai", about_name="Shai", title="  ").title is None
+        about = AboutMe(prompt_name="Shai", about_name="Shai", title=" an astronaut ")
+        assert about.title == "an astronaut"
 
     def test_details_keep_line_structure(self) -> None:
-        about = AboutMe(child_name="Shai", details="Loves dinosaurs\n\n  Lives in Jerusalem ")
-        assert (
-            about.details
-            == "Loves dolphins".replace("dolphins", "dinosaurs") + "\nLives in Jerusalem"
+        about = AboutMe(
+            prompt_name="Shai",
+            about_name="Shai",
+            details="Loves dinosaurs\n\n  Lives in Jerusalem ",
         )
+        assert about.details == "Loves dinosaurs\nLives in Jerusalem"
 
     def test_details_drop_control_characters(self) -> None:
-        about = AboutMe(child_name="Shai", details="Loves \x07dinosaurs")
+        about = AboutMe(prompt_name="Shai", about_name="Shai", details="Loves \x07dinosaurs")
         assert about.details == "Loves dinosaurs"
 
-    def test_age_bounds(self) -> None:
-        assert AboutMe(child_name="A", child_age=0).child_age == 0
-        assert AboutMe(child_name="A", child_age=14).child_age == 14
+    def test_age_bounds_allow_adults(self) -> None:
+        assert AboutMe(prompt_name="A", about_name="A", about_age=0).about_age == 0
+        assert AboutMe(prompt_name="A", about_name="A", about_age=99).about_age == 99
         with pytest.raises(ValidationError):
-            AboutMe(child_name="A", child_age=15)
+            AboutMe(prompt_name="A", about_name="A", about_age=100)
         with pytest.raises(ValidationError):
-            AboutMe(child_name="A", child_age=-1)
+            AboutMe(prompt_name="A", about_name="A", about_age=-1)
 
     def test_rendered_lines_compose_the_page(self) -> None:
-        about = AboutMe(child_name="Shai", child_age=7, details="Loves dinosaurs")
+        # Display order: name (heading), age, title, then the About lines.
+        about = AboutMe(
+            prompt_name="Jack",
+            about_name="Shai",
+            about_age=7,
+            title="an astronaut",
+            details="Loves dinosaurs",
+        )
         lines = about.rendered_about_lines()
         assert lines[0] == "About Shai"
         assert lines[1] == "7 years old"
-        assert lines[2] == "A few things you should know about"
-        assert lines[3] == "Loves dinosaurs"
+        assert lines[2] == "an astronaut"
+        assert lines[3] == "A few things you should know about"
+        assert lines[4] == "Loves dinosaurs"
 
     def test_empty_optional_fields_add_no_lines(self) -> None:
-        about = AboutMe(child_name="Shai")
+        about = AboutMe(prompt_name="Shai", about_name="Shai")
         assert about.rendered_about_lines() == ["About Shai"]

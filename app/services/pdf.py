@@ -5,7 +5,7 @@ The one place where art and text meet. Rules it enforces:
 * the art is full-bleed on every page;
 * the story line is drawn as **real PDF text** on top of the art — the image
   model never draws it, so no garbled letters are ever baked into the pictures;
-* the last page is the About Me page, built only from what the uploader typed.
+* the last page is the About page, built only from what the uploader typed.
 
 Fonts ship with the app (``app/assets/fonts``): Comic Neue (SIL OFL) for Latin
 text with Noto Sans Hebrew as a glyph fallback, so the same book renders
@@ -77,7 +77,7 @@ class PageArt:
 
 
 def build_book_pdf(about: AboutMe, pages: Sequence[PageArt]) -> bytes:
-    """Assemble the book: full-bleed art pages in story order, About Me last.
+    """Assemble the book: full-bleed art pages in story order, About last.
 
     All pages share the aspect ratio of the first one (they come from the same
     provider and aspect setting, so they already match); any unexpected drift is
@@ -152,7 +152,7 @@ def _draw_page(pdf: FPDF, entry: PageArt) -> None:
 
 
 def draw_about_page(pdf: FPDF, about: AboutMe) -> None:
-    """Render the About Me page from the uploader's words and nothing else."""
+    """Render the About page from the uploader's words and nothing else."""
     width, height = pdf.w, pdf.h
     pdf.add_page()
     pdf.set_fill_color(*_ABOUT_BG)
@@ -184,7 +184,7 @@ def draw_about_page(pdf: FPDF, about: AboutMe) -> None:
     name_size = width * 0.09
     while (
         name_size > 20.0
-        and _text_width("ComicNeue", "B", name_size, about.child_name) > panel_width
+        and _text_width("ComicNeue", "B", name_size, about.about_name) > panel_width
     ):
         name_size *= 0.9
     pdf.set_font("ComicNeue", "B", name_size)
@@ -192,7 +192,7 @@ def draw_about_page(pdf: FPDF, about: AboutMe) -> None:
     pdf.cell(
         panel_width,
         name_size * 1.6,
-        about.child_name,
+        about.about_name,
         align="C",
     )
 

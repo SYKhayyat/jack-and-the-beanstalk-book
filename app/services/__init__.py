@@ -5,16 +5,14 @@ on routes.
 """
 
 from app.services.images import InvalidImage, decode_upload
-from app.services.pipeline import GenerationPipeline, PipelineOutcome
-from app.services.prompts import build_cartoon_prompt, build_scene_prompt
+from app.services.pipeline import GenerationPipeline
+from app.services.prompts import build_cartoon_prompt
 from app.services.storage import GenerationStore
 
 __all__ = [
     "GenerationPipeline",
     "GenerationStore",
     "InvalidImage",
-    "PipelineOutcome",
     "build_cartoon_prompt",
-    "build_scene_prompt",
     "decode_upload",
 ]

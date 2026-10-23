@@ -12,11 +12,11 @@ call and settings machinery, so the portrait the uploader saw is exactly the
 portrait every page is anchored on.
 
 Media (portrait, pages) lives under `/book-media` and is served with the same
-no-store discipline as `/media`: the URLs carry the child's data and must not
+no-store discipline as `/media`: the URLs carry the visitor's data and must not
 be cached by shared browsers or proxies.
 
 Everything the route accepts is validated like the rest of the app: closed enum
-settings for the model-facing knobs, and the free-text About Me fields confined
+settings for the model-facing knobs, and the free-text About fields confined
 to the PDF layer — visitor text never reaches a prompt.
 """
 
@@ -39,7 +39,7 @@ from app.errors import (
 from app.models import BOOK_PAGES, AboutMe, CartoonSettings
 from app.services.book_store import BookRecord, BookStatus
 from app.services.pipeline import UnknownGeneration
-from app.services.prompts import render_book_page
+from app.services.prompts import book_name_for, render_book_page
 
 __all__ = ["media_router", "router"]
 
@@ -84,12 +84,18 @@ async def start_book(
     generation_id: str = Form(
         ..., description="Id of the approved portrait, returned by /api/cartoonify."
     ),
-    child_name: str = Form(..., min_length=1, max_length=60),
-    child_age: int | None = Form(None, ge=0, le=14),
-    child_gender: str | None = Form(None, max_length=60),
+    child_name: str = Form("", max_length=60),
+    about_name: str = Form("", max_length=60),
+    about_age: int | None = Form(None, ge=0, le=99),
+    about_title: str | None = Form(None, max_length=60),
     details: str = Form("", max_length=1000),
 ) -> dict[str, object]:
     """Start rendering the book from an already-approved cartoon portrait.
+
+    Both names are optional: a blank resolves to Jack or Jane, following the
+    photo-gender answer the portrait was made with. They are separate on
+    purpose — the name the story uses and the name the About page shows may
+    differ.
 
     One book costs one provider call per page (rate-billed in pages); the
     portrait call was already paid in pass 1 and is reused as an identity
@@ -97,7 +103,12 @@ async def start_book(
     progress and the PDF link.
     """
     _check_rate(request, container, tokens=len(BOOK_PAGES))
-    about = _about_from_form(child_name, child_age, child_gender, details)
+    draft = container.store.load_draft(generation_id)
+    if draft is None:
+        raise UnknownGeneration(generation_id)
+    about = _about_from_form(
+        child_name, about_name, about_age, about_title, details, draft.settings
+    )
     book_id = uuid.uuid4().hex
 
     container.book_store.save_record(book_id=book_id, about=about, generation_id=generation_id)
@@ -211,27 +222,39 @@ def _check_rate(request: Request, container: ContainerDep, tokens: int = 1) -> N
 
 def _about_from_form(
     child_name: str,
-    child_age: int | None,
-    child_gender: str | None,
+    about_name: str,
+    about_age: int | None,
+    about_title: str | None,
     details: str,
+    settings: CartoonSettings,
 ) -> AboutMe:
-    """Validate the uploader's words with the same strictness as the settings.
+    """Resolve blank names and validate the uploader's words.
+
+    A blank prompt name or About name becomes Jack or Jane — decided by the
+    photo-gender answer the settings carry — rather than praying to a required
+    field. Exactly one resolver lives here: the model receives an object whose
+    names are always set.
 
     The text itself is free — it is drawn on the PDF, never sent to a model —
     but a malformed value fails here with a 422 naming the field rather than
-    surfacing as a blank About Me page later.
+    surfacing as a blank About page later.
     """
+    resolved = book_name_for(settings)
+    resolved_prompt_name = child_name.strip() or resolved
+    resolved_about_name = about_name.strip() or resolved
+
     try:
         return AboutMe.model_validate(
             {
-                "child_name": child_name,
-                "child_age": child_age,
-                "child_gender": child_gender,
+                "prompt_name": resolved_prompt_name,
+                "about_name": resolved_about_name,
+                "about_age": about_age,
+                "title": about_title,
                 "details": details,
             }
         )
     except ValidationError as exc:
-        raise InvalidSettings(f"The About Me details did not validate: {exc}") from exc
+        raise InvalidSettings(f"The About page details did not validate: {exc}") from exc
 
 
 def _no_store(data: bytes, *, media_type: str, filename: str | None = None) -> Response:

@@ -72,10 +72,7 @@ def photo() -> bytes:
 
 
 def generate_form(**overrides: object) -> dict[str, object]:
-    """Build a valid /api/generate form payload, with optional overrides."""
-    form: dict[str, object] = {
-        "photo": ("me.png", make_photo_bytes(), "image/png"),
-        "scene": "planting-seeds",
-    }
+    """Build a valid /api/cartoonify form payload, with optional overrides."""
+    form: dict[str, object] = {"photo": ("me.png", make_photo_bytes(), "image/png")}
     form.update(overrides)
     return form

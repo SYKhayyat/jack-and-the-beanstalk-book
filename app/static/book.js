@@ -1,8 +1,7 @@
-/* Book controller — event wiring and orchestration for /book only.
+/* Book controller — event wiring and orchestration for the book page.
    No DOM access of its own (element references come from book-view), no state
    clumps (changes go through book-state), no HTTP (all calls go through the
-   client in api.js). Photo sources and downscaled photos are shared with the
-   single-scene page, so the same seams hold. */
+   client in api.js). */
 
 import { createCameraSource, createFilePickerSource, isTouchDevice } from "./photo.js";
 import { createBookClient, postForm } from "./api.js";
@@ -66,8 +65,7 @@ async function acceptPhoto(captured = null) {
 
 /* --- the camera ---------------------------------------------------------- */
 
-/* Same taxonomy the single-scene page uses, so both pages say why the camera
-   did not open instead of echoing a raw error string. */
+/* Says why the camera did not open instead of echoing a raw error string. */
 function cameraOpenMessage(error) {
   if (error.name === "NotAllowedError") {
     return "The browser blocked the camera — allow it in the site settings, or use a photo from the picker.";
@@ -144,10 +142,17 @@ async function cartoonify() {
   try {
     const payload = await postForm("/api/cartoonify", settingsForm());
     state.setDraft(book, payload.generation_id);
+    if (view.oneStepChecked()) {
+      // Fast mode: skip the preview, start the book right away.
+      view.setBusyPortrait("");
+      await approveAndStart();
+      return;
+    }
     view.showReview(
       payload.images.cartoon_url,
       "This portrait will appear on every page of the book.",
     );
+    view.showPrompts({ cartoonPrompt: payload.prompts?.cartoon || "", bookId: book.bookId });
   } catch (error) {
     view.setBusyPortrait("");
     view.showPhotoMessage(error.message || "The portrait did not come out — try again.", "error");
@@ -178,14 +183,10 @@ function seedTotalPages() {
 async function approveAndStart() {
   if (book.pendingDraft) state.approveDraft(book);
   if (!state.isApproved(book)) {
-    view.showReviewMessage("Make a portrait first — choose a photo and press Step 4.", "error");
+    view.showReviewMessage("Make a portrait first — choose a photo and press the button.", "error");
     return;
   }
   const about = view.readAboutMe();
-  if (!about.child_name) {
-    view.showReviewMessage("The child's name is needed for the About Me page.", "error");
-    return;
-  }
   view.elements.approve().disabled = true;
   view.showReviewMessage("Starting the book…");
   const form = new FormData();
@@ -197,6 +198,8 @@ async function approveAndStart() {
     const payload = await bookApi.start(form);
     state.setBook(book, payload.book_id);
     view.showReviewMessage("");
+    // The book now has an id: make its prompts.json inspectable.
+    view.showPrompts({ bookId: payload.book_id });
     view.showBookStage();
     view.renderBookProgress(0, totalPages);
     pollBook();
@@ -226,7 +229,7 @@ function pollBook() {
       view.renderBookPages(book);
       if (state.isBookFailed(book)) {
         view.showBookError(book.error || "The book failed. Try again.");
-        view.elements.restart().classList.remove("hidden");
+        view.showRestart();
         return;
       }
       if (state.isBookFinished(book)) {
@@ -245,7 +248,7 @@ function pollBook() {
         return;
       }
       view.showBookError("The book cannot be reached right now — keep this tab open.");
-      view.elements.restart().classList.remove("hidden");
+      view.showRestart();
     }
   }, POLL_MS);
 }

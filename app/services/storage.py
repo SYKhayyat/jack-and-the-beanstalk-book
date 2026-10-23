@@ -16,7 +16,7 @@ import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from app.models import CartoonSettings, GenerationResult
+from app.models import CartoonSettings
 
 __all__ = ["Draft", "GenerationStore", "StoredGeneration"]
 
@@ -61,12 +61,9 @@ class StoredGeneration:
         return None
 
     def to_urls(self) -> dict[str, str]:
+        """The draft's URLs: the approved-looking cartoon and its alternatives."""
         base = f"/media/{self.generation_id}"
-        return {
-            "cartoon": f"{base}/cartoon",
-            "scene": f"{base}/scene",
-            "meta": f"{base}/meta.json",
-        }
+        return {"cartoon": f"{base}/cartoon"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,33 +111,6 @@ class GenerationStore:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
-
-    def save(self, result: GenerationResult) -> StoredGeneration:
-        """Persist both images and a JSON sidecar describing the run."""
-        stored = StoredGeneration(self.root, result.generation_id)
-        stored.directory.mkdir(parents=True, exist_ok=True)
-
-        cartoon_suffix = "jpg" if result.cartoon_image[:2] == b"\xff\xd8" else "png"
-        scene_suffix = "jpg" if result.scene_image[:2] == b"\xff\xd8" else "png"
-
-        stored.path(f"cartoon.{cartoon_suffix}").write_bytes(result.cartoon_image)
-        stored.path(f"scene.{scene_suffix}").write_bytes(result.scene_image)
-
-        meta = {
-            "generation_id": result.generation_id,
-            "provider": result.provider,
-            "model": result.model,
-            "scene_key": result.scene_key,
-            "caption": result.caption,
-            "settings": result.settings.model_dump(mode="json"),
-            "cartoon_prompt": result.cartoon_prompt,
-            "scene_prompt": result.scene_prompt,
-            "candidate_count": result.candidate_count,
-            "created_at": result.created_at.isoformat(),
-            "warnings": list(result.warnings),
-        }
-        stored.path("meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        return stored
 
     def save_draft(self, draft: Draft) -> StoredGeneration:
         """Persist a completed pass 1 so pass 2 can run later, on its own."""
@@ -195,23 +165,10 @@ class GenerationStore:
             model=str(payload.get("model", "unknown")),
         )
 
-    def read_meta(self, generation_id: str) -> dict[str, object] | None:
-        """Load a generation's metadata, or None if it is gone or malformed."""
-        if not _is_safe_id(generation_id):
-            return None
-        path = StoredGeneration(self.root, generation_id).path("meta.json")
-        if not path.is_file():
-            return None
-        try:
-            parsed: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-        return parsed
-
     def read_image(self, generation_id: str, stem: str) -> bytes | None:
         """Load a stored image by stem, or None.
 
-        Stems are "cartoon", "scene" or "candidate-N" for a draft's extra
+        Stems are "cartoon", "photo" or "candidate-N" for a draft's extra
         portrait alternatives.
         """
         if not _is_safe_id(generation_id) or not _is_known_stem(stem):
@@ -241,7 +198,7 @@ def _media_type_for(data: bytes) -> str:
 
 def _is_known_stem(stem: str) -> bool:
     """Whitelist stems rather than trusting the URL, since they become filenames."""
-    if stem in {"cartoon", "scene"}:
+    if stem in {"cartoon", "photo"}:
         return True
     prefix, _, digits = stem.partition("-")
     return prefix == "candidate" and digits.isdigit()

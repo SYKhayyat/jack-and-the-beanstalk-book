@@ -1,9 +1,9 @@
-"""Scene specifications from Jack and the Beanstalk.
+"""The scene data contract.
 
 A `Scene` is pure data: the prose specification sent to the image model, plus
-the caption burned onto the result. The prose lives in ``app/prompts.toml``;
-adding a third scene means adding one ``[[scenes]]`` entry there — no code
-changes anywhere else in the app.
+the fields the page prompts reuse. The prose lives in ``app/prompts.toml``;
+adding a page to the book means adding one ``[[book_pages]]`` entry there — no
+code changes anywhere else in the app.
 """
 
 from __future__ import annotations
@@ -76,26 +76,3 @@ class Scene:
             must_include=tuple(fill(item) for item in self.must_include),
             must_avoid=tuple(fill(item) for item in self.must_avoid),
         )
-
-
-SCENES: tuple[Scene, ...] = tuple(
-    Scene(
-        key=spec["key"],
-        title=spec["title"],
-        caption=spec["caption"],
-        subject_action=spec["subject_action"],
-        environment=spec["environment"],
-        time_of_day=spec["time_of_day"],
-        camera=spec["camera"],
-        must_include=tuple(spec["must_include"]),
-        must_avoid=tuple(spec["must_avoid"]),
-    )
-    for spec in prompt_text()["scenes"]
-)
-
-_SCENES_BY_KEY: dict[str, Scene] = {scene.key: scene for scene in SCENES}
-
-
-def get_scene(key: str) -> Scene | None:
-    """Look up a scene by key, or None if unknown."""
-    return _SCENES_BY_KEY.get(key)

@@ -180,23 +180,6 @@ lighting = "LIGHTING: {time_of_day}."
 camera = "CAMERA: {camera}."
 checklist = "Every one of these must be clearly visible: {items}."
 avoid = "Do not show any of the following: {items}."
-rejection_preamble = "This is a retry. The previous attempt was rejected, so do not reproduce it."
-
-# Corrective clauses for the retry step, keyed by RejectionReason.
-# Deliberately specific: 'try again' teaches the model nothing.
-[rejections]
-face_changed = "The previous attempt did not look like the person. Identity outranks style this time: reproduce the reference's proportions exactly — the skull shape, jaw width, distance between the eyes, size and angle of the nose, mouth width and lip shape, brow thickness, forehead height and hairline — and resist any stylisation that would alter them."
-style_wrong = "The previous attempt was in the wrong art style. Follow the ART STYLE section exactly this time, in its medium, line weight and shading."
-age_wrong = "The previous attempt's age read wrong. Follow the stated age precisely in face shape, proportions and skin."
-hair_wrong = "The previous attempt's hair was wrong. Follow the stated hair style, length, part and colour exactly."
-skin_tone_wrong = "The previous attempt's skin tone was wrong. Match the stated tone exactly, including any warmth or undertone."
-expression_wrong = "The previous attempt's expression was wrong. Read the stated expression literally and change the brows, eyelids and mouth accordingly."
-outfit_wrong = "The previous attempt's clothing was wrong. Wear exactly the stated outfit, and keep it readable against the background."
-background_distracting = "The previous attempt's background competed with the face. Put nothing behind the head: no objects, no pattern, no strong colour. Keep the whole face unobstructed and clearly lit."
-too_cartoon = "The previous attempt was over-stylised and lost the person. Pull back towards a realistic rendering while keeping light outlines."
-not_cartoon_enough = "The previous attempt looked like a photograph rather than a cartoon. Commit harder to the art style: visible outlines and simplified shapes."
-no_specific_fault = "The previous attempt was rejected without a specific fault. Make this attempt clearly different from it — do not repeat the previous result."
-
 # ---------------------------------------------------------------------------
 # The picture book.
 #
@@ -223,11 +206,11 @@ same_clothes = "The child wears exactly the same clothes on every page of this b
 # The model must not imitate the story text: the PDF draws it.
 no_text = "Do not draw any text, lettering, numbers, watermark, signature, logo, caption or speech bubble anywhere in the image — the page's story text is added later, outside this image, so any writing you draw would be doubled up and garbled."
 
-# PDF-layer copy for the About Me page. {child_name} is filled from what the
-# uploader typed; these strings never reach the model. The child's name is also
-# drawn large as the page's centrepiece (see pdf.py), so it appears below the
-# heading by design.
-[book.about_me]
+# PDF-layer copy for the About page. {child_name} is filled from the About
+# name the uploader typed (a pseudonym is fine); these strings never reach the
+# model. The name is also drawn large as the page's centrepiece (see pdf.py),
+# so it appears below the heading by design.
+[book.about]
 heading = "About {child_name}"
 age_line = "{child_age} years old"
 details_heading = "A few things you should know about"
@@ -304,27 +287,3 @@ time_of_day = "sunrise, warm gold and pink light with deep green shadows on the 
 camera = "very wide vertical composition with the beanstalk rising through the whole frame and out of view, {name} tiny at the bottom, open sky at the top where the story text will sit"
 must_include = ["a giant beanstalk rising out of frame with broad leaves", "{name} small at the gate looking up in wonder", "warm sunrise light", "open sky clear across the top of the frame"]
 must_avoid = ["the giant himself", "a fully visible sky castle", "the beanstalk toppling or broken", "any writing on the leaves or sky"]
-
-# The two story beats. Prose here is both the model specification and the
-# caption burned onto the result — they cannot drift apart.
-[[scenes]]
-key = "planting-seeds"
-title = "{name} is planting the seeds"
-caption = "{name} is planting the seeds. Young {name} kneels in a cottage garden, pressing a handful of magic beans into a freshly dug hole in dark soil, beside {possessive} mother's cottage with a thatched roof behind {object}."
-subject_action = "kneeling on both knees in the soil, bent forward, one hand pushing beans down into the hole and the other steadying {reflexive} on the ground"
-environment = "the dirt patch behind {possessive} mother's small stone cottage, a wooden fence and a low stone wall at the edge of the plot, garden tools and an empty clay pot set aside, the magic beans glowing faintly in the hole"
-time_of_day = "early morning, soft low golden sunlight and long cool shadows"
-camera = "three-quarter eye-level medium-wide shot, subject sharp in the centre third, gentle depth of field on the cottage behind"
-must_include = ["magic beans being placed into the soil", "a dug hole in dark earth", "the thatched cottage", "{name} kneeling"]
-must_avoid = ["a beanstalk", "a giant", "{name} climbing or standing upright", "text, watermark, logo or speech bubble"]
-
-[[scenes]]
-key = "climbing-beanstalk"
-title = "{name} is climbing the beanstalk"
-caption = "{name} is climbing the beanstalk. {name} grips the thick twisting vine and clambers high above the clouds, the stalk vanishing up into a bright sky while the cottage and fields shrink to a toy-sized patchwork far below."
-subject_action = "climbing, both hands wrapped around the vine and one knee hooked around it, body pressed to the stalk and looking upward toward the clouds"
-environment = "a colossal spiralling green beanstalk rising out of the farmland below, clouds and pale blue sky all around, a vast castle with golden turrets faintly visible high above through a break in the clouds, tiny cottage and fields far beneath"
-time_of_day = "bright clear morning, sunlit clouds and luminous green stalk"
-camera = "dramatic vertical low-angle looking up the length of the stalk, extreme scale contrast between the tiny earth below and {name} high in the sky"
-must_include = ["a colossal beanstalk {name} is gripping", "clouds", "the ground and cottage far below", "hands and feet in a climbing position"]
-must_avoid = ["{name} planting or kneeling on the ground", "a giant", "the chicken or the golden hen", "text, watermark, logo or speech bubble"]

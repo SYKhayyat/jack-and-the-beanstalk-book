@@ -55,7 +55,7 @@ class TestGenerationTimeout:
         tight = settings.model_copy(update={"generation_timeout_seconds": 1})
         client = app_with(tight, SlowProvider(delay=1.5))
 
-        response = client.post("/api/generate", **multipart(generate_form()))
+        response = client.post("/api/cartoonify", **multipart(generate_form()))
         assert response.status_code == 504
         assert response.json()["error"] == "generation_timeout"
 
@@ -63,14 +63,14 @@ class TestGenerationTimeout:
         tight = settings.model_copy(update={"generation_timeout_seconds": 1})
         client = app_with(tight, SlowProvider(delay=1.5))
 
-        detail = client.post("/api/generate", **multipart(generate_form())).json()["detail"]
+        detail = client.post("/api/cartoonify", **multipart(generate_form())).json()["detail"]
         assert "try again" in detail.lower()
 
     def test_generation_within_the_budget_succeeds(self, settings: Settings) -> None:
         roomy = settings.model_copy(update={"generation_timeout_seconds": 30})
         client = app_with(roomy, SlowProvider(delay=0.2))
 
-        assert client.post("/api/generate", **multipart(generate_form())).status_code == 201
+        assert client.post("/api/cartoonify", **multipart(generate_form())).status_code == 201
 
     def test_a_timed_out_request_is_not_retried(self, settings: Settings) -> None:
         # The point of the ceiling: one user request, at most two provider calls,
@@ -79,7 +79,7 @@ class TestGenerationTimeout:
         provider = SlowProvider(delay=1.5)
         client = app_with(tight, provider)
 
-        client.post("/api/generate", **multipart(generate_form()))
+        client.post("/api/cartoonify", **multipart(generate_form()))
         time.sleep(1.0)  # let any abandoned thread prove it did not re-request
         assert provider.calls <= 2
 
@@ -148,7 +148,7 @@ class TestConcurrencyGate:
         for _ in range(2):
             with TestClient(client) as one_shot:
                 assert (
-                    one_shot.post("/api/generate", **multipart(generate_form())).status_code
+                    one_shot.post("/api/cartoonify", **multipart(generate_form())).status_code
                     == 201
                 )
 
@@ -180,7 +180,7 @@ class TestServerBusy:
             ) as client:
                 form = multipart(generate_form())
                 return await asyncio.gather(
-                    *(client.post("/api/generate", **form) for _ in range(count))
+                    *(client.post("/api/cartoonify", **form) for _ in range(count))
                 )
 
         return asyncio.run(run())
@@ -191,9 +191,9 @@ class TestServerBusy:
         statuses = [r.status_code for r in self._concurrently(app, 3)]
 
         assert 429 in statuses
-        # Only the one admitted request reached the provider: two pipeline
-        # calls, not six. Rejected requests cost the user nothing.
-        assert provider.calls == 2
+        # Only the one admitted request reached the provider. Rejected
+        # requests cost the user nothing.
+        assert provider.calls == 1
 
     def test_provider_failure_releases_the_slot(self, settings: Settings) -> None:
         class FailingProvider(ImageProvider):
@@ -206,7 +206,7 @@ class TestServerBusy:
         client = app_with(tight, FailingProvider())
 
         for _ in range(2):
-            response = client.post("/api/generate", **multipart(generate_form()))
+            response = client.post("/api/cartoonify", **multipart(generate_form()))
             assert response.status_code == 502
 
     def test_only_one_request_is_admitted(self, saturated_app) -> None:
@@ -233,7 +233,7 @@ class TestServerBusy:
 
         responses = self._concurrently(app, 2)
         assert {r.status_code for r in responses} == {504, 429}
-        assert provider.calls == 2
+        assert provider.calls == 1
 
 
 class TestHealthReportsConcurrency:
