@@ -42,8 +42,8 @@ class CharacterGender(StrEnum):
 
     ``MATCH`` means "the same as the person in the photo"; because the app cannot
     infer a child's gender from pixels, that choice requires ``photo_gender`` to
-    say which it is. Either way the answer resolves to a boy or a girl, which is
-    what names the character (Jack or Jane) and picks the pronouns.
+    say which it is. Either way the answer resolves to a boy or a girl — the two
+    dropdown labels — and that answer picks the pronouns.
     """
 
     MATCH = "match"

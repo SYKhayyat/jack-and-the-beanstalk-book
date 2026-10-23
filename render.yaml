@@ -21,10 +21,11 @@ services:
       - key: APP_ENV
         value: production
 
-      # Start on the mock provider so the first deploy boots green with no key.
-      # Switch this to "openai" in the dashboard once you have added one.
-      - key: IMAGE_PROVIDER
-        value: mock
+      # IMAGE_PROVIDER is deliberately not declared here. The app boots on the
+      # mock provider without it, and keeping the dashboard as the single
+      # source of truth means switching to openai in the dashboard is never
+      # overwritten by the next blueprint sync. Add OPENAI_API_KEY below (or
+      # GEMINI_API_KEY) and set IMAGE_PROVIDER in the dashboard env.
 
       # Paste your key into the Render dashboard when prompted.
       - key: OPENAI_API_KEY

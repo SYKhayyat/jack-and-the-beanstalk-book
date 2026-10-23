@@ -136,8 +136,8 @@ _GENDER = {
 }
 
 _PHOTO_GENDER = {
-    PhotoGender.BOY: "Boy (Jack)",
-    PhotoGender.GIRL: "Girl (Jane)",
+    PhotoGender.BOY: "Boy",
+    PhotoGender.GIRL: "Girl",
 }
 
 _SKIN = {

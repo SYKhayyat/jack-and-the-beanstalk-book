@@ -556,9 +556,12 @@ The repo ships a blueprint, so this is short:
 3. Render will prompt for `OPENAI_API_KEY` — paste it there. That is the only
    place it belongs. It is never in the repo. It will also prompt for
    `APP_PASSWORD` — paste in the shared password that guards the app.
-4. Leave `IMAGE_PROVIDER=mock` for the first deploy so it boots green. Then set
+4. The app boots on the mock provider: with no `IMAGE_PROVIDER` set it runs
+   free, so the first deploy is always green. Once your key is in, set
    `IMAGE_PROVIDER=openai` in the dashboard and save; Render redeploys. The
-   blueprint uses the cheap `gpt-image-2.5-flare` model at low quality.
+   blueprint deliberately does not pin this variable, so the dashboard is the
+   single source of truth and the next sync keeps your choice. The blueprint
+   uses the cheap `gpt-image-2.5-flare` model at low quality.
 5. Check `https://<your-app>.onrender.com/healthz` — it should report
    `"using_real_api": true`.
 6. Put the live URL in the hand-in and in Slack.
