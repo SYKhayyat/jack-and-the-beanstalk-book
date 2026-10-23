@@ -24,8 +24,7 @@ RUN useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app
 USER appuser
 
-ENV IMAGE_PROVIDER=mock \
-    APP_ENV=production \
+ENV APP_ENV=production \
     STORAGE_DIR=/app/storage
 
 EXPOSE 8000

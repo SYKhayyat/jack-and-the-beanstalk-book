@@ -31,6 +31,10 @@ services:
       - key: OPENAI_API_KEY
         sync: false
 
+      # Defaults to mock in the app; set to "openai" (or "gemini") in the
+      # dashboard once a key is in place.
+      - key: IMAGE_PROVIDER
+        sync: false
       # The shared password in front of the app. Paste it into the Render
       # dashboard when prompted; leaving it unset makes the app open to
       # anyone who finds the URL, and every generation costs money.
