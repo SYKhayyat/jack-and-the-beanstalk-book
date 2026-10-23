@@ -192,9 +192,17 @@ class TestBookErrors:
                 data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
             )
             book_id = start.json()["book_id"]
-            # The first status fetch proves the book is still rendering, so the
-            # 409 below is guaranteed rather than racy on a fast machine.
-            assert wait_for_book(slow_client, book_id, seconds=0.05)["status"] == "rendering"
+            # A book starts as "pending" and flips to "rendering" once the
+            # background job runs. Poll until the flip instead of racing a
+            # single fetch: CI machines schedule differently from dev ones.
+            # The slow provider keeps the whole run well over a second, so
+            # "rendering" is still current when the PDF call lands.
+            deadline = time.monotonic() + 5.0
+            status = "pending"
+            while time.monotonic() < deadline and status == "pending":
+                status = slow_client.get(f"/api/book/{book_id}").json()["status"]
+                time.sleep(0.02)
+            assert status == "rendering", f"book raced to {status}"
             pdf = slow_client.get(f"/book-media/{book_id}/pdf")
             assert pdf.status_code == 409, "a running book must not serve its PDF yet"
 
