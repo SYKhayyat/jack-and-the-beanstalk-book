@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.models import CartoonSettings, CartoonStyle
-from app.models.book import BOOK_PAGES
+from app.models.book import BOOK_PAGES, get_book_page
 from app.prompt_data import prompt_text
 from app.services.prompts import build_book_page_prompt, build_cartoon_prompt
 
@@ -138,6 +138,38 @@ def test_the_child_is_one_coherent_figure() -> None:
     for prompt in _all_page_prompts():
         assert "a natural head-to-body ratio in every scene" in prompt
         assert "no oversized faces and no bobblehead proportions" in prompt
+
+
+def test_likeness_at_distance_is_carried_by_silhouette_not_a_big_head() -> None:
+    """UAT 6 follow-up: the bobblehead surfaced on wide shots.
+
+    The identity directive demands a recognisable face on every page; on pages
+    where the child is small (page 3's wide cottage shot), the model used to
+    satisfy that demand by enlarging the head. The guard now tells the model
+    where likeness lives at distance, and the small-figure pages name their
+    scale outright.
+    """
+    for prompt in _all_page_prompts():
+        assert "at wide-shot and long-shot distances the likeness is carried by" in prompt
+        assert "the face is drawn small and simplified in true scale" in prompt
+        assert "never turned into a partial close-up" in prompt
+    # The two pages that draw the child small in the frame tell the model so.
+    doorway = build_book_page_prompt(
+        get_book_page("beans-out-the-window"),  # type: ignore[arg-type]
+        CartoonSettings(),
+        page_number=3,
+        total_pages=len(BOOK_PAGES),
+    )
+    assert "only a small part of the frame height" in doorway
+    assert "an enlarged head, oversized face or close-up of Jack" in doorway
+    gate = next(
+        spec for spec in prompt_text()["book_pages"] if spec["key"] == "beanstalk-at-dawn"
+    )
+    assert (
+        "tiny at the bottom" in gate["camera"]
+        and "true proportion to the gate and the beanstalk" in gate["camera"]
+    )
+    assert "an enlarged head, oversized face or close-up of {name}" in gate["must_avoid"]
 
 
 def test_the_whole_scene_keeps_one_art_style() -> None:

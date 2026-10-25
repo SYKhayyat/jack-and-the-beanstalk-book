@@ -238,8 +238,13 @@ same_characters = "Every character in this book — person, animal or object —
 # drifting between pages.
 same_cow = "Milky-White the cow is the same white cow everywhere she appears: a plain white coat, unchanged from page to page, at whatever distance the scene shows her."
 # Whole-body coherence (UAT: "the character's face is grotesquely big — like a
-# bobblehead — in one scene"). A guard line on every page prompt.
-body_coherence = "The child is one coherent figure at natural storybook proportions: a natural head-to-body ratio in every scene, the head never enlarged for the frame, with no oversized faces and no bobblehead proportions anywhere in the book."
+# bobblehead — in one scene"). A guard line on every page prompt. The second
+# sentence makes the likeness rules distance-aware: the earlier wording fought
+# the identity directive on wide shots (the model satisfied "recognisable face"
+# inside a small figure by bloating the head — the bobblehead the UAT caught),
+# while this wording gives the identity pressure a legal way to express itself
+# at distance: silhouette, hair and clothes carry the likeness there.
+body_coherence = "The child is one coherent figure at natural storybook proportions: a natural head-to-body ratio in every scene, the head never enlarged for the frame, with no oversized faces and no bobblehead proportions anywhere in the book. The likeness rules apply at the scene's own camera distance: at wide-shot and long-shot distances the likeness is carried by the silhouette, the hair, the clothing and their colours, while the face is drawn small and simplified in true scale — the head is never enlarged, never brought closer to the camera and never turned into a partial close-up just to show the face better."
 # One art style for the whole scene (UAT: "the whole scene is drawn in the same
 # cartoon style"). Characters, background, props and environment in a single
 # medium — no mixed media within a page.
@@ -315,9 +320,9 @@ caption = "Beans! she cried. And out the window they went. At dusk, {name}'s mot
 subject_action = "caught mid-step at the open doorway, one hand on the door frame, {name}'s face turned towards the window watching the beans arc through the air"
 environment = "the front of the small stone cottage at dusk: one lit window with the mother leaning out throwing beans, the open doorway below with {name} in it, small patches of dark garden grass across the bottom of the frame, the sky deep blue-violet with a band of sunset orange at the horizon"
 time_of_day = "dusk, a much darker palette than the morning pages: deep blue and violet shadows, beans glowing softly as the only sparks of colour"
-camera = "wide shot showing the whole cottage front from the garden, the lit window and the doorway both readable, plenty of quiet dark grass across the bottom third"
-must_include = ["the mother leaning out of the lit window throwing beans", "scattered beans tumbling and glinting mid-air", "{name} standing in the open doorway watching", "a much darker, duskier palette than the earlier pages"]
-must_avoid = ["the mother also standing in the doorway", "the beans already sprouted or growing", "a giant watching the house", "any pets or extra children in the garden"]
+camera = "wide shot showing the whole cottage front from the garden, the lit window and the doorway both readable, plenty of quiet dark grass across the bottom third; {name}'s figure is small in the doorway — only a small part of the frame height, drawn in true proportion to the cottage, never scaled up towards the camera"
+must_include = ["the mother leaning out of the lit window throwing beans", "scattered beans tumbling and glinting mid-air", "{name} standing small in the open doorway in true proportion to the cottage", "a much darker, duskier palette than the earlier pages"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the mother also standing in the doorway", "the beans already sprouted or growing", "a giant watching the house", "any pets or extra children in the garden"]
 
 [[book_pages]]
 # Retired per the assignment brief ("page 4 is the beanstalk at dawn — don't
@@ -333,6 +338,6 @@ caption = "By sunrise the beanstalk had grown all the way to the clouds. An enor
 subject_action = "seen small in the frame for scale, standing beside the gate with {possessive} head thrown back looking up at the vast beanstalk curling out of the top of the image"
 environment = "the cottage garden at dawn wrapping around an astoundingly tall beanstalk: the stalk winds up past the roof, broad green leaves reaching out of frame, a few floating beans, the night still fading low behind the hills"
 time_of_day = "sunrise, warm gold and pink light with deep green shadows on the stalk"
-camera = "very wide vertical composition with the beanstalk rising through the whole frame and out of view, {name} tiny at the bottom, open sky at the top where the story text will sit"
-must_include = ["a giant beanstalk rising out of frame with broad leaves", "{name} small at the gate looking up in wonder", "warm sunrise light", "open sky clear across the top of the frame"]
-must_avoid = ["the giant himself", "a fully visible sky castle", "the beanstalk toppling or broken", "any writing on the leaves or sky"]
+camera = "very wide vertical composition with the beanstalk rising through the whole frame and out of view, {name} tiny at the bottom — only a small part of the frame height, drawn in true proportion to the gate and the beanstalk, never scaled up towards the camera — with open sky at the top where the story text will sit"
+must_include = ["a giant beanstalk rising out of frame with broad leaves", "{name} tiny at the gate in true proportion to the beanstalk, looking up in wonder", "warm sunrise light", "open sky clear across the top of the frame"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant himself", "a fully visible sky castle", "the beanstalk toppling or broken", "any writing on the leaves or sky"]
