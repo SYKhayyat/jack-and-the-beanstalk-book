@@ -237,6 +237,15 @@ same_characters = "Every character in this book — person, animal or object —
 # Milky-White's pinned look, named explicitly because the UAT caught her coat
 # drifting between pages.
 same_cow = "Milky-White the cow is the same white cow everywhere she appears: a plain white coat, unchanged from page to page, at whatever distance the scene shows her."
+# What the likeness dial MEANS on book pages (UAT round 2: the child's face
+# kept coming back slightly bloated on wide shots). The user's likeness
+# sentence demands photographic precision; at doorway distance that demand has
+# only one physical reading — draw the face big. This line redefines it instead
+# of removing the dial: likeness is feature-shape, verifiable zoomed in, and
+# never a licence to grow the head. It is carried immediately after the user's
+# likeness sentence and directly above body_coherence, so dial, meaning and
+# order of precedence read as one contract.
+likeness_not_size = "The likeness rules above describe what the face looks like — its features, shapes and colours when examined up close — never how large the face appears in the frame. A face drawn small at its true distance is still faithful when it is correct zoomed in: recognisability lives in the features, not in the size, and no likeness rule, however strict, licenses an enlarged head, an oversized face or a closer crop. Body proportions come first: a bobblehead is always a failure, and outranks every likeness consideration; a small, simple, correctly proportioned face is never one."
 # Whole-body coherence (UAT: "the character's face is grotesquely big — like a
 # bobblehead — in one scene"). A guard line on every page prompt. The second
 # sentence makes the likeness rules distance-aware: the earlier wording fought
@@ -251,6 +260,22 @@ body_coherence = "The child is one coherent figure at natural storybook proporti
 one_art_style = "Draw the entire scene — character, animals, background, props and environment — in exactly the one art style stated for this book: the same medium, line weight, shading and finish everywhere. Mix no styles: nothing photorealistic, painterly, sketched or flat beside a 3D-rendered figure."
 # The model must not imitate the story text: the PDF draws it.
 no_text = "Do not draw any text, lettering, numbers, watermark, signature, logo, caption or speech bubble anywhere in the image — the page's story text is added later, outside this image, so any writing you draw would be doubled up and garbled."
+# The book's negative tail, replacing the single-scene tail on book pages only
+# (UAT round 2: the mother wore the child's face). The single-scene tail says
+# "only the one person described above" — which pages 1 and 3 contradict by
+# requiring the mother on the same call, leaving the model one legal face to
+# put on whoever the scene demands. This tail declares the cast instead: one
+# reference face, the child's, and a different invented face for everyone else.
+negative = "Do not draw any text, letters, numbers, watermark, signature, logo, caption or speech bubble anywhere in the image — the page's story text is added later, outside this image, so any writing you draw would be doubled up and garbled. Do not include extra limbs, extra fingers, duplicate faces or distorted hands. The page shows exactly the characters its scene names and no others. The child is the only character defined by the reference images: the reference face belongs to the child alone and appears exactly once per page, on the child. Every other character is a different person entirely — a different age, different bone structure, nothing borrowed from the photograph or from the child — drawn to the cast description given in this prompt, and the child's face is never placed on any other character."
+
+# No reference image exists for anyone except the child, so every other
+# character's invented look is pinned here: cast sections are the same data
+# trick as same_cow, keeping the mother the same mother from page to page and
+# leaving no face in the scene free to borrow the child's likeness. A page
+# names the characters it draws through a `cast` list keyed into this section.
+[book.cast]
+mother = "The mother is a character with no reference image, so this is her one look on every page: a woman older and clearly taller than the child, with her own mature, plain, slightly weathered features — kind tired eyes, a soft square jaw, grey-brown hair pinned up under a simple kerchief — wearing a plain dark dress and a light apron. Her face is entirely unlike the child's; she is never drawn with the child's likeness."
+old_man = "The old man is a character with no reference image, so this is his one look on every page: a weathered elderly traveller, a wrinkled, sagging grey-brown face fully unlike the child's, white stubble over a set jaw, shaggy grey hair under his tall pointed hat, a worn travelling cloak and a small pack on his back. He is never drawn with the child's likeness."
 
 # PDF-layer copy for the About page. {child_name} is filled from the About
 # name the uploader typed (a pseudonym is fine); these strings never reach the
@@ -286,6 +311,7 @@ quiet_zone = "QUIET ZONE: {area} must stay calm and uncluttered, because the pag
 key = "empty-cupboard"
 title = "{name} and the empty cupboard"
 text_zone = "lower_third"
+cast = ["mother"]
 settling = "the table front and the lower third of the frame, kept free of detail and character limbs so the story text has somewhere calm to sit"
 story = "{name} and {possessive} mother had nothing left to sell but Milky-White."
 caption = "{name} and {possessive} mother had nothing left to sell but their cow, Milky-White. {name} stands beside {possessive} worried mother at a big worn table inside their small bare cottage kitchen, looking up at her face. Nearly-empty wooden shelves and a cupboard with its doors open hang above the table."
@@ -300,6 +326,7 @@ must_avoid = ["anything written on the pages or walls", "an open book or letter 
 key = "the-trade"
 title = "The trade"
 text_zone = "sky"
+cast = ["old_man"]
 settling = "the open sky across the top of the frame, kept free of branches and clutter so the story text has somewhere calm to sit"
 story = "\"Five magic beans,\" said the old man. \"For one cow.\""
 caption = "Five magic beans, said the old man, for one cow. {name} is halfway down the road to market holding Milky-White's rope when a weathered old man with a tall hat steps out to meet {object} and holds out five magic beans in his open palm — one red, one blue, one green, one gold, one violet — each faintly glowing."
@@ -314,14 +341,15 @@ must_avoid = ["the old man grabbing the rope or the cow", "money or coins changi
 key = "beans-out-the-window"
 title = "Out the window"
 text_zone = "grass"
+cast = ["mother"]
 settling = "the dark grass of the garden across the bottom third of the frame, kept free of figures and clutter so the story text has somewhere calm to sit"
 story = "\"Beans!\" she cried. And out the window they went."
 caption = "Beans! she cried. And out the window they went. At dusk, {name}'s mother leans far out of the small cottage window and throws a sweep of scattered magic beans down towards the garden below, red and blue and green and gold glints tumbling through the air. {name} is caught mid-step at the open doorway, watching."
 subject_action = "caught mid-step at the open doorway, one hand on the door frame, {name}'s face turned towards the window watching the beans arc through the air"
 environment = "the front of the small stone cottage at dusk: one lit window with the mother leaning out throwing beans, the open doorway below with {name} in it, small patches of dark garden grass across the bottom of the frame, the sky deep blue-violet with a band of sunset orange at the horizon"
 time_of_day = "dusk, a much darker palette than the morning pages: deep blue and violet shadows, beans glowing softly as the only sparks of colour"
-camera = "wide shot showing the whole cottage front from the garden, the lit window and the doorway both readable, plenty of quiet dark grass across the bottom third; {name}'s figure is small in the doorway — only a small part of the frame height, drawn in true proportion to the cottage, never scaled up towards the camera"
-must_include = ["the mother leaning out of the lit window throwing beans", "scattered beans tumbling and glinting mid-air", "{name} standing small in the open doorway in true proportion to the cottage", "a much darker, duskier palette than the earlier pages"]
+camera = "wide shot showing the whole cottage front from the garden, the lit window and the doorway both readable, plenty of quiet dark grass across the bottom third; {name} stands in the open doorway — small, roughly a quarter of the frame height, in true proportion to the cottage — never scaled up towards the camera"
+must_include = ["the mother leaning out of the lit window throwing beans", "scattered beans tumbling and glinting mid-air", "{name} standing small in the open doorway in true proportion to the cottage", "the child's figure drawn with a natural head-to-body ratio", "a much darker, duskier palette than the earlier pages"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the mother also standing in the doorway", "the beans already sprouted or growing", "a giant watching the house", "any pets or extra children in the garden"]
 
 [[book_pages]]
@@ -339,5 +367,5 @@ subject_action = "seen small in the frame for scale, standing beside the gate wi
 environment = "the cottage garden at dawn wrapping around an astoundingly tall beanstalk: the stalk winds up past the roof, broad green leaves reaching out of frame, a few floating beans, the night still fading low behind the hills"
 time_of_day = "sunrise, warm gold and pink light with deep green shadows on the stalk"
 camera = "very wide vertical composition with the beanstalk rising through the whole frame and out of view, {name} tiny at the bottom — only a small part of the frame height, drawn in true proportion to the gate and the beanstalk, never scaled up towards the camera — with open sky at the top where the story text will sit"
-must_include = ["a giant beanstalk rising out of frame with broad leaves", "{name} tiny at the gate in true proportion to the beanstalk, looking up in wonder", "warm sunrise light", "open sky clear across the top of the frame"]
+must_include = ["a giant beanstalk rising out of frame with broad leaves", "{name} tiny at the gate in true proportion to the beanstalk, looking up in wonder", "the child's tiny figure keeps a natural head-to-body ratio", "warm sunrise light", "open sky clear across the top of the frame"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant himself", "a fully visible sky castle", "the beanstalk toppling or broken", "any writing on the leaves or sky"]

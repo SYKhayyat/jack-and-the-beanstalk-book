@@ -50,6 +50,10 @@ class BookPage:
         story: The sentence rendered on the page, verbatim.
         text_zone: Where the PDF puts the story text.
         settling: Prompt clause telling the model to keep the text zone calm.
+        cast: Names of the non-reference characters this page draws (keys of
+            ``[book.cast]`` in prompts.toml — the mother, the old man). Whoever
+            a scene names beyond the child has no reference image, so their
+            pinned look is injected into the page prompt by name.
     """
 
     number: int
@@ -58,6 +62,7 @@ class BookPage:
     story: str
     text_zone: TextZone
     settling: str = ""
+    cast: tuple[str, ...] = ()
 
     def formatted(self, substitutions: Mapping[str, str]) -> BookPage:
         """A copy with name/pronoun placeholders filled in for this child.
@@ -80,6 +85,12 @@ class BookPage:
 
 
 def _assemble_page(spec: Mapping[str, object], number: int) -> BookPage:
+    cast_names = tuple(str(item) for item in cast(tuple[object, ...], spec.get("cast", ())))
+    for name in cast_names:
+        if name not in prompt_text()["book"]["cast"]:
+            raise ValueError(
+                f"page {spec['key']!r} names a cast member with no pinned look: {name!r}"
+            )
     return BookPage(
         number=number,
         key=str(spec["key"]),
@@ -101,6 +112,7 @@ def _assemble_page(spec: Mapping[str, object], number: int) -> BookPage:
         story=str(spec["story"]),
         text_zone=TextZone(str(spec["text_zone"])),
         settling=str(spec.get("settling", "")),
+        cast=cast_names,
     )
 
 

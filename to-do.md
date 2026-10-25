@@ -39,6 +39,19 @@ guard sentence is asserted in `tests/test_book_prompts.py`):
 - [ ] UAT 10 — every page is drawn in the one Modern 3D style (no mixed
       media, e.g. a 3D figure over a watercolour sky).
 
+UAT round 2 (real-API pass caught two more, both fixed the same
+wording-pinned way):
+
+- [ ] UAT 6b — the residual bobblehead on wide shots: likeness is now
+      redefined as features-when-zoomed, never size, with an explicit
+      tie-breaker ("a bobblehead outranks every likeness consideration");
+      the coherence guard sits directly beneath the identity contract.
+- [ ] UAT 11 — the mother wore the child's face on pages 1 and 3: the
+      single-scene negative tail ("only the one person described above")
+      contradicted the pages that cast her. Book pages now carry a
+      cast-declaring tail; the mother and the old man have their own pinned
+      no-reference looks ([book.cast]) named on the pages that draw them.
+
 Also worth eyeballing live: the PDF viewer box (`#book-pdf-frame`) showing the
 real document in place of the old four-little-pages grid, and the portrait
 review's chip flow ("Not right" → tick → "Try again with these fixes").

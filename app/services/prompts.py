@@ -132,6 +132,11 @@ _PHOTOREAL: dict[str, str] = _DATA["photoreal"]
 _BOOK_STYLE_KEY = str(cast("dict[str, object]", _BOOK)["style"])
 _BOOK_STYLE: str = _STYLE_DESCRIPTIONS[CartoonStyle(_BOOK_STYLE_KEY)]
 
+# The minor characters' pinned looks, keyed by the `cast` name a page lists.
+_BOOK_CAST: dict[str, str] = {
+    name: str(text) for name, text in cast("dict[str, object]", _BOOK["cast"]).items()
+}
+
 
 def _intensity_text(intensity: int) -> str:
     return _INTENSITY_DESCRIPTIONS[max(1, min(10, intensity))]
@@ -196,10 +201,12 @@ def build_book_page_prompt(
     """Prompt for one picture-book page.
 
     The book's identity contract is the same double anchor as the single-scene
-    flow, plus two book-specific constraints: the style sentence is fixed book
+    flow, plus book-specific constraints: the style sentence is fixed book
     data (worded identically in every call — a book must not change style
-    mid-story), and the story text is never drawn by the model because the PDF
-    layer adds it.
+    mid-story), the story text is never drawn by the model because the PDF
+    layer adds it, the negative tail is the book's cast-declaring variant
+    rather than the single-scene one, and any non-reference character the page
+    names in ``cast`` is injected from the pinned `[book.cast]` looks.
 
     Args:
         page: The resolved page (callers pass the raw catalogue entry; the
@@ -222,10 +229,14 @@ def build_book_page_prompt(
         task_book["page_identity"],
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
+        # What the likeness dial means on book pages, and where it loses:
+        # reading as one contract with the identity pressure above it and the
+        # coherence guard below it — the pair no longer sit pages apart.
+        str(_BOOK["likeness_not_size"]),
+        str(_BOOK["body_coherence"]),
         str(_BOOK["same_clothes"]),
         str(_BOOK["same_characters"]),
         str(_BOOK["same_cow"]),
-        str(_BOOK["body_coherence"]),
         str(_BOOK["one_art_style"]),
         task_book["quiet_zone"].format(area=page.settling),
         _ASSEMBLY["scene_to_draw"].format(caption=page.scene.caption),
@@ -235,6 +246,9 @@ def build_book_page_prompt(
         _ASSEMBLY["camera"].format(camera=page.scene.camera),
         page.scene.checklist,
         _common_character_block(settings),
+        # Whoever the scene names beyond the child has no reference image;
+        # their pinned look travels with the page (see [book.cast]).
+        *(str(_BOOK_CAST[name]) for name in page.cast),
         # The fixed book style, injected verbatim — the same wording on every
         # page of the book by construction, and the same sentence the portrait
         # default resolves to (both read the shared [styles] entry).
@@ -242,7 +256,10 @@ def build_book_page_prompt(
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
         _avoid_clause(page.scene),
         _ASSEMBLY["stylisation"].format(intensity=_intensity_text(settings.cartoon_intensity)),
-        NEGATIVE_PROMPT_TAIL,
+        # The book's own negative tail: the single-scene tail's "only the one
+        # person described above" contradicts the pages that require the
+        # mother, which is how the child's face got onto her.
+        str(_BOOK["negative"]),
         str(_BOOK["no_text"]),
     ]
     return _join_sections(sections)

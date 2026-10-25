@@ -160,16 +160,85 @@ def test_likeness_at_distance_is_carried_by_silhouette_not_a_big_head() -> None:
         page_number=3,
         total_pages=len(BOOK_PAGES),
     )
-    assert "only a small part of the frame height" in doorway
+    assert "roughly a quarter of the frame height" in doorway
+    assert "never scaled up towards the camera" in doorway
     assert "an enlarged head, oversized face or close-up of Jack" in doorway
+    # The scale point lives on the checklist too: enumerated like content the
+    # scene must clearly show, not buried in prose.
+    assert "the child's figure drawn with a natural head-to-body ratio" in doorway
     gate = next(
         spec for spec in prompt_text()["book_pages"] if spec["key"] == "beanstalk-at-dawn"
     )
+    gate_items = " ".join(str(item) for item in gate["must_include"])
     assert (
         "tiny at the bottom" in gate["camera"]
         and "true proportion to the gate and the beanstalk" in gate["camera"]
+        and "keeps a natural head-to-body ratio" in gate_items
     )
     assert "an enlarged head, oversized face or close-up of {name}" in gate["must_avoid"]
+
+
+def test_likeness_means_features_when_zoomed_never_size() -> None:
+    """UAT round 2: the dial's meaning, restated for the frame.
+
+    The likeness sentence asks for photographic precision; the missing piece
+    was what that means for a face the width of a doorway. The book pages
+    interpret the dial for the model, then hand it the tie-breaker.
+    """
+    for prompt in _all_page_prompts():
+        assert "The likeness rules above describe what the face looks like" in prompt
+        assert "recognisability lives in the features, not in the size" in prompt
+        assert (
+            "a bobblehead is always a failure, and outranks every likeness consideration"
+            in prompt
+        )
+
+
+def test_the_identity_contract_reads_straight_into_the_scale_contract() -> None:
+    """Order is part of the contract: identity, its meaning, its precedence.
+
+    The coherence guard used to sit ~15 lines below the identity directive it
+    contradicts, where it read as an afterthought and lost. The scale-side of
+    the identity pressure now sits directly beneath it on every page.
+    """
+    prompt = _prompt(BOOK_PAGES[2], CartoonSettings(), 3)
+    identity_at = prompt.index("Preserve the identity of the person")
+    meaning_at = prompt.index("The likeness rules above describe what the face looks like")
+    scale_at = prompt.index("The child is one coherent figure")
+    assert identity_at < meaning_at < scale_at
+
+
+def test_the_book_owns_its_negative_tail() -> None:
+    """UAT round 2: the mother wore the child's face.
+
+    The single-scene tail forbids every person but one, and pages 1 and 3
+    contradict it by requiring the mother — leaving the model a single legal
+    face, which it then placed on both people. The book tail declares the cast
+    instead and hands every non-reference character an invented look.
+    """
+    for prompt in _all_page_prompts():
+        assert "the reference face belongs to the child alone" in prompt
+        assert "the child's face is never placed on any other character" in prompt
+        assert "only the one person described above" not in prompt
+        assert "nothing borrowed from the photograph or from the child" in prompt
+
+
+def test_minor_characters_have_their_own_pinned_looks() -> None:
+    """Whoever a scene names beyond the child is cast in data, by name."""
+    looks = prompt_text()["book"]["cast"]
+    settings = CartoonSettings()
+    for page in BOOK_PAGES:
+        prompt = build_book_page_prompt(
+            page, settings, page_number=page.number, total_pages=len(BOOK_PAGES)
+        )
+        for actor in page.cast:
+            assert looks[actor] in prompt
+    # The trade page names only the old man: the mother is nowhere on it.
+    trade = build_book_page_prompt(
+        BOOK_PAGES[1], settings, page_number=2, total_pages=len(BOOK_PAGES)
+    )
+    assert looks["old_man"] in trade
+    assert looks["mother"] not in trade
 
 
 def test_the_whole_scene_keeps_one_art_style() -> None:
