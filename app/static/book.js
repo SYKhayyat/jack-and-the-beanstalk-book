@@ -51,7 +51,7 @@ async function acceptPhoto(captured = null) {
     const prepared = await preparePhoto(blob, { maxBytes: MAX_UPLOAD });
     state.setPhoto(book, prepared.blob, blob.name || "photo.jpg");
     view.renderPhotoPreview(book.photo);
-    view.showPhotoMessage(prepared.scaled ? "Photo shrunk for the image model." : "");
+    view.showPhotoMessage(prepared.scaled ? "Photo shrunk to fit." : "");
     view.setBusyPortrait("");
     view.hideReview();
     view.resetBookStage();

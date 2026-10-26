@@ -30,7 +30,10 @@ body {
 .masthead h1 { margin: 0 0 .35rem; font-size: 2.1rem; letter-spacing: -.02em; }
 .tagline { margin: 0; color: var(--ink-soft); }
 
-.provider-badge {
+/* The only provider news the page carries: a plain notice when the pictures
+   are placeholders. Which model and which quality are the operator's business,
+   not the visitor's — they live in /healthz. */
+.demo-note {
   display: inline-block;
   margin-top: 1rem;
   padding: .3rem .8rem;
@@ -38,10 +41,8 @@ body {
   font-size: .82rem;
   border: 1px solid var(--line);
   background: var(--card);
+  color: var(--bean);
 }
-.provider-mock { color: var(--bean); }
-.provider-live { color: var(--accent-dark); }
-.provider-badge .hint { color: var(--ink-soft); }
 
 main {
   max-width: 900px;
@@ -374,7 +375,6 @@ pre {
   padding-top: 1.1rem;
   border-top: 1px solid var(--line);
 }
-.cost-note { margin: 0; font-size: .78rem; color: var(--ink-soft); }
 
 .reject {
   margin: 1.5rem 0 0;

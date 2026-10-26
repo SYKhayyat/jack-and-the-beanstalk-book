@@ -45,6 +45,10 @@ class RecordingProvider(ImageProvider):
 
     name = "recording"
 
+    @property
+    def draws_placeholders(self) -> bool:
+        return True
+
     def __init__(self, image: bytes | None = None) -> None:
         self.requests: list[ImageRequest] = []
         self._image = image or tiny_png_bytes()
@@ -58,6 +62,10 @@ class StubProvider(ImageProvider):
     """Returns a fixed, possibly degenerate, result. For failure-path tests."""
 
     name = "stub"
+
+    @property
+    def draws_placeholders(self) -> bool:
+        return True
 
     def __init__(self, data: bytes, model: str = "stub-v1") -> None:
         self._data = data

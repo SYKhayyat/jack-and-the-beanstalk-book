@@ -349,3 +349,37 @@ def test_prompts_are_inspectable(page_html: str) -> None:
 
 def test_no_step_numbers_anywhere(page_html: str) -> None:
     assert not re.search(r"Step \d", page_html), "step numbering is gone"
+
+
+# --- nothing technical on the visitor's screen ---------------------------------
+
+
+def test_the_page_shows_no_provider_internals(page_html: str) -> None:
+    """Which model, which quality, which provider — the operator's business.
+
+    The details stay in /healthz for the operator; the page carries at most a
+    plain note that the pictures are placeholders.
+    """
+    for jargon in ("Provider:", "provider-badge", "quality=", "model=", "mock mode"):
+        assert jargon not in page_html, f"the page leaks {jargon!r}"
+    assert "Demo mode" in page_html, "a placeholder run should say so plainly"
+
+
+def test_the_page_shows_no_billing_jargon(page_html: str) -> None:
+    """'One image call' is how the code talks, not how a visitor thinks."""
+    for jargon in ("image call", "per-minute allowance", "cost-note"):
+        assert jargon not in page_html, f"the page leaks {jargon!r}"
+
+
+def test_the_intensity_dial_speaks_plain_english(page_html: str) -> None:
+    """The dial shows what each step means, not a bare number."""
+    options = re.findall(
+        r'<option value="(\d+)"[^>]*>([^<]+)</option>',
+        re.search(r'<select id="cartoon_intensity".*?</select>', page_html, re.S).group(0),
+    )
+    assert len(options) == 10
+    for value, label in options:
+        assert label.strip(), f"step {value} has no label"
+    assert ("1", "Almost a photo") in options
+    assert ("8", "Very strongly a cartoon") in options
+    assert ("10", "Fully graphic") in options

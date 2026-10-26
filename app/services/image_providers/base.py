@@ -104,3 +104,13 @@ class ImageProvider(ABC):
         constructed provider is usable; providers with credentials override it.
         """
         return True, "ok"
+
+    @property
+    def draws_placeholders(self) -> bool:
+        """True when this provider returns stand-in pictures, not real drawings.
+
+        The page says so in plain words when it is true — a visitor who gets
+        placeholder art should know it. Which model and which quality are
+        behind it stay in `/healthz`, for the operator.
+        """
+        return False

@@ -33,6 +33,7 @@ __all__ = [
     "CHOICE_LABELS",
     "choice_label",
     "choices_for",
+    "intensity_label",
 ]
 
 
@@ -164,6 +165,28 @@ _ASPECT = {
     AspectRatio.TALL: "Tall portrait 3:4",
     AspectRatio.CINEMATIC: "Wide cinematic 16:9",
 }
+
+# The cartoon-intensity dial is a number, not an enum, so it gets its own
+# table. The wording follows the `[intensity]` keys in prompts.toml, so the
+# line the visitor reads and the sentence the model reads say the same thing —
+# and the dropdown never shows a bare "7" with no idea what it means.
+_INTENSITY_LABELS = {
+    1: "Almost a photo",
+    2: "Barely stylised",
+    3: "Lightly stylised",
+    4: "Moderately stylised",
+    5: "Half and half",
+    6: "Clearly a cartoon",
+    7: "Strongly a cartoon",
+    8: "Very strongly a cartoon",
+    9: "Almost fully graphic",
+    10: "Fully graphic",
+}
+
+
+def intensity_label(level: int) -> str:
+    """The dropdown label for one step of the cartoon-intensity dial."""
+    return _INTENSITY_LABELS.get(level, str(level))
 
 
 def _build() -> dict[type[StrEnum], dict[StrEnum, str]]:

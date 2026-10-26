@@ -10,12 +10,9 @@
   <header class="masthead">
     <h1>{{ book_title }}</h1>
     <p class="tagline">Jack and the Beanstalk, starring You!</p>
-    <p class="provider-badge {{ 'provider-live' if provider.using_real_api else 'provider-mock' }}">
-      Provider: <strong>{{ provider.name }}</strong> — {{ provider.reason }}
-      {% if not provider.using_real_api %}
-        <span class="hint">(mock mode: no API calls, placeholder images)</span>
-      {% endif %}
-    </p>
+    {% if not provider.using_real_api %}
+      <p class="demo-note">Demo mode — the pictures are placeholders, not real drawings yet.</p>
+    {% endif %}
     {% if auth_enabled %}
       <form class="logout-form" method="post" action="/logout">
         <button type="submit">Log out</button>
@@ -97,7 +94,7 @@
 
       <div class="submit-block">
         <button type="submit" id="make-portrait" class="primary">Make the cartoon portrait</button>
-        <p class="submit-help">One image call. You approve the portrait before the book pages are made — that portrait is used on every page, so it looks like you throughout.</p>
+        <p class="submit-help">You approve the portrait before the book pages are made — it is used on every page, so you look like you throughout.</p>
       </div>
 
       <!-- Advanced options: anything you might want to pick, folded away. -->
@@ -116,7 +113,7 @@
             <div class="control">
               <label for="cartoon_intensity">Cartoon intensity</label>
               <select id="cartoon_intensity" name="cartoon_intensity">
-                {% for level in range(1, 11) %}<option value="{{ level }}" {% if level == defaults.cartoon_intensity %}selected{% endif %}>{{ level }}</option>{% endfor %}
+                {% for level, label in intensities %}<option value="{{ level }}" {% if level == defaults.cartoon_intensity %}selected{% endif %}>{{ label }}</option>{% endfor %}
               </select>
             </div>
           </div>
@@ -214,7 +211,7 @@
             <select id="candidates" name="candidates">
               {% for count in range(1, 4) %}<option value="{{ count }}" {% if count == defaults.candidates %}selected{% endif %}>{{ count }}</option>{% endfor %}
             </select>
-            <p class="field-help">One call covers all of them; three costs three images worth of your per-minute allowance.</p>
+            <p class="field-help">All of them are made in one go; three takes three times as long.</p>
           </div>
           <div class="control">
             <label><input type="checkbox" id="one_step" name="one_step" value="true"> Make it in one go</label>
@@ -244,8 +241,8 @@
       <div id="reject-body" class="reject hidden">
         <h3>Not right? Tick what went wrong</h3>
         <p class="field-help">
-          Each tick becomes a correction in the next attempt's prompt. There is
-          no free-text box on purpose — every option here is a tested
+          Each tick tells the next attempt exactly what to fix. There is no
+          free-text box on purpose — every option here is a tested
           instruction.
         </p>
         <div id="reject-chips" class="chips">
@@ -258,7 +255,6 @@
         </div>
         <div class="review-actions">
           <button type="button" id="reject-retry" class="button secondary">Try again with these fixes</button>
-          <span class="cost-note">+1 image call</span>
         </div>
       </div>
       <p id="review-message" class="inline-message hidden" role="status" aria-live="polite"></p>
@@ -284,7 +280,7 @@
         <pre id="prompt-cartoon"></pre>
         <p><a id="prompt-json-link" target="_blank" rel="noopener" class="hidden">Open this book's page-by-page prompts (prompts.json)</a></p>
       </details>
-      <p class="field-help">The story text on each page is drawn in your PDF reader — the image model never writes text, so it can never garble it.</p>
+      <p class="field-help">The story text is added by the PDF itself, so it can never come out misspelled.</p>
     </section>
   </main>
 

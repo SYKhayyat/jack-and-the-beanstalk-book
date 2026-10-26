@@ -29,12 +29,18 @@ _BANNER_HEIGHT = 52
 _BOTTOM_BANNER_TOP = _CANVAS[1] - _BANNER_HEIGHT
 _PALETTE = [(36, 62, 104), (92, 46, 84), (28, 84, 72), (104, 66, 32), (58, 40, 96)]
 _SCENE_LINE = "SCENE TO DRAW"
+# The pipeline's internal stage names, said in words a visitor understands.
+_STAGE_WORDS = {"cartoonify": "YOUR CARTOON PORTRAIT", "book-page": "A PAGE OF THE BOOK"}
 
 
 class MockImageProvider(ImageProvider):
     """Renders a labelled placeholder derived from the prompt."""
 
     name = "mock"
+
+    @property
+    def draws_placeholders(self) -> bool:
+        return True
 
     def generate(self, request: ImageRequest) -> GeneratedImage:
         seed = hashlib.sha256((request.label + "|" + request.prompt).encode("utf-8")).digest()
@@ -53,11 +59,13 @@ class MockImageProvider(ImageProvider):
             draw.line([(0, step), (_CANVAS[0], step)], fill=colour)
 
         self._draw_figure(draw, seed)
-        _banner(draw, "MOCK PROVIDER - NOT A REAL GENERATION", 0, _BANNER_HEIGHT, primary)
+        # Plain words on the placeholder: the visitor sees this picture, so it
+        # must not be labelled in the code's vocabulary.
+        _banner(draw, "DEMO PICTURE - NOT A REAL DRAWING", 0, _BANNER_HEIGHT, primary)
         self._draw_caption(draw, request.prompt)
         _banner(
             draw,
-            f"STEP: {request.label}",
+            _STAGE_WORDS.get(request.label, request.label),
             _BOTTOM_BANNER_TOP,
             _BANNER_HEIGHT,
             primary,

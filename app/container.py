@@ -53,7 +53,10 @@ class Container:
             "name": self.provider.name,
             "ready": ok,
             "reason": reason,
-            "using_real_api": self.provider.name != "mock",
+            # The provider says whether its pictures are real, rather than this
+            # guessing from its name: a stub called "recording" is just as much
+            # a placeholder as the mock.
+            "using_real_api": not self.provider.draws_placeholders,
             "max_concurrent_generations": self.gate.limit,
         }
 

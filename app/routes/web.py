@@ -23,7 +23,7 @@ from app.models import (
 )
 from app.models.book import BOOK_PAGES
 from app.models.feedback import REJECTION_LABELS, RejectionReason
-from app.models.labels import choices_for
+from app.models.labels import choices_for, intensity_label
 from app.prompt_data import prompt_text
 from app.services.prompts import render_book_page
 
@@ -49,6 +49,7 @@ def index(request: Request, container: ContainerDep) -> HTMLResponse:
             "pages": [render_book_page(page, defaults) for page in BOOK_PAGES],
             "defaults": defaults,
             "styles": choices_for(CartoonStyle),
+            "intensities": [(level, intensity_label(level)) for level in range(1, 11)],
             "aspect_ratios": choices_for(AspectRatio),
             "ages": choices_for(ApparentAge),
             "photo_genders": choices_for(PhotoGender),
