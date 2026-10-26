@@ -9,6 +9,7 @@ silently drift back.
 
 from __future__ import annotations
 
+import json
 import re
 from html.parser import HTMLParser
 from pathlib import Path
@@ -357,12 +358,55 @@ def test_no_step_numbers_anywhere(page_html: str) -> None:
 def test_the_page_shows_no_provider_internals(page_html: str) -> None:
     """Which model, which quality, which provider — the operator's business.
 
-    The details stay in /healthz for the operator; the page carries at most a
-    plain note that the pictures are placeholders.
+    The details stay in the server log for the operator; the page carries at
+    most a plain note that the pictures are placeholders.
     """
     for jargon in ("Provider:", "provider-badge", "quality=", "model=", "mock mode"):
         assert jargon not in page_html, f"the page leaks {jargon!r}"
     assert "Demo mode" in page_html, "a placeholder run should say so plainly"
+
+
+def test_the_page_offers_no_backend_choice(page_html: str) -> None:
+    """No control for the provider or the model — not even a hidden one.
+
+    Which backend a deployment runs on is an environment variable, so a
+    visitor cannot switch it from the browser.
+    """
+    for field in ("provider", "model", "image_provider", "openai_model", "nim_model"):
+        assert f'name="{field}"' not in page_html, f"the page offers a {field!r} control"
+        assert f'"{field}"' not in page_html, f"the page mentions {field!r}"
+
+
+def test_the_options_endpoint_offers_no_backend_choice(client) -> None:
+    """The same answer for the machine-readable list of choices."""
+    payload = client.get("/api/settings-options").json()
+    for key in ("provider", "providers", "model", "models", "image_provider"):
+        assert key not in payload, f"the options endpoint offers {key!r}"
+
+
+def test_the_open_health_endpoint_names_neither_provider_nor_model(client) -> None:
+    """`/healthz` is open to anyone, so it must not identify the backend."""
+    payload = client.get("/healthz").json()
+    provider_payload = payload["provider"]
+
+    assert "name" not in provider_payload
+    assert "reason" not in provider_payload
+    for leak in ("recording", "mock", "openai", "gemini", "nim"):
+        assert leak not in json.dumps(payload).lower()
+
+
+def test_the_generation_response_does_not_name_the_backend(client, photo: bytes) -> None:
+    """The browser's network tab is still a visitor's screen."""
+    response = client.post(
+        "/api/cartoonify",
+        files={"photo": ("me.png", photo, "image/png")},
+        data={"aspect_ratio": "4:3"},
+    )
+    assert response.status_code == 201
+
+    payload = response.json()
+    assert "provider" not in payload
+    assert "model" not in payload
 
 
 def test_the_page_shows_no_billing_jargon(page_html: str) -> None:

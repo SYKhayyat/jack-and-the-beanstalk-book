@@ -39,6 +39,12 @@ IMAGE_PROVIDER=openai
 OPENAI_API_KEY=your-key-here
 ```
 
+There is also a free one: `IMAGE_PROVIDER=nim` with `NIM_API_KEY` runs the same
+app on NVIDIA's hosted NIM at no cost — see
+[The free option](#the-free-option-nvidia-nim). Whichever you choose, the
+provider and the model are picked in the environment; the visitor-facing UI has
+no control for either.
+
 ## Putting a password in front of the app
 
 The app costs money per image, so it should not be open to everyone who finds
@@ -82,6 +88,7 @@ is per *call*.
 | --- | --- | --- | --- |
 | **OpenAI `gpt-image-2.5-flare`, `quality=low`** (default) | **$0.00588** | **~$5.88** | No |
 | OpenAI `gpt-image-2.5-*`, `quality=medium` | not published | — | No |
+| NVIDIA NIM `flux.2-klein-4b` | $0 | $0 | **Yes — free hosted tier, ~40 requests/minute** |
 | Cloudflare `flux-2-klein-9b` | $0.015 / MP | ~$15.00 | **Yes — ~6 images/day free** |
 | Gemini `gemini-3.1-flash-lite-image` | $0.0336 | ~$33.60 | No |
 | Gemini `gemini-3.1-flash-image` | $0.067 | ~$67.00 | No |
@@ -108,16 +115,63 @@ Free Trial from March 2026. Since March 2026, paid Gemini API access is on a
 prepay plan with a **$5 minimum** and credits that are non-refundable and expire
 after a year. For a 200-book run, prepay about **$40**.
 
+### The free option: NVIDIA NIM
+
+NVIDIA's hosted NIM service is the cheapest way to run this app for real, and
+the only one with no per-token billing: a free developer tier, rate limited to
+roughly **40 requests a minute**, which is about **8 finished books a minute** —
+one finished book is five calls. No credit card, though sign-up may ask for
+phone verification and may not be available in every region.
+
+```bash
+# .env
+IMAGE_PROVIDER=nim
+NIM_API_KEY=your-nvidia-key
+NIM_MODEL=flux.2-klein-4b
+```
+
+The key comes from <https://build.nvidia.com/settings/api-keys> and the service
+speaks the OpenAI images shape at `https://integrate.api.nvidia.com/v1`, so no
+SDK or new architecture is involved — see
+`app/services/image_providers/nim_provider.py`.
+
+`NIM_MODEL` picks the model, and the choices that matter here are the ones that
+take **reference images**, because the portrait and the story pages are drawn
+from them:
+
+| Model | Reference images |
+| --- | --- |
+| `flux.2-klein-4b` (default) | up to 8 |
+| `flux-3-image-klein` | up to 8 |
+| `qwen-image-edit-2509`, `qwen-image-edit-2511` | up to 3 |
+
+The app sends at most 2, so all of them fit.
+
+Two limits of the NIM contract are worth knowing before you judge the pictures:
+
+- **The prompt is capped at 800 characters** by NIM's OpenAI-compatible schema,
+  and this app writes prompts of about 3,000. The provider therefore condenses
+  a long prompt to its head (the task and the identity directive) and its tail
+  (the negative constraints) before sending it, and logs that it did. Raise
+  `NIM_MAX_PROMPT_CHARS` only if your endpoint accepts more.
+- **One image per call** — NIM's editing endpoint allows `n=1` only, so asking
+  for three alternative portraits returns one. The portrait step still works;
+  you simply cannot compare three candidates side by side.
+
+The free tier is for prototyping and evaluation, not production traffic, and
+NVIDIA can change the limits or the catalogue without notice.
+
 Two corrections worth stating plainly, because the obvious assumptions are wrong:
+
 
 - **Google's free tier does not cover image generation.** The pricing page's
   free-tier column reads *Not available* for every image model, while text
   models read *Free of charge*. You need billing enabled on the API key. The
   *web UI* at <https://aistudio.google.com> is still free — see below.
 - **The provider is a config change, not a rewrite.** `IMAGE_PROVIDER` picks
-  between `mock`, `openai` and `gemini`. Both real providers send reference
-  images with the text in one call, which is the capability this app is built
-  on.
+  between `mock`, `openai`, `gemini` and `nim`. All three real providers send
+  reference images with the text in one call, which is the capability this app
+  is built on.
 - **Do not use `gemini-2.5-flash-image`.** Google deprecated it and gave a
   shutdown date of **2026-10-02**, naming `gemini-3.1-flash-image` and
   `gemini-3.1-flash-lite-image` as the migration targets. This repo defaults to
@@ -172,12 +226,24 @@ spending. Adding either as a third provider is a config change; see
 - It lives in the `OPENAI_API_KEY` environment variable when using the default
   real provider. Never in code, never in the repo, never in Slack.
 - Gemini is also supported: set `IMAGE_PROVIDER=gemini` and use
-  `GEMINI_API_KEY` instead. Only the selected provider's key is read.
+  `GEMINI_API_KEY` instead. NVIDIA NIM is supported the same way:
+  `IMAGE_PROVIDER=nim` with `NIM_API_KEY`. Only the selected provider's key is
+  read.
+- **Which provider and which model are used is the developer's choice and the
+  visitor's non-business.** Both are environment variables
+  (`IMAGE_PROVIDER`, `OPENAI_MODEL` / `GEMINI_MODEL` / `NIM_MODEL`), and no
+  part of the UI lets a visitor change either. Nor does anything a visitor can
+  fetch: the page, the JSON the browser receives and the open `/healthz`
+  endpoint all say nothing about the backend beyond whether the pictures are
+  real. The provider and model are in the startup log and in the deployment's
+  environment, which is where the operator reads them.
 - `.env` is gitignored. `.env.example` is committed and contains only blank
   placeholders.
-- The app never logs it. There is a test (`test_healthz_never_leaks_the_key`,
-  `test_response_never_contains_the_api_key`) that fails if the field name or a
-  configured key ever appears in a response.
+- The app never logs it, and the open `/healthz` endpoint never names the
+  provider or the model. There are tests
+  (`test_the_open_health_endpoint_names_neither_provider_nor_model`,
+  `test_a_failing_request_never_echoes_the_key`) that fail if a key or a
+  backend detail ever appears in a response.
 - There is **no retry loop** around the API call, by design. A retry loop on a
   paid endpoint is the classic way to burn a student's balance. A failed call
   fails loudly and you see the reason in the logs.
@@ -233,6 +299,7 @@ app/
 │       ├── mock.py       #         offline placeholder renderer
 │       ├── openai_provider.py #   the default real backend
 │       ├── gemini.py     #         the fallback backend
+│       ├── nim_provider.py #     the free backend (NVIDIA NIM)
 │       └── registry.py   #         name → class
 ├── routes/               # CONTROLLER: book (the UI), api, media, auth, settings_form
 ├── templates/            # VIEW: book.html, login.html
@@ -303,7 +370,7 @@ story wording lives in that single prompts file — as required.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/` | The book UI |
-| `GET` | `/healthz` | Liveness plus the active provider. Never includes secrets. |
+| `GET` | `/healthz` | Liveness and whether the pictures are real. Names neither the provider nor the model, and never includes secrets. |
 | `GET` | `/api/settings-options` | Every enum, the defaults, and the slider limits |
 | `GET` | `/api/book/pages` | The book's page identities (titles, text zones) |
 | `POST` | `/api/cartoonify` | multipart: `photo` + settings → the portrait (1 call) |
@@ -576,12 +643,18 @@ deployment.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `IMAGE_PROVIDER` | `mock` | `mock`, `openai` or `gemini` |
+| `IMAGE_PROVIDER` | `mock` | `mock`, `openai`, `gemini` or `nim` |
 | `OPENAI_API_KEY` | *(empty)* | Required for `openai` |
 | `OPENAI_MODEL` | `gpt-image-2.5-flare` | Cheapest published per-call price |
 | `OPENAI_QUALITY` | `low` | `medium`/`high`/`xhigh`/`max` cost more; raise only if likeness needs it |
 | `GEMINI_API_KEY` | *(empty)* | Required for `gemini` |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite-image` | Keep it cheap. `gemini-3.1-flash-image` is the higher-quality option. |
+| `NIM_API_KEY` | *(empty)* | Required for `nim`. Free developer tier, ~40 requests/minute. |
+| `NIM_MODEL` | `flux.2-klein-4b` | Any NIM image model that accepts reference images (`flux-3-image-klein`, `qwen-image-edit-2511`). |
+| `NIM_BASE_URL` | `https://integrate.api.nvidia.com/v1` | Change only for a self-hosted NIM. |
+| `NIM_SIZE` | *(empty)* | Force one `WIDTHxHEIGHT` output size. Empty means the chosen aspect ratio decides. |
+| `NIM_MAX_PROMPT_CHARS` | `800` | NIM's prompt cap. A longer prompt is condensed to its head and tail. |
+| `NIM_PROMPT_TAIL_CHARS` | `200` | How much of the prompt's tail survives the cut. |
 | `APP_ENV` | `development` | `production` raises the log level |
 | `APP_PASSWORD` | *(empty)* | Shared password required to use the app. Empty means the app is open. |
 | `APP_SESSION_MAX_AGE_DAYS` | `7` | How long one successful login stays valid. Changing the password invalidates every session. |

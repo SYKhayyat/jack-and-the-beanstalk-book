@@ -22,6 +22,7 @@ class ProviderName(StrEnum):
     MOCK = "mock"
     GEMINI = "gemini"
     OPENAI = "openai"
+    NIM = "nim"
 
 
 class Settings(BaseSettings):
@@ -69,6 +70,47 @@ class Settings(BaseSettings):
         # Lite is the cheaper of the pair; see the README for the trade-off.
         default="gemini-3.1-flash-lite-image",
         description="Gemini image-capable model id.",
+    )
+    nim_api_key: str = Field(
+        default="",
+        description="NVIDIA NIM API key. Only needed for the nim provider.",
+    )
+    nim_model: str = Field(
+        # flux.2-klein-4b edits with up to 8 reference images, which covers the
+        # pipeline's maximum of 2. Other NIM image models are named in the
+        # README; swapping one is an environment change.
+        default="flux.2-klein-4b",
+        description="NVIDIA NIM image model id.",
+    )
+    nim_base_url: str = Field(
+        default="https://integrate.api.nvidia.com/v1",
+        description="Base URL of the NVIDIA NIM OpenAI-compatible endpoint.",
+    )
+    nim_size: str = Field(
+        default="",
+        description=(
+            "Force one output size, as WIDTHxHEIGHT, instead of deriving it "
+            "from the requested aspect ratio. Empty means the ratio decides."
+        ),
+    )
+    nim_max_prompt_chars: int = Field(
+        default=800,
+        ge=1,
+        le=20_000,
+        description=(
+            "How many characters of prompt NIM may be sent. The OpenAI-compatible "
+            "schema caps the prompt at 800, so a longer prompt is condensed "
+            "before it goes out."
+        ),
+    )
+    nim_prompt_tail_chars: int = Field(
+        default=200,
+        ge=0,
+        le=4_000,
+        description=(
+            "How many characters at the end of a condensed prompt are kept. The "
+            "tail carries the negative constraints, so it survives the cut."
+        ),
     )
 
     # --- app ---
@@ -140,6 +182,20 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env.lower() in {"production", "prod"}
+
+    @property
+    def active_model(self) -> str:
+        """The model the configured provider will actually call.
+
+        The provider and its model are chosen by environment variables alone —
+        there is no user-facing control for either — so this is the operator's
+        answer to "what is this deployment running?".
+        """
+        return {
+            ProviderName.OPENAI: self.openai_model,
+            ProviderName.GEMINI: self.gemini_model,
+            ProviderName.NIM: self.nim_model,
+        }.get(self.image_provider, "-")
 
     @property
     def auth_enabled(self) -> bool:

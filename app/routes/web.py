@@ -73,6 +73,20 @@ def index(request: Request, container: ContainerDep) -> HTMLResponse:
 
 @router.get("/healthz")
 def healthz(container: ContainerDep) -> dict[str, object]:
-    """Liveness plus which provider is active. Safe to expose."""
+    """Liveness, and whether the pictures are real — but not which backend.
+
+    This URL is open to anyone, because the platform polls it, so it says only
+    that the service is up and whether it is drawing real pictures. Which
+    provider and which model are behind it are the operator's business: they
+    live in the startup log and in the deployment's environment, where a
+    visitor cannot fetch them.
+    """
     status_payload = container.provider_status()
-    return {"status": "ok", "provider": status_payload}
+    return {
+        "status": "ok",
+        "provider": {
+            "ready": status_payload["ready"],
+            "using_real_api": status_payload["using_real_api"],
+            "max_concurrent_generations": status_payload["max_concurrent_generations"],
+        },
+    }

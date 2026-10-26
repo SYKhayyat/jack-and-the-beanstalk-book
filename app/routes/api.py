@@ -210,14 +210,17 @@ def _cartoon_payload(
     budget: float,
 ) -> dict[str, object]:
     """Response for the portrait pass: the portrait, its alternatives, the ids
-    the book-start call needs."""
+    the book-start call needs.
+
+    The provider and the model are deliberately absent: which backend drew the
+    picture is the operator's business, chosen in the environment, and a
+    visitor has no use for it. Both stay on the stored draft, server-side.
+    """
     stored = StoredGeneration(Path(), draft.generation_id)
     urls = stored.to_urls()
     return {
         "generation_id": draft.generation_id,
         "stage": "cartoonified",
-        "provider": draft.provider,
-        "model": draft.model,
         "settings": settings.model_dump(mode="json"),
         "prompts": {"cartoon": draft.cartoon_prompt},
         "images": {

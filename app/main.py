@@ -114,7 +114,7 @@ def create_app(
     logger.info(
         "app.ready provider=%s model=%s env=%s auth=%s",
         app.state.container.provider.name,
-        resolved.gemini_model if resolved.image_provider == "gemini" else "-",
+        resolved.active_model,
         resolved.app_env,
         "password" if resolved.auth_enabled else "open",
     )
@@ -133,5 +133,10 @@ def _configure_logging(settings: Settings) -> None:
     # Last line of defence: even if a secret reaches a logger some other way, it
     # is scrubbed before the handler formats the record.
     install_secret_redaction(
-        (settings.openai_api_key, settings.gemini_api_key, settings.app_password)
+        (
+            settings.openai_api_key,
+            settings.gemini_api_key,
+            settings.nim_api_key,
+            settings.app_password,
+        )
     )

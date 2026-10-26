@@ -111,6 +111,6 @@ class ImageProvider(ABC):
 
         The page says so in plain words when it is true — a visitor who gets
         placeholder art should know it. Which model and which quality are
-        behind it stay in `/healthz`, for the operator.
+        behind it stay in the server log, for the operator.
         """
         return False

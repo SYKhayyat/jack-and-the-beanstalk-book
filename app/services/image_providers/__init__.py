@@ -9,6 +9,7 @@ from app.services.image_providers.base import (
     ProviderUnavailable,
 )
 from app.services.image_providers.mock import MockImageProvider
+from app.services.image_providers.nim_provider import NimImageProvider
 from app.services.image_providers.openai_provider import OpenAIImageProvider
 from app.services.image_providers.registry import build_provider
 
@@ -17,6 +18,7 @@ __all__ = [
     "ImageProvider",
     "ImageRequest",
     "MockImageProvider",
+    "NimImageProvider",
     "OpenAIImageProvider",
     "ProviderError",
     "ProviderUnavailable",
