@@ -56,6 +56,16 @@ Also worth eyeballing live: the PDF viewer box (`#book-pdf-frame`) showing the
 real document in place of the old four-little-pages grid, and the portrait
 review's chip flow ("Not right" → tick → "Try again with these fixes").
 
+UAT round 3 (the prompt text is in place and test-pinned; the same one
+real-API pass can confirm all of them):
+
+- [ ] The beans are exactly five everywhere they appear — five in the old
+      man's palm on page 2, the same five tumbling from the window on page 3,
+      in all five colours (red, blue, green, gold, violet).
+- [ ] No page shows an extra limb: every person has two arms and two legs.
+- [ ] Each page draws only its own scene — no old man on page 1, no cow on
+      page 3, nothing borrowed from another page.
+
 ## Ideas worth trying (not required)
 
 - Read-along voiceover per page (needs a speech provider key; none is wired yet).

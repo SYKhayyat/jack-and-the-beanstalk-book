@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import cast
 
 from app.models import CartoonSettings, CartoonStyle, RejectionFeedback, Scene
-from app.models.book import BookPage
+from app.models.book import BOOK_PAGES, BookPage
 from app.models.settings import (
     ApparentAge,
     AspectRatio,
@@ -190,6 +190,22 @@ def render_book_page(
     return page.formatted(_substitutions(settings, prompt_name))
 
 
+def _story_lines(settings: CartoonSettings, prompt_name: str | None) -> str:
+    """The whole book's story, one labelled line per page.
+
+    The lines come from the pages' own `story` text, so the story is stated
+    once in the catalogue and never restated in a prompt template. Labelling
+    them is what makes the block usable: the model can point at the line it is
+    illustrating, and can see that the beans on one page are the "five magic
+    beans" of another page's line.
+    """
+    lines = []
+    for page in BOOK_PAGES:
+        story = render_book_page(page, settings, prompt_name=prompt_name).story
+        lines.append(f"Page {page.number}: {story}")
+    return "\n".join(lines)
+
+
 def build_book_page_prompt(
     page: BookPage,
     settings: CartoonSettings,
@@ -208,6 +224,13 @@ def build_book_page_prompt(
     rather than the single-scene one, and any non-reference character the page
     names in ``cast`` is injected from the pinned `[book.cast]` looks.
 
+    The whole story goes into every page prompt, labelled by page, with the
+    model told that its own page's line is the one to illustrate and that the
+    other lines are context only. Showing the story is what lets a page know
+    what the earlier pages established — page 3's beans are the five beans of
+    page 2 — and the page-scope clause is what stops that context from being
+    drawn onto the wrong page.
+
     Args:
         page: The resolved page (callers pass the raw catalogue entry; the
             name/pronoun placeholders are filled here).
@@ -225,6 +248,14 @@ def build_book_page_prompt(
             total_pages=total_pages,
             book_title=str(_BOOK["book_title"]),
             name=_substitutions(settings, prompt_name)["name"],
+        ),
+        # The whole story, labelled by page, so the model knows which line it
+        # is illustrating and what the others are for. This is also how page 3
+        # learns that the beans it throws are the five of page 2.
+        task_book["story_context"].format(
+            story_lines=_story_lines(settings, prompt_name),
+            page_number=page_number,
+            total_pages=total_pages,
         ),
         task_book["page_identity"],
         settings.identity_directive(),

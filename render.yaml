@@ -17,6 +17,9 @@ services:
 
     healthCheckPath: /healthz
 
+    # Custom domain: book.siachshai.online (add manually in Render dashboard → Settings → Custom Domains)
+    # Cloudflare DNS: CNAME book → <render-target>.onrender.com (proxied)
+
     envVars:
       - key: APP_ENV
         value: production

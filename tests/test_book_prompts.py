@@ -247,3 +247,101 @@ def test_the_whole_scene_keeps_one_art_style() -> None:
         assert "Draw the entire scene — character, animals, background, props" in prompt
         assert "in exactly the one art style" in prompt
         assert "Mix no styles" in prompt
+
+
+# --- the story is the spec ------------------------------------------------------
+#
+# Every page prompt carries the whole story, one labelled line per page, and
+# the model is told that its own line is the one to illustrate. Showing the
+# story is what lets a page know what earlier pages established — page 3's
+# beans are the five beans of page 2 — and the scope clause is what stops that
+# context from being drawn onto the wrong page.
+
+
+def test_every_page_is_given_the_whole_story_labelled_by_page() -> None:
+    """The story is quoted once per prompt, labelled, from the pages' own text."""
+    for prompt in _all_page_prompts():
+        assert "THE WHOLE STORY (context for you only):" in prompt
+        assert (
+            "Page 1: Jack and his mother had nothing left to sell but Milky-White." in prompt
+        )
+        assert 'Page 2: "Five magic beans," said the old man. "For one cow."' in prompt
+        assert 'Page 3: "Beans!" she cried. And out the window they went.' in prompt
+
+
+def test_each_page_is_told_that_its_own_line_is_its_only_job() -> None:
+    """The page-scope clause: illustrate this page, draw nothing of the others."""
+    for number, prompt in enumerate(_all_page_prompts(), start=1):
+        assert f"You are illustrating one page of this story: page {number} of 3." in prompt
+        assert "and how many of each thing there are" in prompt
+        assert (
+            "do not draw their scenes, their characters, their objects or their settings"
+            in prompt
+        )
+        assert "Draw only what your own page's scene names" in prompt
+
+
+def test_the_story_is_illustrated_never_lettered() -> None:
+    """The model reads the story but must still draw the scene, not the words."""
+    for prompt in _all_page_prompts():
+        assert "Draw what your line means, never its lettering" in prompt
+        assert "Do not draw any text" in prompt
+
+
+def test_the_story_follows_the_child() -> None:
+    """The story lines carry the name and pronouns of the chosen child."""
+    settings = CartoonSettings(photo_gender="girl", character_gender="match")
+    prompt = _prompt(BOOK_PAGES[0], settings, 1)
+    assert "Page 1: Jane and her mother had nothing left to sell but Milky-White." in prompt
+
+
+def test_every_page_forbids_extra_limbs() -> None:
+    """UAT: a page came back with an extra limb.
+
+    The rule is in the book's own negative tail, so it reaches every page from
+    one place rather than being copied into each page's must_avoid list.
+    """
+    for prompt in _all_page_prompts():
+        assert "exactly two arms and two legs" in prompt
+        assert "no fifth limb" in prompt
+        assert "no extra, fused, doubled or duplicated limbs" in prompt
+        assert "no distorted hands" in prompt
+
+
+def test_page_two_shows_exactly_five_beans() -> None:
+    """The trade is the page where the beans are counted: exactly five."""
+    prompt = _prompt(BOOK_PAGES[1], CartoonSettings(), 2)
+    assert "holds out exactly five magic beans in his open palm" in prompt
+    assert (
+        "exactly five magic beans in the old man's open palm — one red, one blue, "
+        "one green, one gold, one violet — no more and no fewer" in prompt
+    )
+
+
+def test_page_three_shows_exactly_five_beans() -> None:
+    """The beans thrown from the window are the same five of the trade."""
+    prompt = _prompt(BOOK_PAGES[2], CartoonSettings(), 3)
+    assert "throws the very same five magic beans" in prompt
+    assert (
+        "exactly five magic beans tumbling and glinting mid-air, each one separately "
+        "visible and countable — red, blue, green, gold and violet — none missing and "
+        "no extra bean" in prompt
+    )
+    # Page 3 used to name only four colours, which contradicted the count.
+    assert "red, blue, green, gold and violet" in prompt
+
+
+def test_pages_do_not_borrow_each_other_scenes() -> None:
+    """The whole-story context is a leak risk, so the obvious leaks are ruled out.
+
+    Page 1's prompt now quotes page 2's line, which names the old man and the
+    beans; page 3's prompt quotes page 1's line, which names Milky-White.
+    """
+    cupboard = _prompt(BOOK_PAGES[0], CartoonSettings(), 1)
+    assert "the old man with the tall hat — he has not arrived in this story yet" in cupboard
+    assert "magic beans or any glowing object — none have been given yet" in cupboard
+    window = _prompt(BOOK_PAGES[2], CartoonSettings(), 3)
+    assert (
+        "Milky-White the cow — she was already sold, and she is nowhere in this scene"
+        in window
+    )
