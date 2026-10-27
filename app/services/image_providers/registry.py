@@ -12,7 +12,6 @@ from app.config import ProviderName, Settings
 from app.services.image_providers.base import ImageProvider, ProviderUnavailable
 from app.services.image_providers.gemini import GeminiImageProvider
 from app.services.image_providers.mock import MockImageProvider
-from app.services.image_providers.nim_provider import NimImageProvider
 from app.services.image_providers.openai_provider import OpenAIImageProvider
 
 __all__ = ["KNOWN_PROVIDERS", "build_provider"]
@@ -23,7 +22,6 @@ KNOWN_PROVIDERS: dict[ProviderName, type[ImageProvider]] = {
     ProviderName.MOCK: MockImageProvider,
     ProviderName.GEMINI: GeminiImageProvider,
     ProviderName.OPENAI: OpenAIImageProvider,
-    ProviderName.NIM: NimImageProvider,
 }
 
 
@@ -52,15 +50,5 @@ def build_provider(settings: Settings) -> ImageProvider:
             model=settings.openai_model,
             quality=settings.openai_quality,
             timeout_seconds=settings.generation_timeout_seconds,
-        )
-    if provider_cls is NimImageProvider:
-        return NimImageProvider(
-            api_key=settings.nim_api_key,
-            model=settings.nim_model,
-            base_url=settings.nim_base_url,
-            timeout_seconds=settings.generation_timeout_seconds,
-            size=settings.nim_size or None,
-            max_prompt_chars=settings.nim_max_prompt_chars,
-            prompt_tail_chars=settings.nim_prompt_tail_chars,
         )
     return provider_cls()

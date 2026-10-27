@@ -136,7 +136,6 @@ def _configure_logging(settings: Settings) -> None:
         (
             settings.openai_api_key,
             settings.gemini_api_key,
-            settings.nim_api_key,
             settings.app_password,
         )
     )

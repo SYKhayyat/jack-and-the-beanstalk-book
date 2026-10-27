@@ -28,19 +28,14 @@ services:
       # mock provider without it, and keeping the dashboard as the single
       # source of truth means switching to openai in the dashboard is never
       # overwritten by the next blueprint sync. Add OPENAI_API_KEY below (or
-      # GEMINI_API_KEY, or NIM_API_KEY) and set IMAGE_PROVIDER in the dashboard
-      # env.
+      # GEMINI_API_KEY) and set IMAGE_PROVIDER in the dashboard env.
 
       # Paste your key into the Render dashboard when prompted.
       - key: OPENAI_API_KEY
         sync: false
 
-      # NVIDIA NIM's free hosted tier, if that is the provider you want.
-      - key: NIM_API_KEY
-        sync: false
-
-      # Defaults to mock in the app; set to "openai" (or "gemini", or "nim") in
-      # the dashboard once a key is in place.
+      # Defaults to mock in the app; set to "openai" (or "gemini") in the
+      # dashboard once a key is in place.
       - key: IMAGE_PROVIDER
         sync: false
       # The shared password in front of the app. Paste it into the Render

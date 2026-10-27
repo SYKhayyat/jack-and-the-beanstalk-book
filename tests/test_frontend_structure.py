@@ -372,7 +372,7 @@ def test_the_page_offers_no_backend_choice(page_html: str) -> None:
     Which backend a deployment runs on is an environment variable, so a
     visitor cannot switch it from the browser.
     """
-    for field in ("provider", "model", "image_provider", "openai_model", "nim_model"):
+    for field in ("provider", "model", "image_provider", "openai_model", "gemini_model"):
         assert f'name="{field}"' not in page_html, f"the page offers a {field!r} control"
         assert f'"{field}"' not in page_html, f"the page mentions {field!r}"
 
@@ -391,7 +391,7 @@ def test_the_open_health_endpoint_names_neither_provider_nor_model(client) -> No
 
     assert "name" not in provider_payload
     assert "reason" not in provider_payload
-    for leak in ("recording", "mock", "openai", "gemini", "nim"):
+    for leak in ("recording", "mock", "openai", "gemini"):
         assert leak not in json.dumps(payload).lower()
 
 

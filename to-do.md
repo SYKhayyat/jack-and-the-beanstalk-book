@@ -16,22 +16,6 @@ of UI with this one.
 3. **This file** —
    <https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/to-do.md>
 
-## NVIDIA NIM — the free provider (done in code, awaiting one real-API pass)
-
-- [ ] Add NVIDIA's hosted NIM as a provider: `IMAGE_PROVIDER=nim`,
-      `NIM_API_KEY=…`, `NIM_MODEL=flux.2-klein-4b` (free tier, ~40 requests a
-      minute, no card). The provider is
-      `app/services/image_providers/nim_provider.py`; the choice of provider
-      and model is environment-only, and nothing a visitor can fetch names
-      either — the page, the browser's JSON and `/healthz` all stay silent
-      about the backend.
-- [ ] One real-API run to settle two things the tests cannot: that NIM's
-      likeness holds up (same question the OpenAI pass has to answer), and
-      that the prompt condensation to NIM's 800-character cap (head and tail
-      kept, middle dropped) still leaves a usable instruction. If the pictures
-      suffer, `NIM_MAX_PROMPT_CHARS` and `NIM_PROMPT_TAIL_CHARS` are the
-      dials, and a different `NIM_MODEL` is the other lever.
-
 ## Still open before submitting
 
 - [ ] Apply the Render blueprint (New → Blueprint on

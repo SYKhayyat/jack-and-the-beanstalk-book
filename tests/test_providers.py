@@ -15,7 +15,6 @@ from app.services.image_providers.base import (
     ImageRequest,
     ProviderUnavailable,
 )
-from app.services.image_providers.nim_provider import NimImageProvider
 from app.services.image_providers.registry import KNOWN_PROVIDERS
 
 
@@ -46,24 +45,6 @@ class TestRegistry:
         with pytest.raises(ProviderUnavailable, match="Unknown image provider"):
             build_provider(Settings.model_construct(image_provider="dalle3"))
 
-    def test_nim_without_a_key_is_unavailable(self, tmp_path) -> None:
-        with pytest.raises(ProviderUnavailable, match="NIM_API_KEY"):
-            build_provider(
-                make_settings(image_provider="nim", nim_api_key="", storage_dir=tmp_path)
-            )
-
-    def test_nim_is_built_from_the_environment(self, tmp_path) -> None:
-        provider = build_provider(
-            make_settings(
-                image_provider="nim",
-                nim_api_key="k",
-                nim_model="flux-3-image-klein",
-                storage_dir=tmp_path,
-            )
-        )
-        assert isinstance(provider, NimImageProvider)
-        assert provider._model == "flux-3-image-klein"
-
     def test_every_registered_provider_implements_the_contract(self) -> None:
         for name, provider_cls in KNOWN_PROVIDERS.items():
             assert issubclass(provider_cls, ImageProvider)
@@ -75,12 +56,10 @@ class TestTheBackendChoiceIsTheOperators:
     """The provider and the model are picked in the environment, and nowhere else."""
 
     def test_the_active_model_follows_the_chosen_provider(self) -> None:
-        nim = Settings(_env_file=None, image_provider="nim", nim_model="m")
         openai = Settings(_env_file=None, image_provider="openai", openai_model="o")
         gemini = Settings(_env_file=None, image_provider="gemini", gemini_model="g")
         mock = Settings(_env_file=None, image_provider="mock")
 
-        assert nim.active_model == "m"
         assert openai.active_model == "o"
         assert gemini.active_model == "g"
         assert mock.active_model == "-"
