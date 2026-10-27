@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from app.config import ProviderName, Settings
+from app.services.image_providers.agnes_provider import AgnesImageProvider
 from app.services.image_providers.base import ImageProvider, ProviderUnavailable
 from app.services.image_providers.gemini import GeminiImageProvider
 from app.services.image_providers.mock import MockImageProvider
@@ -22,6 +23,7 @@ KNOWN_PROVIDERS: dict[ProviderName, type[ImageProvider]] = {
     ProviderName.MOCK: MockImageProvider,
     ProviderName.GEMINI: GeminiImageProvider,
     ProviderName.OPENAI: OpenAIImageProvider,
+    ProviderName.AGNES: AgnesImageProvider,
 }
 
 
@@ -50,5 +52,13 @@ def build_provider(settings: Settings) -> ImageProvider:
             model=settings.openai_model,
             quality=settings.openai_quality,
             timeout_seconds=settings.generation_timeout_seconds,
+        )
+    if provider_cls is AgnesImageProvider:
+        return AgnesImageProvider(
+            api_key=settings.agnes_api_key,
+            model=settings.agnes_model,
+            base_url=settings.agnes_base_url,
+            timeout_seconds=settings.generation_timeout_seconds,
+            size=settings.agnes_size,
         )
     return provider_cls()

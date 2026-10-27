@@ -111,6 +111,13 @@ def create_app(
 
     install_auth_gate(app, app.state.gate)
 
+    # The provider's own readiness sentence, in the operator's log and nowhere
+    # a visitor can reach: "agnes ready (model=..., size=1K)", "openai ready
+    # (model=..., quality=low)". This is the line that says the deployment can
+    # actually draw pictures, rather than merely having booted.
+    ready, reason = app.state.container.provider.health_check()
+    logger.info("app.provider_health ready=%s %s", ready, reason)
+
     logger.info(
         "app.ready provider=%s model=%s env=%s auth=%s",
         app.state.container.provider.name,
@@ -136,6 +143,7 @@ def _configure_logging(settings: Settings) -> None:
         (
             settings.openai_api_key,
             settings.gemini_api_key,
+            settings.agnes_api_key,
             settings.app_password,
         )
     )

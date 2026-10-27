@@ -10,6 +10,7 @@ import pytest
 
 from app.config import Settings
 from app.services.image_providers import MockImageProvider, build_provider
+from app.services.image_providers.agnes_provider import AgnesImageProvider
 from app.services.image_providers.base import (
     ImageProvider,
     ImageRequest,
@@ -45,6 +46,26 @@ class TestRegistry:
         with pytest.raises(ProviderUnavailable, match="Unknown image provider"):
             build_provider(Settings.model_construct(image_provider="dalle3"))
 
+    def test_agnes_without_a_key_is_unavailable(self, tmp_path) -> None:
+        with pytest.raises(ProviderUnavailable, match="AGNES_API_KEY"):
+            build_provider(
+                make_settings(image_provider="agnes", agnes_api_key="", storage_dir=tmp_path)
+            )
+
+    def test_agnes_is_built_from_the_environment(self, tmp_path) -> None:
+        provider = build_provider(
+            make_settings(
+                image_provider="agnes",
+                agnes_api_key="k",
+                agnes_model="agnes-image-2.1-flash",
+                agnes_size="2K",
+                storage_dir=tmp_path,
+            )
+        )
+        assert isinstance(provider, AgnesImageProvider)
+        assert provider._model == "agnes-image-2.1-flash"
+        assert provider._size == "2K"
+
     def test_every_registered_provider_implements_the_contract(self) -> None:
         for name, provider_cls in KNOWN_PROVIDERS.items():
             assert issubclass(provider_cls, ImageProvider)
@@ -58,10 +79,12 @@ class TestTheBackendChoiceIsTheOperators:
     def test_the_active_model_follows_the_chosen_provider(self) -> None:
         openai = Settings(_env_file=None, image_provider="openai", openai_model="o")
         gemini = Settings(_env_file=None, image_provider="gemini", gemini_model="g")
+        agnes = Settings(_env_file=None, image_provider="agnes", agnes_model="a")
         mock = Settings(_env_file=None, image_provider="mock")
 
         assert openai.active_model == "o"
         assert gemini.active_model == "g"
+        assert agnes.active_model == "a"
         assert mock.active_model == "-"
 
     def test_the_user_settings_cannot_carry_a_backend(self) -> None:

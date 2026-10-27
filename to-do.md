@@ -16,6 +16,29 @@ of UI with this one.
 3. **This file** —
    <https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/to-do.md>
 
+## Agnes AI — the free testing provider (code in place)
+
+- [x] Add Agnes AI as a provider: `IMAGE_PROVIDER=agnes`, `AGNES_API_KEY=…`
+      (key from the Agnes AI console), default model
+      `agnes-image-2.5-flash`, default size `1K`. The provider is
+      `app/services/image_providers/agnes_provider.py`. It is the only free
+      tier found that accepts the uploaded photo as a reference image — every
+      free tier checked so far refuses it: NVIDIA NIM answers `Expected:
+      example_id, got: base64` and takes only its four canned examples.
+      **It is the free testing backend, not the production one:** likeness on a
+      real photo was judged unusable when it was first tried, which is why the
+      hand-in book runs on OpenAI. Its job here is to let the whole app be
+      exercised end to end without spending anything.
+- [ ] One free end-to-end book at 1K (5 calls, $0): upload a photo, approve a
+      portrait, render the book, confirm every page lands and the PDF
+      assembles. This is the "test with a free provider so you don't burn
+      tokens" check the assignment asks for.
+- [ ] Watch the free tier's ceiling while you test: 1K is about 10 requests a
+      minute, and one finished book is five calls. The app already caps
+      concurrent generations at 2 and per-client at 12 a minute
+      (`MAX_GENERATIONS_PER_MINUTE`), so a slow queue means the limit is doing
+      its job, not that anything is broken.
+
 ## Still open before submitting
 
 - [ ] Apply the Render blueprint (New → Blueprint on

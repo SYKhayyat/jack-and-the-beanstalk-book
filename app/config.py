@@ -22,6 +22,7 @@ class ProviderName(StrEnum):
     MOCK = "mock"
     GEMINI = "gemini"
     OPENAI = "openai"
+    AGNES = "agnes"
 
 
 class Settings(BaseSettings):
@@ -69,6 +70,27 @@ class Settings(BaseSettings):
         # Lite is the cheaper of the pair; see the README for the trade-off.
         default="gemini-3.1-flash-lite-image",
         description="Gemini image-capable model id.",
+    )
+    agnes_api_key: str = Field(
+        default="",
+        description="Agnes AI API key. Only needed for the agnes provider.",
+    )
+    agnes_model: str = Field(
+        # The image model that takes multiple reference images: the cartoonify
+        # pass sends the photo, the book pass sends the portrait plus the photo.
+        default="agnes-image-2.5-flash",
+        description="Agnes AI image model id.",
+    )
+    agnes_base_url: str = Field(
+        default="https://apihub.agnes-ai.com/v1",
+        description="Base URL of the Agnes AI OpenAI-compatible endpoint.",
+    )
+    agnes_size: str = Field(
+        # The free tier is rate limited by resolution — about 10 requests a
+        # minute at 1K, 5 at 2K, one above that — so 1K is the only tier that
+        # keeps a whole book inside one sitting.
+        default="1K",
+        description="Agnes output resolution tier: 1K, 2K, 3K or 4K.",
     )
 
     # --- app ---
@@ -152,6 +174,7 @@ class Settings(BaseSettings):
         return {
             ProviderName.OPENAI: self.openai_model,
             ProviderName.GEMINI: self.gemini_model,
+            ProviderName.AGNES: self.agnes_model,
         }.get(self.image_provider, "-")
 
     @property
