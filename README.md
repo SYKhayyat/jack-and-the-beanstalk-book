@@ -83,6 +83,7 @@ is per *call*.
 
 | Provider | Per call (1K image) | 200 books (1,000 calls) | Free tier? |
 | --- | --- | --- | --- |
+| **Agnes `agnes-image-2.5-flash`** | **$0** | **$0** | **Yes — free, ~10 requests/minute at 1K** |
 | **OpenAI `gpt-image-2.5-flare`, `quality=low`** (default) | **$0.00588** | **~$5.88** | No |
 | OpenAI `gpt-image-2.5-*`, `quality=medium` | not published | — | No |
 | Cloudflare `flux-2-klein-9b` | $0.015 / MP | ~$15.00 | **Yes — ~6 images/day free** |
@@ -111,16 +112,52 @@ Free Trial from March 2026. Since March 2026, paid Gemini API access is on a
 prepay plan with a **$5 minimum** and credits that are non-refundable and expire
 after a year. For a 200-book run, prepay about **$40**.
 
-### The free options do not work for this app
+### The free option: Agnes AI
 
-NVIDIA's hosted NIM service is free and its image models are quick, but its
-**preview** API only accepts four canned example images — the hosted endpoints
-reject an uploaded photo outright (`Expected: example_id, got: base64`). Since
-this app's whole pipeline is "edit the uploaded photo, then keep that face in
-the story pages", a text-to-image-only free tier is no use here. Pollinations
-and Cloudflare Workers AI are the other free-ish candidates; both would need a
-provider written for their own request shape, and Cloudflare's free allocation
-is about six edited images a day.
+Agnes AI is the only free tier that does the thing this app is built on: an
+image-editing endpoint that takes **an array of reference images**, Data URI
+Base64 or public URLs, alongside the prompt. Every resolution tier and every
+input reference image is currently priced at zero.
+
+```bash
+# .env
+IMAGE_PROVIDER=agnes
+AGNES_API_KEY=your-agnes-key
+```
+
+The key comes from the Agnes AI console; the base URL is
+`https://apihub.agnes-ai.com/v1`. The model is
+`agnes-image-2.5-flash` and it does text-to-image, image-to-image and
+multi-image composition, so the cartoonify pass (the photo) and the book pass
+(the portrait plus the photo) both fit the same call shape.
+
+What the free tier costs you is **speed, not money**:
+
+| Free tier (`default`) | Requests a minute |
+| --- | --- |
+| 1K output | 10 |
+| 2K output | 5 |
+| 3K / 4K output | 1 |
+
+One finished book is five calls, so at 1K a book takes about half a minute of
+ceiling — fine for a classroom or a family, not for a queue of strangers. `1K`
+is therefore the default and `AGNES_SIZE` is the dial if you upgrade. The 1K
+sizes per ratio are `1024x1024` (1:1), `1152x864` (4:3), `864x1152` (3:4) and
+`1312x736` (16:9) — the same four ratios the app offers.
+
+Two cautions worth stating plainly, because neither shows up in the docs:
+
+- **Quality is unproven here.** Independent reviews put Agnes image generation
+  in the middle of the pack. Likeness on a real photo is exactly what this app
+  is graded on, so run the portrait step on a real upload before trusting it —
+  the instruction is in `to-do.md`.
+- **Free is a pricing page, not a promise.** The rate limits were cut by half
+  for free users in September 2026, and NVIDIA's own free tier turned out to
+  refuse the photo this app needs, so test on the day rather than trusting a
+  number written into a README.
+
+Two corrections worth stating plainly, because the obvious assumptions are wrong:
+
 
 Two corrections worth stating plainly, because the obvious assumptions are wrong:
 
@@ -130,9 +167,9 @@ Two corrections worth stating plainly, because the obvious assumptions are wrong
   models read *Free of charge*. You need billing enabled on the API key. The
   *web UI* at <https://aistudio.google.com> is still free — see below.
 - **The provider is a config change, not a rewrite.** `IMAGE_PROVIDER` picks
-  between `mock`, `openai` and `gemini`. Both real providers send reference
-  images with the text in one call, which is the capability this app is built
-  on.
+  between `mock`, `openai`, `agnes` and `gemini`. All three real providers send
+  reference images with the text in one call, which is the capability this app
+  is built on.
 - **Do not use `gemini-2.5-flash-image`.** Google deprecated it and gave a
   shutdown date of **2026-10-02**, naming `gemini-3.1-flash-image` and
   `gemini-3.1-flash-lite-image` as the migration targets. This repo defaults to
@@ -187,7 +224,9 @@ spending. Adding either as a third provider is a config change; see
 - It lives in the `OPENAI_API_KEY` environment variable when using the default
   real provider. Never in code, never in the repo, never in Slack.
 - Gemini is also supported: set `IMAGE_PROVIDER=gemini` and use
-  `GEMINI_API_KEY` instead. Only the selected provider's key is read.
+  `GEMINI_API_KEY` instead. Agnes takes the same route:
+  `IMAGE_PROVIDER=agnes` with `AGNES_API_KEY`. Only the selected provider's key
+  is read.
 - **Which provider and which model are used is the developer's choice and the
   visitor's non-business.** Both are environment variables
   (`IMAGE_PROVIDER`, `OPENAI_MODEL` / `GEMINI_MODEL`), and no part of the UI
@@ -257,6 +296,7 @@ app/
 │       ├── base.py       #         the ImageProvider contract
 │       ├── mock.py       #         offline placeholder renderer
 │       ├── openai_provider.py #   the default real backend
+│       ├── agnes_provider.py #     the free real backend (reference images)
 │       ├── gemini.py     #         the fallback backend
 │       └── registry.py   #         name → class
 ├── routes/               # CONTROLLER: book (the UI), api, media, auth, settings_form
@@ -601,10 +641,14 @@ deployment.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `IMAGE_PROVIDER` | `mock` | `mock`, `openai` or `gemini` |
+| `IMAGE_PROVIDER` | `mock` | `mock`, `openai`, `gemini` or `agnes` |
 | `OPENAI_API_KEY` | *(empty)* | Required for `openai` |
 | `OPENAI_MODEL` | `gpt-image-2.5-flare` | Cheapest published per-call price |
 | `OPENAI_QUALITY` | `low` | `medium`/`high`/`xhigh`/`max` cost more; raise only if likeness needs it |
+| `AGNES_API_KEY` | *(empty)* | Required for `agnes`. Free tier: ~10 requests/minute at 1K. |
+| `AGNES_MODEL` | `agnes-image-2.5-flash` | The image model that takes an array of reference images. |
+| `AGNES_SIZE` | `1K` | Output tier: `1K`, `2K`, `3K`, `4K`. Free tier allows ~10/5/1 requests a minute. |
+| `AGNES_BASE_URL` | `https://apihub.agnes-ai.com/v1` | Change only if the service moves. |
 | `GEMINI_API_KEY` | *(empty)* | Required for `gemini` |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite-image` | Keep it cheap. `gemini-3.1-flash-image` is the higher-quality option. |
 | `APP_ENV` | `development` | `production` raises the log level |

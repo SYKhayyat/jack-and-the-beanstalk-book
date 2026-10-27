@@ -16,6 +16,26 @@ of UI with this one.
 3. **This file** —
    <https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/to-do.md>
 
+## Agnes AI — the free provider (code in place, awaiting one real-API run)
+
+- [ ] Add Agnes AI as a provider: `IMAGE_PROVIDER=agnes`, `AGNES_API_KEY=…`
+      (key from the Agnes AI console), default model
+      `agnes-image-2.5-flash`, default size `1K`. The provider is
+      `app/services/image_providers/agnes_provider.py`. It is the only free
+      tier found that accepts the uploaded photo as a reference image — every
+      free tier checked so far refuses it: NVIDIA NIM answers `Expected:
+      example_id, got: base64` and takes only its four canned examples.
+- [ ] One real-API run to answer the question no test can: does likeness hold
+      up? Upload a real photo, run the portrait step, then render a book, and
+      compare the four pages against the portrait. Independent reviews put
+      Agnes image quality mid-pack, so this is the one thing standing between
+      "free" and "usable".
+- [ ] Watch the free tier's ceiling while you test: 1K is about 10 requests a
+      minute, and one finished book is five calls. The app already caps
+      concurrent generations at 2 and per-client at 12 a minute
+      (`MAX_GENERATIONS_PER_MINUTE`), so a slow queue means the limit is doing
+      its job, not that anything is broken.
+
 ## Still open before submitting
 
 - [ ] Apply the Render blueprint (New → Blueprint on
