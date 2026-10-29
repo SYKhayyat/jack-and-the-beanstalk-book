@@ -113,6 +113,20 @@ def test_book_js_is_a_thin_controller() -> None:
     assert "createBookClient" in source, "HTTP is swapped in via the client"
 
 
+def test_the_book_poller_gives_up_after_consecutive_failures() -> None:
+    """A persistent 404/401/5xx must stop, not retry every 1.5s forever.
+
+    `MAX_QUIET_POLLS` only works if the failure count survives the retry: a
+    fresh `started` timestamp per call measured one request, never the run.
+    """
+    source = _strip_js_comments(_read("book.js"))
+    assert "function pollBook(failures = 0)" in source
+    assert "const failedPolls = failures + 1;" in source
+    assert "failedPolls < MAX_QUIET_POLLS" in source
+    assert "pollBook(failedPolls);" in source
+    assert "Date.now() - started" not in source
+
+
 def test_photo_sources_satisfy_one_seam() -> None:
     source = _read("photo.js")
     assert source.count("getBlob") >= 2, "both sources answer the same getBlob seam"

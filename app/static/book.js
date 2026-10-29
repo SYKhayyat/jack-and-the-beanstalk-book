@@ -251,8 +251,7 @@ async function approveAndStart() {
   }
 }
 
-function pollBook() {
-  const started = Date.now();
+function pollBook(failures = 0) {
   window.setTimeout(async () => {
     if (!book.bookId || state.isBookFinished(book)) return;
     const expectedBook = book.bookId;
@@ -280,10 +279,13 @@ function pollBook() {
       view.renderBookProgress(done, total);
       pollBook();
     } catch {
-      /* transient network hiccup: retry quietly, but not forever */
+      /* transient network hiccup: retry quietly, but not forever. The count
+         must travel with the retry — a fresh `started` per call could never
+         accumulate four consecutive failures. */
       if (book.bookId !== expectedBook) return;
-      if (Date.now() - started < MAX_QUIET_POLLS * POLL_MS) {
-        pollBook();
+      const failedPolls = failures + 1;
+      if (failedPolls < MAX_QUIET_POLLS) {
+        pollBook(failedPolls);
         return;
       }
       view.showBookError("The book cannot be reached right now — keep this tab open.");
