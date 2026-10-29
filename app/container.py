@@ -20,6 +20,7 @@ from app.services.image_providers.registry import build_provider
 from app.services.pipeline import GenerationPipeline
 from app.services.rate_limit import GenerationRateLimiter
 from app.services.storage import GenerationStore
+from app.services.user_store import FileUserStore, UserStore
 
 __all__ = ["Container", "build_container"]
 
@@ -34,6 +35,9 @@ class Container:
     provider: ImageProvider
     store: GenerationStore
     pipeline: GenerationPipeline
+    # Everyone who has signed in, so a book can be filed under a person and
+    # nobody else can read it.
+    user_store: UserStore
     # The book pipeline: its own persistence root plus the runner that walks
     # page by page. The gate is shared with the interactive flow so books and
     # single-scene generations bound the same billable-call budget.
@@ -73,6 +77,7 @@ def build_container(settings: Settings, provider: ImageProvider | None = None) -
         provider=resolved,
         store=store,
         pipeline=GenerationPipeline(resolved, store),
+        user_store=FileUserStore(settings.storage_dir / "users"),
         book_store=book_store,
         book_runner=BookRunner(
             provider=resolved,

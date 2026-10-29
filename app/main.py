@@ -24,7 +24,9 @@ from app.errors import register_exception_handlers
 from app.redaction import install_secret_redaction
 from app.routes import api, auth, book, media, web
 from app.routes.auth import install_auth_gate
+from app.services.google_oauth import GoogleOAuthClient
 from app.services.image_providers.base import ImageProvider
+from app.sessions import SessionCodec
 
 __all__ = ["create_app"]
 
@@ -39,6 +41,10 @@ STATIC_DIR = BASE_DIR / "static"
 # have no billable gate — /login is pre-session by definition — so an
 # anonymous body cannot push a worker into memory death.
 MAX_BODY_BYTES = 20 * 1024 * 1024
+
+# Google's token and userinfo endpoints are fast; a sign-in that takes longer
+# than this has failed, and the visitor is waiting on a browser.
+_OAUTH_TIMEOUT = 30.0
 
 
 @asynccontextmanager
@@ -83,6 +89,23 @@ def create_app(
         session_max_age_seconds=resolved.app_session_max_age_days * 24 * 60 * 60,
         max_attempts=resolved.app_login_max_attempts,
     )
+    # One signer for the session cookie, shared by the gate and the Google
+    # flow. Its key is a setting, never the password: see
+    # `Settings.session_signing_key`.
+    sessions = SessionCodec(resolved.session_signing_key())
+    app.state.sessions = sessions
+    app.state.gate.codec = sessions
+    # The Google sign-in client, only when it is configured. Without a client
+    # there is nothing to build and nothing to call.
+    app.state.oauth = (
+        GoogleOAuthClient(
+            client_id=resolved.google_client_id,
+            client_secret=resolved.google_client_secret,
+            timeout_seconds=_OAUTH_TIMEOUT,
+        )
+        if resolved.google_enabled
+        else None
+    )
 
     register_exception_handlers(app)
     app.include_router(web.router)
@@ -123,12 +146,22 @@ def create_app(
         app.state.container.provider.name,
         resolved.active_model,
         resolved.app_env,
-        "password" if resolved.auth_enabled else "open",
+        _auth_mode(resolved),
     )
     return app
 
 
+def _auth_mode(settings: Settings) -> str:
+    """Which way in this deployment has, in one word for the log."""
+    if settings.google_enabled:
+        return "google"
+    if settings.app_password:
+        return "password"
+    return "open"
+
+
 def _configure_logging(settings: Settings) -> None:
+    """Set the log level, and arm the redaction filter with every secret."""
     level = logging.INFO if settings.is_production else logging.DEBUG
     root = logging.getLogger()
     if not root.handlers:
@@ -145,5 +178,15 @@ def _configure_logging(settings: Settings) -> None:
             settings.gemini_api_key,
             settings.agnes_api_key,
             settings.app_password,
+            # The OAuth client secret and the session key: the one gets pasted
+            # whole into a dashboard, the other is the signing key of every
+            # session in the deployment. Neither may appear in a log line.
+            settings.google_client_secret,
+            settings.session_secret,
         )
     )
+    if settings.google_enabled and not settings.session_secret:
+        logger.warning(
+            "app.session_key_randomized SESSION_SECRET is not set, so every "
+            "restart signs everyone out. Set it in the environment."
+        )

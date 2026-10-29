@@ -3,26 +3,40 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Jack and the Beanstalk — password</title>
+  <title>Jack and the Beanstalk — sign in</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="login-body">
   <main class="login-shell">
-    <form id="login-form" class="login-card" method="post" action="/login">
-      <h1>Jack and the Beanstalk</h1>
-      <p class="login-tagline">This app is private. Enter the password to continue.</p>
+    <h1>Jack and the Beanstalk</h1>
 
-      {% if error %}
-        <p class="login-error" role="alert">{{ error }}</p>
-      {% endif %}
+    {% if error %}
+      <p class="login-error" role="alert">{{ error }}</p>
+    {% endif %}
 
-      <label for="password">Password</label>
-      <input type="password" id="password" name="password" autocomplete="current-password"
-             autofocus required>
+    {% if google_enabled %}
+      <!-- The production way in: a real Google account, so the book that comes
+           out of it is yours and nobody else's. -->
+      <form class="login-card" method="get" action="/auth/google/login">
+        <p class="login-tagline">Sign in to make your picture book.</p>
+        <input type="hidden" name="next" value="{{ next_path }}">
+        <button type="submit" class="button google-button">Continue with Google</button>
+      </form>
+    {% endif %}
 
-      <input type="hidden" name="next_path" value="{{ next_path }}">
-      <button type="submit" class="button">Enter</button>
-    </form>
+    {% if password_enabled %}
+      <!-- The local-dev fallback: one shared password, no accounts. -->
+      <form id="login-form" class="login-card" method="post" action="/login">
+        <p class="login-tagline">This app is private. Enter the password to continue.</p>
+
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password"
+               autofocus required>
+
+        <input type="hidden" name="next_path" value="{{ next_path }}">
+        <button type="submit" class="button">Enter</button>
+      </form>
+    {% endif %}
   </main>
 </body>
 </html>

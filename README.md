@@ -42,22 +42,35 @@ OPENAI_API_KEY=your-key-here
 Whichever provider you choose, the provider and the model are picked in the
 environment; the visitor-facing UI has no control for either.
 
-## Putting a password in front of the app
+## Signing in
 
 The app costs money per image, so it should not be open to everyone who finds
-the URL. Set one shared password and every visitor has to log in first:
+the URL. Two ways in, and exactly one is ever available at a time:
+
+**Google sign-in (production).** With `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` set, "Continue with Google" is the way in and the
+password form is switched off entirely. Each visitor is a real person with a
+Google identity, their books are theirs alone, and signing out clears only
+their own session. The click-by-click setup — including the consent-screen
+mode that must not be left on "Testing", or sessions hard-expire after a
+week — is [docs/google-oauth-setup.md](docs/google-oauth-setup.md).
+
+**The shared password (local development).** Without a Google client, one
+password guards the whole app:
 
 ```bash
 # .env
 APP_PASSWORD=a-good-long-password
 ```
 
-- The password is one value for everyone. There are no accounts, no invites
-  and no per-person identity — just "are you one of us?".
-- A successful login sets an `HttpOnly` cookie that is valid for
+- The password is one value for everyone. There are no accounts and no
+  per-person identity — just "are you one of us?". It exists to keep strangers
+  off an app that bills per image; it is gone the moment Google is configured.
+- A successful login sets an `HttpOnly` cookie valid for
   `APP_SESSION_MAX_AGE_DAYS` (7 by default). `Log out` in the header clears it.
-- The cookie is signed with a key derived from the password, so **changing
-  `APP_PASSWORD` logs everyone out**, including you.
+- The cookie is signed with `SESSION_SECRET`. Changing `APP_PASSWORD` no
+  longer signs anybody out; changing `SESSION_SECRET` does, which is the
+  knob to reach for when a session needs killing.
 - API and media requests without a session get a `401`; pages get redirected
   to `/login`. `/healthz` and `/static` stay open, because the platform polls
   the health check and the login page needs its CSS.
@@ -66,8 +79,9 @@ APP_PASSWORD=a-good-long-password
 - Leave `APP_PASSWORD` empty and the gate is open. That is fine for local
   development and reckless for anything else.
 
-On Render the blueprint asks for `APP_PASSWORD` when you apply it, so the
-password is set in the dashboard and never lands in the repo.
+On Render the blueprint prompts for both the Google variables and
+`APP_PASSWORD` at apply time, so the values live in the dashboard and never
+land in the repo.
 
 ## Choosing an API key
 
@@ -296,7 +310,8 @@ app/
 ├── container.py          # composition root — the one module that wires everything
 ├── errors.py             # domain exceptions → HTTP status codes
 ├── dependencies.py       # FastAPI Depends accessors
-├── auth.py               # the shared-password gate: password check, signed cookie
+├── auth.py               # the fallback sign-in gate: shared password + issued session
+├── sessions.py           # the signed session cookie shared by both ways in
 ├── prompts.toml          # THE PROMPTS — every word sent to the model, as data
 ├── prompt_data.py        # the one loader for prompts.toml
 ├── models/               # MODEL: book pages, cartoon settings, results
@@ -640,8 +655,12 @@ The repo ships a blueprint, so this is short:
 2. In Render: **New → Blueprint**, pick the repo, apply. `render.yaml` declares
    the build and start commands and the health check.
 3. Render will prompt for `OPENAI_API_KEY` — paste it there. That is the only
-   place it belongs. It is never in the repo. It will also prompt for
-   `APP_PASSWORD` — paste in the shared password that guards the app.
+   place it belongs. It is never in the repo. It also prompts for the Google
+   sign-in variables (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+   `GOOGLE_REDIRECT_URI`, `SESSION_SECRET`) and `APP_PASSWORD`; the
+   walk-through for the Google ones is
+   [docs/google-oauth-setup.md](docs/google-oauth-setup.md). With Google set,
+   the password is unused — the deployment signs people in with Google.
 4. The app boots on the mock provider: with no `IMAGE_PROVIDER` set it runs
    free, so the first deploy is always green. Once your key is in, set
    `IMAGE_PROVIDER=openai` in the dashboard and save; Render redeploys. The
@@ -673,8 +692,12 @@ deployment.
 | `GEMINI_API_KEY` | *(empty)* | Required for `gemini` |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite-image` | Keep it cheap. `gemini-3.1-flash-image` is the higher-quality option. |
 | `APP_ENV` | `development` | `production` raises the log level |
-| `APP_PASSWORD` | *(empty)* | Shared password required to use the app. Empty means the app is open. |
-| `APP_SESSION_MAX_AGE_DAYS` | `7` | How long one successful login stays valid. Changing the password invalidates every session. |
+| `GOOGLE_CLIENT_ID` | *(empty)* | With `GOOGLE_CLIENT_SECRET`, makes Google sign-in the only way in. See `docs/google-oauth-setup.md`. |
+| `GOOGLE_CLIENT_SECRET` | *(empty)* | The OAuth client secret; lives only in the environment. |
+| `GOOGLE_REDIRECT_URI` | *(empty)* | The exact redirect URI registered with Google; empty means the app derives it from the request (local development only). |
+| `SESSION_SECRET` | *(empty)* | Signs the session cookie. Unset, every restart signs everyone out. Not the password. |
+| `APP_PASSWORD` | *(empty)* | The local-dev fallback: shared password required when no Google client is configured. Both unset means the app is open. |
+| `APP_SESSION_MAX_AGE_DAYS` | `7` | How long one successful sign-in stays valid. Rotating `SESSION_SECRET` invalidates every session. |
 | `APP_LOGIN_MAX_ATTEMPTS` | `8` | Wrong passwords per client before a 15-minute lockout. |
 | `MAX_UPLOAD_MB` | `10` | Enforced before decoding |
 | `GENERATION_TIMEOUT_SECONDS` | `600` | One budget per request: queue + model call. Also applied to the provider's HTTP client. |

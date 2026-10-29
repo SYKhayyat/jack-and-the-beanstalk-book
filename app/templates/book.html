@@ -15,6 +15,7 @@
     {% endif %}
     {% if auth_enabled %}
       <form class="logout-form" method="post" action="/logout">
+        {% if signed_in and user_name %}<span class="who">{{ user_name }}</span>{% endif %}
         <button type="submit">Log out</button>
       </form>
     {% endif %}

@@ -39,6 +39,23 @@ of UI with this one.
       (`MAX_GENERATIONS_PER_MINUTE`), so a slow queue means the limit is doing
       its job, not that anything is broken.
 
+## Sign-in with Google — code in place, awaiting the console setup
+
+- [x] Google sign-in is the production way in: "Continue with Google" on the
+      login page, a real identity per visitor, and their books filed under
+      that identity. When the client is configured the shared password is
+      switched off entirely — one way in, never two.
+- [x] The session secret (`SESSION_SECRET`) is decoupled from the password:
+      rotating the password no longer signs anyone out; rotating the secret
+      does. The operator log warns when Google is configured without one.
+- [ ] Follow `docs/google-oauth-setup.md` to create the OAuth client (the
+      consent screen must be **published**, not left in "Testing" mode, or
+      sessions hard-expire after a week), then paste the four variables into
+      Render: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+      `GOOGLE_REDIRECT_URI`, `SESSION_SECRET`.
+- [ ] One click-through of the deployed sign-in: login → Google → back to the
+      app, name in the masthead, `auth.google_login_ok email=s***@…` in the log.
+
 ## Still open before submitting
 
 - [ ] Apply the Render blueprint (New → Blueprint on

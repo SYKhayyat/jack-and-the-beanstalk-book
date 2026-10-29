@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -104,3 +105,58 @@ class TestInstallSecretRedaction:
         before = len(root.filters)
         install_secret_redaction(["", ""])
         assert len(root.filters) == before
+
+
+class TestTheSecretsTheAppArmsAtStartup:
+    """Every secret the app can read is armed the moment it boots.
+
+    Sign-in added two: the Google client secret and the session key. Both get
+    pasted whole into a dashboard, which is exactly how a secret ends up in a
+    log line.
+    """
+
+    def test_the_google_client_secret_and_session_key_are_armed(
+        self, tmp_path: Path, caplog
+    ) -> None:
+        from app.config import Settings
+        from app.main import create_app
+
+        secret = "google-client-secret-value"
+        session_key = "session-secret-value"
+        settings = Settings(
+            image_provider="mock",  # type: ignore[arg-type]
+            gemini_api_key="",
+            app_env="test",
+            storage_dir=tmp_path / "storage",
+            google_client_id="a-client-id",
+            google_client_secret=secret,
+            session_secret=session_key,
+        )
+        create_app(settings)
+
+        with caplog.at_level(logging.WARNING, logger="app.main"):
+            logger = logging.getLogger("app.main")
+            logger.warning("pasted the secret %s and the key %s", secret, session_key)
+
+        assert secret not in caplog.text
+        assert session_key not in caplog.text
+        assert caplog.text.count("***REDACTED***") >= 2
+
+    def test_a_deployment_without_google_arms_nothing_new(self, tmp_path: Path) -> None:
+        from app.config import Settings
+        from app.main import create_app
+
+        redaction._installed = None
+        _strip_redacting_filters()
+        create_app(
+            Settings(
+                image_provider="mock",  # type: ignore[arg-type]
+                gemini_api_key="",
+                app_env="test",
+                storage_dir=tmp_path / "storage",
+            )
+        )
+        installed = [
+            f for f in logging.getLogger().filters if isinstance(f, SecretRedactingFilter)
+        ]
+        assert not installed or not installed[0].secrets

@@ -466,6 +466,7 @@ pre {
 .login-shell {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 2rem 1.25rem;
@@ -482,7 +483,16 @@ pre {
 }
 
 .login-card h1 { margin: 0 0 .35rem; font-size: 1.5rem; letter-spacing: -.02em; }
+.login-shell h1 { margin: 0 0 1.4rem; font-size: 1.6rem; letter-spacing: -.02em; }
+.login-card + .login-card { margin-top: 1.1rem; }
 .login-tagline { margin: 0 0 1.4rem; color: var(--ink-soft); font-size: .95rem; }
+.google-button {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-weight: 550;
+}
+.google-button:hover { background: #f4f6f8; }
 .login-card label { display: block; margin-bottom: .35rem; font-weight: 550; }
 .login-card input[type="password"] {
   width: 100%;
@@ -511,6 +521,7 @@ pre {
 /* The log-out control lives in the masthead, so it must not look like a
    button competing with the app itself. */
 .logout-form { margin-top: .9rem; }
+.logout-form .who { color: var(--ink-soft); font-size: .85rem; margin-right: .5rem; }
 .logout-form button {
   background: none;
   border: 0;

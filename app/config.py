@@ -6,6 +6,8 @@ module ever reads a value out of source code, and nothing here is ever logged.
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +16,11 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _random_signing_key() -> bytes:
+    """A key that lives exactly as long as the process that made it."""
+    return secrets.token_bytes(32)
 
 
 class ProviderName(StrEnum):
@@ -118,6 +125,36 @@ class Settings(BaseSettings):
             "that client is locked out of the login form."
         ),
     )
+
+    # --- sign-in (Google OAuth) ---
+    google_client_id: str = Field(
+        default="",
+        description=(
+            "Google OAuth client id for federated sign-in. Empty means the app "
+            "has no Google login and falls back to the shared password."
+        ),
+    )
+    google_client_secret: str = Field(
+        default="",
+        description="Google OAuth client secret. Only ever set in the environment.",
+    )
+    google_redirect_uri: str = Field(
+        default="",
+        description=(
+            "The exact redirect URI registered with Google, e.g. "
+            "https://your-app.onrender.com/auth/callback. Empty means the app "
+            "derives it from the request's own host, which is right for local "
+            "development only."
+        ),
+    )
+    session_secret: str = Field(
+        default="",
+        description=(
+            "Key that signs the session cookie. If it is not set the app "
+            "derives one, which signs everyone out on every restart — set it in "
+            "production. It is never the password."
+        ),
+    )
     max_upload_mb: int = Field(default=10, ge=1, le=50)
     generation_timeout_seconds: int = Field(
         default=600,
@@ -179,8 +216,42 @@ class Settings(BaseSettings):
 
     @property
     def auth_enabled(self) -> bool:
-        """Whether a password is required to reach the app."""
-        return bool(self.app_password)
+        """Whether anything at all is required to reach the app."""
+        return self.google_enabled or bool(self.app_password)
+
+    @property
+    def google_enabled(self) -> bool:
+        """Whether federated Google sign-in is configured.
+
+        When it is, it is the *only* way in: the shared password is the
+        local-dev/offline fallback and is switched off by the presence of a
+        Google client, exactly as the deployment story requires.
+        """
+        return bool(self.google_client_id and self.google_client_secret)
+
+    def session_signing_key(self) -> bytes:
+        """The key the session cookie is signed with.
+
+        Order of preference, deliberately:
+
+        1. `SESSION_SECRET`, when it is set: one stable key, so a restart does
+           not sign anyone out.
+        2. A key derived from the shared password, which only exists in local
+           development — the two are decoupled here rather than the password
+           *being* the key, so rotating the password no longer has to.
+        3. A fresh random key per process, which means every restart signs
+           everyone out. That is the configuration mistake this property is
+           designed to make loud in the log.
+        """
+        if self.session_secret:
+            return hashlib.sha256(
+                b"jack-and-the-beanstalk/session/" + self.session_secret.encode()
+            ).digest()
+        if self.app_password:
+            return hashlib.sha256(
+                b"jack-and-the-beanstalk/session/dev/" + self.app_password.encode()
+            ).digest()
+        return _random_signing_key()
 
     @property
     def max_upload_bytes(self) -> int:

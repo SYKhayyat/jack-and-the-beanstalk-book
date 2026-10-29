@@ -25,6 +25,7 @@ from app.models.book import BOOK_PAGES
 from app.models.feedback import REJECTION_LABELS, RejectionReason
 from app.models.labels import choices_for, intensity_label
 from app.prompt_data import prompt_text
+from app.routes.auth import CurrentSessionDep
 from app.services.prompts import render_book_page
 
 __all__ = ["router"]
@@ -33,7 +34,9 @@ router = APIRouter(tags=["web"])
 
 
 @router.get("/", response_class=HTMLResponse)
-def index(request: Request, container: ContainerDep) -> HTMLResponse:
+def index(
+    request: Request, container: ContainerDep, session: CurrentSessionDep
+) -> HTMLResponse:
     """The book's landing page: one photo, one About page, one PDF.
 
     Everything the visitor fills in is here — no second flow, no cross-links.
@@ -67,6 +70,10 @@ def index(request: Request, container: ContainerDep) -> HTMLResponse:
             "max_upload_mb": container.settings.max_upload_mb,
             "provider": container.provider_status(),
             "auth_enabled": container.settings.auth_enabled,
+            # Who is signed in, when somebody is: the masthead can greet them
+            # without asking the store on every render.
+            "user_name": session.name if session else "",
+            "signed_in": session is not None,
         },
     )
 

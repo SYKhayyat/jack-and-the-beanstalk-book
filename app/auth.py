@@ -1,37 +1,36 @@
-"""The shared-password gate.
+"""The shared-password gate: the local-development fallback sign-in.
 
-One password, set with `APP_PASSWORD`, sits in front of the whole app. The
-goal is not to withstand a determined attacker — it is to keep strangers off an
-app where every image costs money, and to make sure the bill only ever goes to
-someone who was invited.
+This is what the app runs on when there is no Google client configured — local
+development, offline tests, and a deployment the operator has not wired up yet.
+When Google *is* configured, this gate is switched off entirely: one way in, and
+it is a real account.
 
-Three deliberate simplifications:
+The gate is not trying to withstand a determined attacker. It exists to keep
+strangers off an app where every image costs money, and to make sure the bill
+only ever goes to someone who was invited. Three deliberate simplifications:
 
-* **No session store.** The cookie carries an expiry and an HMAC of that
-  expiry, keyed by the password itself. Rotating the password invalidates
-  every outstanding cookie, which is exactly what you want when you rotate it
-  because it leaked.
-* **One password, not accounts.** Nobody gets their own login, so nobody
-  needs an invite, a reset flow or a database table.
+* **No server-side session.** The cookie carries an expiry and an HMAC of the
+  payload that produced it. See `sessions.py`.
+* **The cookie is signed with `SESSION_SECRET`, not with the password.** The two
+  used to be the same value, which meant rotating the password was the only way
+  to sign everyone out — the opposite of what an operator wants. Rotating the
+  password now logs nobody out; rotating the session secret does, and that is
+  the tool the operator reaches for when a session needs killing.
 * **Constant-time comparisons.** The password and the signature are compared
   with `hmac.compare_digest`, so a wrong guess cannot be discovered by timing
   the response.
-
-When no password is configured the gate is open: the app is then a local
-development toy, and says so in the log.
 """
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 import time
 from dataclasses import dataclass, field
 from threading import Lock
 
-__all__ = ["SESSION_COOKIE", "AuthGate"]
+from app.sessions import Session, SessionCodec
 
-SESSION_COOKIE = "jb_session"
+__all__ = ["AuthGate"]
 
 # How long a wrong password is remembered when counting attempts.
 _FAILURE_WINDOW_SECONDS = 15 * 60
@@ -39,21 +38,14 @@ _FAILURE_WINDOW_SECONDS = 15 * 60
 
 @dataclass
 class AuthGate:
-    """Checks the shared password and signs the session cookie."""
+    """Checks the shared password and mints the fallback session cookie."""
 
     password: str
     session_max_age_seconds: int = 30 * 24 * 60 * 60
     max_attempts: int = 8
-    _key: bytes = field(init=False, repr=False)
+    codec: SessionCodec = field(default_factory=lambda: SessionCodec(b""))
     _failures: dict[str, list[float]] = field(default_factory=dict, init=False, repr=False)
     _lock: Lock = field(default_factory=Lock, init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        # The key is derived from the password, so changing the password
-        # silently invalidates every cookie that was ever issued.
-        self._key = hashlib.sha256(
-            b"jack-and-the-beanstalk/session/" + self.password.encode()
-        ).digest()
 
     @property
     def enabled(self) -> bool:
@@ -67,24 +59,20 @@ class AuthGate:
         return hmac.compare_digest(candidate.encode(), self.password.encode())
 
     def issue_session(self) -> str:
-        """Mint a session token for the cookie."""
-        expiry = int(time.time()) + self.session_max_age_seconds
-        return f"{expiry}.{self._sign(expiry)}"
+        """Mint the cookie for a visitor who typed the right password."""
+        return self.codec.issue_password(ttl_seconds=self.session_max_age_seconds)
 
-    def session_valid(self, token: str | None) -> bool:
-        """Whether the cookie value is a live, correctly signed session."""
-        if not self.enabled:
-            return True
-        if not token:
-            return False
-        expiry_text, _, signature = token.partition(".")
-        try:
-            expiry = int(expiry_text)
-        except ValueError:
-            return False
-        if expiry <= int(time.time()):
-            return False
-        return hmac.compare_digest(signature, self._sign(expiry))
+    def session_from_cookie(self, token: str | None) -> Session | None:
+        """Verify a cookie and accept it only if it is this gate's kind.
+
+        A cookie minted for a signed-in Google person is *not* accepted here:
+        this gate is a fallback, and mixing the two would mean the password
+        could open a session that has a person attached to it.
+        """
+        session = self.codec.read(token)
+        if session is None or session.kind != "password":
+            return None
+        return session
 
     def is_locked_out(self, client: str) -> bool:
         """Whether this client has used up its wrong-password allowance."""
@@ -109,9 +97,6 @@ class AuthGate:
         """Forget the wrong passwords for `client` after a success."""
         with self._lock:
             self._failures.pop(client, None)
-
-    def _sign(self, expiry: int) -> str:
-        return hmac.new(self._key, str(expiry).encode(), hashlib.sha256).hexdigest()
 
     def _prune(self) -> None:
         """Drop failure records that have aged out, so the map stays small."""
