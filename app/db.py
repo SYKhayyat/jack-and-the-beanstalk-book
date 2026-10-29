@@ -30,7 +30,14 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
 
-__all__ = ["BookPageRow", "BookRow", "UserRow", "build_engine", "persistence_mode"]
+__all__ = [
+    "BookPageRow",
+    "BookRow",
+    "UserRow",
+    "build_engine",
+    "database_secrets",
+    "persistence_mode",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +109,29 @@ def normalise_database_url(database_url: str) -> str:
     if url.drivername in ("postgres", "postgresql"):
         url = url.set(drivername="postgresql+psycopg")
     return url.render_as_string(hide_password=False)
+
+
+def database_secrets(database_url: str) -> tuple[str, ...]:
+    """The credential fragments of a connection URL that must never be logged.
+
+    The whole URL is one secret because it is pasted whole and already contains
+    the password. The password itself is armed separately: a URL can reach a log
+    line split into parts (a repr, a per-field debug line), and the fragment is
+    what identifies the credential in those cases.
+
+    A malformed URL still yields the raw string — refusing to parse is no reason
+    to leave a pasted credential unprotected.
+    """
+    if not database_url:
+        return ()
+    try:
+        url = make_url(database_url)
+    except Exception:
+        return (database_url,)
+    secrets = [database_url]
+    if url.password:
+        secrets.append(url.password)
+    return tuple(secrets)
 
 
 def build_engine(database_url: str) -> Engine:

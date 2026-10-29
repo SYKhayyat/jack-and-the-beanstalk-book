@@ -174,11 +174,13 @@ async def start_book(
         container.book_store.delete(book_id)
         raise
     logger.info(
-        "book.started id=%s draft=%s provider=%s characters=%s",
+        "book.started user=%s book=%s draft=%s provider=%s characters=%s pages=%d",
+        user_id or "-",
         book_id,
         generation_id,
         container.provider.name,
         ",".join(characters) or "-",
+        len(BOOK_PAGES),
     )
     return {
         "book_id": book_id,
@@ -216,7 +218,12 @@ def book_pdf(book_id: str, container: ContainerDep, session: CurrentSessionDep) 
         raise BookNotReady(
             "The book is not ready yet — poll its status and retry once it reports complete."
         )
-    logger.info("book.pdf id=%s bytes=%d", book_id, len(data))
+    logger.info(
+        "book.pdf user=%s book=%s bytes=%d outcome=served",
+        _user_id(session) or "-",
+        book_id,
+        len(data),
+    )
     return _no_store(
         data,
         media_type="application/pdf",

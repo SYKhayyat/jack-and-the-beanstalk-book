@@ -716,6 +716,27 @@ The repo ships a blueprint, so this is short:
 Render's free plan sleeps after inactivity, so the first request to the deployed
 URL takes a while.
 
+### Reading the logs
+
+Render captures stdout, so the dashboard has every line. Each request gets a
+short id that is returned in the `X-Request-ID` header and appended to every
+line it causes (`request=...`) — including the lines written later by the book's
+background task, which inherits the id. One book's trail looks like this:
+
+```
+book.started   user=… book=… draft=… provider=… characters=- pages=19
+book.page      user=… book=… page=7/19 key=the-giant's-kitchen bytes=… ms=… outcome=done
+book.page      user=… book=… page=12/19 key=fee-fi-fo-fum bytes=… ms=… outcome=failed error=ProviderError
+book.complete  user=… book=… pages=19 pdf_bytes=… ms=… outcome=complete
+book.failure   user=… book=… pages_done=11 ms=… outcome=failed message=…
+```
+
+Sign-in has its own lines (`auth.google_login_ok sub=… email=s***@…`). A
+logging filter scrubs secrets before any handler formats a record: provider
+keys, the Google client secret, `SESSION_SECRET`, the whole `DATABASE_URL` and
+its password fragment. Image bytes are never written — only their length — and
+the visitor's About free text never reaches a logger.
+
 **Persistence is a switch, not a rewrite.** Without `DATABASE_URL` the app
 stores everything on the instance disk, which Render wipes on every restart —
 books disappear, and a restart between the portrait and the book asks the

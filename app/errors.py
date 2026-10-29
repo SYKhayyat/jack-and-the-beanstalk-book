@@ -8,11 +8,11 @@ stack trace or an API key to the client.
 from __future__ import annotations
 
 import logging
-from uuid import uuid4
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
+from app.logging_context import current_request_id, new_request_id
 from app.services.image_providers.base import ProviderError, ProviderUnavailable
 from app.services.images import InvalidImage
 from app.services.pipeline import UnknownGeneration
@@ -134,8 +134,10 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(ProviderError)
     async def _provider_failed(_: Request, exc: ProviderError) -> JSONResponse:
-        request_id = uuid4().hex[:12]
-        logger.exception("provider.error request_id=%s: %s", request_id, exc)
+        # The same id the middleware put on the response and on every log line
+        # for this request: one id takes the visitor's report to the whole trail.
+        request_id = current_request_id() or new_request_id()
+        logger.exception("provider.error: %s", exc)
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={

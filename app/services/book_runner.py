@@ -29,6 +29,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from time import monotonic
 from typing import TypeVar, cast
 
 from app.models.book import BOOK_PAGES, BookPage
@@ -128,6 +129,8 @@ class BookRunner:
         page_charge: Callable[[], bool] | None,
     ) -> None:
         book_id = record.book_id
+        user = record.user_id or "-"
+        started = monotonic()
         try:
             draft = self._store.load_draft(record.generation_id)
             if draft is None:  # expired between start() and here
@@ -156,7 +159,7 @@ class BookRunner:
                 progress[page_number] = state
                 await paint()
 
-            async def run_page(page: BookPage) -> PageArt:
+            async def _render_page(page: BookPage) -> PageArt:
                 page_photos = [name for name in page.cast if name in characters]
                 prompt = build_book_page_prompt(
                     page,
@@ -195,18 +198,44 @@ class BookRunner:
                     {"page": str(page.number), "key": page.key, "prompt": prompt},
                 )
                 await mark(page.number, "done")
-                logger.info(
-                    "book.page id=%s page=%d/%d key=%s bytes=%d",
-                    book_id,
-                    page.number,
-                    total,
-                    page.key,
-                    len(image),
-                )
                 return PageArt(
                     image=image,
                     page=render_book_page(page, draft.settings, prompt_name=prompt_name),
                 )
+
+            async def run_page(page: BookPage) -> PageArt:
+                # One line per page, whatever the outcome: book id, owner, page
+                # number, bytes and how long it took. `done` means the bytes are
+                # in the store; `failed` is logged here and then re-raised so
+                # the book-level failure keeps the pages that did finish.
+                page_started = monotonic()
+                try:
+                    art = await _render_page(page)
+                except BaseException as exc:
+                    logger.warning(
+                        "book.page user=%s book=%s page=%d/%d key=%s "
+                        "ms=%.0f outcome=failed error=%s",
+                        user,
+                        book_id,
+                        page.number,
+                        total,
+                        page.key,
+                        (monotonic() - page_started) * 1000,
+                        type(exc).__name__,
+                    )
+                    raise
+                logger.info(
+                    "book.page user=%s book=%s page=%d/%d key=%s bytes=%d "
+                    "ms=%.0f outcome=done",
+                    user,
+                    book_id,
+                    page.number,
+                    total,
+                    page.key,
+                    len(art.image),
+                    (monotonic() - page_started) * 1000,
+                )
+                return art
 
             await paint()
             results = await asyncio.gather(
@@ -228,25 +257,41 @@ class BookRunner:
                 BookStatus.COMPLETE,
                 self._page_view(book_id, progress, draft.settings, prompt_name),
             )
-            logger.info("book.complete id=%s pdf_bytes=%d", book_id, len(pdf_bytes))
+            logger.info(
+                "book.complete user=%s book=%s pages=%d pdf_bytes=%d ms=%.0f outcome=complete",
+                user,
+                book_id,
+                total,
+                len(pdf_bytes),
+                (monotonic() - started) * 1000,
+            )
         except UnknownGeneration as exc:
-            self._fail(book_id, str(exc))
+            self._fail(book_id, str(exc), user=user, elapsed_ms=(monotonic() - started) * 1000)
         except GateTimeout:
             self._fail(
                 book_id,
                 "The server was too busy to render this book's pages, so it "
                 "stopped. The pages already finished were made and paid for — "
                 "starting a new book is safe, the same portrait is reused.",
+                user=user,
+                elapsed_ms=(monotonic() - started) * 1000,
             )
         except TimeoutError:
             self._fail(
                 book_id,
                 "A page took too long to generate, so the book was stopped. The "
                 "pages already finished were kept.",
+                user=user,
+                elapsed_ms=(monotonic() - started) * 1000,
             )
         except Exception as exc:  # keep the completed pages visible whatever happened
-            logger.exception("book.failed id=%s", book_id)
-            self._fail(book_id, f"The book stopped early: {exc}")
+            logger.exception("book.failed user=%s book=%s", user, book_id)
+            self._fail(
+                book_id,
+                f"The book stopped early: {exc}",
+                user=user,
+                elapsed_ms=(monotonic() - started) * 1000,
+            )
 
     # --- one page ---------------------------------------------------------------
 
@@ -299,7 +344,9 @@ class BookRunner:
 
     # --- helpers ----------------------------------------------------------------
 
-    def _fail(self, book_id: str, message: str) -> None:
+    def _fail(
+        self, book_id: str, message: str, *, user: str = "-", elapsed_ms: float = 0.0
+    ) -> None:
         status = self._book_store.load_status(book_id) or {"pages": []}
         pages: list[dict[str, object]] = []
         for entry in cast("list[object]", status.get("pages", [])):
@@ -315,7 +362,14 @@ class BookRunner:
             pages.append(page_entry)
         self._book_store.save_status(book_id, BookStatus.FAILED, pages, error=message)
         done = sum(1 for entry in pages if entry.get("status") == "done")
-        logger.error("book.failure id=%s pages_done=%d message=%s", book_id, done, message)
+        logger.error(
+            "book.failure user=%s book=%s pages_done=%d ms=%.0f outcome=failed message=%s",
+            user,
+            book_id,
+            done,
+            elapsed_ms,
+            message,
+        )
 
     def _page_view(
         self,

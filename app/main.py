@@ -11,6 +11,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from time import monotonic
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -20,7 +21,14 @@ from fastapi.templating import Jinja2Templates
 from app.auth import AuthGate
 from app.config import Settings, get_settings
 from app.container import build_container
+from app.db import database_secrets
 from app.errors import register_exception_handlers
+from app.logging_context import (
+    install_request_id_logging,
+    new_request_id,
+    reset_request_id,
+    set_request_id,
+)
 from app.redaction import install_secret_redaction
 from app.routes import api, auth, book, media, web
 from app.routes.auth import install_auth_gate
@@ -134,6 +142,40 @@ def create_app(
 
     install_auth_gate(app, app.state.gate)
 
+    # Outermost middleware: every request — including one the guard turns away
+    # and one the body limit refuses — gets an id and exactly one line saying
+    # how it ended. The id also travels into the book's background task, so a
+    # book's whole trail shares one request id. Path only, never the query
+    # string: the Google callback carries a code there.
+    @app.middleware("http")
+    async def _request_context(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        request_id = new_request_id()
+        request.state.request_id = request_id
+        token = set_request_id(request_id)
+        started = monotonic()
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception(
+                "request.failed method=%s path=%s", request.method, request.url.path
+            )
+            reset_request_id(token)
+            raise
+        duration_ms = (monotonic() - started) * 1000
+        response.headers["X-Request-ID"] = request_id
+        logger.info(
+            "request.done method=%s path=%s status=%d duration_ms=%.1f request=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+            request_id,
+        )
+        reset_request_id(token)
+        return response
+
     # The provider's own readiness sentence, in the operator's log and nowhere
     # a visitor can reach: "agnes ready (model=..., size=1K)", "openai ready
     # (model=..., quality=low)". This is the line that says the deployment can
@@ -170,6 +212,9 @@ def _configure_logging(settings: Settings) -> None:
             format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         )
     root.setLevel(level)
+    # Correlate every line with the request that produced it. Installed before
+    # redaction so redaction still gets the last word on the finished message.
+    install_request_id_logging()
     # Last line of defence: even if a secret reaches a logger some other way, it
     # is scrubbed before the handler formats the record.
     install_secret_redaction(
@@ -184,8 +229,10 @@ def _configure_logging(settings: Settings) -> None:
             settings.google_client_secret,
             settings.session_secret,
             # A database URL is pasted whole and embeds its password; a raw
-            # URL in a log line is a leak of the whole credential.
-            settings.database_url,
+            # URL in a log line is a leak of the whole credential. The password
+            # fragment is armed separately because a URL can be logged in
+            # pieces.
+            *database_secrets(settings.database_url),
         )
     )
     if settings.google_enabled and not settings.session_secret:
