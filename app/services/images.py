@@ -28,7 +28,13 @@ logger = logging.getLogger(__name__)
 MAX_EDGE_PIXELS = 1536
 # A compressed image can claim enormous dimensions while occupying very little
 # upload space.  Refuse it before Pillow decodes the pixels.
-MAX_INPUT_PIXELS = MAX_EDGE_PIXELS * MAX_EDGE_PIXELS * 4
+#
+# The ceiling has to clear an ordinary camera photo, not merely the output
+# size: a 4032x3024 phone image is 12.2 MP, so `1536 * 1536 * 4` (9.4 MP)
+# rejected stock uploads the page promises to shrink. 25 MP covers 12 MP and
+# 24 MP cameras while keeping two concurrent decodes well inside a small
+# container; anything larger is still refused before allocation.
+MAX_INPUT_PIXELS = 25_000_000
 _ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP", "GIF"}
 
 
@@ -51,7 +57,7 @@ class DecodedImage:
 def decode_upload(raw: bytes) -> DecodedImage:
     """Validate and normalise an uploaded photo.
 
-    Rejects anything that is not a still JPEG/PNG/WEBP, applies EXIF orientation,
+    Rejects anything that is not a still JPEG/PNG/WEBP/GIF, applies EXIF orientation,
     downsizes over-long edges, and re-encodes without metadata.
 
     Raises:
@@ -80,7 +86,7 @@ def decode_upload(raw: bytes) -> DecodedImage:
                 if image_format not in _ALLOWED_FORMATS:
                     raise InvalidImage(
                         f"Unsupported image format {image_format or 'unknown'!r}. "
-                        "Please upload a JPEG, PNG or WEBP."
+                        "Please upload a JPEG, PNG, WEBP or GIF."
                     )
 
                 image = ImageOps.exif_transpose(opened)
@@ -91,7 +97,7 @@ def decode_upload(raw: bytes) -> DecodedImage:
         ) from exc
     except UnidentifiedImageError as exc:
         raise InvalidImage(
-            "That file is not a readable image. Please upload a JPEG, PNG or WEBP."
+            "That file is not a readable image. Please upload a JPEG, PNG, WEBP or GIF."
         ) from exc
     except OSError as exc:
         raise InvalidImage("That image could not be decoded; it may be corrupted.") from exc

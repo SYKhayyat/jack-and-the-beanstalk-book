@@ -7,7 +7,12 @@ import io
 import pytest
 from PIL import Image
 
-from app.services.images import MAX_EDGE_PIXELS, InvalidImage, decode_upload
+from app.services.images import (
+    MAX_EDGE_PIXELS,
+    MAX_INPUT_PIXELS,
+    InvalidImage,
+    decode_upload,
+)
 from tests.helpers import make_noisy_photo_bytes, make_photo_bytes
 
 
@@ -53,6 +58,27 @@ class TestAcceptedUploads:
         decoded = decode_upload(make_photo_bytes(size=(400, 200)))
         with Image.open(io.BytesIO(decoded.data)) as opened:
             assert opened.size == (400, 200)
+
+    def test_a_twelve_megapixel_phone_photo_is_accepted(self) -> None:
+        """A stock 4032x3024 camera JPEG is ordinary input, not a bomb.
+
+        The page promises "Any size photo — we shrink it for you"; refusing a
+        12 MP upload contradicted that, and only the browser's client-side
+        downscale hid it.
+        """
+        buffer = io.BytesIO()
+        Image.new("RGB", (4032, 3024), "#6688aa").save(buffer, format="JPEG", quality=80)
+
+        decoded = decode_upload(buffer.getvalue())
+
+        with Image.open(io.BytesIO(decoded.data)) as opened:
+            assert opened.size == (MAX_EDGE_PIXELS, 1152)
+
+
+def test_the_input_ceiling_clears_a_phone_camera_and_stays_bomb_safe() -> None:
+    assert MAX_INPUT_PIXELS >= 4032 * 3024, "a 12 MP phone photo must be accepted"
+    assert Image.MAX_IMAGE_PIXELS is not None
+    assert MAX_INPUT_PIXELS < Image.MAX_IMAGE_PIXELS, "Pillow treats larger images as bombs"
 
 
 class TestRejectedUploads:
