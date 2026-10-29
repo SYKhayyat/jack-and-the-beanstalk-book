@@ -265,6 +265,20 @@ class BookRunner:
                 len(pdf_bytes),
                 (monotonic() - started) * 1000,
             )
+        except asyncio.CancelledError:
+            # A cancelled task is still an orphaned book: the process may be
+            # shutting down, or a caller may have cancelled the job. Record the
+            # failure before propagating, so a poll never keeps saying
+            # "rendering" for work that is no longer running.
+            self._fail(
+                book_id,
+                "Rendering was cancelled before the book finished. The pages "
+                "already finished were kept — starting a new book is safe, the "
+                "same portrait is reused.",
+                user=user,
+                elapsed_ms=(monotonic() - started) * 1000,
+            )
+            raise
         except UnknownGeneration as exc:
             self._fail(book_id, str(exc), user=user, elapsed_ms=(monotonic() - started) * 1000)
         except GateTimeout:

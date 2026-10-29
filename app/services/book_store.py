@@ -368,7 +368,14 @@ class FileBookStore(BookStore):
             if not directory.is_dir() or not _safe(directory.name):
                 continue
             status = self.load_status(directory.name)
-            if status is None or status.get("status") != BookStatus.RENDERING:
+            # A book is orphaned from the moment it has a record. A crash
+            # between `save_record` (which writes PENDING) and the runner's
+            # first status write leaves a book that never renders, so PENDING
+            # must be reaped exactly like RENDERING.
+            if status is None or status.get("status") not in {
+                BookStatus.PENDING,
+                BookStatus.RENDERING,
+            }:
                 continue
             pages = cast(
                 "list[dict[str, object]]",

@@ -227,11 +227,14 @@ class DatabaseBookStore(BookStore):
             conn.execute(delete(BookRow).where(BookRow.id == book_id))
 
     def reap_incomplete(self) -> int:
-        """Mark books still rendering as failed (a restart orphaned them).
+        """Mark books still pending or rendering as failed (a restart orphaned them).
 
         The asyncio task died with the process; its stale status must not keep
-        polling as "pending" forever. The finished pages stay in their rows —
-        exactly the file store's promise, kept pages visible.
+        polling as "pending" forever. A PENDING row is as orphaned as a
+        RENDERING one: `save_record` commits before the runner writes its first
+        status, so a crash in that window would otherwise leave a book that
+        never renders. The finished pages stay in their rows — exactly the
+        file store's promise, kept pages visible.
         """
         message = (
             "The server restarted while this book was rendering. Start a new "
@@ -241,7 +244,7 @@ class DatabaseBookStore(BookStore):
         with self._engine.begin() as conn:
             orphans = conn.execute(
                 select(BookRow.id, BookRow.status_payload).where(
-                    BookRow.status == BookStatus.RENDERING
+                    BookRow.status.in_((BookStatus.PENDING, BookStatus.RENDERING))
                 )
             ).all()
             for book_id, payload in orphans:

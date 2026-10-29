@@ -174,6 +174,26 @@ def test_a_mid_render_book_is_reaped_on_restart(store: DatabaseBookStore) -> Non
     assert complete["status"] == BookStatus.COMPLETE
 
 
+def test_a_book_orphaned_while_pending_is_reaped_on_restart(
+    store: DatabaseBookStore,
+) -> None:
+    """`save_record` commits PENDING before the runner writes any status.
+
+    A crash in that window used to leave a book that never rendered and never
+    stopped polling as pending; the reaper now treats PENDING as orphaned too.
+    """
+    book_id = _seed(store)
+
+    assert store.reap_incomplete() == 1
+    status = store.load_status(book_id)
+    assert status is not None
+    assert status["status"] == BookStatus.FAILED
+    assert "restarted" in str(status["error"])
+    assert status["pages"] == []
+    # Reaping is idempotent.
+    assert store.reap_incomplete() == 0
+
+
 def test_delete_removes_everything(store: DatabaseBookStore, engine: Any) -> None:
     book_id = _seed(store)
     store.save_page(book_id, 1, b"PNG")

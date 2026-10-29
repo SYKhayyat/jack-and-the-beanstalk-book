@@ -16,7 +16,7 @@ from pypdf import PdfReader
 from app.container import build_container
 from app.main import create_app
 from app.models import REJECTION_CLAUSES, RejectionReason
-from app.models.book import BOOK_PAGES
+from app.models.book import BOOK_PAGES, AboutMe
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
@@ -485,6 +485,31 @@ class TestPerPageProgress:
             assert page["status"] == "done"
             assert page["url"], page
             assert client.get(page["url"]).status_code == 200
+
+
+class TestRestartRecovery:
+    """A book interrupted before its first status write must not poll forever."""
+
+    def test_a_pending_book_is_failed_on_startup(
+        self, settings, provider: RecordingProvider
+    ) -> None:
+        about = AboutMe(prompt_name="Jack", about_name="Jack")
+        build_container(settings, provider=provider).book_store.save_record(
+            book_id="orphaned-book",
+            user_id=None,
+            about=about,
+            generation_id="gen-orphaned",
+        )
+
+        # Building the app runs the lifespan reaper, exactly as a restart does.
+        app = create_app(settings, provider=provider)
+        with TestClient(app) as restarted:
+            response = restarted.get("/api/book/orphaned-book")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "failed"
+        assert "restarted" in str(payload["error"])
 
 
 class TestBookRateBudget:
