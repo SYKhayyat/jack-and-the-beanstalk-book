@@ -35,6 +35,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -180,6 +183,11 @@ class FileBookStore(BookStore):
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        # Pages render concurrently (one worker thread each), and every prompt
+        # append is a read-modify-write of prompts.json. Without this lock two
+        # pages landing together would each read the same list and the last
+        # writer would silently drop the other's record.
+        self._prompts_lock = threading.Lock()
 
     # --- ownership -------------------------------------------------------------
 
@@ -297,8 +305,13 @@ class FileBookStore(BookStore):
 
     def append_prompt(self, book_id: str, prompt: dict[str, str]) -> None:
         """Add one page's prompt progressively, so a failed book keeps the
-        record of the pages that were really sent."""
-        self.save_prompts(book_id, (self.load_prompts(book_id) or []) + [prompt])
+        record of the pages that were really sent.
+
+        Atomic against concurrent pages: the read-modify-write runs under a
+        lock, or two pages finishing together would lose one another's entry.
+        """
+        with self._prompts_lock:
+            self.save_prompts(book_id, (self.load_prompts(book_id) or []) + [prompt])
 
     def load_prompts(self, book_id: str) -> list[dict[str, str]] | None:
         if not _safe(book_id):
@@ -392,14 +405,22 @@ class FileBookStore(BookStore):
 
     @staticmethod
     def _atomic_write_bytes(path: Path, data: bytes) -> None:
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_bytes(data)
-        tmp.replace(path)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        try:
+            tmp.write_bytes(data)
+            tmp.replace(path)
+        finally:
+            # A sibling thread writing the same path may race us to the rename;
+            # a leftover temp file is still cleaned up here.
+            tmp.unlink(missing_ok=True)
 
     def _atomic_write_json(self, path: Path, payload: object) -> None:
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        tmp.replace(path)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        try:
+            tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            tmp.replace(path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
 
 def _guard(book_id: str) -> None:

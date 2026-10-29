@@ -27,6 +27,9 @@ export const elements = {
 
   bookStage: () => document.getElementById("book-stage"),
   bookProgress: () => document.getElementById("book-progress"),
+  progressTrack: () => document.getElementById("book-progress-track"),
+  progressBar: () => document.getElementById("book-progress-bar"),
+  pageGrid: () => document.getElementById("page-grid"),
   pdfPanel: () => document.getElementById("book-pdf-panel"),
   pdfFrame: () => document.getElementById("book-pdf-frame"),
   pdfLink: () => document.getElementById("book-pdf-link"),
@@ -174,8 +177,44 @@ export function renderBookProgress(done, total) {
   node.classList.remove("error");
   node.textContent =
     done >= total
-      ? "Assembling the pages into a PDF…"
-      : `Making page ${done + 1} of ${total}…\u2014 check back in a moment`;
+      ? "Assembling the pages into a PDF..."
+      : `${done} of ${total} pages made \u2014 check back in a moment`;
+  const track = elements.progressTrack();
+  track.setAttribute("aria-valuemax", String(total));
+  track.setAttribute("aria-valuenow", String(done));
+  elements.progressBar().style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
+}
+
+/* One tile per page: waiting, being drawn now, or finished with its picture.
+   Rebuilt from the status payload on every poll, so a page's tile changes the
+   moment the server says so. */
+export function renderBookPages(pages) {
+  elements.pageGrid().replaceChildren(...pages.map(buildPageTile));
+}
+
+function buildPageTile(page) {
+  const state =
+    page.status === "done" ? "done" : page.status === "making" ? "making" : "pending";
+  const tile = document.createElement("figure");
+  tile.className = `page-tile ${state}`;
+
+  const label = document.createElement("figcaption");
+  label.textContent = `Page ${page.number}`;
+  tile.append(label);
+
+  if (state === "done" && page.url) {
+    const image = document.createElement("img");
+    image.src = page.url;
+    image.alt = page.title ? `Page ${page.number}: ${page.title}` : `Page ${page.number}`;
+    image.loading = "lazy";
+    tile.append(image);
+  } else {
+    const status = document.createElement("span");
+    status.className = "page-tile-state";
+    status.textContent = state === "making" ? "Drawing..." : "Waiting";
+    tile.append(status);
+  }
+  return tile;
 }
 
 export function showPdfViewer(pdfUrl) {
@@ -203,6 +242,9 @@ export function resetBookStage() {
   elements.pdfPanel().classList.add("hidden");
   elements.pdfLink().classList.add("hidden");
   elements.restart().classList.add("hidden");
+  elements.pageGrid().replaceChildren();
+  elements.progressBar().style.width = "0%";
+  elements.progressTrack().setAttribute("aria-valuenow", "0");
   hideBookError();
   elements.bookProgress().textContent = "";
 }

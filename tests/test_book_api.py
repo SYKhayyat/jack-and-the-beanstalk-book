@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import threading
 import time
 from pathlib import Path
 
@@ -220,16 +221,23 @@ class TestBookEndToEnd:
 
 
 class FailingPageProvider(ImageProvider):
-    """Fails on a chosen page call so a book dies mid-run, after page 1."""
+    """Fails on one *named* page, whatever other pages are in flight.
+
+    Pages render concurrently (Step 5), so counting calls would make the
+    failing page a race between worker threads. The prompt names the page it
+    draws (`Draw page 2 of 3`), so the failure is pinned to a page, not to a
+    position in a call sequence.
+    """
 
     name = "failing-mid-book"
 
-    def __init__(self) -> None:
+    def __init__(self, fail_page: int = 2) -> None:
         self.calls = 0
+        self.fail_page = fail_page
 
     def generate(self, request: ImageRequest) -> GeneratedImage:
         self.calls += 1
-        if self.calls == 2:  # page 1 is call 1; page 2 is call 2
+        if f"Draw page {self.fail_page} of" in request.prompt:
             raise ProviderError("The provider gave up.")
         return GeneratedImage(data=make_photo_bytes(), media_type="image/png", model="demo-v1")
 
@@ -243,8 +251,17 @@ class FailingPageProvider(ImageProvider):
 
 class TestBookErrors:
     def test_failed_mid_run_keeps_finished_pages(self, client_factory) -> None:
-        """Page 1 survives; status says failed with a message; no PDF is served."""
-        with client_factory(FailingPageProvider()) as failing_client:
+        """Page 1 survives; status says failed with a message; no PDF is served.
+
+        Step 5 renders pages concurrently, so this constraint changed: a
+        failure on page 2 no longer implies pages after it were never made.
+        Page 1 (started before page 2 in the gate's queue) is done; page 2 is
+        back to pending because the book died; page 3, which was admitted on
+        the freed slot before the failure surfaced, was paid for and is kept.
+        What must hold is the old promise: no page is ever reported done
+        without its bytes, and no half book is served as a PDF.
+        """
+        with client_factory(FailingPageProvider(fail_page=2)) as failing_client:
             portrait = make_portrait(failing_client)
             start = failing_client.post(
                 "/api/book/start",
@@ -256,8 +273,11 @@ class TestBookErrors:
             status_payload = wait_for_book(failing_client, book_id)
             assert status_payload["status"] == "failed", status_payload
             assert "stopped early" in str(status_payload["error"])
-            statuses = [page["status"] for page in status_payload["pages"]]
-            assert statuses == ["done", "pending", "pending"]
+            by_number = {page["number"]: page for page in status_payload["pages"]}
+            assert by_number[1]["status"] == "done"
+            assert by_number[2]["status"] == "pending"
+            # Nothing is left claiming to be mid-render once the book stopped.
+            assert all(page["status"] in {"done", "pending"} for page in by_number.values())
             # The finished page is still there to look at.
             page1 = failing_client.get(f"/book-media/{book_id}/pages/1")
             assert page1.status_code == 200
@@ -359,3 +379,101 @@ class TestBookErrors:
         prompts = client.get(f"/book-media/{book_id}/prompts.json")
         assert prompts.status_code == 200
         assert marker not in prompts.text
+
+
+class BlockingPageProvider(ImageProvider):
+    """Pages 1 and 2 must be in flight together; page 2 waits until released.
+
+    A sequential runner would leave page 1 waiting for page 2 forever (the
+    rendezvous below never happens with one page at a time), so this provider
+    is also the concurrency proof for the parallel job: it records the peak
+    number of calls that were inside `generate` at once.
+    """
+
+    name = "blocking-book"
+
+    def __init__(self) -> None:
+        self.page_two_entered = threading.Event()
+        self.release_page_two = threading.Event()
+        self.peak_in_flight = 0
+        self._in_flight = 0
+        self._lock = threading.Lock()
+
+    def generate(self, request: ImageRequest) -> GeneratedImage:
+        with self._lock:
+            self._in_flight += 1
+            self.peak_in_flight = max(self.peak_in_flight, self._in_flight)
+        try:
+            if "Draw page 2 of" in request.prompt:
+                self.page_two_entered.set()
+                self.release_page_two.wait(timeout=10)
+            elif "Draw page 1 of" in request.prompt:
+                # Page 1 must not finish before page 2 has started: only a
+                # parallel runner can get past this.
+                assert self.page_two_entered.wait(timeout=10)
+        finally:
+            with self._lock:
+                self._in_flight -= 1
+        return GeneratedImage(data=make_photo_bytes(), media_type="image/png", model="demo-v1")
+
+    def generate_candidates(
+        self, request: ImageRequest, count: int = 1
+    ) -> list[GeneratedImage]:
+        return [
+            GeneratedImage(data=make_photo_bytes(), media_type="image/png", model="demo-v1")
+        ]
+
+
+class TestPerPageProgress:
+    """Step 5: pages move pending -> making -> done, several at once."""
+
+    def test_a_page_shows_making_while_it_is_drawn(self, client_factory) -> None:
+        provider = BlockingPageProvider()
+        with client_factory(provider) as blocking_client:
+            portrait = make_portrait(blocking_client)
+            start = blocking_client.post(
+                "/api/book/start",
+                data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+            )
+            assert start.status_code == 201
+            book_id = start.json()["book_id"]
+
+            assert provider.page_two_entered.wait(timeout=10), (
+                "page 2 never started — pages are not rendering in parallel"
+            )
+            # Poll while page 2 is still blocked inside its provider call: page
+            # 1 has finished, page 2 must read as making, and no page may claim
+            # done without bytes on disk.
+            deadline = time.monotonic() + 5.0
+            states: dict[int, str] = {}
+            while time.monotonic() < deadline:
+                payload = blocking_client.get(f"/api/book/{book_id}").json()
+                assert payload["status"] == "rendering"
+                states = {page["number"]: page["status"] for page in payload["pages"]}
+                if states.get(1) == "done" and states.get(2) == "making":
+                    break
+                time.sleep(0.02)
+            assert states.get(1) == "done", states
+            assert states.get(2) == "making", states
+
+            provider.release_page_two.set()
+            final = wait_for_book(blocking_client, book_id)
+            assert final["status"] == "complete", final
+            assert [page["status"] for page in final["pages"]] == ["done"] * PAGE_COUNT
+            # And the concurrency that made the mid-flight state observable.
+            assert provider.peak_in_flight == 2, provider.peak_in_flight
+
+    def test_status_never_advertises_a_page_before_its_bytes(self, client: TestClient) -> None:
+        """A done page's url must resolve; a pending/making page's must not exist."""
+        portrait = make_portrait(client)
+        start = client.post(
+            "/api/book/start",
+            data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+        )
+        book_id = start.json()["book_id"]
+        final = wait_for_book(client, book_id)
+        assert final["status"] == "complete"
+        for page in final["pages"]:
+            assert page["status"] == "done"
+            assert page["url"], page
+            assert client.get(page["url"]).status_code == 200

@@ -265,6 +265,18 @@
     <section id="book-stage" class="panel hidden">
       <h2>Your book</h2>
       <p id="book-progress" class="inline-message" role="status" aria-live="polite"></p>
+      <div
+        id="book-progress-track"
+        class="progress-track"
+        role="progressbar"
+        aria-label="Pages finished"
+        aria-valuemin="0"
+        aria-valuemax="0"
+        aria-valuenow="0"
+      >
+        <div id="book-progress-bar" class="progress-fill"></div>
+      </div>
+      <div id="page-grid" class="page-grid"></div>
       <!-- The finished book is the PDF itself, viewed in one big box (UAT: no
            four little page pictures). It is filled the moment rendering
            completes; the download link sits below it. -->

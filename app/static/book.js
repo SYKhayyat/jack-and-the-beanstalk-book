@@ -218,6 +218,7 @@ async function approveAndStart() {
     // The book now has an id: make its prompts.json inspectable.
     view.showPrompts({ bookId: payload.book_id });
     view.showBookStage();
+    view.renderBookPages([]);
     view.renderBookProgress(0, totalPages);
     pollBook();
   } catch (error) {
@@ -243,6 +244,7 @@ function pollBook() {
       if (payload.pages?.length) totalPages = payload.pages.length;
       const done = book.pages.filter((page) => page.status === "done").length;
       const total = book.pages.length || totalPages;
+      view.renderBookPages(book.pages);
       if (state.isBookFailed(book)) {
         view.showBookError(book.error || "The book failed. Try again.");
         view.showRestart();

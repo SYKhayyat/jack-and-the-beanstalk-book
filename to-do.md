@@ -78,6 +78,29 @@ of UI with this one.
 - [ ] Without `DATABASE_URL` nothing changes: local dev and CI stay fully
       offline on the filesystem stores.
 
+## Per-page progress + parallel pages — done in code
+
+- [x] The status payload reports every page as `pending`, `making` (being
+      drawn right now) or `done`; only a done page carries a url, and only
+      after its bytes are on disk, so the UI can never advertise a page that is
+      not yet fetchable.
+- [x] Pages render **concurrently** — one coroutine per page through the same
+      concurrency gate, each taking its own slot. Parallelism is bounded by
+      `MAX_CONCURRENT_GENERATIONS`, so a burst of pages cannot exceed the
+      operator's spend ceiling; the timeout slot-transfer (a page that outlives
+      its deadline leaves its slot with the worker) is unchanged.
+- [x] The book stage now shows a per-page tile grid — waiting / drawing /
+      finished with its picture — plus a "N of M pages made" progress bar; the
+      tiles refill on every poll from the same `GET /api/book/{id}` payload.
+- [x] A mid-run failure keeps the finished pages visible and leaves no tile
+      claiming to be mid-render; the PDF route still refuses a half book.
+- [x] Measured with a provider that deliberately delays each page call 300 ms:
+      a 3-page book takes **1.13 s one-at-a-time vs 0.72 s with the default
+      limit of 2**. The real provider call dominates, so the saving scales with
+      `MAX_CONCURRENT_GENERATIONS` on a paid plan.
+- [ ] Confirm on the live site (free provider or the real one): tiles go
+      waiting → drawing → picture, and the whole book lands sooner than before.
+
 ## Still open before submitting
 
 - [ ] Apply the Render blueprint (New → Blueprint on

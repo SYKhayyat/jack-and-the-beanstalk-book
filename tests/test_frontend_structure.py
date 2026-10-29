@@ -323,12 +323,19 @@ def test_review_offers_feedback_chips_on_the_cartoon(page_html: str) -> None:
 def test_book_stage_has_progress_viewer_and_pdf_link(page_html: str) -> None:
     """The finished book is the PDF in one big box, plus a download link.
 
-    The little page grid is gone (UAT 8): the stage carries a progress line,
-    the PDF viewport, and the download/secondary controls.
+    The book stage carries a progress line, a progress bar, an optional
+    per-page grid, the PDF viewport, and the download/secondary controls.
+    (UAT 8 retired the static *four-little-pictures catalogue*; Step 5
+    re-lands a grid whose only job is showing the running job's per-page
+    state — pending, making, done — so the code id `book-pages` stays
+    retired and the new grid is `page-grid`.)
     """
     for element_id in (
         "book-stage",
         "book-progress",
+        "book-progress-track",
+        "book-progress-bar",
+        "page-grid",
         "book-pdf-panel",
         "book-pdf-frame",
         "book-pdf-link",

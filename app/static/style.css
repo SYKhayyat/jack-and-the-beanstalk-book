@@ -572,8 +572,45 @@ pre {
   border: 0;
 }
 
-.download-block { display: flex; gap: .9rem; flex-wrap: wrap; margin: 1rem 0; }
-.download-block .button { text-decoration: none; padding: .55rem 1.1rem; }
+/* Per-page progress: one tile per page of the book, filled in as each page
+   lands, so the visitor sees which page is being drawn right now. */
+.progress-track {
+  height: .5rem;
+  margin: .75rem 0 1rem;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width .3s ease;
+}
+.page-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: .75rem;
+  margin: 0 0 1rem;
+}
+.page-grid:empty { display: none; }
+.page-tile {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  margin: 0;
+  padding: .5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+  font-size: .8rem;
+  color: var(--ink-soft);
+}
+.page-tile.making { border-color: var(--accent); color: var(--accent-dark); }
+.page-tile.done { border-color: var(--accent-dark); }
+.page-tile img { display: block; width: 100%; border-radius: calc(var(--radius) - 4px); }
+
+.download-block { display: flex; gap: .9rem; flex-wrap: wrap; margin: 1rem 0; }.download-block .button { text-decoration: none; padding: .55rem 1.1rem; }
 
 @media (max-width: 720px) {
   .pdf-frame { height: min(64vh, 40rem); }

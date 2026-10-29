@@ -352,7 +352,9 @@ One API call per phase, no loops:
 1. **cartoonify** — the photo goes in, a cartoon portrait comes out. Every user
    setting is applied here.
 2. **book render** — call `POST /api/book/start` only on an approved portrait;
-   the four story pages render sequentially on the same concurrency gate.
+   the story pages then render **concurrently** on the same concurrency gate,
+   one slot per page, so a book finishes in roughly one page-time per
+   `MAX_CONCURRENT_GENERATIONS` instead of one page-time per page.
 
 The pages take the portrait deliberately. Models drift towards a generic
 face when the story action is interesting — a giant beanstalk at dawn is a much
@@ -394,13 +396,16 @@ prompt — that is enforced by a test.
   `about_name`, `about_age`, `about_title`, `details`) → renders in the
   background. A blank name resolves to Jack or Jane, following the photo's
   gender answer; the two names exist so the About page can show a pseudonym.
-- `GET /api/book/{id}` — poll: `rendering | complete | failed`, page grid
+- `GET /api/book/{id}` — poll: `rendering | complete | failed`, plus one entry
+  per page (`pending | making | done`) and a url once a page is done
 - `GET /book-media/{id}/portrait`, `GET /book-media/{id}/pages/{n}`,
   `GET /book-media/{id}/pdf`, `GET /book-media/{id}/prompts.json`
 
-Pages render sequentially on the same concurrency gate as everything else;
-adding a page is one new `[[book_pages]]` block in `app/prompts.toml`. Every
-story wording lives in that single prompts file — as required.
+Pages render concurrently on the same concurrency gate as everything else, one
+slot each — so the gate, not the book, bounds how many provider calls are in
+flight at once. Adding a page is one new `[[book_pages]]` block in
+`app/prompts.toml`. Every story wording lives in that single prompts file — as
+required.
 
 ## HTTP API
 

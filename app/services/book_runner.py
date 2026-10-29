@@ -2,7 +2,7 @@
 
 Flow of one book, in story order:
 
-    portrait (already approved) -> page 1 -> page 2 -> page 3 -> ... -> PDF
+    portrait (already approved) -> pages 1..N together -> PDF
 
 The portrait was made and approved before the book started; the runner sends it
 into **every** page alongside the original photo — the same double identity
@@ -10,22 +10,24 @@ anchor the portrait pipeline uses. That is the mechanism that keeps the
 child the same child from page 1 to page 3: no page is ever generated without
 both anchors.
 
-The runner runs on the app's event loop (the concurrency gate is loop-bound) and
-pushes the blocking provider calls to worker threads, with the same slot-transfer
-pattern `api._run_gated` uses for interactive generations: when a page render
-outlives its deadline, the slot stays with the worker until it genuinely
-finishes, so the gate never believes the server is idle while it is not.
+Pages render **concurrently**: one coroutine per page goes through
+`asyncio.gather`, each taking its own lease on the shared concurrency gate, so
+the provider sees no more parallel calls than the gate allows. The gate, not
+this job, is what bounds the spend — and a page that outlives its deadline
+hands its slot to the worker (the same slot-transfer pattern
+`api._run_gated` uses) so the gate never believes the server is idle while a
+billable call is still running.
 
-Status is written to the `BookStore` after every page, so the browser can poll
-and show pages as they land; a late failure still leaves the finished pages
-visible.
+Status is written to the `BookStore` as each page moves pending -> making ->
+done, so the browser can poll and show every page's state; a late failure still
+leaves the finished pages visible.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import TypeVar, cast
 
 from app.models.book import BOOK_PAGES, BookPage
@@ -46,7 +48,7 @@ _T = TypeVar("_T")
 
 
 class BookRunner:
-    """Renders books in the background, one page at a time, through the gate."""
+    """Renders books in the background, pages in parallel, through the gate."""
 
     def __init__(
         self,
@@ -90,33 +92,49 @@ class BookRunner:
             if draft is None:  # expired between start() and here
                 raise UnknownGeneration(record.generation_id)
 
-            total = len(BOOK_PAGES)
-            arts: list[PageArt] = []
-
+            pages = list(BOOK_PAGES)
+            total = len(pages)
             prompt_name = record.about.prompt_name
-            for done, page in enumerate(BOOK_PAGES, start=1):
-                # `done - 1` pages are actually on disk right now; this page is
-                # in flight, so it must not yet show as done — otherwise a
-                # mid-page failure would publish a stale "done" claim.
-                await asyncio.to_thread(
-                    self._book_store.save_status,
-                    book_id,
-                    BookStatus.RENDERING,
-                    self._page_view(book_id, done - 1, draft.settings, prompt_name),
-                )
-                image, prompt = await self._render_page(
-                    draft,
+            # The live progress map, page number -> pending | making | done.
+            # Pages render concurrently, so every status write takes the lock
+            # and snapshots the whole map: two pages finishing at once can
+            # never publish a document each missing the other's page.
+            progress: dict[int, str] = {page.number: "pending" for page in pages}
+            status_lock = asyncio.Lock()
+
+            async def paint() -> None:
+                async with status_lock:
+                    await asyncio.to_thread(
+                        self._book_store.save_status,
+                        book_id,
+                        BookStatus.RENDERING,
+                        self._page_view(book_id, progress, draft.settings, prompt_name),
+                    )
+
+            async def mark(page_number: int, state: str) -> None:
+                progress[page_number] = state
+                await paint()
+
+            async def run_page(page: BookPage) -> PageArt:
+                prompt = build_book_page_prompt(
                     page,
+                    draft.settings,
                     page_number=page.number,
                     total_pages=total,
                     prompt_name=prompt_name,
                 )
-                arts.append(
-                    PageArt(
-                        image=image,
-                        page=render_book_page(page, draft.settings, prompt_name=prompt_name),
-                    )
+
+                async def on_slot() -> None:
+                    # "making" the moment the page owns a slot, and not before:
+                    # a page still queued behind the gate's limit is waiting,
+                    # not being drawn, and the visitor is told the difference.
+                    await mark(page.number, "making")
+
+                image = await self._on_worker_thread_with_slot(
+                    self._page_call(draft, prompt), on_slot=on_slot
                 )
+                # Craft first, then publish: the payload may only advertise a
+                # done page once its bytes are actually in the store.
                 await asyncio.to_thread(
                     self._book_store.save_page, book_id, page.number, image
                 )
@@ -125,6 +143,7 @@ class BookRunner:
                     book_id,
                     {"page": str(page.number), "key": page.key, "prompt": prompt},
                 )
+                await mark(page.number, "done")
                 logger.info(
                     "book.page id=%s page=%d/%d key=%s bytes=%d",
                     book_id,
@@ -133,14 +152,30 @@ class BookRunner:
                     page.key,
                     len(image),
                 )
+                return PageArt(
+                    image=image,
+                    page=render_book_page(page, draft.settings, prompt_name=prompt_name),
+                )
 
+            await paint()
+            results = await asyncio.gather(
+                *(run_page(page) for page in pages), return_exceptions=True
+            )
+            fatal = [result for result in results if isinstance(result, BaseException)]
+            if fatal:
+                # gather(return_exceptions=True) lets every page settle, so the
+                # pages that did finish are on disk and stay visible; the first
+                # failure in story order is the one worth reporting.
+                raise fatal[0]
+
+            arts = [cast("PageArt", result) for result in results]
             pdf_bytes = await asyncio.to_thread(build_book_pdf, record.about, arts)
             await asyncio.to_thread(self._book_store.save_pdf, book_id, pdf_bytes)
-            self._book_store.save_pdf(book_id, pdf_bytes)
-            self._book_store.save_status(
+            await asyncio.to_thread(
+                self._book_store.save_status,
                 book_id,
                 BookStatus.COMPLETE,
-                self._page_view(book_id, total, draft.settings, prompt_name),
+                self._page_view(book_id, progress, draft.settings, prompt_name),
             )
             logger.info("book.complete id=%s pdf_bytes=%d", book_id, len(pdf_bytes))
         except UnknownGeneration as exc:
@@ -164,26 +199,6 @@ class BookRunner:
 
     # --- one page ---------------------------------------------------------------
 
-    async def _render_page(
-        self,
-        draft: Draft,
-        page: BookPage,
-        *,
-        page_number: int,
-        total_pages: int,
-        prompt_name: str,
-    ) -> tuple[bytes, str]:
-        """One page: prompt pinned first (cheap), then the billable call."""
-        prompt = build_book_page_prompt(
-            page,
-            draft.settings,
-            page_number=page_number,
-            total_pages=total_pages,
-            prompt_name=prompt_name,
-        )
-        image = await self._on_worker_thread_with_slot(self._page_call(draft, prompt))
-        return image, prompt
-
     def _page_call(self, draft: Draft, prompt: str) -> Callable[[], bytes]:
         """The blocking half of one page render (not yet on a thread)."""
 
@@ -203,14 +218,21 @@ class BookRunner:
 
         return work
 
-    async def _on_worker_thread_with_slot(self, work: Callable[[], _T]) -> _T:
+    async def _on_worker_thread_with_slot(
+        self, work: Callable[[], _T], *, on_slot: Callable[[], Awaitable[None]] | None = None
+    ) -> _T:
         """Blocking `work` on a worker thread while this task holds a gate slot.
 
         The page timeout binds the slot wait and the work together. If the work
         outlives it, ownership of the slot transfers to the worker: it is still
         running (and possibly still billing), and only it knows when it ends.
+
+        `on_slot` runs once the slot is in hand, before the billable work
+        starts — the point at which the page is genuinely being drawn.
         """
         async with self._gate.lease(timeout=self._page_timeout) as slot:
+            if on_slot is not None:
+                await on_slot()
             hop = asyncio.create_task(asyncio.to_thread(work))
             try:
                 return await asyncio.wait_for(asyncio.shield(hop), timeout=self._page_timeout)
@@ -222,11 +244,18 @@ class BookRunner:
 
     def _fail(self, book_id: str, message: str) -> None:
         status = self._book_store.load_status(book_id) or {"pages": []}
-        pages: list[dict[str, object]] = [  # defensive: a failed page keeps its record
-            entry
-            for entry in cast("list[object]", status.get("pages", []))
-            if isinstance(entry, dict)
-        ]
+        pages: list[dict[str, object]] = []
+        for entry in cast("list[object]", status.get("pages", [])):
+            if not isinstance(entry, dict):
+                continue
+            page_entry = dict(entry)
+            if page_entry.get("status") != "done":
+                # A page that was mid-flight when the book stopped is neither
+                # done nor carrying bytes; report it as pending so no tile and
+                # no url claims progress that never completed.
+                page_entry["status"] = "pending"
+                page_entry["url"] = None
+            pages.append(page_entry)
         self._book_store.save_status(book_id, BookStatus.FAILED, pages, error=message)
         done = sum(1 for entry in pages if entry.get("status") == "done")
         logger.error("book.failure id=%s pages_done=%d message=%s", book_id, done, message)
@@ -234,14 +263,19 @@ class BookRunner:
     def _page_view(
         self,
         book_id: str,
-        done_count: int,
+        progress: Mapping[int, str],
         settings: CartoonSettings,
         prompt_name: str,
     ) -> list[dict[str, object]]:
-        """The full page list for status: done pages, then the rest pending."""
+        """The full page list for status, in story order, from live progress.
+
+        Every page carries one of `pending`, `making` or `done`; only a done
+        page has a url, because only a done page has bytes behind it.
+        """
         view: list[dict[str, object]] = []
         for page in BOOK_PAGES:
-            finished = page.number <= done_count
+            state = progress.get(page.number, "pending")
+            finished = state == "done"
             view.append(
                 {
                     "number": page.number,
@@ -252,7 +286,7 @@ class BookRunner:
                     "url": self._book_store.page_url(book_id, page.number)
                     if finished
                     else None,
-                    "status": "done" if finished else "pending",
+                    "status": state,
                 }
             )
         return view

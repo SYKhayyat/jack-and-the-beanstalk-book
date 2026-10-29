@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import UTC, datetime
 from typing import cast
 
@@ -42,6 +43,10 @@ class DatabaseBookStore(BookStore):
 
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
+        # Pages render concurrently (one worker thread each) and every prompt
+        # append is a read-modify-write of the prompts column; without this
+        # lock two pages landing together would lose one another's record.
+        self._prompts_lock = threading.Lock()
 
     # --- ownership -------------------------------------------------------------
 
@@ -181,7 +186,9 @@ class DatabaseBookStore(BookStore):
             )
 
     def append_prompt(self, book_id: str, prompt: dict[str, str]) -> None:
-        self.save_prompts(book_id, (self.load_prompts(book_id) or []) + [prompt])
+        """Add one page's prompt; atomic against other pages finishing at once."""
+        with self._prompts_lock:
+            self.save_prompts(book_id, (self.load_prompts(book_id) or []) + [prompt])
 
     def load_prompts(self, book_id: str) -> list[dict[str, str]] | None:
         with self._engine.connect() as conn:
