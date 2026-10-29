@@ -17,6 +17,40 @@ of UI with this one.
 3. **This file** —
    <https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/to-do.md>
 
+The assignment also asks for **ten real responses, ten AI responses and a short
+comparison on a public link**. The instruments are written and live in
+[`docs/feedback/`](docs/feedback/README.md); the comparison is only filled in
+after both response sets exist. Paste its public URL here as the fourth
+deliverable when it is ready:
+
+4. **The feedback comparison** — *(public link goes here; do not publish the
+   AI-persona method before Monday's class comparison)*
+
+## Hand-in checklist (Step 9)
+
+Everything in code is done; the unchecked items need the live deployment, the
+crowd window, or the judge's go for a paid API run. Do them in a **private
+window** first.
+
+- [x] `.env.example` has a placeholder for **every** settings field the code
+      reads (24 of 24), and every secret placeholder is blank.
+- [x] The repo is scanned by a test for live credential shapes (OpenAI, Google
+      API, AWS, Slack, GitHub tokens, private-key headers). None are present.
+- [x] Every relative link in `README.md`, `to-do.md` and `docs/` resolves, and
+      every external link is HTTPS. Run `make check` to re-verify.
+- [x] Every request has an id (`X-Request-ID`) and one log trail per book (see
+      *Structured logs* above).
+- [ ] Deploy via the Render blueprint and paste `OPENAI_API_KEY` (the app boots
+      free on the mock provider first, so the first deploy is green).
+- [ ] Open all three deliverable links plus the comparison link in a private
+      window and confirm each resolves **from outside the logged-in browser**.
+- [ ] Grader flow: fresh Gmail → sign in → make a book → sign out → wait across
+      a Render restart → sign in → the same 20-page book is still there → the
+      PDF downloads.
+- [ ] Fill `docs/feedback/comparison-template.md` after the crowd and AI
+      responses land, publish it, and paste the URL into item 4 above.
+- [ ] Post the Canvas/Slack hand-in only after the private-window pass.
+
 ## Agnes AI — the free testing provider (code in place)
 
 - [x] Add Agnes AI as a provider: `IMAGE_PROVIDER=agnes`, `AGNES_API_KEY=…`
@@ -192,7 +226,7 @@ of UI with this one.
       `jack-and-the-beanstalk-book`; boots on the mock provider, no key needed).
 - [ ] Paste `OPENAI_API_KEY` when prompted to switch to the real model.
 - [ ] Click through `/` on the deployed site end to end:
-      photo → portrait → approve → 3 story pages + About page → PDF.
+      photo → portrait → approve → 19 story pages → About page → 20-page PDF.
 - [ ] Confirm the PDF downloads and Hebrew About text shapes correctly
       (uharfbuzz needs the system libstdc++ — already in the Dockerfile).
 
