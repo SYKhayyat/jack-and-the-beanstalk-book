@@ -237,8 +237,22 @@ def test_expired_session_is_refused() -> None:
     assert codec.read(token, now=0) is not None
 
 
-def test_login_cannot_be_used_to_redirect_off_site(locked_client: TestClient) -> None:
-    response = _login(locked_client, next_path="https://evil.example/steal")
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "https://evil.example/steal",
+        "//evil.example/steal",
+        # Browsers normalise a backslash to a slash for http(s), so this
+        # `Location` header is read as the protocol-relative `//evil.example`.
+        "/\\evil.example/steal",
+        "\\\\evil.example/steal",
+        "/\t/evil.example/steal",
+    ],
+)
+def test_login_cannot_be_used_to_redirect_off_site(
+    locked_client: TestClient, hostile: str
+) -> None:
+    response = _login(locked_client, next_path=hostile)
     assert response.headers["location"] == "/"
 
 

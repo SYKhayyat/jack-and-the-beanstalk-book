@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import secrets
 from typing import Annotated, cast
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Depends, FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -418,8 +418,18 @@ def _safe_next(raw: str | None) -> str:
 
     A `next` of `//evil.example` or `https://evil.example` is an open
     redirect: the visitor would be bounced off-site right after signing in.
+    So is `/<backslash>evil.example`: browsers treat a backslash as a slash for
+    http(s), so the emitted `Location: /\\evil.example` is read as the
+    protocol-relative `//evil.example`. Parse rather than prefix-match.
     """
     if not raw or not raw.startswith("/") or raw.startswith("//"):
+        return "/"
+    # A backslash or a control character can turn a same-site path into a
+    # different host (or split the header) once a browser or proxy reads it.
+    if "\\" in raw or any(char in raw for char in "\r\n\t\x00"):
+        return "/"
+    parts = urlsplit(raw)
+    if parts.scheme or parts.netloc:
         return "/"
     return raw
 
