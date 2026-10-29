@@ -22,6 +22,7 @@ to the PDF layer — visitor text never reaches a prompt.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from functools import lru_cache
@@ -141,24 +142,31 @@ async def start_book(
     """
     _check_rate(request, container)
     client_key = _client_key(request)
-    draft = container.store.load_draft(generation_id)
+    # Every store call here is blocking: file reads for the drafts, and in
+    # database mode a network round trip for the record and the portrait blob.
+    # None of it may run on the event loop that is also serving the polls.
+    draft = await asyncio.to_thread(container.store.load_draft, generation_id)
     if draft is None:
         raise UnknownGeneration(generation_id)
     about = _about_from_form(
         child_name, about_name, about_age, about_title, details, draft.settings
     )
-    characters = _character_references(character, container)
+    characters = await asyncio.to_thread(_character_references, character, container)
     book_id = uuid.uuid4().hex
     # The person the book belongs to. In Google mode every request here has a
     # session (the guard guarantees it); a password or open deployment has no
     # identity to file under, and the book stays unowned.
     user_id = _user_id(session)
 
-    container.book_store.save_record(
-        book_id=book_id, user_id=user_id, about=about, generation_id=generation_id
+    await asyncio.to_thread(
+        container.book_store.save_record,
+        book_id=book_id,
+        user_id=user_id,
+        about=about,
+        generation_id=generation_id,
     )
     try:
-        container.book_runner.start(
+        await container.book_runner.start(
             BookRecord(
                 book_id=book_id,
                 user_id=user_id,
@@ -171,7 +179,7 @@ async def start_book(
         )
     except UnknownGeneration:
         # Clean the half-created book so no zombie id is left discoverable.
-        container.book_store.delete(book_id)
+        await asyncio.to_thread(container.book_store.delete, book_id)
         raise
     logger.info(
         "book.started user=%s book=%s draft=%s provider=%s characters=%s pages=%d",

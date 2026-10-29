@@ -73,7 +73,7 @@ def test_a_cancelled_render_is_recorded_as_failed(tmp_path: Path) -> None:
     )
 
     async def scenario() -> None:
-        runner.start(record)
+        await runner.start(record)
         assert await asyncio.to_thread(provider.entered.wait, 5.0), "no page started"
         for task in list(runner._tasks):
             task.cancel()

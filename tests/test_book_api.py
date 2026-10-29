@@ -17,6 +17,8 @@ from app.container import build_container
 from app.main import create_app
 from app.models import REJECTION_CLAUSES, RejectionReason
 from app.models.book import BOOK_PAGES, AboutMe
+from app.services.book_runner import BookRunner
+from app.services.book_store import FileBookStore
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
@@ -510,6 +512,80 @@ class TestRestartRecovery:
         payload = response.json()
         assert payload["status"] == "failed"
         assert "restarted" in str(payload["error"])
+
+
+class _ThreadRecordingStore(FileBookStore):
+    """Records which thread each blocking store call ran on."""
+
+    def __init__(self, root: Path) -> None:
+        super().__init__(root)
+        self.threads: dict[str, int] = {}
+
+    def save_record(self, **kwargs: object) -> None:
+        self.threads["save_record"] = threading.get_ident()
+        super().save_record(**kwargs)  # type: ignore[arg-type]
+
+    def save_portrait(self, book_id: str, data: bytes) -> None:
+        self.threads["save_portrait"] = threading.get_ident()
+        super().save_portrait(book_id, data)
+
+
+class _ThreadRecordingLimiter(GenerationRateLimiter):
+    """Records the event-loop thread by marking where `allow` was called."""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(limit)
+        self.threads: dict[str, int] = {}
+
+    def allow(self, client_key: str, tokens: int = 1) -> bool:
+        self.threads["allow"] = threading.get_ident()
+        return super().allow(client_key, tokens)
+
+
+def test_book_start_moves_its_blocking_store_calls_off_the_loop(
+    settings, provider: RecordingProvider, monkeypatch
+) -> None:
+    """A start must not hold the loop while it writes the book and portrait.
+
+    In database mode `save_record` and `save_portrait` are network round trips
+    with multi-megabyte payloads; on the loop they stall every poll that is
+    driving the progress UI. Compare the thread they ran on with the thread the
+    async route itself runs on (recorded through the rate limiter).
+    """
+    store = _ThreadRecordingStore(settings.storage_dir / "books")
+    limiter = _ThreadRecordingLimiter(30)
+    base = build_container(settings, provider=provider)
+    container = replace(
+        base,
+        book_store=store,
+        book_runner=BookRunner(
+            provider=provider,
+            store=base.store,
+            book_store=store,
+            gate=base.gate,
+            page_timeout_seconds=settings.generation_timeout_seconds,
+        ),
+        rate_limiter=limiter,
+    )
+
+    def build(_settings, provider=None):
+        return container
+
+    monkeypatch.setattr("app.main.build_container", build)
+
+    app = create_app(settings, provider=provider)
+    with TestClient(app) as client:
+        portrait = make_portrait(client)
+        start = client.post(
+            "/api/book/start", data={"generation_id": portrait["generation_id"]}
+        )
+        assert start.status_code == 201, start.text
+        wait_for_book(client, start.json()["book_id"])
+
+    assert set(store.threads) == {"save_record", "save_portrait"}
+    loop_thread = limiter.threads["allow"]
+    assert store.threads["save_record"] != loop_thread
+    assert store.threads["save_portrait"] != loop_thread
 
 
 class TestBookRateBudget:

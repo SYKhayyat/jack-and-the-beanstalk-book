@@ -86,7 +86,7 @@ class BookRunner:
         self._page_timeout = page_timeout_seconds
         self._tasks: set[asyncio.Task[None]] = set()
 
-    def start(
+    async def start(
         self,
         record: BookRecord,
         characters: Mapping[str, CharacterReference] | None = None,
@@ -106,17 +106,25 @@ class BookRunner:
         start. The route supplies it so this class stays ignorant of HTTP
         client keys.
 
-        Runs on the request's loop; the task outlives the POST /api/book/start
-        response, so it is not cancelled when that response is sent.
+        This is async because both the draft read and the portrait write are
+        blocking I/O — against a database, each is a network round trip with a
+        multi-megabyte payload. They run on worker threads, so an in-flight
+        book start cannot stall the event loop and the progress polls it is
+        serving. The render task itself is created on the caller's loop and
+        outlives the POST /api/book/start response.
         """
-        draft = self._store.load_draft(record.generation_id)
+        draft = await asyncio.to_thread(self._store.load_draft, record.generation_id)
         if draft is None:
             raise UnknownGeneration(record.generation_id)
         # Copy the portrait into the book immediately: from here on the book
         # owns its art, independent of draft expiry and cleanup.
-        self._book_store.save_portrait(record.book_id, draft.cartoon_image)
+        await asyncio.to_thread(
+            self._book_store.save_portrait, record.book_id, draft.cartoon_image
+        )
 
-        task = asyncio.create_task(self._render(record, dict(characters or {}), page_charge))
+        task = asyncio.create_task(
+            self._render(record, draft, dict(characters or {}), page_charge)
+        )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -125,6 +133,7 @@ class BookRunner:
     async def _render(
         self,
         record: BookRecord,
+        draft: Draft,
         characters: Mapping[str, CharacterReference],
         page_charge: Callable[[], bool] | None,
     ) -> None:
@@ -132,10 +141,6 @@ class BookRunner:
         user = record.user_id or "-"
         started = monotonic()
         try:
-            draft = self._store.load_draft(record.generation_id)
-            if draft is None:  # expired between start() and here
-                raise UnknownGeneration(record.generation_id)
-
             pages = list(BOOK_PAGES)
             total = len(pages)
             prompt_name = record.about.prompt_name
@@ -279,8 +284,6 @@ class BookRunner:
                 elapsed_ms=(monotonic() - started) * 1000,
             )
             raise
-        except UnknownGeneration as exc:
-            self._fail(book_id, str(exc), user=user, elapsed_ms=(monotonic() - started) * 1000)
         except GateTimeout:
             self._fail(
                 book_id,
