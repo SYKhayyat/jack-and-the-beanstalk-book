@@ -1,4 +1,4 @@
-.PHONY: install dev test lint typecheck check clean
+.PHONY: install dev test migrate lint typecheck check clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -12,6 +12,9 @@ dev: ## Run with reload in mock mode (no API key needed)
 
 test: ## Run the suite with coverage
 	$(VENV)/bin/python -m pytest --cov=app --cov-report=term-missing
+
+migrate: ## Apply database migrations (needs DATABASE_URL in the environment)
+	$(VENV)/bin/python -m alembic upgrade head
 
 lint: ## Check formatting and lint rules
 	$(VENV)/bin/ruff check .

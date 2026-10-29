@@ -37,6 +37,7 @@ from app.errors import (
     UnknownBook,
 )
 from app.models import BOOK_PAGES, AboutMe, CartoonSettings
+from app.routes.auth import CurrentSessionDep
 from app.services.book_store import BookRecord, BookStatus
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import book_name_for, render_book_page
@@ -81,6 +82,7 @@ def list_pages() -> dict[str, object]:
 async def start_book(
     request: Request,
     container: ContainerDep,
+    session: CurrentSessionDep,
     generation_id: str = Form(
         ..., description="Id of the approved portrait, returned by /api/cartoonify."
     ),
@@ -110,12 +112,19 @@ async def start_book(
         child_name, about_name, about_age, about_title, details, draft.settings
     )
     book_id = uuid.uuid4().hex
+    # The person the book belongs to. In Google mode every request here has a
+    # session (the guard guarantees it); a password or open deployment has no
+    # identity to file under, and the book stays unowned.
+    user_id = _user_id(session)
 
-    container.book_store.save_record(book_id=book_id, about=about, generation_id=generation_id)
+    container.book_store.save_record(
+        book_id=book_id, user_id=user_id, about=about, generation_id=generation_id
+    )
     try:
         container.book_runner.start(
             BookRecord(
                 book_id=book_id,
+                user_id=user_id,
                 about=about,
                 generation_id=generation_id,
                 created_at="",
@@ -140,8 +149,11 @@ async def start_book(
 
 
 @router.get("/{book_id}")
-def book_status(book_id: str, container: ContainerDep) -> dict[str, object]:
+def book_status(
+    book_id: str, container: ContainerDep, session: CurrentSessionDep
+) -> dict[str, object]:
     """The book's progress: status, page list and any failure message."""
+    _ensure_book(book_id, _user_id(session), container)
     payload = container.book_store.load_status(book_id)
     if payload is None:
         raise UnknownBook("No book with that id. It may have expired — start a new one.")
@@ -156,9 +168,9 @@ def book_status(book_id: str, container: ContainerDep) -> dict[str, object]:
 
 
 @media_router.get("/{book_id}/pdf", response_class=Response)
-def book_pdf(book_id: str, container: ContainerDep) -> Response:
+def book_pdf(book_id: str, container: ContainerDep, session: CurrentSessionDep) -> Response:
     """Serve the assembled book PDF once rendering has completed."""
-    _ensure_book(book_id, container)
+    _ensure_book(book_id, _user_id(session), container)
     data = container.book_store.read_pdf(book_id)
     if data is None:
         raise BookNotReady(
@@ -173,9 +185,11 @@ def book_pdf(book_id: str, container: ContainerDep) -> Response:
 
 
 @media_router.get("/{book_id}/portrait")
-def book_portrait(book_id: str, container: ContainerDep) -> Response:
+def book_portrait(
+    book_id: str, container: ContainerDep, session: CurrentSessionDep
+) -> Response:
     """The approved cartoon portrait every page is anchored on."""
-    _ensure_book(book_id, container)
+    _ensure_book(book_id, _user_id(session), container)
     data = container.book_store.read_portrait(book_id)
     if data is None:
         raise UnknownBook("That book has no portrait stored.")
@@ -183,9 +197,11 @@ def book_portrait(book_id: str, container: ContainerDep) -> Response:
 
 
 @media_router.get("/{book_id}/pages/{page_number}")
-def book_page(page_number: int, book_id: str, container: ContainerDep) -> Response:
+def book_page(
+    page_number: int, book_id: str, container: ContainerDep, session: CurrentSessionDep
+) -> Response:
     """One page's art, as soon as it exists — the browser shows them landing."""
-    _ensure_book(book_id, container)
+    _ensure_book(book_id, _user_id(session), container)
     data = container.book_store.read_page(book_id, page_number)
     if data is None:
         raise BookNotReady("That page is not ready yet — poll the book's status.")
@@ -193,20 +209,42 @@ def book_page(page_number: int, book_id: str, container: ContainerDep) -> Respon
 
 
 @media_router.get("/{book_id}/prompts.json")
-def book_prompts(book_id: str, container: ContainerDep) -> Response:
+def book_prompts(
+    book_id: str, container: ContainerDep, session: CurrentSessionDep
+) -> Response:
     """The exact prompt sent for each page — the record of what was sent."""
-    _ensure_book(book_id, container)
-    path = container.book_store.path(book_id, "prompts.json")
-    if not path.is_file():
+    _ensure_book(book_id, _user_id(session), container)
+    data = container.book_store.read_prompts_json(book_id)
+    if data is None:
         raise BookNotReady("The prompt record appears when the book completes.")
-    return _no_store(path.read_bytes(), media_type="application/json")
+    return _no_store(data, media_type="application/json")
 
 
 # --- shared helpers -----------------------------------------------------------
 
 
-def _ensure_book(book_id: str, container: ContainerDep) -> None:
+def _user_id(session: CurrentSessionDep) -> str | None:
+    """The person behind the request, or None (password/anon deployments)."""
+    return session.user_id if session else None
+
+
+def _ensure_book(
+    book_id: str,
+    user_id: str | None,
+    container: ContainerDep,
+) -> None:
+    """Authorise this request to touch a book's artefacts.
+
+    Books are keyed to the person who started them. A book with an owner is
+    reachable only by that owner — anybody else, signed in or not, gets the
+    same plain 404 they would get for a book that does not exist at all, so
+    the id leaks no information. An unowned book is open to whoever has a
+    session (that only happens where there is no identity to own things).
+    """
     if container.book_store.load_status(book_id) is None:
+        raise UnknownBook("No book with that id. It may have expired — start a new one.")
+    owner = container.book_store.owner_of(book_id)
+    if owner and owner != (user_id or ""):
         raise UnknownBook("No book with that id. It may have expired — start a new one.")
 
 

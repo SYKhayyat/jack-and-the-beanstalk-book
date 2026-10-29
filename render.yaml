@@ -89,3 +89,11 @@ services:
 
       - key: STORAGE_DIR
         value: /tmp/jack-and-the-beanstalk-book-storage
+
+      # Optional: a Postgres URL (Neon's pooled connection string). Set it and
+      # books and signed-in people survive restarts; leave it unset and the
+      # app runs on the ephemeral disk exactly as before. It embeds the
+      # database password, so it is pasted into the dashboard and never
+      # committed. Apply the schema once after setting it: `make migrate`.
+      - key: DATABASE_URL
+        sync: false

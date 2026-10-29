@@ -160,3 +160,25 @@ class TestTheSecretsTheAppArmsAtStartup:
             f for f in logging.getLogger().filters if isinstance(f, SecretRedactingFilter)
         ]
         assert not installed or not installed[0].secrets
+
+    def test_the_database_url_is_armed_whole(self, tmp_path: Path, caplog) -> None:
+        """A connection URL embeds its password; the whole URL is a secret."""
+        from app.config import Settings
+        from app.main import create_app
+
+        url = "postgres://user:db-password@host/db"
+        redaction._installed = None
+        _strip_redacting_filters()
+        create_app(
+            Settings(
+                image_provider="mock",  # type: ignore[arg-type]
+                gemini_api_key="",
+                app_env="test",
+                storage_dir=tmp_path / "storage",
+                database_url=url,
+            )
+        )
+        with caplog.at_level(logging.WARNING, logger="app.main"):
+            logging.getLogger("app.main").warning("tried %s", url)
+        assert "db-password" not in caplog.text
+        assert url not in caplog.text

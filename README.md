@@ -325,7 +325,9 @@ app/
 │   ├── images.py         #     upload validation, normalisation, EXIF stripping
 │   ├── storage.py        #     artefact persistence (drafts)
 │   ├── book_runner.py    #     the picture-book background job
-│   ├── book_store.py     #     book artefact persistence (pages, PDF, status)
+│   ├── book_store.py     #     the book-store contract + filesystem implementation
+│   ├── db_book_store.py  #     the same contract against DATABASE_URL
+│   ├── user_store.py     #     the people who signed in (file or database)
 │   ├── pdf.py            #     the PDF assembler: full-bleed art + real text
 │   ├── rate_limit.py     #     per-minute billable-image brake
 │   └── image_providers/  #     the swappable backend boundary
@@ -335,6 +337,7 @@ app/
 │       ├── agnes_provider.py #     the free testing backend (reference images)
 │       ├── gemini.py     #         the fallback backend
 │       └── registry.py   #         name → class
+├── db.py                 # the database engine and tables (only used with DATABASE_URL)
 ├── routes/               # CONTROLLER: book (the UI), api, media, auth, settings_form
 ├── templates/            # VIEW: book.html, login.html
 ├── models/book.py        #     book pages, text zones, About
@@ -672,10 +675,17 @@ The repo ships a blueprint, so this is short:
 6. Put the live URL in the hand-in and in Slack.
 
 Render's free plan sleeps after inactivity, so the first request to the deployed
-URL takes a while. The portrait draft lives on the instance filesystem; if
-Render restarts between the portrait and the book, the UI will ask the user to
-upload again. Add durable object storage before scaling beyond a classroom
-deployment.
+URL takes a while.
+
+**Persistence is a switch, not a rewrite.** Without `DATABASE_URL` the app
+stores everything on the instance disk, which Render wipes on every restart —
+books disappear, and a restart between the portrait and the book asks the
+uploader to start over. Set `DATABASE_URL` (a Neon free-tier Postgres works
+well) and books, their pages, their PDFs and the people who made them live in
+Postgres instead: a completed book survives a restart or redeploy, and it
+stays answerable to the account that made it. The schema is applied once with `make migrate` (see `to-do.md` for the
+first-deploy runbook). Local development needs none of this — with the
+variable empty, nothing ever touches a database.
 
 ## Configuration reference
 
@@ -704,5 +714,6 @@ deployment.
 | `MAX_CONCURRENT_GENERATIONS` | `2` | Admission control per process. Beyond this, requests queue and then get 429. |
 | `MAX_GENERATIONS_PER_MINUTE` | `30` | Per-client abuse brake for billable requests; Render's blueprint uses `12`. |
 | `STORAGE_DIR` | `./storage` | Created on startup |
+| `DATABASE_URL` | *(empty)* | Postgres URL (Neon pooled endpoint). Set = books/people persist in the database and survive restarts; empty = everything on disk. Apply the schema once with `make migrate`. |
 
 `MAX_UPLOAD_MB` and `STORAGE_DIR` map to `MAX_UPLOAD_MB` and `STORAGE_DIR`.

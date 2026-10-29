@@ -56,6 +56,28 @@ of UI with this one.
 - [ ] One click-through of the deployed sign-in: login → Google → back to the
       app, name in the masthead, `auth.google_login_ok email=s***@…` in the log.
 
+## The database — code in place, awaiting the Neon setup
+
+- [x] Books, their pages, their PDFs and the people who made them can live in
+      Postgres (`DATABASE_URL`), behind the same store contract the filesystem
+      mode uses. A completed book survives a restart/redeploy, and another
+      signed-in account gets a plain 404 when it tries to fetch somebody
+      else's book id.
+- [ ] First-deploy runbook (about five minutes, done once):
+      1. Create a free **Neon** project (region AWS, near the Render region).
+      2. Copy the **pooled** connection string — the host of the `-pooler`
+         suffix — as `DATABASE_URL`.
+      3. In Render, paste `DATABASE_URL` into the dashboard and redeploy. App
+         boots on the database; the log line says
+         `persistence=database (postgres)`.
+      4. From the local machine, apply the schema once:
+         `export DATABASE_URL=postgres://… && make migrate`.
+      5. The grader flow: make a book on the live site → wait for a Render
+         restart/redeploy → sign back in → the same book (pages + PDF) is
+         still there.
+- [ ] Without `DATABASE_URL` nothing changes: local dev and CI stay fully
+      offline on the filesystem stores.
+
 ## Still open before submitting
 
 - [ ] Apply the Render blueprint (New → Blueprint on

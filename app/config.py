@@ -190,11 +190,28 @@ class Settings(BaseSettings):
         description="Where uploads and generated images are written.",
     )
 
+    database_url: str = Field(
+        default="",
+        # Pasted whole (e.g. a Neon pooled connection string); it embeds the
+        # database password, so it must never be logged or committed. Empty
+        # means the filesystem stores are used and the app runs offline.
+        description=(
+            "Postgres connection URL for durable persistence (books survive "
+            "restarts, books are keyed to the person). Empty means filesystem "
+            "mode."
+        ),
+    )
+
     @field_validator("storage_dir", mode="after")
     @classmethod
     def _make_storage_dir(cls, value: Path) -> Path:
         value.mkdir(parents=True, exist_ok=True)
         return value
+
+    @property
+    def database_mode(self) -> bool:
+        """Whether books and people persist in Postgres rather than on disk."""
+        return bool(self.database_url)
 
     @property
     def is_production(self) -> bool:

@@ -183,6 +183,9 @@ def _configure_logging(settings: Settings) -> None:
             # session in the deployment. Neither may appear in a log line.
             settings.google_client_secret,
             settings.session_secret,
+            # A database URL is pasted whole and embeds its password; a raw
+            # URL in a log line is a leak of the whole credential.
+            settings.database_url,
         )
     )
     if settings.google_enabled and not settings.session_secret:

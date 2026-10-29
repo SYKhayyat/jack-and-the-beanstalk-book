@@ -10,7 +10,8 @@ Two implementations, behind one small protocol:
 
 * `FileUserStore` — one JSON file per person under a directory. Used for local
   development, tests and any deployment with no database.
-* the database-backed store (see `db.py`), used when `DATABASE_URL` is set.
+* `DatabaseUserStore` — the `users` table (`app/db.py`), used when
+  `DATABASE_URL` is set, so people survive across processes.
 
 The composition root picks one; nothing above this module knows which is
 running.
@@ -25,7 +26,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-__all__ = ["FileUserStore", "User", "UserStore"]
+from sqlalchemy import insert as sa_insert
+from sqlalchemy import select
+from sqlalchemy import update as sa_update
+from sqlalchemy.engine import Engine, Row
+
+from app.db import UserRow
+
+__all__ = ["DatabaseUserStore", "FileUserStore", "User", "UserStore"]
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +110,64 @@ class FileUserStore(UserStore):
 
     def _path(self, sub: str) -> Path:
         return self.root / f"{_safe_name(sub)}.json"
+
+
+class DatabaseUserStore(UserStore):
+    """The `users` table, behind the same two-method contract."""
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def upsert(self, user: User) -> User:
+        """Insert or update a person, returning the stored record.
+
+        First sign-in creates the row; later ones refresh what Google reports
+        now. The sticky first-seen timestamp follows the file store's lead.
+        """
+        with self._engine.begin() as conn:
+            row = conn.execute(select(UserRow).where(UserRow.sub == user.sub)).one_or_none()
+            if row is None:
+                conn.execute(
+                    sa_insert(UserRow).values(
+                        sub=user.sub,
+                        email=user.email,
+                        name=user.name,
+                        avatar=user.picture,
+                        created_at=_utcnow(),
+                    )
+                )
+                row = conn.execute(select(UserRow).where(UserRow.sub == user.sub)).one()
+            else:
+                conn.execute(
+                    sa_update(UserRow)
+                    .where(UserRow.sub == user.sub)
+                    .values(email=user.email, name=user.name, avatar=user.picture)
+                )
+                row = conn.execute(select(UserRow).where(UserRow.sub == user.sub)).one()
+        return _user_from_row(row)
+
+    def get(self, sub: str) -> User | None:
+        with self._engine.connect() as conn:
+            row = conn.execute(select(UserRow).where(UserRow.sub == sub)).one_or_none()
+        if row is None:
+            return None
+        return _user_from_row(row)
+
+
+def _user_from_row(row: UserRow | Row[UserRow]) -> User:
+    """The interface's record from a table row."""
+    return User(
+        sub=row.sub,
+        email=row.email,
+        name=row.name,
+        picture=row.avatar,
+        created_at=row.created_at.isoformat() if row.created_at else "",
+    )
+
+
+def _utcnow() -> datetime:
+    """Naive UTC, the shape every dialect stores in a plain DateTime column."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _safe_name(sub: str) -> str:
