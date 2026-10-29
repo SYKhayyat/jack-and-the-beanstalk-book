@@ -26,7 +26,7 @@ from app.models.feedback import REJECTION_LABELS, RejectionReason
 from app.models.labels import choices_for, intensity_label
 from app.prompt_data import prompt_text
 from app.routes.auth import CurrentSessionDep
-from app.services.prompts import render_book_page
+from app.services.prompts import photoable_cast, render_book_page
 
 __all__ = ["router"]
 
@@ -50,6 +50,9 @@ def index(
         context={
             "book_title": book_data["book_title"],
             "pages": [render_book_page(page, defaults) for page in BOOK_PAGES],
+            # Optional character slots. Only the photoable cast appears:
+            # Milky-White has no upload path anywhere (see prompts.toml).
+            "characters": photoable_cast(),
             "defaults": defaults,
             "styles": choices_for(CartoonStyle),
             "intensities": [(level, intensity_label(level)) for level in range(1, 11)],

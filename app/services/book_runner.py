@@ -27,7 +27,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import TypeVar, cast
 
 from app.models.book import BOOK_PAGES, BookPage
@@ -40,11 +41,25 @@ from app.services.pipeline import UnknownGeneration
 from app.services.prompts import build_book_page_prompt, render_book_page
 from app.services.storage import Draft, GenerationStore
 
-__all__ = ["BookRunner"]
+__all__ = ["BookRunner", "CharacterReference"]
 
 logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterReference:
+    """A cast member the uploader gave a face to.
+
+    Two images, mirroring the child's double anchor: the approved cartoon
+    portrait (style-matched to the book) and the original photograph behind
+    it. The portrait and photo take the same place per page as the child's.
+    """
+
+    portrait: bytes
+    photo: bytes
+    photo_media_type: str
 
 
 class BookRunner:
@@ -66,8 +81,17 @@ class BookRunner:
         self._page_timeout = page_timeout_seconds
         self._tasks: set[asyncio.Task[None]] = set()
 
-    def start(self, record: BookRecord) -> None:
+    def start(
+        self,
+        record: BookRecord,
+        characters: Mapping[str, CharacterReference] | None = None,
+    ) -> None:
         """Kick off rendering. Raises if the draft with the portrait is gone.
+
+        `characters` maps cast keys to the reference images the uploader
+        supplied for them (validated by the route against the book's
+        photoable cast). It is held by the job, not re-read per page: the set
+        of photographed characters is fixed for the book.
 
         Runs on the request's loop; the task outlives the POST /api/book/start
         response, so it is not cancelled when that response is sent.
@@ -79,13 +103,17 @@ class BookRunner:
         # owns its art, independent of draft expiry and cleanup.
         self._book_store.save_portrait(record.book_id, draft.cartoon_image)
 
-        task = asyncio.create_task(self._render(record))
+        task = asyncio.create_task(self._render(record, dict(characters or {})))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
     # --- the job ----------------------------------------------------------------
 
-    async def _render(self, record: BookRecord) -> None:
+    async def _render(
+        self,
+        record: BookRecord,
+        characters: Mapping[str, CharacterReference],
+    ) -> None:
         book_id = record.book_id
         try:
             draft = self._store.load_draft(record.generation_id)
@@ -116,13 +144,17 @@ class BookRunner:
                 await paint()
 
             async def run_page(page: BookPage) -> PageArt:
+                page_photos = [name for name in page.cast if name in characters]
                 prompt = build_book_page_prompt(
                     page,
                     draft.settings,
                     page_number=page.number,
                     total_pages=total,
                     prompt_name=prompt_name,
+                    supplied_characters=tuple(characters),
+                    character_photos=page_photos,
                 )
+                references, media_types = _references(draft, page, characters)
 
                 async def on_slot() -> None:
                     # "making" the moment the page owns a slot, and not before:
@@ -131,7 +163,8 @@ class BookRunner:
                     await mark(page.number, "making")
 
                 image = await self._on_worker_thread_with_slot(
-                    self._page_call(draft, prompt), on_slot=on_slot
+                    self._page_call(references, media_types, prompt, draft.settings),
+                    on_slot=on_slot,
                 )
                 # Craft first, then publish: the payload may only advertise a
                 # done page once its bytes are actually in the store.
@@ -199,19 +232,25 @@ class BookRunner:
 
     # --- one page ---------------------------------------------------------------
 
-    def _page_call(self, draft: Draft, prompt: str) -> Callable[[], bytes]:
+    def _page_call(
+        self,
+        references: Sequence[bytes],
+        media_types: Sequence[str],
+        prompt: str,
+        settings: CartoonSettings,
+    ) -> Callable[[], bytes]:
         """The blocking half of one page render (not yet on a thread)."""
 
         def work() -> bytes:
             return self._provider.generate(
                 ImageRequest(
                     prompt=prompt,
-                    # Both identity anchors on every single page: the approved
-                    # portrait and the original photo behind it.
-                    reference_images=(draft.cartoon_image, draft.photo_data),
-                    reference_media_types=("image/png", draft.photo_media_type),
+                    # The child's double anchor on every single page, plus this
+                    # page's own photographed cast — never the whole book cast.
+                    reference_images=tuple(references),
+                    reference_media_types=tuple(media_types),
                     output_format="png",
-                    aspect_ratio=str(draft.settings.aspect_ratio),
+                    aspect_ratio=str(settings.aspect_ratio),
                     label="book-page",
                 )
             ).data
@@ -290,6 +329,29 @@ class BookRunner:
                 }
             )
         return view
+
+
+def _references(
+    draft: Draft,
+    page: BookPage,
+    characters: Mapping[str, CharacterReference],
+) -> tuple[list[bytes], list[str]]:
+    """Exactly the reference images for one page, in the order the prompt names.
+
+    The child's two anchors first (always), then each of the page's own cast
+    members that has a photo — portrait then photograph — in the page's cast
+    order. A page never receives the book's whole cast, and a cast member
+    without a photo contributes no image (the cast sheet's prose defines them).
+    """
+    references = [draft.cartoon_image, draft.photo_data]
+    media_types = ["image/png", draft.photo_media_type]
+    for name in page.cast:
+        character = characters.get(name)
+        if character is None:
+            continue
+        references.extend([character.portrait, character.photo])
+        media_types.extend(["image/png", character.photo_media_type])
+    return references, media_types
 
 
 def _hand_slot_to_worker(slot: Slot, hop: asyncio.Task[object]) -> None:

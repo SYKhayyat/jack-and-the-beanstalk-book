@@ -247,8 +247,11 @@ spending. Adding either as a third provider is a config change; see
 
 ### Limits this app is designed around
 
-- **A small number of reference images per prompt.** Calls send at most 2
-  reference images, which is within every model's limit.
+- **A small number of reference images per prompt.** A book page sends the
+  child's two anchors (approved portrait + original photo) plus, for each
+  photographed character the page actually casts, that character's portrait and
+  photo — never the whole book's cast. The per-page set stays inside every
+  model's limit whatever the book's total cast is.
 - **Around 7MB per inline image.** Uploads are normalised to JPEG at up to
   1536px in `images.py`, well under that.
 - **Aspect ratios** `1:1`, `3:2`, `2:3`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`,
@@ -379,6 +382,19 @@ image unfaithful (`must_avoid`). The negative instructions also forbid text
 anywhere in the image — the story words are painted by the PDF layer, not by the
 model, which is what keeps the picture honest against its page.
 
+**The other characters stay themselves too.** Beyond the starring child, the
+cast is book data (`[book.cast]` in `app/prompts.toml`): Jack, the mother, the
+old man, the giant, and Milky-White. Every page prompt carries the same cast
+sheet — one block of pinned looks, byte-identical across the book — so no
+character's description is restated (and allowed to drift) page by page. A
+visitor may optionally attach a photo to any cast member marked photoable
+(`mother`, `old_man`, `giant`); that character then gets the same cheap portrait
+pass the star does, and only the pages that cast them send those references.
+Milky-White is the cow: she is pinned in prose and has `photoable = false`, so
+there is no UI field, catalogue entry or API path that can give her a face. A
+page always sends only its own cast's references — never the whole book's — so
+the per-call reference set stays small.
+
 ## The picture book
 
 `/` turns one approved portrait into a **4-page picture book PDF**. You star on
@@ -392,10 +408,17 @@ prompt — that is enforced by a test.
 
 - `GET /` — the book UI (photo → who is the star → About → portrait →
   approve → the book grows page by page → download the PDF)
+- `GET /api/book/characters` — the cast slots a photo may be attached to
+  (`mother`, `old_man`, `giant`). Milky-White is cast in prose and is absent:
+  she has no upload path anywhere.
 - `POST /api/book/start` — multipart: `generation_id` (+ optional `child_name`,
-  `about_name`, `about_age`, `about_title`, `details`) → renders in the
-  background. A blank name resolves to Jack or Jane, following the photo's
-  gender answer; the two names exist so the About page can show a pseudonym.
+  `about_name`, `about_age`, `about_title`, `details`, and repeated
+  `character=cast_key:generation_id`) → renders in the background. A blank
+  name resolves to Jack or Jane, following the photo's gender answer; the two
+  names exist so the About page can show a pseudonym. Each `character` pair
+  names a photoable cast member and the portrait made for them with
+  `/api/cartoonify`; pages that cast that character send their images as
+  references, and only those pages do.
 - `GET /api/book/{id}` — poll: `rendering | complete | failed`, plus one entry
   per page (`pending | making | done`) and a url once a page is done
 - `GET /book-media/{id}/portrait`, `GET /book-media/{id}/pages/{n}`,
@@ -415,8 +438,9 @@ required.
 | `GET` | `/healthz` | Liveness and whether the pictures are real. Names neither the provider nor the model, and never includes secrets. |
 | `GET` | `/api/settings-options` | Every enum, the defaults, and the slider limits |
 | `GET` | `/api/book/pages` | The book's page identities (titles, text zones) |
+| `GET` | `/api/book/characters` | The photoable cast slots (`mother`, `old_man`, `giant`); the cow is never listed |
 | `POST` | `/api/cartoonify` | multipart: `photo` + settings → the portrait (1 call) |
-| `POST` | `/api/book/start` | multipart: `generation_id` (+ optional star/About fields) → background book (1 call/page) |
+| `POST` | `/api/book/start` | multipart: `generation_id` (+ optional star/About fields and repeated `character=key:generation_id`) → background book (1 call/page) |
 | `GET` | `/api/book/{id}` | Book status: rendering / complete / failed + page grid |
 | `GET` | `/media/{id}/cartoon` | The cartoon portrait |
 | `GET` | `/book-media/{id}/portrait` | The book's approved portrait |

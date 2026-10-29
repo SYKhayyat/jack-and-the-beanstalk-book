@@ -215,30 +215,56 @@ def test_the_book_owns_its_negative_tail() -> None:
     contradict it by requiring the mother — leaving the model a single legal
     face, which it then placed on both people. The book tail declares the cast
     instead and hands every non-reference character an invented look.
+
+    Step 6 changed the constraint: a character may now have a reference photo
+    of their own (see `[book.cast_photoable]`), so the child is no longer the
+    *only* character the references define. The tail therefore protects every
+    reference image's ownership rather than the child's face alone — the child
+    keeps their single-face guarantee, and a photographed character's face is
+    protected too. The wordings this test used to pin for the child-only rule
+    ("the reference face belongs to the child alone") are gone by design.
     """
     for prompt in _all_page_prompts():
-        assert "the reference face belongs to the child alone" in prompt
+        assert "Every reference image in this prompt belongs to the character" in prompt
+        assert "no reference face may ever be moved onto a different character" in prompt
         assert "the child's face is never placed on any other character" in prompt
         assert "only the one person described above" not in prompt
         assert "nothing borrowed from the photograph or from the child" in prompt
 
 
-def test_minor_characters_have_their_own_pinned_looks() -> None:
-    """Whoever a scene names beyond the child is cast in data, by name."""
+def test_the_cast_sheet_is_the_same_on_every_page() -> None:
+    """The character bible is book-level: one block, byte-identical per page.
+
+    Step 6 changed the constraint. Every non-child character's pinned look used
+    to be injected only on the pages that named them, so the mother was absent
+    from the trade page. The look is now part of a single cast sheet carried
+    whole by every page — the same block, byte for byte, so no character's look
+    is ever restated (and allowed to drift) page by page. Keeping the page to
+    its own cast is the scene-scope clause's job, not the sheet's.
+    """
     looks = prompt_text()["book"]["cast"]
     settings = CartoonSettings()
-    for page in BOOK_PAGES:
-        prompt = build_book_page_prompt(
+    prompts = [
+        build_book_page_prompt(
             page, settings, page_number=page.number, total_pages=len(BOOK_PAGES)
         )
+        for page in BOOK_PAGES
+    ]
+    # Every page's own cast appears…
+    for page, prompt in zip(BOOK_PAGES, prompts, strict=True):
         for actor in page.cast:
             assert looks[actor] in prompt
-    # The trade page names only the old man: the mother is nowhere on it.
-    trade = build_book_page_prompt(
-        BOOK_PAGES[1], settings, page_number=2, total_pages=len(BOOK_PAGES)
-    )
+    # …and so does the whole cast, on every page: the mother's look, once
+    # confined to pages 1 and 3, is now on the trade page too, via the sheet.
+    trade = prompts[1]
     assert looks["old_man"] in trade
-    assert looks["mother"] not in trade
+    assert looks["mother"] in trade
+    # And the sheet is one string, identical across the book.
+    sheets = {
+        prompt[prompt.index("THE CAST (") : prompt.index("REFERENCE IMAGES")]
+        for prompt in prompts
+    }
+    assert len(sheets) == 1
 
 
 def test_the_whole_scene_keeps_one_art_style() -> None:

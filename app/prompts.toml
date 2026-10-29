@@ -268,7 +268,7 @@ no_text = "Do not draw any text, lettering, numbers, watermark, signature, logo,
 # reference face, the child's, and a different invented face for everyone else.
 # The limb rule is here, once, rather than in each page's must_avoid list: it
 # is a book-wide rule, and one place cannot drift from the others.
-negative = "Do not draw any text, letters, numbers, watermark, signature, logo, caption or speech bubble anywhere in the image — the page's story text is added later, outside this image, so any writing you draw would be doubled up and garbled. Every person is drawn with exactly two arms and two legs, and every animal with its own natural number of legs: no fifth limb, no extra, fused, doubled or duplicated limbs, no extra fingers, no distorted hands, no duplicate faces. The page shows exactly the characters its scene names and no others, and nothing borrowed from another page of the book. The child is the only character defined by the reference images: the reference face belongs to the child alone and appears exactly once per page, on the child. Every other character is a different person entirely — a different age, different bone structure, nothing borrowed from the photograph or from the child — drawn to the cast description given in this prompt, and the child's face is never placed on any other character."
+negative = "Do not draw any text, letters, numbers, watermark, signature, logo, caption or speech bubble anywhere in the image — the page's story text is added later, outside this image, so any writing you draw would be doubled up and garbled. Every person is drawn with exactly two arms and two legs, and every animal with its own natural number of legs: no fifth limb, no extra, fused, doubled or duplicated limbs, no extra fingers, no distorted hands, no duplicate faces. The page shows exactly the characters its scene names and no others, and nothing borrowed from another page of the book. Every reference image in this prompt belongs to the character it is labelled for, and no reference face may ever be moved onto a different character — not the child's face onto anyone else, and not another character's face onto the child or onto a third character. A character with no reference image is a different person entirely — a different age, different bone structure, nothing borrowed from the photograph or from the child — drawn to the cast description given in this prompt, and the child's face is never placed on any other character."
 
 # No reference image exists for anyone except the child, so every other
 # character's invented look is pinned here: cast sections are the same data
@@ -276,8 +276,29 @@ negative = "Do not draw any text, letters, numbers, watermark, signature, logo, 
 # leaving no face in the scene free to borrow the child's likeness. A page
 # names the characters it draws through a `cast` list keyed into this section.
 [book.cast]
-mother = "The mother is a character with no reference image, so this is her one look on every page: a woman older and clearly taller than the child, with her own mature, plain, slightly weathered features — kind tired eyes, a soft square jaw, grey-brown hair pinned up under a simple kerchief — wearing a plain dark dress and a light apron. Her face is entirely unlike the child's; she is never drawn with the child's likeness."
-old_man = "The old man is a character with no reference image, so this is his one look on every page: a weathered elderly traveller, a wrinkled, sagging grey-brown face fully unlike the child's, white stubble over a set jaw, shaggy grey hair under his tall pointed hat, a worn travelling cloak and a small pack on his back. He is never drawn with the child's likeness."
+mother = "The mother is a character with no reference image unless a photo was supplied for her, so this is her one look on every page: a woman older and clearly taller than the child, with her own mature, plain, slightly weathered features — kind tired eyes, a soft square jaw, grey-brown hair pinned up under a simple kerchief — wearing a plain dark dress and a light apron. Her face is entirely unlike the child's; she is never drawn with the child's likeness."
+old_man = "The old man is a character with no reference image unless a photo was supplied for him, so this is his one look on every page: a weathered elderly traveller, a wrinkled, sagging grey-brown face fully unlike the child's, white stubble over a set jaw, shaggy grey hair under his tall pointed hat, a worn travelling cloak and a small pack on his back. He is never drawn with the child's likeness."
+milky_white = "Milky-White is the family's cow, and she is an animal: an ordinary white dairy cow with a calm, gentle face, a soft pink muzzle, small short horns and a long tufted tail — the same plain white cow, unchanged, on every page she appears. She is never drawn with human features, clothes, hands or a human face."
+giant = "The giant is a character with no reference image unless a photo was supplied for him, so this is his one look on every page: an enormous, broad-shouldered man many times the child's height, with a great wild beard, a heavy brow, deep-set eyes and a booming presence, dressed in a rough tunic and a broad belt, with huge boots and massive hands. His face is entirely unlike the child's; he is never drawn with the child's likeness."
+
+# Which cast members may be given a face by the uploader. Anyone absent here is
+# prose-pinned only: no photo can be attached to them, anywhere — not the UI,
+# not the character catalogue, not the start endpoint. Milky-White is the cow:
+# a user photo of a cow is nonsense and a human's face on a cow is worse, so she
+# is pinned forever, by the judge's ruling.
+[book.cast_photoable]
+mother = true
+old_man = true
+giant = true
+milky_white = false
+
+# Display names for the character slots the UI offers (never sent to a model —
+# character display names are visitor input and stay out of prompts).
+[book.cast_labels]
+mother = "Mother"
+old_man = "Old man"
+giant = "Giant"
+milky_white = "Milky-White"
 
 # PDF-layer copy for the About page. {child_name} is filled from the About
 # name the uploader typed (a pseudonym is fine); these strings never reach the
@@ -304,6 +325,18 @@ task = "TASK: Draw page {page_number} of {total_pages} of the picture book \"{bo
 # catalogue and never restated here.
 story_context = "THE WHOLE STORY (context for you only):\n{story_lines}\n\nYou are illustrating one page of this story: page {page_number} of {total_pages}. Your picture must show exactly what page {page_number}'s line says — its events, its characters, and how many of each thing there are — and must not contradict that line in any way. The other pages' lines are here only so that you understand the story you are drawing; do not draw their scenes, their characters, their objects or their settings. Draw only what your own page's scene names, and nothing that belongs to another page of the book. Draw what your line means, never its lettering: the page's words are printed on the picture afterwards, outside the image."
 page_identity = "PAGE IDENTITY: this child is the single recurring character across all pages of this book — the same face, the same hair, the same clothes as every other page."
+# The text half of the character bible: the same block, byte for byte, on every
+# page of a book, so no character's look is restated (and allowed to drift) per
+# page. The reference-photo note is book-level on purpose — it names who has a
+# photo, never which page draws whom; the per-page reference order is a separate
+# line (see reference_images) that changes with the page's own cast.
+cast_sheet = "THE CAST (the same characters on every page of this book; this page draws only the characters its own scene names, and no others):\n{cast_looks}\n{photo_note}"
+cast_photos = "SUPPLIED PHOTOS: the uploader supplied reference photos for {names}. Those belong to those characters alone; every other character is drawn from the description above."
+cast_photos_none = "SUPPLIED PHOTOS: none. Every character other than the child is drawn from the description above."
+# The per-page reference order, matching the reference images exactly as they
+# are sent with this call. Naming the order is what lets the model tell the
+# child's two anchors from a character's portrait and photograph.
+reference_images = "REFERENCE IMAGES (in the order supplied): {entries}. Each image belongs only to the character it is named for."
 quiet_zone = "QUIET ZONE: {area}. It must stay calm and uncluttered, because the page's story text will be placed over that exact area after the image is made. Put no part of the character, no important background detail and no bright clutter there."
 
 # The three story beats for pages 1-3. Every page needs both kinds of writing:

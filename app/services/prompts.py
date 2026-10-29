@@ -17,6 +17,7 @@ lever on "does this look like the person".
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import cast
 
 from app.models import CartoonSettings, CartoonStyle, RejectionFeedback, Scene
@@ -38,9 +39,12 @@ from app.prompt_data import prompt_text
 
 __all__ = [
     "NEGATIVE_PROMPT_TAIL",
+    "book_cast_sheet",
     "book_name_for",
     "build_book_page_prompt",
     "build_cartoon_prompt",
+    "cast_photoable",
+    "photoable_cast",
     "render_book_page",
 ]
 
@@ -137,6 +141,71 @@ _BOOK_CAST: dict[str, str] = {
     name: str(text) for name, text in cast("dict[str, object]", _BOOK["cast"]).items()
 }
 
+# Which cast members may ever be given a face by the uploader. Milky-White is
+# false: the cow is prose-pinned, permanently (see prompts.toml).
+_CAST_PHOTOABLE: dict[str, bool] = {
+    name: bool(flag)
+    for name, flag in cast("dict[str, object]", _BOOK.get("cast_photoable", {})).items()
+}
+_CAST_LABELS: dict[str, str] = {
+    name: str(label)
+    for name, label in cast("dict[str, object]", _BOOK.get("cast_labels", {})).items()
+}
+
+
+def photoable_cast() -> tuple[tuple[str, str], ...]:
+    """The cast members a photo may be attached to, in catalogue order.
+
+    Returns (key, display label) pairs. Anyone not in here is prose-pinned:
+    the cow can never be given a face by the uploader, by construction.
+    """
+    return tuple(
+        (name, _CAST_LABELS.get(name, name.replace("_", " ").capitalize()))
+        for name in _BOOK_CAST
+        if _CAST_PHOTOABLE.get(name, False)
+    )
+
+
+def cast_photoable(name: str) -> bool:
+    """Whether `name` may be given a photo. Unknown names are never photoable."""
+    return name in _BOOK_CAST and _CAST_PHOTOABLE.get(name, False)
+
+
+def book_cast_sheet(supplied: Iterable[str] = ()) -> str:
+    """The character bible: identical text on every page of the same book.
+
+    Heading, every pinned look in catalogue order, then one book-level note
+    naming who has a reference photo. `supplied` is the set of cast keys the
+    uploader attached a photo to; the same book always builds the same string.
+    """
+    assembly = cast("dict[str, str]", _BOOK["assembly"])
+    supplied_keys = [name for name in _BOOK_CAST if name in set(supplied)]
+    if supplied_keys:
+        photo_note = assembly["cast_photos"].format(
+            names=", ".join(_CAST_LABELS.get(name, name) for name in supplied_keys)
+        )
+    else:
+        photo_note = assembly["cast_photos_none"]
+    looks = "\n".join(_BOOK_CAST[name] for name in _BOOK_CAST)
+    return assembly["cast_sheet"].format(cast_looks=looks, photo_note=photo_note)
+
+
+def _reference_map(character_photos: Iterable[str]) -> str:
+    """The per-page reference order, matching the images sent with this call."""
+    entries = [
+        "1) the child's cartoon portrait",
+        "2) the child's photograph",
+    ]
+    position = 3
+    for name in character_photos:
+        label = _CAST_LABELS.get(name, name)
+        entries.append(f"{position}) {label}'s cartoon portrait")
+        entries.append(f"{position + 1}) {label}'s photograph")
+        position += 2
+    return cast("dict[str, str]", _BOOK["assembly"])["reference_images"].format(
+        entries="; ".join(entries)
+    )
+
 
 def _intensity_text(intensity: int) -> str:
     return _INTENSITY_DESCRIPTIONS[max(1, min(10, intensity))]
@@ -213,6 +282,8 @@ def build_book_page_prompt(
     page_number: int,
     total_pages: int,
     prompt_name: str | None = None,
+    supplied_characters: Iterable[str] = (),
+    character_photos: Iterable[str] = (),
 ) -> str:
     """Prompt for one picture-book page.
 
@@ -221,8 +292,8 @@ def build_book_page_prompt(
     data (worded identically in every call — a book must not change style
     mid-story), the story text is never drawn by the model because the PDF
     layer adds it, the negative tail is the book's cast-declaring variant
-    rather than the single-scene one, and any non-reference character the page
-    names in ``cast`` is injected from the pinned `[book.cast]` looks.
+    rather than the single-scene one, and the character bible is carried by
+    `book_cast_sheet` — the same block on every page of a book.
 
     The whole story goes into every page prompt, labelled by page, with the
     model told that its own page's line is the one to illustrate and that the
@@ -239,6 +310,12 @@ def build_book_page_prompt(
         total_pages: The book's page count, for the "you are page N of M" framing.
         prompt_name: The star name; None falls back to the gender default
             (Jack/Jane).
+        supplied_characters: Cast keys that have a reference photo somewhere in
+            this book. Book-level, so the cast-sheet block stays byte-identical
+            across the book's pages.
+        character_photos: The page's own cast members that have a photo, in the
+            order their references are sent. Page-level, because the reference
+            images are.
     """
     task_book = cast("dict[str, str]", _BOOK["assembly"])
     page = render_book_page(page, settings, prompt_name=prompt_name)
@@ -277,9 +354,15 @@ def build_book_page_prompt(
         _ASSEMBLY["camera"].format(camera=page.scene.camera),
         page.scene.checklist,
         _common_character_block(settings),
-        # Whoever the scene names beyond the child has no reference image;
-        # their pinned look travels with the page (see [book.cast]).
-        *(str(_BOOK_CAST[name]) for name in page.cast),
+        # The character bible: the same block, byte for byte, on every page of
+        # this book — so no character's look is restated (and allowed to drift)
+        # per page. It names every cast member; the page-scope clause above and
+        # the negative tail are what keep the page to its own cast.
+        book_cast_sheet(supplied_characters),
+        # The exact order of the reference images sent with this call, so the
+        # model can tell the child's two anchors from a character's portrait
+        # and photograph.
+        _reference_map(character_photos),
         # The fixed book style, injected verbatim — the same wording on every
         # page of the book by construction, and the same sentence the portrait
         # default resolves to (both read the shared [styles] entry).

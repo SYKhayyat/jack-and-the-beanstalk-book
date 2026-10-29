@@ -101,6 +101,33 @@ of UI with this one.
 - [ ] Confirm on the live site (free provider or the real one): tiles go
       waiting → drawing → picture, and the whole book lands sooner than before.
 
+## The character bible — done in code
+
+- [x] The cast is **book-defined, not UI-capped**: whoever the story names is a
+      character, and the landing page offers an optional photo slot for each
+      photoable member — the mother, the old man, the giant today; more appear
+      automatically as the story grows.
+- [x] A character's photo goes through the same cheap portrait pass as the
+      star (`/api/cartoonify`, one call each, before the page calls); the
+      start endpoint accepts repeated `character=cast_key:generation_id`.
+- [x] **Milky-White has no upload path anywhere.** She is `photoable = false`
+      in `app/prompts.toml`, absent from `/api/book/characters`, absent from
+      the form, and refused (422) by the start endpoint. She is pinned in prose
+      and always will be.
+- [x] A page call sends **only that page's own cast references**: the child's
+      two anchors first, then each photographed character the page casts
+      (portrait + photo, in cast order). The whole book's cast is never sent.
+- [x] The **cast sheet is book-level**: one block of pinned looks, byte-
+      identical on every page, so no character's look drifts page by page. The
+      per-page reference order is a separate line naming exactly the images
+      that page receives.
+- [x] The non-photo path is unchanged: with no character photos a book renders
+      exactly as before this step (the child's double anchor only, on every
+      page). A pinned test compares the two.
+- [ ] One real-API visual pass (after the judge's go): attach a photo to the
+      mother and confirm she keeps that face on pages 1 and 3 and never appears
+      on the trade page.
+
 ## Still open before submitting
 
 - [ ] Apply the Render blueprint (New → Blueprint on

@@ -40,6 +40,12 @@ export const elements = {
   promptJsonLink: () => document.getElementById("prompt-json-link"),
 };
 
+/* The optional character-photo inputs, one per photoable cast slot. Empty
+   inputs are ignored by the controller; a slot never exists for the cow. */
+export function characterInputs() {
+  return Array.from(document.querySelectorAll("input[data-character]"));
+}
+
 export function showPhotoMessage(message, kind = "info") {
   const node = elements.photoMessage();
   if (!message) {

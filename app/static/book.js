@@ -197,6 +197,24 @@ function seedTotalPages() {
     });
 }
 
+/* Each optional character photo gets the same cheap portrait pass the star
+   does: a cartoon of that face, made before the pages (the expensive part).
+   The page prompt carries the character's pinned look, so this only supplies
+   the face. Only photoable slots exist in the DOM; the cow has none. */
+async function characterReferences() {
+  const entries = [];
+  for (const input of view.characterInputs()) {
+    const file = input.files?.[0];
+    if (!file) continue;
+    const prepared = await preparePhoto(file, { maxBytes: MAX_UPLOAD });
+    const form = new FormData();
+    form.append("photo", prepared.blob, file.name || "character.jpg");
+    const payload = await postForm("/api/cartoonify", form);
+    entries.push([input.dataset.character, payload.generation_id]);
+  }
+  return entries;
+}
+
 async function approveAndStart() {
   if (book.pendingDraft) state.approveDraft(book);
   if (!state.isApproved(book)) {
@@ -212,6 +230,9 @@ async function approveAndStart() {
     if (value !== null && value !== "") form.append(key, String(value));
   }
   try {
+    for (const [key, generationId] of await characterReferences()) {
+      form.append("character", `${key}:${generationId}`);
+    }
     const payload = await bookApi.start(form);
     state.setBook(book, payload.book_id);
     view.showReviewMessage("");

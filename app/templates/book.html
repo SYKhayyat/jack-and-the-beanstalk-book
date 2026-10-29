@@ -68,6 +68,28 @@
         </div>
       </fieldset>
 
+      <!-- Optional: give a face to more of the cast. Only the book's
+           photoable characters appear here — Milky-White is pinned in prose
+           and has no upload path anywhere. -->
+      <fieldset id="book-characters">
+        <legend>More characters (optional)</legend>
+        <p class="field-help">
+          Add a photo of anyone else who appears in the story and their cartoon
+          face will show up on the pages they are in — and only on those pages.
+          Leave a slot empty and that character is drawn from the story’s own
+          description.
+        </p>
+        <div class="grid-2">
+          {% for key, label in characters %}
+          <div class="control">
+            <label for="character-{{ key }}">{{ label }}</label>
+            <input type="file" id="character-{{ key }}" name="character_photo_{{ key }}"
+                   accept="image/jpeg,image/png,image/webp" data-character="{{ key }}">
+          </div>
+          {% endfor %}
+        </div>
+      </fieldset>
+
       <!-- The About page: displayed exactly as written -->
       <fieldset>
         <legend>About</legend>

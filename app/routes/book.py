@@ -38,9 +38,16 @@ from app.errors import (
 )
 from app.models import BOOK_PAGES, AboutMe, CartoonSettings
 from app.routes.auth import CurrentSessionDep
+from app.services.book_runner import CharacterReference
 from app.services.book_store import BookRecord, BookStatus
 from app.services.pipeline import UnknownGeneration
-from app.services.prompts import book_name_for, render_book_page
+from app.services.prompts import (
+    book_name_for,
+    cast_photoable,
+    photoable_cast,
+    render_book_page,
+)
+from app.services.storage import Draft
 
 __all__ = ["media_router", "router"]
 
@@ -78,6 +85,21 @@ def list_pages() -> dict[str, object]:
     return {"pages": list(_default_rendered_pages())}
 
 
+@router.get("/characters")
+def list_characters() -> dict[str, object]:
+    """The character slots the uploader may fill with a photo.
+
+    Only the book's photoable cast appears here. Milky-White is cast in the
+    prose and appears in no catalogue, endpoint or form: there is no upload
+    path for her anywhere, by construction (`photoable = false` in the data).
+    """
+    return {
+        "characters": [
+            {"key": key, "label": label, "photoable": True} for key, label in photoable_cast()
+        ]
+    }
+
+
 @router.post("/start", status_code=status.HTTP_201_CREATED)
 async def start_book(
     request: Request,
@@ -91,6 +113,15 @@ async def start_book(
     about_age: int | None = Form(None, ge=0, le=99),
     about_title: str | None = Form(None, max_length=60),
     details: str = Form("", max_length=1000),
+    character: list[str] = Form(
+        default=[],
+        description=(
+            "Repeated `cast_key:generation_id` pairs. Each names a photoable "
+            "cast member and the approved portrait made for them with "
+            "/api/cartoonify; pages that cast the character send those images "
+            "as references. Milky-White is refused: she is prose-pinned."
+        ),
+    ),
 ) -> dict[str, object]:
     """Start rendering the book from an already-approved cartoon portrait.
 
@@ -101,8 +132,9 @@ async def start_book(
 
     One book costs one provider call per page (rate-billed in pages); the
     portrait call was already paid in pass 1 and is reused as an identity
-    anchor on every page. Returns immediately; poll `GET /api/book/{id}` for
-    progress and the PDF link.
+    anchor on every page. Character portraits are paid the same way, one
+    /api/cartoonify call each, before this endpoint is reached. Returns
+    immediately; poll `GET /api/book/{id}` for progress and the PDF link.
     """
     _check_rate(request, container, tokens=len(BOOK_PAGES))
     draft = container.store.load_draft(generation_id)
@@ -111,6 +143,7 @@ async def start_book(
     about = _about_from_form(
         child_name, about_name, about_age, about_title, details, draft.settings
     )
+    characters = _character_references(character, container)
     book_id = uuid.uuid4().hex
     # The person the book belongs to. In Google mode every request here has a
     # session (the guard guarantees it); a password or open deployment has no
@@ -128,17 +161,19 @@ async def start_book(
                 about=about,
                 generation_id=generation_id,
                 created_at="",
-            )
+            ),
+            characters,
         )
     except UnknownGeneration:
         # Clean the half-created book so no zombie id is left discoverable.
         container.book_store.delete(book_id)
         raise
     logger.info(
-        "book.started id=%s draft=%s provider=%s",
+        "book.started id=%s draft=%s provider=%s characters=%s",
         book_id,
         generation_id,
         container.provider.name,
+        ",".join(characters) or "-",
     )
     return {
         "book_id": book_id,
@@ -293,6 +328,55 @@ def _about_from_form(
         )
     except ValidationError as exc:
         raise InvalidSettings(f"The About page details did not validate: {exc}") from exc
+
+
+def _character_references(
+    character: list[str], container: ContainerDep
+) -> dict[str, CharacterReference]:
+    """Resolve the repeated `character=key:generation_id` form parts.
+
+    Each pair names a photoable cast member and the approved cartoon portrait
+    the uploader made for them with `/api/cartoonify` — the same pass 1 the
+    book's own portrait went through, one call per character. The portrait
+    draft supplies both halves of the reference the pages get: the cartoon
+    portrait and the original photograph behind it.
+
+    Refused outright:
+
+    * a key that is not photoable — Milky-White above all: the cow is pinned
+      in prose, and there is no route, form or endpoint that can attach a face
+      to her;
+    * the same key twice — two photos of one character is ambiguous, and the
+      later one would silently win;
+    * a malformed pair, or a draft that has expired.
+
+    The returned map is keyed by cast key and handed whole to the runner; the
+    runner selects, per page, only the members that page's `cast` names.
+    """
+    references: dict[str, CharacterReference] = {}
+    for pair in character:
+        key, _, generation_id = pair.partition(":")
+        key = key.strip()
+        generation_id = generation_id.strip()
+        if not key or not generation_id:
+            raise InvalidSettings("Each character entry must be `key:generation_id`.")
+        if not cast_photoable(key):
+            # Covers both an unknown key and a real character that is not
+            # photoable (the cow): neither has an upload path.
+            raise InvalidSettings(
+                f"There is no character slot for {key!r} — it cannot be given a photo."
+            )
+        if key in references:
+            raise InvalidSettings(f"{key} was given more than one photo.")
+        draft: Draft | None = container.store.load_draft(generation_id)
+        if draft is None:
+            raise UnknownGeneration(generation_id)
+        references[key] = CharacterReference(
+            portrait=draft.cartoon_image,
+            photo=draft.photo_data,
+            photo_media_type=draft.photo_media_type,
+        )
+    return references
 
 
 def _no_store(data: bytes, *, media_type: str, filename: str | None = None) -> Response:
