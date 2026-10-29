@@ -24,14 +24,20 @@ def upgrade() -> None:
     vendor was explicitly not wanted. The `books` row carries its portrait
     and PDF; finished page art lives in `book_pages`, one row per page,
     keyed (book, page number).
+
+    Nullability matches `app/db.py` column for column, including the four
+    user columns and the two book timestamps whose values the ORM always
+    supplies (`""` and `now()`). A schema that is merely "close enough" is
+    one the tests never exercise: `tests/test_migrations.py` builds the schema
+    with this migration and fails on any difference.
     """
     op.create_table(
         "users",
         sa.Column("sub", sa.String(length=128), nullable=False),
-        sa.Column("email", sa.String(length=320), nullable=True),
-        sa.Column("name", sa.String(length=255), nullable=True),
-        sa.Column("avatar", sa.String(length=1024), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=True),
+        sa.Column("email", sa.String(length=320), nullable=False),
+        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("avatar", sa.String(length=1024), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("sub"),
     )
     op.create_table(
@@ -46,8 +52,8 @@ def upgrade() -> None:
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column("portrait", sa.LargeBinary(), nullable=True),
         sa.Column("pdf", sa.LargeBinary(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(["user_id"], ["users.sub"]),
         sa.PrimaryKeyConstraint("id"),
     )
