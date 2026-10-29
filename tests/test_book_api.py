@@ -679,3 +679,44 @@ class TestBookRateBudget:
             final = wait_for_book(client, start.json()["book_id"], seconds=10)
             assert final["status"] == "complete", final
             assert [page["status"] for page in final["pages"]] == ["done"] * PAGE_COUNT
+
+
+class TestQuotaAccounting:
+    """The brake bills images actually produced, not images hoped for."""
+
+    def _app_with_limiter(self, settings, provider, monkeypatch, limit: int):
+        limiter = GenerationRateLimiter(limit, window_seconds=60.0)
+
+        def build(settings, provider=None):
+            return replace(build_container(settings, provider=provider), rate_limiter=limiter)
+
+        monkeypatch.setattr("app.main.build_container", build)
+        return create_app(settings, provider=provider)
+
+    def test_an_unreadable_upload_does_not_spend_the_allowance(
+        self, settings, provider, monkeypatch
+    ) -> None:
+        app = self._app_with_limiter(settings, provider, monkeypatch, limit=1)
+        with TestClient(app) as client:
+            bad = client.post(
+                "/api/cartoonify",
+                files={"photo": ("bad.png", b"not an image", "image/png")},
+            )
+            assert bad.status_code == 400
+
+            good = client.post("/api/cartoonify", **multipart({"photo": photo_file()}))
+            assert good.status_code == 201, good.text
+
+    def test_a_candidate_shortfall_only_spends_what_was_produced(
+        self, settings, provider, monkeypatch
+    ) -> None:
+        # The recording provider returns one image whatever `candidates` asks
+        # for, exactly as Agnes does. Two three-candidate requests fit inside a
+        # five-image allowance only if each is charged for its one real image.
+        app = self._app_with_limiter(settings, provider, monkeypatch, limit=5)
+        with TestClient(app) as client:
+            first = make_portrait(client, candidates=3)
+            second = make_portrait(client, candidates=3)
+
+        assert first["candidate_count"] == 1
+        assert second["candidate_count"] == 1

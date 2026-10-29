@@ -93,8 +93,10 @@ async def cartoonify(
     closed-set feedback as prompt corrections — no free text ever arrives
     here, so nothing the visitor writes can reach a prompt.
     """
-    _check_generation_rate(request, container, tokens=settings.candidates)
+    # Read the upload before billing anything: a missing, oversized or
+    # unreadable file never reaches the model, so it must not spend quota.
     raw = await _read_upload(photo, container)
+    _check_generation_rate(request, container, tokens=settings.candidates)
     pipeline = container.pipeline
     budget = container.settings.generation_timeout_seconds
     feedback = _rejection_from_form(reasons or [])
@@ -108,7 +110,20 @@ async def cartoonify(
             rejection=feedback,
         )
 
-    draft = await _run_gated(container, work, "cartoonify")
+    try:
+        draft = await _run_gated(container, work, "cartoonify")
+    except (InvalidImage, ServerBusy):
+        # Neither path reached the provider (the image failed to decode, or the
+        # gate refused the request before any call), so the admission is
+        # refunded in full.
+        container.rate_limiter.refund(_client_key(request), settings.candidates)
+        raise
+
+    # A provider that cannot return alternatives answers with fewer images
+    # than were provisioned; charge only the images actually produced.
+    unused = settings.candidates - len(draft.candidates)
+    if unused > 0:
+        container.rate_limiter.refund(_client_key(request), unused)
     return _cartoon_payload(draft, settings, budget)
 
 
@@ -137,12 +152,16 @@ def _check_generation_rate(request: Request, container: ContainerDep, tokens: in
     candidate portraits included. Counting images rather than requests is
     what keeps the per-minute number honest.
     """
-    client_key = request.client.host if request.client else "unknown"
-    if not container.rate_limiter.allow(client_key, tokens):
+    if not container.rate_limiter.allow(_client_key(request), tokens):
         raise GenerationRateLimited(
             "This client has reached the image-generation limit for this minute. "
             "Please wait and try again."
         )
+
+
+def _client_key(request: Request) -> str:
+    """The rate-limit key for a request: its client address, or a stand-in."""
+    return request.client.host if request.client else "unknown"
 
 
 async def _read_upload(photo: UploadFile, container: ContainerDep) -> bytes:

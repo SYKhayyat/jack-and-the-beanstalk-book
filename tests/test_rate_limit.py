@@ -38,6 +38,24 @@ def test_a_client_charged_after_its_window_is_still_tracked() -> None:
     assert not limiter.allow("same-client"), "the second charge must be real"
 
 
+def test_refund_returns_unused_charges() -> None:
+    limiter = GenerationRateLimiter(3, window_seconds=60.0)
+    assert limiter.allow("client", 3)
+    assert not limiter.allow("client")
+
+    limiter.refund("client", 2)
+
+    assert limiter.allow("client", 2)
+    assert not limiter.allow("client")
+
+
+def test_refunding_an_unknown_client_is_a_no_op() -> None:
+    limiter = GenerationRateLimiter(2, window_seconds=60.0)
+    limiter.refund("never-seen", 5)
+    assert limiter.tracked_clients == 0
+    assert limiter.allow("never-seen")
+
+
 def test_other_clients_do_not_refill_a_full_client() -> None:
     limiter = GenerationRateLimiter(2, window_seconds=60.0)
     assert limiter.allow("busy")

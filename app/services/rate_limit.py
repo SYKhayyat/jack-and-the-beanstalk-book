@@ -60,6 +60,23 @@ class GenerationRateLimiter:
                 events.append(now)
             return True
 
+    def refund(self, client_key: str, tokens: int) -> None:
+        """Return `tokens` unused charges to a client's window.
+
+        Used when a request was admitted for more images than were actually
+        produced: a provider that returns one candidate for a three-candidate
+        request, or an upload that failed before any call was made. Refunding
+        more than the client currently holds is a no-op beyond its holdings.
+        """
+        if tokens < 1:
+            return
+        with self._lock:
+            events = self._events.get(client_key)
+            if not events:
+                return
+            for _ in range(min(tokens, len(events))):
+                events.pop()
+
     def _sweep(self, now: float, cutoff: float, *, current: str) -> None:
         """Forget clients whose whole window has aged out.
 
