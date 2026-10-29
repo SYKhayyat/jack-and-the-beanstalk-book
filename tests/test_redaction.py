@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import logging
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,16 @@ from app.redaction import (
 
 def make_record(message: str, *args: object) -> logging.LogRecord:
     return logging.LogRecord("test", logging.ERROR, __file__, 0, message, args, None)
+
+
+def make_failure_record(secret: str) -> logging.LogRecord:
+    """An ERROR record for a live exception that quotes a secret, as the SDK does."""
+    try:
+        raise RuntimeError(f"Illegal header value b'Bearer {secret}'")
+    except RuntimeError:
+        return logging.LogRecord(
+            "test", logging.ERROR, __file__, 0, "provider.error", (), sys.exc_info()
+        )
 
 
 def _strip_redacting_filters() -> None:
@@ -65,6 +77,20 @@ class TestSecretRedactingFilter:
         record = make_record("plain")
         SecretRedactingFilter([]).filter(record)
         assert record.getMessage() == "plain"
+
+    def test_scrubs_the_traceback_it_has_to_format_itself(self) -> None:
+        # The handler formats `exc_info` only after the filters have run, so the
+        # filter has to do it first or the exception's own repr leaks the key.
+        record = make_failure_record("sk-leaky")
+        SecretRedactingFilter(["sk-leaky"]).filter(record)
+        assert record.exc_text is not None
+        assert "sk-leaky" not in record.exc_text
+        assert "***REDACTED***" in record.exc_text
+
+    def test_leaves_a_record_without_a_traceback_alone(self) -> None:
+        record = make_record("plain")
+        SecretRedactingFilter(["sk-leaky"]).filter(record)
+        assert record.exc_text is None
 
     def test_add_secrets_accumulates(self) -> None:
         filt = SecretRedactingFilter(["sk-a"])
@@ -182,3 +208,32 @@ class TestTheSecretsTheAppArmsAtStartup:
             logging.getLogger("app.main").warning("tried %s", url)
         assert "db-password" not in caplog.text
         assert url not in caplog.text
+
+
+class TestASecretInsideAnException:
+    """`logger.exception` prints the exception's own repr, not just the message.
+
+    A key pasted into a header turns up there verbatim, and the handler formats
+    that text itself — so the filter has to clean the whole record, not only
+    `record.msg`. This is the path an operator's log actually takes.
+    """
+
+    def test_the_printed_traceback_is_masked(self) -> None:
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        root = logging.getLogger()
+        root.addHandler(handler)
+        try:
+            install_secret_redaction(["sk-leaky"])
+            try:
+                raise RuntimeError("Illegal header value b'Bearer sk-leaky'")
+            except RuntimeError as exc:
+                logging.getLogger("app.provider-test").exception("provider.error: %s", exc)
+        finally:
+            root.removeHandler(handler)
+
+        printed = stream.getvalue()
+        assert "Traceback" in printed
+        assert "sk-leaky" not in printed
+        assert printed.count("***REDACTED***") >= 2
