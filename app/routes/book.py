@@ -398,6 +398,7 @@ def _character_references(
             raise UnknownGeneration(generation_id)
         references[key] = CharacterReference(
             portrait=draft.cartoon_image,
+            portrait_media_type=draft.cartoon_media_type,
             photo=draft.photo_data,
             photo_media_type=draft.photo_media_type,
         )

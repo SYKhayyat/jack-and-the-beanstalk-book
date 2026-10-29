@@ -117,6 +117,7 @@ class GenerationPipeline:
             settings=settings,
             cartoon_prompt=prompt,
             candidates=tuple(candidate.data for candidate in candidates),
+            candidate_media_types=tuple(candidate.media_type for candidate in candidates),
             photo_data=photo_data,
             photo_media_type=photo_media_type,
             provider=self._provider.name,

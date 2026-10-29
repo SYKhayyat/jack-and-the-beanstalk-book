@@ -59,6 +59,60 @@ def photo_file() -> tuple[str, bytes, str]:
     return ("me.png", make_photo_bytes(), "image/png")
 
 
+def _jpeg_bytes() -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 48), "#556677").save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+class JpegPortraitProvider(ImageProvider):
+    """Answers with JPEG bytes, as Agnes can, and records every request."""
+
+    name = "jpeg-portrait"
+
+    def __init__(self) -> None:
+        self.requests: list[ImageRequest] = []
+
+    def generate(self, request: ImageRequest) -> GeneratedImage:
+        self.requests.append(request)
+        return GeneratedImage(data=_jpeg_bytes(), media_type="image/jpeg", model="jpeg-v1")
+
+    def generate_candidates(
+        self, request: ImageRequest, count: int = 1
+    ) -> list[GeneratedImage]:
+        self.requests.append(request)
+        return [GeneratedImage(data=_jpeg_bytes(), media_type="image/jpeg", model="jpeg-v1")]
+
+
+class TestReferenceMediaTypes:
+    def test_pages_send_the_portraits_real_media_type(self, client_factory) -> None:
+        """A JPEG portrait must be declared as JPEG, not assumed to be PNG."""
+        provider = JpegPortraitProvider()
+        with client_factory(provider) as jpeg_client:
+            child = make_portrait(jpeg_client)
+            mother = make_portrait(jpeg_client)
+            start = jpeg_client.post(
+                "/api/book/start",
+                data={
+                    "generation_id": child["generation_id"],
+                    "character": f"mother:{mother['generation_id']}",
+                },
+            )
+            assert start.status_code == 201, start.text
+            final = wait_for_book(jpeg_client, start.json()["book_id"])
+
+        assert final["status"] == "complete", final
+        pages = [request for request in provider.requests if request.label == "book-page"]
+        assert pages
+        # The child's two anchors: portrait then photo (normalised to JPEG).
+        for request in pages:
+            assert request.reference_media_types[0] == "image/jpeg"
+        with_mother = [request for request in pages if len(request.reference_images) == 4]
+        assert with_mother, "no page sent the mother's references"
+        for request in with_mother:
+            assert request.reference_media_types[2] == "image/jpeg"
+
+
 def make_portrait(client: TestClient, **overrides: object) -> dict[str, object]:
     form: dict[str, object] = {"photo": photo_file()}
     form.update(overrides)

@@ -63,6 +63,7 @@ class CharacterReference:
     """
 
     portrait: bytes
+    portrait_media_type: str
     photo: bytes
     photo_media_type: str
 
@@ -447,13 +448,13 @@ def _references(
     without a photo contributes no image (the cast sheet's prose defines them).
     """
     references = [draft.cartoon_image, draft.photo_data]
-    media_types = ["image/png", draft.photo_media_type]
+    media_types = [draft.cartoon_media_type, draft.photo_media_type]
     for name in page.cast:
         character = characters.get(name)
         if character is None:
             continue
         references.extend([character.portrait, character.photo])
-        media_types.extend(["image/png", character.photo_media_type])
+        media_types.extend([character.portrait_media_type, character.photo_media_type])
     return references, media_types
 
 

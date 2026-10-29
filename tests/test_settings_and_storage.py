@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import io
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from PIL import Image
 from pydantic import ValidationError
 
 from app.config import ProviderName, Settings
@@ -76,7 +79,10 @@ class TestSettingsConfig:
 
 
 def make_draft(generation_id: str = "abc123") -> Draft:
-    """A minimal valid draft: one cartoon, one photo, default settings."""
+    """A minimal valid draft: one cartoon, one photo, default settings.
+
+    No `candidate_media_types`: this is deliberately the legacy shape.
+    """
     return Draft(
         generation_id=generation_id,
         settings=CartoonSettings(),
@@ -87,6 +93,35 @@ def make_draft(generation_id: str = "abc123") -> Draft:
         provider="recording",
         model="recording-v1",
     )
+
+
+def _jpeg_bytes() -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (16, 12), "#334455").save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+class TestPortraitMediaType:
+    def test_a_jpeg_portrait_round_trips_its_type(self, tmp_path: Path) -> None:
+        store = GenerationStore(tmp_path)
+        draft = replace(
+            make_draft(),
+            candidates=(_jpeg_bytes(),),
+            candidate_media_types=("image/jpeg",),
+        )
+        store.save_draft(draft)
+
+        loaded = store.load_draft("abc123")
+        assert loaded is not None
+        assert loaded.cartoon_media_type == "image/jpeg"
+
+    def test_a_legacy_draft_sniffs_its_type(self, tmp_path: Path) -> None:
+        store = GenerationStore(tmp_path)
+        store.save_draft(make_draft())  # no media types recorded
+
+        loaded = store.load_draft("abc123")
+        assert loaded is not None
+        assert loaded.cartoon_media_type == "image/png"
 
 
 class TestGenerationStore:

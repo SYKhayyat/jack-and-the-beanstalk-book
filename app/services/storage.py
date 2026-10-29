@@ -85,11 +85,25 @@ class Draft:
     photo_media_type: str
     provider: str
     model: str
+    #: The media type of each candidate, in the same order. Empty on a draft
+    #: written before this field existed, where the bytes are sniffed instead.
+    candidate_media_types: tuple[str, ...] = ()
 
     @property
     def cartoon_image(self) -> bytes:
         """The default portrait: candidate zero."""
         return self.candidates[0]
+
+    @property
+    def cartoon_media_type(self) -> str:
+        """The default portrait's own media type — never assumed to be PNG.
+
+        Providers may answer with JPEG (Agnes explicitly can), so a book page
+        must send the type the bytes actually are, not a hardcoded one.
+        """
+        if self.candidate_media_types:
+            return self.candidate_media_types[0]
+        return _media_type_for(self.cartoon_image)
 
     def with_candidate(self, index: int) -> Draft:
         """A view of this draft with a different portrait chosen.
@@ -102,7 +116,14 @@ class Draft:
             raise IndexError(
                 f"candidate {index} out of range; this draft has {len(self.candidates)}"
             )
-        return replace(self, candidates=(self.candidates[index],))
+        media_types = (
+            (self.candidate_media_types[index],)
+            if len(self.candidate_media_types) == len(self.candidates)
+            else ()
+        )
+        return replace(
+            self, candidates=(self.candidates[index],), candidate_media_types=media_types
+        )
 
 
 class GenerationStore:
@@ -128,6 +149,7 @@ class GenerationStore:
             "cartoon_prompt": draft.cartoon_prompt,
             "provider": draft.provider,
             "model": draft.model,
+            "candidate_media_types": list(draft.candidate_media_types),
         }
         stored.path("draft.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return stored
@@ -154,6 +176,13 @@ class GenerationStore:
         if not candidates:
             return None
 
+        # A draft written before media types were stored (or one whose list no
+        # longer matches its files) falls back to sniffing each candidate.
+        stored_types = payload.get("candidate_media_types")
+        media_types: tuple[str, ...] = ()
+        if isinstance(stored_types, list) and len(stored_types) == len(candidates):
+            media_types = tuple(str(item) for item in stored_types)
+
         return Draft(
             generation_id=generation_id,
             settings=settings,
@@ -163,6 +192,7 @@ class GenerationStore:
             photo_media_type=_media_type_for(photo),
             provider=str(payload.get("provider", "unknown")),
             model=str(payload.get("model", "unknown")),
+            candidate_media_types=media_types,
         )
 
     def read_image(self, generation_id: str, stem: str) -> bytes | None:
