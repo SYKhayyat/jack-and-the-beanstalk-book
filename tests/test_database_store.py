@@ -17,11 +17,18 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.config import Settings
 from app.container import build_container
-from app.db import Base, BookPageRow, build_engine, normalise_database_url, persistence_mode
+from app.db import (
+    Base,
+    BookPageRow,
+    BookRow,
+    build_engine,
+    normalise_database_url,
+    persistence_mode,
+)
 from app.main import create_app
 from app.models.book import AboutMe
 from app.services.book_store import BookStatus, FileBookStore
@@ -91,6 +98,34 @@ def test_a_book_round_trips(store: DatabaseBookStore) -> None:
     assert served == {"prompts": prompts}
 
     assert store.owner_of(book_id) == USER
+
+
+def test_a_new_book_reads_as_pending_immediately(store: DatabaseBookStore) -> None:
+    """The record and the poll document are written in the same transaction.
+
+    The runner writes its first status only after the POST returns, so a poll
+    landing in between must find a pending document, not NULL — which the
+    route would report as `unknown_book`.
+    """
+    book_id = _seed(store)
+
+    status = store.load_status(book_id)
+    assert status is not None
+    assert status["status"] == BookStatus.PENDING
+    assert status["pages"] == []
+    assert status["pdf_url"] is None
+
+
+def test_a_row_without_a_payload_still_reads(store: DatabaseBookStore, engine: Any) -> None:
+    """A row written before this fix answers in the poll's shape, not with 404."""
+    book_id = _seed(store)
+    with engine.begin() as conn:
+        conn.execute(update(BookRow).where(BookRow.id == book_id).values(status_payload=None))
+
+    status = store.load_status(book_id)
+    assert status is not None
+    assert status["status"] == BookStatus.PENDING
+    assert status["pages"] == []
 
 
 def test_re_saving_a_page_replaces_it(store: DatabaseBookStore, engine: Any) -> None:
@@ -280,6 +315,19 @@ def test_a_pasted_postgres_url_names_the_installed_driver() -> None:
         normalise_database_url("postgresql+psycopg2://user:pw@host.example/db")
         == "postgresql+psycopg2://user:pw@host.example/db"
     )
+
+
+def test_both_stores_read_a_new_book_as_pending(tmp_path: Path, engine: Any) -> None:
+    """The two stores answer the same document from the moment the book exists."""
+    file_store = FileBookStore(tmp_path / "books")
+    db_store = DatabaseBookStore(engine)
+    for store in (file_store, db_store):
+        store.save_record(book_id="book-1", user_id=USER, about=ABOUT, generation_id="gen-1")
+        status = store.load_status("book-1")
+        assert status is not None, store.__class__.__name__
+        assert status["status"] == BookStatus.PENDING, store.__class__.__name__
+        assert status["pages"] == [], store.__class__.__name__
+        assert status["pdf_url"] is None, store.__class__.__name__
 
 
 def test_file_and_database_stores_serve_the_same_status_shapes(

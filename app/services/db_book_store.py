@@ -75,6 +75,11 @@ class DatabaseBookStore(BookStore):
                     status=BookStatus.PENDING,
                     generation_id=generation_id,
                     about=about.model_dump(mode="json"),
+                    # The file store has always written the pending document
+                    # with the record; do the same here, or a poll landing
+                    # before the runner's first status write reads NULL and
+                    # answers "unknown book" for a book that already exists.
+                    status_payload=self._status_payload(book_id, BookStatus.PENDING, [], None),
                     created_at=_now(),
                     updated_at=_now(),
                 )
@@ -96,14 +101,15 @@ class DatabaseBookStore(BookStore):
 
     # --- status ----------------------------------------------------------------
 
-    def save_status(
+    def _status_payload(
         self,
         book_id: str,
         status: str,
         pages: list[dict[str, object]],
-        error: str | None = None,
-    ) -> None:
-        payload = {
+        error: str | None,
+    ) -> dict[str, object]:
+        """The exact document the poll returns, in either store's shape."""
+        return {
             "book_id": book_id,
             "status": status,
             "pages": pages,
@@ -111,6 +117,15 @@ class DatabaseBookStore(BookStore):
             "pdf_url": self.pdf_url(book_id) if status == BookStatus.COMPLETE else None,
             "updated_at": _now().isoformat(),
         }
+
+    def save_status(
+        self,
+        book_id: str,
+        status: str,
+        pages: list[dict[str, object]],
+        error: str | None = None,
+    ) -> None:
+        payload = self._status_payload(book_id, status, pages, error)
         with self._engine.begin() as conn:
             conn.execute(
                 update(BookRow)
@@ -125,12 +140,19 @@ class DatabaseBookStore(BookStore):
 
     def load_status(self, book_id: str) -> dict[str, object] | None:
         with self._engine.connect() as conn:
-            payload = conn.execute(
-                select(BookRow.status_payload).where(BookRow.id == book_id)
-            ).scalar_one_or_none()
-        if payload is None:
+            row = conn.execute(
+                select(BookRow.status, BookRow.status_payload, BookRow.error).where(
+                    BookRow.id == book_id
+                )
+            ).one_or_none()
+        if row is None:
             return None
-        return dict(payload)
+        if row.status_payload is not None:
+            return dict(row.status_payload)
+        # A row that predates this fix (or an insert interrupted before the
+        # document was written) still answers in the poll's shape rather than
+        # pretending the book does not exist.
+        return self._status_payload(book_id, row.status, [], row.error)
 
     # --- artefacts -------------------------------------------------------------
 
