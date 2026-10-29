@@ -47,6 +47,10 @@ logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
+# How often a page re-asks the per-minute brake for one billable token while a
+# minute is full. Small enough to resume promptly, large enough not to spin.
+_PAGE_CHARGE_RETRY_SECONDS = 0.25
+
 
 @dataclass(frozen=True, slots=True)
 class CharacterReference:
@@ -85,6 +89,7 @@ class BookRunner:
         self,
         record: BookRecord,
         characters: Mapping[str, CharacterReference] | None = None,
+        page_charge: Callable[[], bool] | None = None,
     ) -> None:
         """Kick off rendering. Raises if the draft with the portrait is gone.
 
@@ -92,6 +97,13 @@ class BookRunner:
         supplied for them (validated by the route against the book's
         photoable cast). It is held by the job, not re-read per page: the set
         of photographed characters is fixed for the book.
+
+        `page_charge` is the per-minute brake's per-page admission: it returns
+        True when one billable page was charged and False when the minute is
+        full. A full minute makes the book take longer, never fail — a book is
+        one product, and its page count must not be able to refuse its own
+        start. The route supplies it so this class stays ignorant of HTTP
+        client keys.
 
         Runs on the request's loop; the task outlives the POST /api/book/start
         response, so it is not cancelled when that response is sent.
@@ -103,7 +115,7 @@ class BookRunner:
         # owns its art, independent of draft expiry and cleanup.
         self._book_store.save_portrait(record.book_id, draft.cartoon_image)
 
-        task = asyncio.create_task(self._render(record, dict(characters or {})))
+        task = asyncio.create_task(self._render(record, dict(characters or {}), page_charge))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -113,6 +125,7 @@ class BookRunner:
         self,
         record: BookRecord,
         characters: Mapping[str, CharacterReference],
+        page_charge: Callable[[], bool] | None,
     ) -> None:
         book_id = record.book_id
         try:
@@ -155,6 +168,11 @@ class BookRunner:
                     character_photos=page_photos,
                 )
                 references, media_types = _references(draft, page, characters)
+                # Take this page's share of the per-minute brake before the
+                # gate: a page waiting for allowance is not yet being drawn,
+                # so it must not hold a slot or claim "making". A full minute
+                # delays the book; it never fails it.
+                await _await_page_charge(page_charge)
 
                 async def on_slot() -> None:
                     # "making" the moment the page owns a slot, and not before:
@@ -329,6 +347,20 @@ class BookRunner:
                 }
             )
         return view
+
+
+async def _await_page_charge(charge: Callable[[], bool] | None) -> None:
+    """Wait until one billable page fits in this minute's allowance.
+
+    The brake is an abuse guard, not a per-book budget: a book may be larger
+    than a single minute's allowance, so a denied charge means *later*, not
+    *never*. Retry at a small interval; the concurrency gate still bounds how
+    many calls are actually in flight.
+    """
+    if charge is None:
+        return
+    while not charge():
+        await asyncio.sleep(_PAGE_CHARGE_RETRY_SECONDS)
 
 
 def _references(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -12,18 +13,23 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from pypdf import PdfReader
 
+from app.container import build_container
+from app.main import create_app
 from app.models import REJECTION_CLAUSES, RejectionReason
+from app.models.book import BOOK_PAGES
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
     ImageRequest,
     ProviderError,
 )
+from app.services.rate_limit import GenerationRateLimiter
 from tests.helpers import RecordingProvider, make_photo_bytes, multipart
 
-# The retired page keeps its data in prompts.toml but renders to nothing:
-# the book is the About page plus three story beats.
-PAGE_COUNT = 3
+# Step 7: the hand-in book is the full tale — every active story page plus the
+# About page. Read the count from the catalogue so adding a page cannot silently
+# desynchronise the backend tests.
+PAGE_COUNT = len(BOOK_PAGES)
 
 _BOUNDARY = "test-u3-boundary"
 _BOUNDARY_HEADER = f"multipart/form-data; boundary={_BOUNDARY}"
@@ -82,19 +88,21 @@ def wait_for_book(
 
 class TestCatalogue:
     def test_lists_the_story_pages(self, client: TestClient) -> None:
+        """Step 7 changed the constraint: the book is the full 19-page tale.
+
+        The retired beanstalk-at-dawn page is back in the catalogue, and the
+        catalogue now runs the whole story arc. Assert against the model, not a
+        hand-copied list, so the catalogue and the API cannot drift.
+        """
         response = client.get("/api/book/pages")
         assert response.status_code == 200
         body = response.json()
-        assert [page["key"] for page in body["pages"]] == [
-            "empty-cupboard",
-            "the-trade",
-            "beans-out-the-window",
-        ]
-        assert [page["number"] for page in body["pages"]] == [1, 2, 3]
+        assert [page["key"] for page in body["pages"]] == [page.key for page in BOOK_PAGES]
+        assert [page["number"] for page in body["pages"]] == list(range(1, PAGE_COUNT + 1))
         # Story lines, exactly the prose the PDF will draw:
         assert "Milky-White" in body["pages"][0]["story"]
-        # The retired beanstalk-at-dawn page is data, not a book page:
-        assert "beanstalk-at-dawn" not in [page["key"] for page in body["pages"]]
+        # Unretired in Step 7: page 4 is the beanstalk at dawn again.
+        assert body["pages"][3]["key"] == "beanstalk-at-dawn"
 
 
 class TestPortraitFeedback:
@@ -477,3 +485,42 @@ class TestPerPageProgress:
             assert page["status"] == "done"
             assert page["url"], page
             assert client.get(page["url"]).status_code == 200
+
+
+class TestBookRateBudget:
+    """Step 7: page count never refuses a book's own start.
+
+    The old rule billed `len(BOOK_PAGES)` in one go, so a 20-page book was a
+    guaranteed 429 under the deployed 12-a-minute brake. The changed
+    constraint: the start costs one admission and each page is charged as it
+    renders. A full minute delays a book; it never fails one.
+    """
+
+    def test_a_book_larger_than_the_minute_budget_still_starts(
+        self, settings, provider, monkeypatch
+    ) -> None:
+        fast_limiter = GenerationRateLimiter(2, window_seconds=0.2)
+
+        def build(settings, provider=None):
+            return replace(
+                build_container(settings, provider=provider), rate_limiter=fast_limiter
+            )
+
+        monkeypatch.setattr("app.main.build_container", build)
+        app = create_app(settings, provider=provider)
+        with TestClient(app) as client:
+            # Two billable images a minute with a shortened window so the test
+            # is quick: this three-page book needs more than two in total
+            # (portrait, one start admission, then one token per page).
+            portrait = make_portrait(client)
+            start = client.post(
+                "/api/book/start",
+                data={
+                    "generation_id": portrait["generation_id"],
+                    "child_name": "Shai",
+                },
+            )
+            assert start.status_code == 201, start.text
+            final = wait_for_book(client, start.json()["book_id"], seconds=10)
+            assert final["status"] == "complete", final
+            assert [page["status"] for page in final["pages"]] == ["done"] * PAGE_COUNT

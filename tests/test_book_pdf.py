@@ -9,7 +9,7 @@ import pytest
 from PIL import Image
 from pypdf import PdfReader
 
-from app.models.book import AboutMe, get_book_page
+from app.models.book import BOOK_PAGES, AboutMe, get_book_page
 from app.services.pdf import PageArt, build_book_pdf
 
 try:
@@ -19,7 +19,9 @@ try:
 except ImportError:  # nixOS runs without libstdc++ by default
     HAS_SHAPING = False
 
-PAGE_KEYS = ("empty-cupboard", "the-trade", "beans-out-the-window")
+# Step 7: the hand-in book is the whole tale. Drive the assembler from the
+# real catalogue so this file always measures the book we ship.
+PAGE_KEYS = tuple(page.key for page in BOOK_PAGES)
 
 
 def art_bytes(width: int = 1152, height: int = 864, colour: str = "#4a7fbf") -> bytes:
@@ -56,16 +58,23 @@ def pages(story: bool = True) -> list[PageArt]:
 class TestAssembly:
     def test_one_page_per_story_page_plus_about_me(self) -> None:
         reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages())))
-        # About page + the three active story beats (page 4 is retired data).
-        assert len(reader.pages) == 4
+        # About page + every active story page = the hand-in 20-page book.
+        assert len(reader.pages) == len(BOOK_PAGES) + 1 == 20
 
-    def test_retired_page_is_not_in_the_pdf(self) -> None:
-        """The flag retires the page from output, not just from generation."""
+    def test_the_unretired_beanstalk_page_is_in_the_pdf(self) -> None:
+        """Step 7 changed the constraint: page 4 is story, not retired data.
+
+        This test used to pin that the beanstalk-at-dawn prose was *absent*
+        because `retired = true` dropped the page. The page is now part of the
+        hand-in book, so the same prose must be present as real PDF text. The
+        retirement mechanism itself is still covered by the model tests.
+        """
         data = build_book_pdf(about(), pages())
-        text = " ".join(
-            (page.extract_text() or "") for page in PdfReader(io.BytesIO(data)).pages
-        )
-        assert "sunrise the beanstalk had grown" not in text
+        texts = [
+            (page.extract_text() or "").replace("\n", " ")
+            for page in PdfReader(io.BytesIO(data)).pages
+        ]
+        assert any("sunrise the beanstalk had grown" in text for text in texts)
 
     def test_story_text_is_real_pdf_text(self) -> None:
         data = build_book_pdf(about(), pages())

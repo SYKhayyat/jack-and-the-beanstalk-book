@@ -298,7 +298,9 @@ def test_every_page_is_given_the_whole_story_labelled_by_page() -> None:
 def test_each_page_is_told_that_its_own_line_is_its_only_job() -> None:
     """The page-scope clause: illustrate this page, draw nothing of the others."""
     for number, prompt in enumerate(_all_page_prompts(), start=1):
-        assert f"You are illustrating one page of this story: page {number} of 3." in prompt
+        assert (
+            f"You are illustrating one page of this story: page {number} of {len(BOOK_PAGES)}."
+        ) in prompt
         assert "and how many of each thing there are" in prompt
         assert (
             "do not draw their scenes, their characters, their objects or their settings"
@@ -371,3 +373,93 @@ def test_pages_do_not_borrow_each_other_scenes() -> None:
         "Milky-White the cow — she was already sold, and she is nowhere in this scene"
         in window
     )
+
+
+# --- Step 7: the full tale -----------------------------------------------------
+#
+# The hand-in book is the whole story, not the three-beat excerpt. These tests
+# pin the arc, the page-block contract, and which cast member may appear on
+# which page, so the catalogue can grow without quietly breaking the assay.
+
+
+def test_the_book_is_the_full_twenty_pages() -> None:
+    """19 story pages plus the About page is the hand-in 20-page book."""
+    assert len(BOOK_PAGES) == 19
+    assert len(BOOK_PAGES) + 1 == 20
+    assert [page.key for page in BOOK_PAGES] == [
+        "empty-cupboard",
+        "the-trade",
+        "beans-out-the-window",
+        "beanstalk-at-dawn",
+        "the-climb",
+        "the-cloud-country",
+        "the-giant's-kitchen",
+        "the-bag-of-gold",
+        "home-with-gold",
+        "the-hen",
+        "the-singing-harp",
+        "fee-fi-fo-fum",
+        "the-chase",
+        "down-the-beanstalk",
+        "the-axe",
+        "the-fall",
+        "safe-at-home",
+        "the-golden-eggs",
+        "riches-and-pride",
+    ]
+
+
+def test_every_page_obeys_the_page_block_contract() -> None:
+    """Every page has both kinds of writing and the scene fields the model needs."""
+    cast = prompt_text()["book"]["cast"]
+    for page in BOOK_PAGES:
+        assert page.story.strip(), page.key
+        assert page.scene.caption.strip(), page.key
+        assert page.scene.subject_action.strip(), page.key
+        assert page.scene.environment.strip(), page.key
+        assert page.scene.time_of_day.strip(), page.key
+        assert page.scene.camera.strip(), page.key
+        assert page.settling.strip(), page.key
+        assert page.scene.must_include, page.key
+        assert page.scene.must_avoid, page.key
+        for name in page.cast:
+            assert name in cast, (page.key, name)
+
+
+def test_the_classic_beats_each_have_a_page() -> None:
+    """The tale the judge named is all there: sell, trade, climb, steal, flee, fall."""
+    keys = {page.key for page in BOOK_PAGES}
+    for beat in (
+        "empty-cupboard",
+        "the-trade",
+        "beans-out-the-window",
+        "beanstalk-at-dawn",
+        "the-climb",
+        "the-cloud-country",
+        "the-giant's-kitchen",
+        "the-bag-of-gold",
+        "home-with-gold",
+        "the-hen",
+        "the-singing-harp",
+        "fee-fi-fo-fum",
+        "the-chase",
+        "down-the-beanstalk",
+        "the-axe",
+        "the-fall",
+        "safe-at-home",
+        "the-golden-eggs",
+        "riches-and-pride",
+    ):
+        assert beat in keys, f"the story is missing the {beat!r} beat"
+
+
+def test_the_giant_is_cast_exactly_where_he_appears() -> None:
+    """No giant before the castle, none after he falls, and never in the finale."""
+    giant_pages = {page.number for page in BOOK_PAGES if "giant" in page.cast}
+    assert giant_pages == {7, 8, 10, 11, 12, 13, 14, 16}
+
+
+def test_the_mother_never_appears_in_the_clouds() -> None:
+    """She is at home on pages 1, 3, 9 and the closing three; never up the stalk."""
+    mother_pages = {page.number for page in BOOK_PAGES if "mother" in page.cast}
+    assert mother_pages == {1, 3, 9, 17, 18, 19}

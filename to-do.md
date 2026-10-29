@@ -1,9 +1,10 @@
 # The Book Feature — What's Done and What to Do Next
 
 The picture-book iteration is built, tested end to end (real-server smoke:
-photo → portrait → 4 pages → 5-page PDF) and checked — ruff, mypy and the full
-pytest suite are green. This repo is the second commissioned iteration: the
-picture book is now the whole app — one page, portrait first, then the book.
+photo → portrait → 19 story pages → 20-page PDF) and checked — ruff, mypy and
+the full pytest suite are green. This repo is the second commissioned
+iteration: the picture book is now the whole app — one page, portrait first,
+then the whole book.
 The first app (portrait+scene per picture) lives separately and shares no word
 of UI with this one.
 
@@ -29,15 +30,17 @@ of UI with this one.
       real photo was judged unusable when it was first tried, which is why the
       hand-in book runs on OpenAI. Its job here is to let the whole app be
       exercised end to end without spending anything.
-- [ ] One free end-to-end book at 1K (5 calls, $0): upload a photo, approve a
-      portrait, render the book, confirm every page lands and the PDF
+- [ ] One free end-to-end book at 1K (20 calls, $0): upload a photo, approve a
+      portrait, render the book, confirm all 20 pages land and the PDF
       assembles. This is the "test with a free provider so you don't burn
       tokens" check the assignment asks for.
 - [ ] Watch the free tier's ceiling while you test: 1K is about 10 requests a
-      minute, and one finished book is five calls. The app already caps
-      concurrent generations at 2 and per-client at 12 a minute
-      (`MAX_GENERATIONS_PER_MINUTE`), so a slow queue means the limit is doing
-      its job, not that anything is broken.
+      minute, and one finished book is twenty calls, so expect about two
+      minutes of ceiling. The app caps concurrent generations at 2 and
+      per-client at 12 a minute (`MAX_GENERATIONS_PER_MINUTE`); a full minute
+      now only *delays* a book — pages are charged one at a time as they
+      render — so a slow queue means the limit is doing its job, not that
+      anything is broken.
 
 ## Sign-in with Google — code in place, awaiting the console setup
 
@@ -127,6 +130,38 @@ of UI with this one.
 - [ ] One real-API visual pass (after the judge's go): attach a photo to the
       mother and confirm she keeps that face on pages 1 and 3 and never appears
       on the trade page.
+
+## The full 20-page book — done in code
+
+- [x] The book is now the **whole tale**, not the three-beat excerpt: 19 story
+      pages plus the About page, assembled into one 20-page PDF. The arithmetic
+      is stated once: 19 story pages + 1 About page = 20.
+- [x] **Page 4 (`beanstalk-at-dawn`) is unretired.** Its prose and artwork spec
+      were already written; the `retired = true` flag is gone, and a pinned test
+      now asserts it is in the catalogue and in the PDF.
+- [x] **Fifteen new story pages** in `app/prompts.toml`, in story order: the
+      climb, the cloud country, the giant's kitchen, the bag of gold, home with
+      gold, the hen that lays golden eggs, the singing harp, "Fee-fi-fo-fum!",
+      the chase, down the beanstalk, the axe, the fall, safe at home, the golden
+      eggs, and ever after. Each carries prose plus the image spec and story
+      line the PDF draws.
+- [x] **The fixed cast is respected.** Jack, the mother, the old man, the giant
+      and Milky-White — no new humans. The hen and the harp are **props
+      described in prose**, never cast members, so they can never be given a
+      face or a reference image.
+- [x] **The rate rule changed.** Starting a book charges one admission; each
+      page is then charged as it renders. A full minute now *delays* a book,
+      never refuses it — a 20-page book would otherwise be a guaranteed 429
+      under a 12-a-minute brake. A page waiting for allowance does not hold a
+      concurrency slot and does not show as "making".
+- [x] The character placement is pinned by tests: the giant appears only on his
+      castle/cloud pages (`7, 8, 10–14, 16`) and the mother only at home
+      (`1, 3, 9, 17–19`), never up the beanstalk.
+- [x] The UI's page counter seeds at 19 and is corrected from the server's own
+      catalogue, so the first progress line cannot lie.
+- [ ] One real-API run of the complete 20-page book (after the judge's go):
+      confirm every page lands, the PDF is 20 pages, and the rate allowance
+      genuinely only slows a full run rather than failing it.
 
 ## Still open before submitting
 

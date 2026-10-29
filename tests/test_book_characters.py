@@ -19,12 +19,13 @@ import time
 
 from fastapi.testclient import TestClient
 
+from app.models.book import BOOK_PAGES
 from app.services.prompts import cast_photoable, photoable_cast
 from tests.helpers import RecordingProvider, make_photo_bytes, multipart
 
-# The connected story today: page 1 and page 3 cast the mother, page 2 the
-# old man. (Step 7 unretires the giant's pages and grows this count.)
-PAGE_COUNT = 3
+# The full book: page 1 and page 3 cast the mother, page 2 the old man, and the
+# giant's pages follow. Read the count from the catalogue so it tracks Step 7.
+PAGE_COUNT = len(BOOK_PAGES)
 
 CHILD_PHOTO = make_photo_bytes(colour="#3f6f8f")
 MOTHER_PHOTO = make_photo_bytes(colour="#aa3322")
@@ -194,7 +195,7 @@ class TestPerPageReferences:
         assert final["status"] == "complete", final
 
         by_page = {_page_number(r.prompt): r for r in _page_requests(provider)}
-        assert sorted(by_page) == [1, 2, 3]
+        assert sorted(by_page) == list(range(1, PAGE_COUNT + 1))
 
         # Both mother pages send four references (child portrait, child photo,
         # mother portrait, mother photo) and the very same four, in order.

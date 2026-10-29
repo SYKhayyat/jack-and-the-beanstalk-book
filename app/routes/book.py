@@ -130,13 +130,17 @@ async def start_book(
     purpose — the name the story uses and the name the About page shows may
     differ.
 
-    One book costs one provider call per page (rate-billed in pages); the
-    portrait call was already paid in pass 1 and is reused as an identity
-    anchor on every page. Character portraits are paid the same way, one
-    /api/cartoonify call each, before this endpoint is reached. Returns
-    immediately; poll `GET /api/book/{id}` for progress and the PDF link.
+    One book costs one provider call per page. This endpoint charges one
+    admission for the job and then one page token as each page actually
+    renders — not the whole page count up front — so a 20-page book can never
+    be refused by a 12-a-minute brake. The portrait call was already paid in
+    pass 1 and is reused as an identity anchor on every page. Character
+    portraits are paid the same way, one /api/cartoonify call each, before
+    this endpoint is reached. Returns immediately; poll `GET /api/book/{id}`
+    for progress and the PDF link.
     """
-    _check_rate(request, container, tokens=len(BOOK_PAGES))
+    _check_rate(request, container)
+    client_key = _client_key(request)
     draft = container.store.load_draft(generation_id)
     if draft is None:
         raise UnknownGeneration(generation_id)
@@ -163,6 +167,7 @@ async def start_book(
                 created_at="",
             ),
             characters,
+            lambda: container.rate_limiter.allow(client_key, 1),
         )
     except UnknownGeneration:
         # Clean the half-created book so no zombie id is left discoverable.
@@ -283,8 +288,13 @@ def _ensure_book(
         raise UnknownBook("No book with that id. It may have expired — start a new one.")
 
 
+def _client_key(request: Request) -> str:
+    """The rate-limit key for a request: its client address, or a stand-in."""
+    return request.client.host if request.client else "unknown"
+
+
 def _check_rate(request: Request, container: ContainerDep, tokens: int = 1) -> None:
-    client_key = request.client.host if request.client else "unknown"
+    client_key = _client_key(request)
     if not container.rate_limiter.allow(client_key, tokens):
         raise GenerationRateLimited(
             "This client has reached the image-generation limit for this minute. "

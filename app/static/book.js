@@ -19,10 +19,10 @@ const photoInput = view.elements.photo();
 const filePicker = createFilePickerSource(photoInput);
 const camera = createCameraSource(view.elements.cameraVideo());
 
-/* Story-page total. Seeded (three beats today — page 4 is retired brief data)
-   and then corrected from the server's own page list, so the first progress
-   line cannot lie. */
-let totalPages = 3;
+/* Story-page total. Seeded with the full-tale count (19 story pages, then the
+   About page in the PDF) and then corrected from the server's own page list,
+   so the first progress line cannot lie. */
+let totalPages = 19;
 seedTotalPages();
 
 wirePhotoInput();

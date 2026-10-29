@@ -13,28 +13,30 @@ from app.services.prompts import render_book_page
 
 class TestPageCatalogue:
     def test_page_numbers_run_in_story_order(self) -> None:
-        assert [page.number for page in BOOK_PAGES] == [1, 2, 3]
-        assert [page.key for page in BOOK_PAGES] == [
+        """Step 7 grew the book; page numbers still run 1..N in catalogue order."""
+        assert [page.number for page in BOOK_PAGES] == list(range(1, len(BOOK_PAGES) + 1))
+        assert [page.key for page in BOOK_PAGES][:4] == [
             "empty-cupboard",
             "the-trade",
             "beans-out-the-window",
+            "beanstalk-at-dawn",
         ]
+        assert BOOK_PAGES[3].number == 4
 
-    def test_the_retired_page_renders_to_nothing(self) -> None:
-        """Page 4 is catalogue data only: flagged, present, never assembled.
+    def test_the_beanstalk_at_dawn_page_is_unretired(self) -> None:
+        """Step 7 changed the constraint: the hand-in book is the full tale.
 
-        The brief says "don't build page 4 yet" and this repo must not write
-        itself into a corner — so the entry keeps its prose and the flag can be
-        reverted without touching anything else.
+        The page was retired under the old three-beat brief. It is now an
+        ordinary story page (page 4) and reachable by key. The retirement
+        mechanism itself stays in the model — `retired = true` still drops a
+        page — it is simply not used by this page any more.
         """
         specs = {str(spec["key"]): spec for spec in prompt_text()["book_pages"]}
-        retired = specs["beanstalk-at-dawn"]
-        assert retired.get("retired") is True
-        assert retired["story"].strip(), "the retired page keeps its story line"
-        assert retired["caption"].strip(), "and its image spec"
-        # Not in the assembled book, and not reachable by key:
-        assert all(page.key != "beanstalk-at-dawn" for page in BOOK_PAGES)
-        assert get_book_page("beanstalk-at-dawn") is None
+        assert "retired" not in specs["beanstalk-at-dawn"]
+        assert specs["beanstalk-at-dawn"]["story"].strip()
+        assert specs["beanstalk-at-dawn"]["caption"].strip()
+        assert [page.key for page in BOOK_PAGES].count("beanstalk-at-dawn") == 1
+        assert get_book_page("beanstalk-at-dawn") is not None
 
     def test_every_page_has_a_story_line(self) -> None:
         assert all(page.story.strip() for page in BOOK_PAGES)

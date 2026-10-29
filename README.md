@@ -1,9 +1,10 @@
 # Jack and the Beanstalk
 
 Upload one photo. The app cartoonifies it with settings you control, then
-renders a **picture book**: a 4-page story (empty cupboard, magic-beans trade,
-beans out the window, beanstalk at dawn) plus an About page, delivered as one
-downloadable PDF — see [The picture book](#the-picture-book).
+renders a **picture book**: the whole tale in 19 story pages, from the empty
+cupboard and the magic-beans trade to the giant's castle, the hen that lays
+golden eggs and the toppling beanstalk, plus an About page — 20 pages delivered
+as one downloadable PDF. See [The picture book](#the-picture-book).
 
 ---
 
@@ -90,19 +91,19 @@ Prices move; re-check before you rely on them.
 
 ### What actually costs money
 
-**Read this bit first: one finished book costs five API calls.** The pipeline
-cartoonifies the photo (call 1), then renders the four story pages (calls 2–5).
-So 200 finished books is **1,000 billed image generations**. Every figure below
-is per *call*.
+**Read this bit first: one finished book costs twenty API calls.** The pipeline
+cartoonifies the photo (call 1), then renders the nineteen story pages (calls
+2–20). So 200 finished books is **4,000 billed image generations**. Every figure
+below is per *call*.
 
-| Provider | Per call (1K image) | 200 books (1,000 calls) | Free tier? |
+| Provider | Per call (1K image) | 200 books (4,000 calls) | Free tier? |
 | --- | --- | --- | --- |
 | **Agnes `agnes-image-2.5-flash`** | **$0** | **$0** | **Yes — free, ~10 requests/minute at 1K** |
-| **OpenAI `gpt-image-2.5-flare`, `quality=low`** (default) | **$0.00588** | **~$5.88** | No |
+| **OpenAI `gpt-image-2.5-flare`, `quality=low`** (default) | **$0.00588** | **~$23.52** | No |
 | OpenAI `gpt-image-2.5-*`, `quality=medium` | not published | — | No |
-| Cloudflare `flux-2-klein-9b` | $0.015 / MP | ~$15.00 | **Yes — ~6 images/day free** |
-| Gemini `gemini-3.1-flash-lite-image` | $0.0336 | ~$33.60 | No |
-| Gemini `gemini-3.1-flash-image` | $0.067 | ~$67.00 | No |
+| Cloudflare `flux-2-klein-9b` | $0.015 / MP | ~$60.00 | **Yes — ~6 images/day free** |
+| Gemini `gemini-3.1-flash-lite-image` | $0.0336 | ~$134.40 | No |
+| Gemini `gemini-3.1-flash-image` | $0.067 | ~$268.00 | No |
 
 **OpenAI is the default here**, because at `quality=low` it is roughly 5.7×
 cheaper than the cheapest Gemini image model for the same job, and the
@@ -153,8 +154,9 @@ What the free tier costs you is **speed, not money**:
 | 2K output | 5 |
 | 3K / 4K output | 1 |
 
-One finished book is five calls, so at 1K a book takes about half a minute of
-ceiling — fine for a classroom or a family, not for a queue of strangers. `1K`
+One finished book is twenty calls, so at the free tier's 1K ceiling of ten
+requests a minute a book takes about two minutes — fine for a classroom or a
+family, not for a queue of strangers. `1K`
 is therefore the default and `AGNES_SIZE` is the dial if you upgrade. The 1K
 sizes per ratio are `1024x1024` (1:1), `1152x864` (4:3), `864x1152` (3:4) and
 `1312x736` (16:9) — the same four ratios the app offers.
@@ -211,8 +213,10 @@ Two corrections worth stating plainly, because the obvious assumptions are wrong
   the Lite model, and a test fails if the default ever reverts to the retired
   one.
 
-At roughly $0.034 per image and five calls per finished book, one book costs
-about **17 cents**. Twenty test books across several photos is roughly $3.40.
+At roughly $0.034 per image and twenty calls per finished book, one book costs
+about **68 cents**. Twenty test books across several photos is roughly $13.60.
+(That is the star's portrait plus one call per story page; each optional
+character photo adds one more portrait call before the pages start.)
 
 ### Testing your prompts for free, before you pay
 
@@ -397,9 +401,12 @@ the per-call reference set stays small.
 
 ## The picture book
 
-`/` turns one approved portrait into a **4-page picture book PDF**. You star on
-every page — the empty cupboard, the magic-beans trade, the beans flying out
-the window, the beanstalk at dawn — followed by an **About** page. The story
+`/` turns one approved portrait into a **20-page picture book PDF**. You star
+on every page of the whole tale — the empty cupboard, the magic-beans trade, the
+beans flying out the window, the beanstalk at dawn, the climb into the clouds,
+the giant's kitchen and the bag of gold, the hen that lays golden eggs and the
+singing harp, "Fee-fi-fo-fum!", the chase and the toppling beanstalk — nineteen
+story pages followed by an **About** page. The story
 text is never drawn by the model: the art carries a deliberately empty quiet
 zone, and the PDF paints the polished storybook prose as real, selectable text
 (fpdf2, Comic Neue + Noto Sans Hebrew bundled, HarfBuzz shaping when
@@ -426,7 +433,10 @@ prompt — that is enforced by a test.
 
 Pages render concurrently on the same concurrency gate as everything else, one
 slot each — so the gate, not the book, bounds how many provider calls are in
-flight at once. Adding a page is one new `[[book_pages]]` block in
+flight at once. Starting a book charges one admission, and each page is charged
+as it renders rather than the whole page count up front, so a book larger than a
+minute's allowance is delayed, never refused. Adding a page is one new
+`[[book_pages]]` block in
 `app/prompts.toml`. Every story wording lives in that single prompts file — as
 required.
 
@@ -445,7 +455,7 @@ required.
 | `GET` | `/media/{id}/cartoon` | The cartoon portrait |
 | `GET` | `/book-media/{id}/portrait` | The book's approved portrait |
 | `GET` | `/book-media/{id}/pages/{n}` | One story page's art, once it exists |
-| `GET` | `/book-media/{id}/pdf` | The finished 4-page PDF (409 until complete) |
+| `GET` | `/book-media/{id}/pdf` | The finished 20-page PDF (409 until complete) |
 | `GET` | `/book-media/{id}/prompts.json` | The exact prompt sent for every page |
 
 `POST /api/cartoonify` returns image *URLs* rather than inline bytes, so the
@@ -507,7 +517,7 @@ lines apply and how they are joined.
 
 ## Two steps, so you only pay for what you keep
 
-The book is five calls, and the interface keeps the portrait apart on purpose:
+The book is twenty calls, and the interface keeps the portrait apart on purpose:
 
 ```
   upload + settings
@@ -519,22 +529,22 @@ The book is five calls, and the interface keeps the portrait apart on purpose:
         ^                    +---------------+--------------+
         |  tweak settings, retry             | approve
         +-------------------------------------+
-                                             | 4 calls
+                                             | 19 calls
                                              v
-                               +------------------------------+
-                               | /api/book/start              |
-                               | portrait -> the 4 story pages|
-                               +------------------------------+
+                               +-------------------------------+
+                               | /api/book/start               |
+                               | portrait -> the 19 story pages|
+                               +-------------------------------+
 ```
 
 Three things fall out of that split, and all three are cost or quality wins:
 
-- **A likeness you dislike costs one call, not six.** Change the intensity, the
-  style, the hair, the likeness strength, and retry — the settings panel stays
-  live while you look at the portrait. Only an approved portrait is worth
-  the four story pages.
+- **A likeness you dislike costs one call, not twenty.** Change the intensity,
+  the style, the hair, the likeness strength, and retry — the settings panel
+  stays live while you look at the portrait. Only an approved portrait is worth
+  the nineteen story pages.
 - **Every page is built from the portrait you approved.** Not one you hoped
-  would look better by page four.
+  would look better by page nineteen.
 - **The judgement happens where it is cheap.** Deciding whether the face
   survived is a question about the portrait, and the portrait is the cheap
   phase. Settling it after paying for the book is backwards.
