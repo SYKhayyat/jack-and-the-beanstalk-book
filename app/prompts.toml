@@ -272,8 +272,10 @@ no_text = "Do not draw any text, lettering, numbers, watermark, signature, logo,
 # put on whoever the scene demands. This tail declares the cast instead: one
 # reference face, the child's, and a different invented face for everyone else.
 # The limb rule is here, once, rather than in each page's must_avoid list: it
-# is a book-wide rule, and one place cannot drift from the others.
-negative = "Do not draw any text, letters, numbers, watermark, signature, logo, caption or speech bubble anywhere in the image — the page's story text is added later, outside this image, so any writing you draw would be doubled up and garbled. Every person is drawn with exactly two arms and two legs, and every animal with its own natural number of legs: no fifth limb, no extra, fused, doubled or duplicated limbs, no extra fingers, no distorted hands, no duplicate faces. The page shows exactly the characters its scene names and no others, and nothing borrowed from another page of the book. Every reference image in this prompt belongs to the character it is labelled for, and no reference face may ever be moved onto a different character — not the child's face onto anyone else, and not another character's face onto the child or onto a third character. A character with no reference image is a different person entirely — a different age, different bone structure, nothing borrowed from the photograph or from the child — drawn to the cast description given in this prompt, and the child's face is never placed on any other character."
+# is a book-wide rule, and one place cannot drift from the others. The no-text
+# rule is NOT repeated here — it lives once in [book].no_text, and appending
+# both put the same sentence in every prompt twice. One rule, one place.
+negative = "Every person is drawn with exactly two arms and two legs, and every animal with its own natural number of legs: no fifth limb, no extra, fused, doubled or duplicated limbs, no extra fingers, no distorted hands, no duplicate faces. The page shows exactly the characters its scene names and no others, and nothing borrowed from another page of the book. Every reference image in this prompt belongs to the character it is labelled for, and no reference face may ever be moved onto a different character — not the child's face onto anyone else, and not another character's face onto the child or onto a third character. A character with no reference image is a different person entirely — a different age, different bone structure, nothing borrowed from the photograph or from the child — drawn to the cast description given in this prompt, and the child's face is never placed on any other character."
 
 # The dial's wording on book pages, band by band. Each line stays inside the
 # book's fixed style and moves only how graphic the rendering is, so any level
@@ -391,7 +393,7 @@ subject_action = "standing side by side at the table, {name}'s face fully toward
 environment = "a cosy but bare historic cottage kitchen: a big worn wooden table, nearly-empty open shelves, a cupboard with its doors open showing almost nothing inside, pale plaster walls, a window with soft daylight, and through the wide open cottage door the white cow Milky-White standing outside in the farmyard, clearly visible"
 time_of_day = "bright morning, soft warm light falling on {name}'s face"
 camera = "eye-level medium shot at table height, both faces clearly readable, the cow framed through the open door behind them, generous quiet space across the lower third of the frame"
-must_include = ["{name}'s face front-lit and fully visible", "{possessive} mother beside the table", "an almost-empty cupboard or shelves", "Milky-White the same white cow, plainly visible through the open door"]
+must_include = ["{name}'s face front-lit and fully visible", "{possessive} mother beside the table", "an almost-empty cupboard or shelves", "Milky-White the same white cow, plainly visible through the open door", "the child's figure keeps a natural head-to-body ratio"]
 must_avoid = ["anything written on the pages or walls", "an open book or letter with visible letters", "the mother pushing {name} or looking angry", "extra children or extra cows", "the old man with the tall hat — he has not arrived in this story yet", "magic beans or any glowing object — none have been given yet"]
 
 [[book_pages]]
@@ -406,7 +408,7 @@ subject_action = "three-quarter view from behind one shoulder, {name} leaning fo
 environment = "a dusty dirt road winding through green fields towards a distant market town, low stone walls, a few round trees, puffy open sky with soft clouds across the top of the frame, Milky-White's head visible at the edge waiting patiently — the same plain white cow, unchanged"
 time_of_day = "late morning, clear sky, the light gentle"
 camera = "over-the-shoulder three-quarter medium close shot centred on the old man's outstretched palm of beans, {name}'s profile strong and readable, lots of open sky at the top"
-must_include = ["exactly five magic beans in the old man's open palm — one red, one blue, one green, one gold, one violet — no more and no fewer", "{name} holding the cow's rope", "a dirt road to market", "the old man's friendly weathered face"]
+must_include = ["exactly five magic beans in the old man's open palm — one red, one blue, one green, one gold, one violet — no more and no fewer", "{name} holding the cow's rope", "a dirt road to market", "the old man's friendly weathered face", "the child's figure keeps a natural head-to-body ratio"]
 must_avoid = ["the old man grabbing the rope or the cow", "money or coins changing hands", "a blade or weapon", "extra people on the road"]
 
 [[book_pages]]
@@ -521,7 +523,7 @@ subject_action = "standing at the table pouring gold coins from the bag, {posses
 environment = "the same small cottage kitchen as the first page, now warm with lamplight: the worn wooden table, the bare shelves, the open cupboard, a heap of gold coins shining on the table"
 time_of_day = "evening, warm lamp and firelight, cosy golden shadows"
 camera = "eye-level medium shot across the table, both faces clearly readable and happy, the gold heap in the middle, generous quiet space across the lower third"
-must_include = ["{name} pouring gold coins onto the table", "{possessive} mother beside the table, delighted", "a glittering heap of gold coins", "the same cottage kitchen and bare shelves", "the same mother as the first page"]
+must_include = ["{name} pouring gold coins onto the table", "{possessive} mother beside the table, delighted", "a glittering heap of gold coins", "the same cottage kitchen and bare shelves", "the same mother as the first page", "the child's figure keeps a natural head-to-body ratio"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant", "Milky-White the cow", "an open book or letter with visible letters", "extra people in the kitchen"]
 
 [[book_pages]]
@@ -641,7 +643,7 @@ subject_action = "caught in a warm hug on the doorstep, {possessive} face presse
 environment = "the little cottage doorstep at evening: the worn wooden door, the stone step, the golden harp leaning against the frame, the plump brown hen on the step, a clear empty sky where the beanstalk used to be"
 time_of_day = "golden evening, soft warm light, a calm clear sky"
 camera = "eye-level medium shot at the doorstep, both faces readable, the harp and hen at the edges, generous quiet space across the lower third"
-must_include = ["{name} hugged tightly by {possessive} mother on the doorstep", "the golden harp leaning against the door frame", "the plump brown hen on the step", "a clear sky with no beanstalk", "the same mother as the earlier pages"]
+must_include = ["{name} hugged tightly by {possessive} mother on the doorstep", "the golden harp leaning against the door frame", "the plump brown hen on the step", "a clear sky with no beanstalk", "the same mother as the earlier pages", "the child's figure keeps a natural head-to-body ratio"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant", "the beanstalk still standing", "extra people", "Milky-White the cow"]
 
 [[book_pages]]
@@ -656,7 +658,7 @@ subject_action = "sitting at the table beside {possessive} mother, both smiling 
 environment = "the same small cottage kitchen, now comfortable: the worn table with a nest of golden eggs, the plump brown hen, the golden harp in the corner with ribbons of music, shelves filled with jars and bread, warm firelight"
 time_of_day = "evening, warm lamp and firelight, cosy golden shadows"
 camera = "eye-level medium-wide shot across the kitchen, the hen and eggs on the table in the middle, {name} and the mother at the sides, the harp in the corner, quiet space across the lower third"
-must_include = ["the plump brown hen on the table", "a nest of gleaming golden eggs", "the tall golden harp singing in the corner", "{name} and {possessive} mother smiling together", "the same mother and the same kitchen as the earlier pages"]
+must_include = ["the plump brown hen on the table", "a nest of gleaming golden eggs", "the tall golden harp singing in the corner", "{name} and {possessive} mother smiling together", "the same mother and the same kitchen as the earlier pages", "the child's figure keeps a natural head-to-body ratio"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant", "a pile of ordinary eggs", "extra people", "Milky-White the cow", "an open book or letter with visible letters"]
 
 [[book_pages]]
@@ -671,5 +673,5 @@ subject_action = "standing together in the garden, {possessive} mother's proud h
 environment = "the little cottage garden on a bright morning: the tidy stone cottage, flowers by the door, the golden harp leaning against the wall, the plump brown hen in the grass, a low fence and green fields beyond, a wide clear sky"
 time_of_day = "bright morning, clear warm sunlight"
 camera = "eye-level medium-wide shot in the garden, {name} and the mother centred and both faces readable, the cottage and fields behind, generous quiet space across the lower third for the closing line"
-must_include = ["{name} and {possessive} mother standing together, smiling", "the little cottage neat and bright behind them", "the golden harp by the door and the plump brown hen in the grass", "the same mother as the earlier pages", "a wide clear empty sky"]
+must_include = ["{name} and {possessive} mother standing together, smiling", "the little cottage neat and bright behind them", "the golden harp by the door and the plump brown hen in the grass", "the same mother as the earlier pages", "a wide clear empty sky", "the child's figure keeps a natural head-to-body ratio"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant", "the beanstalk", "extra people", "Milky-White the cow", "an open book or letter with visible letters"]

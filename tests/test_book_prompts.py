@@ -5,7 +5,11 @@ from __future__ import annotations
 from app.models import CartoonSettings, CartoonStyle
 from app.models.book import BOOK_PAGES, get_book_page
 from app.prompt_data import prompt_text
-from app.services.prompts import build_book_page_prompt, build_cartoon_prompt
+from app.services.prompts import (
+    build_book_page_prompt,
+    build_cartoon_prompt,
+    render_book_page,
+)
 
 
 def _prompt(page, settings, number):
@@ -250,6 +254,72 @@ def test_the_identity_contract_reads_straight_into_the_scale_contract() -> None:
     assert identity_at < meaning_at < scale_at
 
 
+def test_no_rule_is_stated_twice_in_a_page_prompt() -> None:
+    """#17: the no-text rule lives once, in `[book].no_text`.
+
+    It used to open the negative tail as well, so every page carried the same
+    sentence twice.
+    """
+    for prompt in _all_page_prompts():
+        assert prompt.count("Do not draw any text") == 1
+        assert prompt.count("doubled up and garbled") == 1
+
+
+def test_every_page_states_the_childs_proportions() -> None:
+    """#17: UAT only reached page 3, so the per-page rule goes on every page.
+
+    The line was added to the pages that had come back as bobbleheads. The
+    UAT that found them stopped at page 3, which is why six later pages never
+    got it — the rule belongs on all nineteen.
+    """
+    for page in BOOK_PAGES:
+        checklist = render_book_page(page, CartoonSettings()).scene.checklist
+        assert "natural head-to-body ratio" in checklist, page.number
+
+
+def test_the_invariant_block_is_a_cacheable_prefix() -> None:
+    """#15: nothing page-specific may come before the shared block.
+
+    About 7,500 characters of every page prompt are byte-identical across the
+    book (roughly 1,900 tokens, so above a 1,024-token cache floor). With the
+    page's task line in front, no provider could serve any of it from a prefix
+    cache — the shared prefix between two pages used to be 16 characters.
+    """
+    settings = CartoonSettings()
+    prompts = [
+        build_book_page_prompt(
+            page, settings, page_number=page.number, total_pages=len(BOOK_PAGES)
+        )
+        for page in BOOK_PAGES
+    ]
+
+    def shared_prefix(a: str, b: str) -> int:
+        index = 0
+        while index < min(len(a), len(b)) and a[index] == b[index]:
+            index += 1
+        return index
+
+    # Every pair, not just neighbours: one leaked page number would only show
+    # up against the page it names.
+    for first in range(len(prompts)):
+        for second in range(first + 1, len(prompts)):
+            overlap = shared_prefix(prompts[first], prompts[second])
+            assert overlap > 6000, (first + 1, second + 1, overlap)
+
+    prefix = prompts[0][: shared_prefix(prompts[0], prompts[1])]
+    # The block really is the book-level material and not an artefact.
+    assert "ART STYLE: Modern 3D animated feature" in prefix
+    assert "THE CAST (" in prefix
+    assert "Do not draw any text" in prefix
+    # Nothing that belongs to one page leaked into it. The shared block runs
+    # unbroken up to the task line's constant opening; the page number that
+    # follows is the first page-specific character in the prompt.
+    assert prefix.endswith("TASK: Draw page ")
+    assert "THE WHOLE STORY" not in prefix
+    assert "REFERENCE IMAGES" not in prefix
+    assert "QUIET ZONE" not in prefix
+
+
 def test_the_book_owns_its_negative_tail() -> None:
     """UAT round 2: the mother wore the child's face.
 
@@ -301,9 +371,12 @@ def test_the_cast_sheet_is_the_same_on_every_page() -> None:
     trade = prompts[1]
     assert looks["old_man"] in trade
     assert looks["mother"] in trade
-    # And the sheet is one string, identical across the book.
+    # And the sheet is one string, identical across the book. It is taken as
+    # its own paragraph rather than as the span to the next block: the
+    # reference-image legend now comes after the invariant block, so the two
+    # are no longer neighbours (see the cache test below).
     sheets = {
-        prompt[prompt.index("THE CAST (") : prompt.index("REFERENCE IMAGES")]
+        next(section for section in prompt.split("\n\n") if section.startswith("THE CAST ("))
         for prompt in prompts
     }
     assert len(sheets) == 1

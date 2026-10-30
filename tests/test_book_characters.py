@@ -221,10 +221,16 @@ class TestPerPageReferences:
         assert final["status"] == "complete", final
 
         prompts = client.get(f"/book-media/{start['book_id']}/prompts.json").json()["prompts"]
+        # The cast sheet is one paragraph of the prompt, so it is taken as that
+        # paragraph rather than as the span between it and the reference map:
+        # the two are no longer neighbours, because everything page-specific
+        # now comes after the book-level block (see the prefix-cache test).
         sheets = {
-            entry["prompt"][
-                entry["prompt"].index("THE CAST (") : entry["prompt"].index("REFERENCE IMAGES")
-            ]
+            next(
+                section
+                for section in entry["prompt"].split("\n\n")
+                if section.startswith("THE CAST (")
+            )
             for entry in prompts
         }
         assert len(sheets) == 1, "the cast sheet drifted between pages"

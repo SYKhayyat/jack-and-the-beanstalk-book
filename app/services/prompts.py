@@ -320,6 +320,13 @@ def build_book_page_prompt(
     page 2 — and the page-scope clause is what stops that context from being
     drawn onto the wrong page.
 
+    The prompt is two blocks: everything identical across the book's pages
+    first, then this page's own material (task line, story, reference order,
+    quiet zone, scene). A book is nineteen calls carrying the same book-level
+    instructions, so the invariant block is exactly what a provider's prefix
+    cache can serve — and it can only do that if nothing page-specific comes
+    before it.
+
     Args:
         page: The resolved page (callers pass the raw catalogue entry; the
             name/pronoun placeholders are filled here).
@@ -337,7 +344,54 @@ def build_book_page_prompt(
     """
     task_book = cast("dict[str, str]", _BOOK["assembly"])
     page = render_book_page(page, settings, prompt_name=prompt_name)
-    sections = [
+    # Order is deliberate, and it is two blocks rather than one list.
+    #
+    # Everything that is byte-identical on every page of a book comes first:
+    # about 7,500 characters (roughly 1,900 tokens) of this prompt is that
+    # block, and a page-specific line in front of it means no provider can ever
+    # serve it from a prefix cache. One book is nineteen calls of the same
+    # book-level instructions, so the invariant block is the part worth
+    # caching — and it clears a 1,024-token cache floor on its own.
+    #
+    # Everything that changes page to page — the task line and its page
+    # number, the story context, this page's reference order, its quiet zone
+    # and its scene — comes after it.
+    shared = [
+        task_book["page_identity"],
+        settings.identity_directive(),
+        _LIKENESS_EMPHASIS[settings.likeness_strength],
+        # What the likeness dial means on book pages, and where it loses:
+        # reading as one contract with the identity pressure above it and the
+        # coherence guard below it — the pair no longer sit pages apart.
+        str(_BOOK["likeness_not_size"]),
+        str(_BOOK["body_coherence"]),
+        str(_BOOK["same_clothes"]),
+        str(_BOOK["same_characters"]),
+        str(_BOOK["same_cow"]),
+        str(_BOOK["one_art_style"]),
+        # The fixed book style, injected verbatim — the same wording on every
+        # page of the book by construction, and the same sentence the portrait
+        # default resolves to (both read the shared [styles] entry).
+        _ASSEMBLY["art_style"].format(style=_BOOK_STYLE),
+        _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
+        task_book["stylisation"].format(
+            intensity=_book_intensity_text(settings.cartoon_intensity)
+        ),
+        _common_character_block(settings),
+        # The character bible: the same block, byte for byte, on every page of
+        # this book — so no character's look is restated (and allowed to drift)
+        # per page. It names every cast member; the page-scope clause below and
+        # the negative tail are what keep the page to its own cast.
+        book_cast_sheet(supplied_characters),
+        # The book's own negative tail: the single-scene tail's "only the one
+        # person described above" contradicts the pages that require the
+        # mother, which is how the child's face got onto her.
+        str(_BOOK["negative"]),
+        # The single no-text rule for the whole book. It used to appear here
+        # *and* on the first line of the negative tail above.
+        str(_BOOK["no_text"]),
+    ]
+    this_page = [
         task_book["task"].format(
             page_number=page_number,
             total_pages=total_pages,
@@ -352,18 +406,10 @@ def build_book_page_prompt(
             page_number=page_number,
             total_pages=total_pages,
         ),
-        task_book["page_identity"],
-        settings.identity_directive(),
-        _LIKENESS_EMPHASIS[settings.likeness_strength],
-        # What the likeness dial means on book pages, and where it loses:
-        # reading as one contract with the identity pressure above it and the
-        # coherence guard below it — the pair no longer sit pages apart.
-        str(_BOOK["likeness_not_size"]),
-        str(_BOOK["body_coherence"]),
-        str(_BOOK["same_clothes"]),
-        str(_BOOK["same_characters"]),
-        str(_BOOK["same_cow"]),
-        str(_BOOK["one_art_style"]),
+        # The exact order of the reference images sent with this call, so the
+        # model can tell the child's two anchors from a character's portrait
+        # and photograph. Page-level because the references are.
+        _reference_map(character_photos),
         task_book["quiet_zone"].format(area=page.settling),
         _ASSEMBLY["scene_to_draw"].format(caption=page.scene.caption),
         _ASSEMBLY["character_doing"].format(action=page.scene.subject_action),
@@ -371,32 +417,9 @@ def build_book_page_prompt(
         _ASSEMBLY["lighting"].format(time_of_day=page.scene.time_of_day),
         _ASSEMBLY["camera"].format(camera=page.scene.camera),
         page.scene.checklist,
-        _common_character_block(settings),
-        # The character bible: the same block, byte for byte, on every page of
-        # this book — so no character's look is restated (and allowed to drift)
-        # per page. It names every cast member; the page-scope clause above and
-        # the negative tail are what keep the page to its own cast.
-        book_cast_sheet(supplied_characters),
-        # The exact order of the reference images sent with this call, so the
-        # model can tell the child's two anchors from a character's portrait
-        # and photograph.
-        _reference_map(character_photos),
-        # The fixed book style, injected verbatim — the same wording on every
-        # page of the book by construction, and the same sentence the portrait
-        # default resolves to (both read the shared [styles] entry).
-        _ASSEMBLY["art_style"].format(style=_BOOK_STYLE),
-        _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
         _avoid_clause(page.scene),
-        task_book["stylisation"].format(
-            intensity=_book_intensity_text(settings.cartoon_intensity)
-        ),
-        # The book's own negative tail: the single-scene tail's "only the one
-        # person described above" contradicts the pages that require the
-        # mother, which is how the child's face got onto her.
-        str(_BOOK["negative"]),
-        str(_BOOK["no_text"]),
     ]
-    return _join_sections(sections)
+    return _join_sections([*shared, *this_page])
 
 
 def _common_character_block(settings: CartoonSettings) -> str:
