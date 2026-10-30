@@ -179,6 +179,30 @@ class DatabaseBookStore(BookStore):
         # pretending the book does not exist.
         return self._status_payload(book_id, row.status, [], row.error)
 
+    def load_status_and_owner(
+        self, book_id: str
+    ) -> tuple[dict[str, object] | None, str | None]:
+        """The poll document and its owner in one query.
+
+        Both live on the same `books` row, so a poll costs one round trip
+        instead of the three it used to: status for authorisation, owner for
+        authorisation, status again for the body.
+        """
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                select(
+                    BookRow.status, BookRow.status_payload, BookRow.error, BookRow.user_id
+                ).where(BookRow.id == book_id)
+            ).one_or_none()
+        if row is None:
+            return None, None
+        payload = (
+            dict(row.status_payload)
+            if row.status_payload is not None
+            else self._status_payload(book_id, row.status, [], row.error)
+        )
+        return payload, row.user_id or None
+
     # --- artefacts -------------------------------------------------------------
 
     def save_portrait(self, book_id: str, data: bytes) -> None:

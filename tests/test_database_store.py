@@ -186,6 +186,23 @@ def test_data_survives_rebuilding_the_process(tmp_path: Path) -> None:
         second.dispose()
 
 
+def test_status_and_owner_come_from_one_read(store: DatabaseBookStore) -> None:
+    """#12: the poll's authorisation and body are one round trip, not three."""
+    book_id = _seed(store)
+    pages = [{"number": 1, "status": "done", "url": "/book-media/book-1/pages/1"}]
+    store.save_status(book_id, BookStatus.RENDERING, pages)
+
+    payload, owner = store.load_status_and_owner(book_id)
+    assert owner == USER
+    assert payload is not None
+    assert payload["status"] == BookStatus.RENDERING
+    assert payload["pages"] == pages
+
+    missing, nobody = store.load_status_and_owner("not-a-book")
+    assert missing is None
+    assert nobody is None
+
+
 def test_expire_deletes_only_finished_old_books(store: DatabaseBookStore, engine: Any) -> None:
     """#10: retention in database mode, where the size limit is real."""
     week = 7 * 24 * 3600

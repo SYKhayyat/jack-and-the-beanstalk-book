@@ -151,6 +151,15 @@ class BookRunner:
             # never publish a document each missing the other's page.
             progress: dict[int, str] = {page.number: "pending" for page in pages}
             status_lock = asyncio.Lock()
+            # Rendered once for the whole book. The titles depend only on the
+            # settings and the prompt name, and `paint` runs twice per page, so
+            # formatting them inside `_page_view` meant ~40 full-catalogue
+            # re-renders per book to publish documents that differed only in
+            # one page's status.
+            titles = tuple(
+                render_book_page(page, draft.settings, prompt_name=prompt_name).scene.title
+                for page in pages
+            )
 
             async def paint() -> None:
                 async with status_lock:
@@ -158,7 +167,7 @@ class BookRunner:
                         self._book_store.save_status,
                         book_id,
                         BookStatus.RENDERING,
-                        self._page_view(book_id, progress, draft.settings, prompt_name),
+                        self._page_view(book_id, progress, titles),
                     )
 
             async def mark(page_number: int, state: str) -> None:
@@ -261,7 +270,7 @@ class BookRunner:
                 self._book_store.save_status,
                 book_id,
                 BookStatus.COMPLETE,
-                self._page_view(book_id, progress, draft.settings, prompt_name),
+                self._page_view(book_id, progress, titles),
             )
             logger.info(
                 "book.complete user=%s book=%s pages=%d pdf_bytes=%d ms=%.0f outcome=complete",
@@ -393,25 +402,26 @@ class BookRunner:
         self,
         book_id: str,
         progress: Mapping[int, str],
-        settings: CartoonSettings,
-        prompt_name: str,
+        titles: Sequence[str],
     ) -> list[dict[str, object]]:
         """The full page list for status, in story order, from live progress.
 
         Every page carries one of `pending`, `making` or `done`; only a done
         page has a url, because only a done page has bytes behind it.
+
+        `titles` is computed once per book by `_render`, not here: this runs on
+        every page transition, and re-rendering the catalogue each time was the
+        reason a nineteen-page book formatted its titles hundreds of times.
         """
         view: list[dict[str, object]] = []
-        for page in BOOK_PAGES:
+        for page, title in zip(BOOK_PAGES, titles, strict=True):
             state = progress.get(page.number, "pending")
             finished = state == "done"
             view.append(
                 {
                     "number": page.number,
                     "key": page.key,
-                    "title": render_book_page(
-                        page, settings, prompt_name=prompt_name
-                    ).scene.title,
+                    "title": title,
                     "url": self._book_store.page_url(book_id, page.number)
                     if finished
                     else None,

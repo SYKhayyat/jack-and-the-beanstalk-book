@@ -11,7 +11,8 @@ import threading
 from pathlib import Path
 
 from app.models import CartoonSettings
-from app.models.book import AboutMe
+from app.models.book import BOOK_PAGES, AboutMe
+from app.services import book_runner as book_runner_module
 from app.services.book_runner import BookRunner
 from app.services.book_store import BookRecord, BookStatus, FileBookStore
 from app.services.concurrency import ConcurrencyGate
@@ -45,6 +46,60 @@ def _persisted_draft(store: GenerationStore) -> str:
         settings=CartoonSettings(),
     )
     return draft.generation_id
+
+
+def test_titles_are_rendered_per_page_not_per_status_write(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """#12: `_page_view` runs on every transition, so it must not re-render.
+
+    Rebuilding the page list twice per page formatted every title each time —
+    roughly 700 catalogue renders for a nineteen-page book whose titles never
+    change. One pass for the whole book is all the status document needs.
+    """
+    store = GenerationStore(tmp_path / "drafts")
+    book_store = FileBookStore(tmp_path / "books")
+    generation_id = _persisted_draft(store)
+    runner = BookRunner(
+        provider=RecordingProvider(),
+        store=store,
+        book_store=book_store,
+        gate=ConcurrencyGate(2),
+        page_timeout_seconds=60,
+    )
+    record = BookRecord(
+        book_id="title-count-book",
+        about=AboutMe(prompt_name="Jack", about_name="Jack"),
+        generation_id=generation_id,
+        created_at="",
+    )
+    book_store.save_record(
+        book_id=record.book_id,
+        user_id=None,
+        about=record.about,
+        generation_id=generation_id,
+    )
+
+    rendered: list[str] = []
+    real = book_runner_module.render_book_page
+
+    def counting(page, settings, *, prompt_name=None):
+        rendered.append(page.key)
+        return real(page, settings, prompt_name=prompt_name)
+
+    monkeypatch.setattr(book_runner_module, "render_book_page", counting)
+
+    async def scenario() -> None:
+        await runner.start(record)
+        await asyncio.gather(*runner._tasks)
+
+    asyncio.run(scenario())
+
+    status = book_store.load_status(record.book_id)
+    assert status is not None and status["status"] == BookStatus.COMPLETE
+    # One pass for the titles, one for each page's PDF art. Before the fix the
+    # same work happened on all ~2N status writes as well.
+    assert len(rendered) <= 2 * len(BOOK_PAGES), len(rendered)
 
 
 def test_a_cancelled_render_is_recorded_as_failed(tmp_path: Path) -> None:

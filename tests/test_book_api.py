@@ -640,6 +640,74 @@ def test_book_start_moves_its_blocking_store_calls_off_the_loop(
     assert store.threads["save_portrait"] != loop_thread
 
 
+class _CountingBookStore:
+    """Counts the calls a route makes, not the calls inside a store method.
+
+    The combined read is one round trip even though the filesystem store
+    implements it with two file reads, so only the outer method matters.
+    """
+
+    def __init__(self, inner: FileBookStore) -> None:
+        self.inner = inner
+        self.calls: list[str] = []
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self.inner, name)
+
+    def load_status(self, book_id: str) -> dict[str, object] | None:
+        self.calls.append("load_status")
+        return self.inner.load_status(book_id)
+
+    def owner_of(self, book_id: str) -> str | None:
+        self.calls.append("owner_of")
+        return self.inner.owner_of(book_id)
+
+    def load_status_and_owner(
+        self, book_id: str
+    ) -> tuple[dict[str, object] | None, str | None]:
+        self.calls.append("load_status_and_owner")
+        return self.inner.load_status_and_owner(book_id)
+
+
+def test_a_poll_reads_the_book_once(
+    settings, provider: RecordingProvider, monkeypatch
+) -> None:
+    """#12: authorisation and payload must come from one store call, not three."""
+    base = build_container(settings, provider=provider)
+    counting = _CountingBookStore(base.book_store)  # type: ignore[arg-type]
+    container = replace(
+        base,
+        book_store=counting,  # type: ignore[arg-type]
+        book_runner=BookRunner(
+            provider=provider,
+            store=base.store,
+            book_store=counting,  # type: ignore[arg-type]
+            gate=base.gate,
+            page_timeout_seconds=settings.generation_timeout_seconds,
+        ),
+    )
+
+    def build(_settings, provider=None):
+        return container
+
+    monkeypatch.setattr("app.main.build_container", build)
+
+    app = create_app(settings, provider=provider)
+    with TestClient(app) as client:
+        portrait = make_portrait(client)
+        start = client.post(
+            "/api/book/start", data={"generation_id": portrait["generation_id"]}
+        )
+        book_id = start.json()["book_id"]
+        assert wait_for_book(client, book_id)["status"] == "complete"
+
+        counting.calls.clear()
+        response = client.get(f"/api/book/{book_id}")
+
+    assert response.status_code == 200, response.text
+    assert counting.calls == ["load_status_and_owner"], counting.calls
+
+
 class TestStartIdempotency:
     """#13: one approved portrait, one book — however many times it is asked.
 

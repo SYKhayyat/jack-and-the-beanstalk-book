@@ -317,11 +317,7 @@ def book_status(
     book_id: str, container: ContainerDep, session: CurrentSessionDep
 ) -> dict[str, object]:
     """The book's progress: status, page list and any failure message."""
-    _ensure_book(book_id, _user_id(session), container)
-    payload = container.book_store.load_status(book_id)
-    if payload is None:
-        raise UnknownBook("No book with that id. It may have expired — start a new one.")
-    return payload
+    return _ensure_book(book_id, _user_id(session), container)
 
 
 # The finished PDF is served under /book-media like every other book artefact,
@@ -401,20 +397,25 @@ def _ensure_book(
     book_id: str,
     user_id: str | None,
     container: ContainerDep,
-) -> None:
-    """Authorise this request to touch a book's artefacts.
+) -> dict[str, object]:
+    """Authorise this request to touch a book's artefacts, and return its status.
 
     Books are keyed to the person who started them. A book with an owner is
     reachable only by that owner — anybody else, signed in or not, gets the
     same plain 404 they would get for a book that does not exist at all, so
     the id leaks no information. An unowned book is open to whoever has a
     session (that only happens where there is no identity to own things).
+
+    Authorisation and payload come from one store call: this is the hot path
+    of the progress UI, and a poll that spends three reads authorising itself
+    is three round trips per browser tab per 1.5 seconds in database mode.
     """
-    if container.book_store.load_status(book_id) is None:
+    payload, owner = container.book_store.load_status_and_owner(book_id)
+    if payload is None:
         raise UnknownBook("No book with that id. It may have expired — start a new one.")
-    owner = container.book_store.owner_of(book_id)
     if owner and owner != (user_id or ""):
         raise UnknownBook("No book with that id. It may have expired — start a new one.")
+    return payload
 
 
 def _client_key(request: Request) -> str:

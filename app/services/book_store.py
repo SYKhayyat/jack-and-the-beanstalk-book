@@ -137,6 +137,22 @@ class BookStore:
         """The payload the status route returns, or None when the book is gone."""
         raise NotImplementedError
 
+    def load_status_and_owner(
+        self, book_id: str
+    ) -> tuple[dict[str, object] | None, str | None]:
+        """The poll document and its owner together, in one read.
+
+        Authorisation and payload used to be two (and, with the status re-read
+        in the route, three) store calls per poll. A browser tab polls every
+        1.5 seconds, so in database mode that was three Postgres round trips
+        for a document the server had already fetched.
+
+        Returns:
+            (payload, owner): payload is None when the book is gone; owner is
+            None for an unowned book.
+        """
+        raise NotImplementedError
+
     # --- artefacts -------------------------------------------------------------
 
     def save_portrait(self, book_id: str, data: bytes) -> None:
@@ -343,6 +359,12 @@ class FileBookStore(BookStore):
             return dict(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, json.JSONDecodeError):
             return None
+
+    def load_status_and_owner(
+        self, book_id: str
+    ) -> tuple[dict[str, object] | None, str | None]:
+        """Both documents a poll needs, from the two files that hold them."""
+        return self.load_status(book_id), self.owner_of(book_id)
 
     # --- artefacts -------------------------------------------------------------
 
