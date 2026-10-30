@@ -66,6 +66,7 @@ class DatabaseBookStore(BookStore):
         user_id: str | None,
         about: AboutMe,
         generation_id: str,
+        fingerprint: str | None = None,
     ) -> None:
         with self._engine.begin() as conn:
             conn.execute(
@@ -74,6 +75,7 @@ class DatabaseBookStore(BookStore):
                     user_id=user_id,
                     status=BookStatus.PENDING,
                     generation_id=generation_id,
+                    request_fingerprint=fingerprint,
                     about=about.model_dump(mode="json"),
                     # The file store has always written the pending document
                     # with the record; do the same here, or a poll landing
@@ -97,7 +99,30 @@ class DatabaseBookStore(BookStore):
             generation_id=row.generation_id,
             created_at=row.created_at.isoformat() if row.created_at else "",
             user_id=row.user_id,
+            fingerprint=row.request_fingerprint,
         )
+
+    def find_started(self, *, fingerprint: str, since: datetime) -> str | None:
+        """One indexed query, newest match first.
+
+        `created_at` is stored naive UTC (SQLite and Postgres agree on that),
+        so the aware window boundary is converted rather than compared
+        directly.
+        """
+        cutoff = since.astimezone(UTC).replace(tzinfo=None)
+        with self._engine.connect() as conn:
+            return conn.execute(
+                select(BookRow.id)
+                .where(
+                    BookRow.request_fingerprint == fingerprint,
+                    BookRow.created_at >= cutoff,
+                    BookRow.status.in_(
+                        (BookStatus.PENDING, BookStatus.RENDERING, BookStatus.COMPLETE)
+                    ),
+                )
+                .order_by(BookRow.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
 
     # --- status ----------------------------------------------------------------
 

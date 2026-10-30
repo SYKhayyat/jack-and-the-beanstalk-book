@@ -74,6 +74,11 @@ class BookRow(Base):
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.sub"), nullable=True)
     status: Mapped[str] = mapped_column(String(16))
     generation_id: Mapped[str] = mapped_column(String(64))
+    #: Hash of the request that started this book, so an identical retry finds
+    #: it instead of billing a second one (`find_started`).
+    request_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     about: Mapped[dict[str, Any]] = mapped_column(JSON)
     prompts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     status_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)

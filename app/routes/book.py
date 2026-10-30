@@ -23,13 +23,18 @@ to the PDF layer — visitor text never reaches a prompt.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
+import threading
 import uuid
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 
 from fastapi import APIRouter, Form, Request, Response, status
 from pydantic import ValidationError
 
+from app.container import Container
 from app.dependencies import ContainerDep
 from app.errors import (
     BookNotReady,
@@ -56,6 +61,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/book", tags=["book"])
 media_router = APIRouter(prefix="/book-media", tags=["book-media"])
+
+#: How long an identical `start` request reuses the book it already started.
+#: Long enough to cover a double-submit, a second tab and a client retrying a
+#: dropped response; short enough that "make another book from this portrait"
+#: works again in the same sitting.
+_START_REUSE_SECONDS = 10 * 60
+
+#: Serialises the find-then-create pair so two identical requests arriving
+#: together cannot both miss each other and start two books. A `threading`
+#: lock, not an asyncio one: the work runs in a worker thread, so the lock is
+#: independent of — and safe across — the several event loops tests create.
+#: It protects one process; two processes could still race, which is why the
+#: store lookup is the real guarantee and this is the cheap belt.
+_start_lock = threading.Lock()
 
 
 @lru_cache(maxsize=1)
@@ -104,6 +123,7 @@ def list_characters() -> dict[str, object]:
 @router.post("/start", status_code=status.HTTP_201_CREATED)
 async def start_book(
     request: Request,
+    response: Response,
     container: ContainerDep,
     session: CurrentSessionDep,
     generation_id: str = Form(
@@ -139,8 +159,14 @@ async def start_book(
     portraits are paid the same way, one /api/cartoonify call each, before
     this endpoint is reached. Returns immediately; poll `GET /api/book/{id}`
     for progress and the PDF link.
+
+    **Idempotent for ten minutes.** A request identical to one that already
+    started a book — same portrait, same About fields, same character photos,
+    same owner — returns that book with `200` and `"reused": true` instead of
+    starting and billing a second one. Double-clicks, a second tab and a
+    client retrying a dropped response all land here. A *failed* book is not
+    reused: asking again after a failure means "try again".
     """
-    _check_rate(request, container)
     client_key = _client_key(request)
     # Every store call here is blocking: file reads for the drafts, and in
     # database mode a network round trip for the record and the portrait blob.
@@ -152,28 +178,40 @@ async def start_book(
         child_name, about_name, about_age, about_title, details, draft.settings
     )
     characters = await asyncio.to_thread(_character_references, character, container)
-    book_id = uuid.uuid4().hex
     # The person the book belongs to. In Google mode every request here has a
     # session (the guard guarantees it); a password or open deployment has no
     # identity to file under, and the book stays unowned.
     user_id = _user_id(session)
 
-    await asyncio.to_thread(
-        container.book_store.save_record,
-        book_id=book_id,
-        user_id=user_id,
-        about=about,
-        generation_id=generation_id,
+    record, reused = await asyncio.to_thread(
+        _start_or_reuse,
+        container,
+        client_key,
+        user_id,
+        generation_id,
+        about,
+        character,
     )
+    book_id = record.book_id
+    if reused:
+        payload = await asyncio.to_thread(container.book_store.load_status, book_id) or {}
+        logger.info(
+            "book.start_reused user=%s book=%s draft=%s",
+            user_id or "-",
+            book_id,
+            generation_id,
+        )
+        response.status_code = status.HTTP_200_OK
+        return {
+            "book_id": book_id,
+            "status": payload.get("status", BookStatus.PENDING),
+            "status_url": f"/api/book/{book_id}",
+            "pdf_url": payload.get("pdf_url"),
+            "reused": True,
+        }
     try:
         await container.book_runner.start(
-            BookRecord(
-                book_id=book_id,
-                user_id=user_id,
-                about=about,
-                generation_id=generation_id,
-                created_at="",
-            ),
+            record,
             characters,
             lambda: container.rate_limiter.allow(client_key, 1),
         )
@@ -195,7 +233,83 @@ async def start_book(
         "status": BookStatus.PENDING,
         "status_url": f"/api/book/{book_id}",
         "pdf_url": container.book_store.pdf_url(book_id),
+        "reused": False,
     }
+
+
+def _start_or_reuse(
+    container: Container,
+    client_key: str,
+    user_id: str | None,
+    generation_id: str,
+    about: AboutMe,
+    character: list[str],
+) -> tuple[BookRecord, bool]:
+    """The book this request already started, or a newly recorded one.
+
+    Runs in a worker thread — every store call here is blocking, and in
+    database mode each is a round trip — under a lock, so the find-then-create
+    pair is one step for concurrent identical requests. The fingerprint covers
+    every input that changes the artefact: the owner, the approved portrait,
+    the About fields and the character photos, so a different name or a
+    different photo is a different book.
+
+    The rate-limit admission is charged here, after the reuse lookup and only
+    for a book that is really about to render. A retry that finds its book
+    started nothing, so it spends nothing — and a request that is over the
+    brake fails before a record exists to clean up.
+    """
+    fingerprint = _request_fingerprint(
+        user_id=user_id, generation_id=generation_id, about=about, character=character
+    )
+    with _start_lock:
+        existing = container.book_store.find_started(
+            fingerprint=fingerprint,
+            since=datetime.now(UTC) - timedelta(seconds=_START_REUSE_SECONDS),
+        )
+        if existing is not None:
+            record = container.book_store.load_record(existing)
+            if record is not None:
+                return record, True
+        _check_rate(client_key, container)
+        book_id = uuid.uuid4().hex
+        container.book_store.save_record(
+            book_id=book_id,
+            user_id=user_id,
+            about=about,
+            generation_id=generation_id,
+            fingerprint=fingerprint,
+        )
+    return (
+        BookRecord(
+            book_id=book_id,
+            user_id=user_id,
+            about=about,
+            generation_id=generation_id,
+            created_at="",
+            fingerprint=fingerprint,
+        ),
+        False,
+    )
+
+
+def _request_fingerprint(
+    *, user_id: str | None, generation_id: str, about: AboutMe, character: list[str]
+) -> str:
+    """A stable hash of everything that would change the finished book."""
+    material = json.dumps(
+        {
+            "user": user_id or "",
+            "generation": generation_id,
+            "about": about.model_dump(mode="json"),
+            # Order is the form's, not the semantics': two requests naming the
+            # same photos in a different order ask for the same book.
+            "characters": sorted(character),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(material.encode()).hexdigest()
 
 
 @router.get("/{book_id}")
@@ -308,8 +422,7 @@ def _client_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _check_rate(request: Request, container: ContainerDep, tokens: int = 1) -> None:
-    client_key = _client_key(request)
+def _check_rate(client_key: str, container: Container, tokens: int = 1) -> None:
     if not container.rate_limiter.allow(client_key, tokens):
         raise GenerationRateLimited(
             "This client has reached the image-generation limit for this minute. "

@@ -70,6 +70,10 @@ class BookRecord:
     #: The Google `sub` of the person it belongs to, or None for an unowned
     #: book (local development, password-only deployments).
     user_id: str | None = None
+    #: A hash of the request that started this book, so an identical retry can
+    #: find it instead of billing a second one. None on books written before
+    #: this field existed.
+    fingerprint: str | None = None
 
 
 class BookStore:
@@ -92,8 +96,25 @@ class BookStore:
         user_id: str | None,
         about: AboutMe,
         generation_id: str,
+        fingerprint: str | None = None,
     ) -> None:
         """Persist the book's request. Written once, before rendering starts."""
+        raise NotImplementedError
+
+    def find_started(self, *, fingerprint: str, since: datetime) -> str | None:
+        """The id of a book already started by this exact request, or None.
+
+        This is what makes `POST /api/book/start` idempotent. One book is
+        twenty billable images, so a double-submitted form, a second tab or a
+        client retrying after a dropped response must find the book that is
+        already rendering rather than start a second one.
+
+        A match is a book whose fingerprint equals `fingerprint`, that started
+        at or after `since`, and that is still worth answering with: pending,
+        rendering or complete. A *failed* book is deliberately not a match —
+        after a failure the visitor asking again is asking for a new attempt,
+        and refusing it would leave them stuck with a dead book.
+        """
         raise NotImplementedError
 
     def load_record(self, book_id: str) -> BookRecord | None:
@@ -213,6 +234,7 @@ class FileBookStore(BookStore):
         user_id: str | None,
         about: AboutMe,
         generation_id: str,
+        fingerprint: str | None = None,
     ) -> None:
         _guard(book_id)
         payload: dict[str, object] = {
@@ -220,6 +242,7 @@ class FileBookStore(BookStore):
             "user_id": user_id,
             "about": about.model_dump(mode="json"),
             "generation_id": generation_id,
+            "request_fingerprint": fingerprint,
             "created_at": _now(),
             "status": BookStatus.PENDING,
             "pages": [],
@@ -241,13 +264,36 @@ class FileBookStore(BookStore):
         except (OSError, json.JSONDecodeError, KeyError, ValueError):
             return None
         owner = payload.get("user_id")
+        fingerprint = payload.get("request_fingerprint")
         return BookRecord(
             book_id=book_id,
             about=about,
             generation_id=str(payload["generation_id"]),
             created_at=str(payload.get("created_at", "")),
             user_id=str(owner) if owner else None,
+            fingerprint=str(fingerprint) if fingerprint else None,
         )
+
+    def find_started(self, *, fingerprint: str, since: datetime) -> str | None:
+        """Scan the book directories for an identical request in flight.
+
+        Books are few and short-lived (retention deletes them), so a directory
+        scan is the honest filesystem answer to a lookup by value. Each
+        candidate costs two small JSON reads; a status that cannot be read is
+        skipped rather than treated as a match.
+        """
+        for directory in self.root.iterdir():
+            if not directory.is_dir() or not _safe(directory.name):
+                continue
+            record = self.load_record(directory.name)
+            if record is None or record.fingerprint != fingerprint:
+                continue
+            status = self.load_status(directory.name)
+            if status is None or status.get("status") not in _REUSABLE_STATUSES:
+                continue
+            if _started_at_or_after(record.created_at, since):
+                return directory.name
+        return None
 
     # --- status ----------------------------------------------------------------
 
@@ -442,6 +488,22 @@ def _safe(book_id: str) -> bool:
         and not book_id.startswith(".")
         and not any(part in book_id for part in ("/", "\\", "..", "\x00"))
     )
+
+
+#: The states in which an identical `start` request should be answered with
+#: the book that already exists rather than a second one.
+_REUSABLE_STATUSES = frozenset({BookStatus.PENDING, BookStatus.RENDERING, BookStatus.COMPLETE})
+
+
+def _started_at_or_after(created_at: str, since: datetime) -> bool:
+    """Whether a stored (ISO) creation time is inside the reuse window."""
+    try:
+        started = datetime.fromisoformat(created_at)
+    except (TypeError, ValueError):
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    return started >= since
 
 
 def _now() -> str:

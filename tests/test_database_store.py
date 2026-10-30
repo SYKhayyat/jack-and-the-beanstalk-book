@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -183,6 +184,53 @@ def test_data_survives_rebuilding_the_process(tmp_path: Path) -> None:
         assert reloaded.owner_of("book-1") == USER
     finally:
         second.dispose()
+
+
+def test_find_started_matches_an_identical_live_request(store: DatabaseBookStore) -> None:
+    """The idempotency lookup: same fingerprint, inside the window, not failed."""
+    store.save_record(
+        book_id="book-1",
+        user_id=USER,
+        about=ABOUT,
+        generation_id="gen-1",
+        fingerprint="fp-1",
+    )
+    now = datetime.now(UTC)
+
+    assert store.find_started(fingerprint="fp-1", since=now - timedelta(minutes=5)) == "book-1"
+    # A different request is a different book.
+    assert store.find_started(fingerprint="fp-2", since=now - timedelta(minutes=5)) is None
+    # The window is a window: a request older than it is not reused.
+    assert store.find_started(fingerprint="fp-1", since=now + timedelta(minutes=5)) is None
+
+
+def test_find_started_skips_a_failed_book(store: DatabaseBookStore) -> None:
+    """After a failure the visitor asking again is asking for a new attempt."""
+    store.save_record(
+        book_id="book-1",
+        user_id=USER,
+        about=ABOUT,
+        generation_id="gen-1",
+        fingerprint="fp-1",
+    )
+    store.save_status("book-1", BookStatus.FAILED, [], error="boom")
+
+    assert (
+        store.find_started(fingerprint="fp-1", since=datetime.now(UTC) - timedelta(minutes=5))
+        is None
+    )
+
+
+def test_find_started_ignores_a_record_without_a_fingerprint(
+    store: DatabaseBookStore,
+) -> None:
+    """Rows written before this column existed can never match a request."""
+    _seed(store)
+
+    assert (
+        store.find_started(fingerprint="fp-1", since=datetime.now(UTC) - timedelta(minutes=5))
+        is None
+    )
 
 
 def test_a_mid_render_book_is_reaped_on_restart(store: DatabaseBookStore) -> None:

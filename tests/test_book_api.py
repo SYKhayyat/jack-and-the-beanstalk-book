@@ -17,6 +17,7 @@ from app.container import build_container
 from app.main import create_app
 from app.models import REJECTION_CLAUSES, RejectionReason
 from app.models.book import BOOK_PAGES, AboutMe
+from app.routes import book as book_routes
 from app.services.book_runner import BookRunner
 from app.services.book_store import FileBookStore
 from app.services.image_providers.base import (
@@ -584,18 +585,6 @@ class _ThreadRecordingStore(FileBookStore):
         super().save_portrait(book_id, data)
 
 
-class _ThreadRecordingLimiter(GenerationRateLimiter):
-    """Records the event-loop thread by marking where `allow` was called."""
-
-    def __init__(self, limit: int) -> None:
-        super().__init__(limit)
-        self.threads: dict[str, int] = {}
-
-    def allow(self, client_key: str, tokens: int = 1) -> bool:
-        self.threads["allow"] = threading.get_ident()
-        return super().allow(client_key, tokens)
-
-
 def test_book_start_moves_its_blocking_store_calls_off_the_loop(
     settings, provider: RecordingProvider, monkeypatch
 ) -> None:
@@ -607,7 +596,6 @@ def test_book_start_moves_its_blocking_store_calls_off_the_loop(
     async route itself runs on (recorded through the rate limiter).
     """
     store = _ThreadRecordingStore(settings.storage_dir / "books")
-    limiter = _ThreadRecordingLimiter(30)
     base = build_container(settings, provider=provider)
     container = replace(
         base,
@@ -619,13 +607,22 @@ def test_book_start_moves_its_blocking_store_calls_off_the_loop(
             gate=base.gate,
             page_timeout_seconds=settings.generation_timeout_seconds,
         ),
-        rate_limiter=limiter,
     )
 
     def build(_settings, provider=None):
         return container
 
     monkeypatch.setattr("app.main.build_container", build)
+    # The route reads the client key on the loop before it hands the store calls
+    # to a worker thread, so that call is the loop's own witness.
+    loop_threads: list[int] = []
+    real_client_key = book_routes._client_key
+
+    def record_client_key(request):
+        loop_threads.append(threading.get_ident())
+        return real_client_key(request)
+
+    monkeypatch.setattr(book_routes, "_client_key", record_client_key)
 
     app = create_app(settings, provider=provider)
     with TestClient(app) as client:
@@ -637,9 +634,81 @@ def test_book_start_moves_its_blocking_store_calls_off_the_loop(
         wait_for_book(client, start.json()["book_id"])
 
     assert set(store.threads) == {"save_record", "save_portrait"}
-    loop_thread = limiter.threads["allow"]
+    assert loop_threads, "the route never ran"
+    loop_thread = loop_threads[0]
     assert store.threads["save_record"] != loop_thread
     assert store.threads["save_portrait"] != loop_thread
+
+
+class TestStartIdempotency:
+    """#13: one approved portrait, one book — however many times it is asked.
+
+    A book is twenty billable images. A double-clicked approve button, a second
+    tab, or a client retrying after a dropped response must find the book that
+    is already rendering rather than bill a second one.
+    """
+
+    def _start(self, client: TestClient, generation_id: object, **fields: str):
+        return client.post(
+            "/api/book/start",
+            data={"generation_id": generation_id, **fields},
+        )
+
+    def test_an_identical_second_start_returns_the_same_book(
+        self, client: TestClient, provider: RecordingProvider
+    ) -> None:
+        portrait = make_portrait(client)
+        first = self._start(client, portrait["generation_id"], child_name="Shai")
+        assert first.status_code == 201, first.text
+        assert first.json()["reused"] is False
+        book_id = first.json()["book_id"]
+        assert wait_for_book(client, book_id)["status"] == "complete"
+
+        calls_before = len(provider.requests)
+        second = self._start(client, portrait["generation_id"], child_name="Shai")
+
+        assert second.status_code == 200, second.text
+        assert second.json()["reused"] is True
+        assert second.json()["book_id"] == book_id
+        # Not one extra image was bought by the retry.
+        assert len(provider.requests) == calls_before
+        assert client.get(second.json()["status_url"]).json()["status"] == "complete"
+
+    def test_a_different_answer_is_a_different_book(self, client: TestClient) -> None:
+        """Same portrait, different child name: the visitor asked for a change."""
+        portrait = make_portrait(client)
+        first = self._start(client, portrait["generation_id"], child_name="Shai")
+        second = self._start(client, portrait["generation_id"], child_name="Noa")
+
+        assert second.status_code == 201, second.text
+        assert second.json()["reused"] is False
+        assert second.json()["book_id"] != first.json()["book_id"]
+
+    def test_a_failed_book_is_not_reused(self, client_factory) -> None:
+        """Asking again after a failure means try again, not "here is the corpse"."""
+        with client_factory(FailingPageProvider(fail_page=2)) as failing_client:
+            portrait = make_portrait(failing_client)
+            first = self._start(failing_client, portrait["generation_id"])
+            assert first.status_code == 201
+            failed = wait_for_book(failing_client, first.json()["book_id"])
+            assert failed["status"] == "failed", failed
+
+            retry = self._start(failing_client, portrait["generation_id"])
+
+        assert retry.status_code == 201, retry.text
+        assert retry.json()["reused"] is False
+        assert retry.json()["book_id"] != first.json()["book_id"]
+
+    def test_the_reuse_window_expires(self, client: TestClient, monkeypatch) -> None:
+        """A later identical request is a new book, not a stale replay."""
+        monkeypatch.setattr(book_routes, "_START_REUSE_SECONDS", 0)
+        portrait = make_portrait(client)
+        first = self._start(client, portrait["generation_id"], child_name="Shai")
+        second = self._start(client, portrait["generation_id"], child_name="Shai")
+
+        assert second.status_code == 201, second.text
+        assert second.json()["reused"] is False
+        assert second.json()["book_id"] != first.json()["book_id"]
 
 
 class TestBookRateBudget:
