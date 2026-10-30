@@ -365,8 +365,16 @@ class BookRunner:
             hop = asyncio.create_task(asyncio.to_thread(work))
             try:
                 return await asyncio.wait_for(asyncio.shield(hop), timeout=self._page_timeout)
-            except TimeoutError:
-                _hand_slot_to_worker(slot, hop)
+            except BaseException:
+                # A deadline is not the only way to stop waiting: the task is
+                # also cancelled when the book is cancelled (server shutdown,
+                # or a caller giving up). The worker thread cannot be
+                # interrupted either way, and it may still be billing, so the
+                # slot belongs to it until it finishes. Letting the lease
+                # release it here would tell the gate the server is idle while
+                # a billable call is still running.
+                if not hop.done():
+                    _hand_slot_to_worker(slot, hop)
                 raise
 
     # --- helpers ----------------------------------------------------------------
@@ -469,10 +477,10 @@ def _references(
 
 
 def _hand_slot_to_worker(slot: Slot, hop: asyncio.Task[object]) -> None:
-    """Give the slot to work that outlives the awaited deadline.
+    """Give the slot to work that outlives the awaited request.
 
-    The page request may have timed out, but its worker thread is still
-    generating (and possibly billing). The gate must show busy until that
+    The request may have timed out or been cancelled, but its worker thread is
+    still generating (and possibly billing). The gate must show busy until that
     worker really finishes, so the worker releases the slot when it is done.
     """
     slot.transfer()

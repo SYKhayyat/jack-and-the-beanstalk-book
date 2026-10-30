@@ -10,12 +10,14 @@ import asyncio
 import threading
 from pathlib import Path
 
+import pytest
+
 from app.models import CartoonSettings
 from app.models.book import BOOK_PAGES, AboutMe
 from app.services import book_runner as book_runner_module
 from app.services.book_runner import BookRunner
 from app.services.book_store import BookRecord, BookStatus, FileBookStore
-from app.services.concurrency import ConcurrencyGate
+from app.services.concurrency import ConcurrencyGate, GateTimeout
 from app.services.image_providers.base import GeneratedImage, ImageRequest
 from app.services.pipeline import GenerationPipeline
 from app.services.storage import GenerationStore
@@ -100,6 +102,64 @@ def test_titles_are_rendered_per_page_not_per_status_write(
     # One pass for the titles, one for each page's PDF art. Before the fix the
     # same work happened on all ~2N status writes as well.
     assert len(rendered) <= 2 * len(BOOK_PAGES), len(rendered)
+
+
+def test_a_cancelled_page_leaves_its_slot_to_the_running_worker(tmp_path: Path) -> None:
+    """#23: cancelling the wait must not free a slot while a call is in flight.
+
+    The worker thread cannot be interrupted, and it may still be billing, so a
+    cancelled page must hand its slot over exactly as a timed-out one does.
+    """
+    store = GenerationStore(tmp_path / "drafts")
+    book_store = FileBookStore(tmp_path / "books")
+    generation_id = _persisted_draft(store)
+    provider = _BlockingProvider()
+    gate = ConcurrencyGate(1)
+    runner = BookRunner(
+        provider=provider,
+        store=store,
+        book_store=book_store,
+        gate=gate,
+        page_timeout_seconds=30,
+    )
+    record = BookRecord(
+        book_id="cancelled-page",
+        about=AboutMe(prompt_name="Jack", about_name="Jack"),
+        generation_id=generation_id,
+        created_at="",
+    )
+    book_store.save_record(
+        book_id=record.book_id,
+        user_id=None,
+        about=record.about,
+        generation_id=generation_id,
+    )
+
+    async def scenario() -> None:
+        await runner.start(record)
+        assert await asyncio.to_thread(provider.entered.wait, 5.0), "no page started"
+        for task in list(runner._tasks):
+            task.cancel()
+        await asyncio.gather(*runner._tasks, return_exceptions=True)
+
+        # The page's thread is still inside the provider call, so the single
+        # slot is still taken: a new generation must queue, not run beside it.
+        with pytest.raises(GateTimeout):
+            async with gate.lease(timeout=0.2):
+                pass
+
+        provider.release.set()
+        deadline = asyncio.get_running_loop().time() + 5.0
+        while True:
+            try:
+                async with gate.lease(timeout=0.05):
+                    return
+            except GateTimeout:
+                if asyncio.get_running_loop().time() > deadline:
+                    raise
+                await asyncio.sleep(0.02)
+
+    asyncio.run(scenario())
 
 
 def test_a_cancelled_render_is_recorded_as_failed(tmp_path: Path) -> None:
