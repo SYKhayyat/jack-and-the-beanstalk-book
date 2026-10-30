@@ -774,6 +774,18 @@ variable empty, nothing ever touches a database.
 | `MAX_CONCURRENT_GENERATIONS` | `2` | Admission control per process. Beyond this, requests queue and then get 429. |
 | `MAX_GENERATIONS_PER_MINUTE` | `30` | Per-client abuse brake for billable requests; Render's blueprint uses `12`. |
 | `STORAGE_DIR` | `./storage` | Created on startup |
+| `DRAFT_RETENTION_HOURS` | `24` | How long an uploaded photo and the portraits made from it are kept. Swept on boot and hourly. |
+| `BOOK_RETENTION_DAYS` | `7` | How long a finished (or failed) book is kept after it started; then its portrait, pages and PDF are deleted. |
 | `DATABASE_URL` | *(empty)* | Postgres URL (Neon pooled endpoint). Set = books/people persist in the database and survive restarts; empty = everything on disk. Apply the schema once with `make migrate`. |
 
 `MAX_UPLOAD_MB` and `STORAGE_DIR` map to `MAX_UPLOAD_MB` and `STORAGE_DIR`.
+
+**Retention.** Nothing is kept forever. An uploaded photograph and the cartoon
+portraits made from it are deleted after `DRAFT_RETENTION_HOURS` (a day by
+default — the review flow only needs minutes); a finished book, with its
+portrait, nineteen pages and PDF, is deleted `BOOK_RETENTION_DAYS` after it
+started (a week by default). A book still pending or rendering is never expired.
+The sweep runs once at boot and then hourly, and works the same in both
+storage modes, so a deployment's disk and a Neon database both stay bounded.
+Retention is per-deployment, not per-visitor: there is no "delete my book"
+control in the UI, and lowering the setting is how an operator shortens it.

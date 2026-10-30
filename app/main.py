@@ -7,9 +7,10 @@ touching global state.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from time import monotonic
 
@@ -20,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.auth import AuthGate
 from app.config import Settings, get_settings
-from app.container import build_container
+from app.container import Container, build_container
 from app.db import database_secrets
 from app.errors import register_exception_handlers
 from app.logging_context import (
@@ -55,13 +56,62 @@ MAX_BODY_BYTES = 20 * 1024 * 1024
 _OAUTH_TIMEOUT = 30.0
 
 
+#: How often a running server sweeps expired drafts and books. Hourly is
+#: free and keeps a long-lived instance from holding a week of photographs
+#: that only a restart would otherwise clear.
+_EXPIRY_INTERVAL_SECONDS = 3600.0
+
+
+def expire_once(container: Container) -> tuple[int, int]:
+    """Delete drafts and books past their retention windows.
+
+    One policy for both stores, expressed once: the windows are settings, and
+    every store implements the deletion behind `expire`. Returns (drafts,
+    books) removed, so the caller can log one line instead of two.
+    """
+    drafts = container.store.expire(
+        older_than_seconds=container.settings.draft_retention_hours * 3600
+    )
+    books = container.book_store.expire(
+        older_than_seconds=container.settings.book_retention_days * 24 * 3600
+    )
+    if drafts or books:
+        logger.info("storage.expired drafts=%d books=%d", drafts, books)
+    return drafts, books
+
+
+async def _sweep_expired(container: Container) -> None:
+    """Run `expire_once` for as long as the server lives.
+
+    A failure is logged and the sweep continues: a transient error deleting
+    one directory must not stop retention for the rest of the process, and
+    the next hour retries.
+    """
+    while True:
+        await asyncio.sleep(_EXPIRY_INTERVAL_SECONDS)
+        try:
+            await asyncio.to_thread(expire_once, container)
+        except Exception:
+            logger.warning("storage.expire_failed", exc_info=True)
+
+
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Boot/reap book jobs around the server's life."""
-    reaped = app.state.container.book_store.reap_incomplete()
+    """Boot/reap book jobs, sweep expired data, and keep sweeping."""
+    container = app.state.container
+    reaped = container.book_store.reap_incomplete()
     if reaped:
         logger.info("book.reaped_start reaped=%d", reaped)
-    yield
+    # At boot, directly and before serving: a restart is the one moment the
+    # process is guaranteed idle, so the sweep cannot race a live render.
+    expire_once(container)
+    sweeper = asyncio.create_task(_sweep_expired(container))
+    try:
+        yield
+    finally:
+        sweeper.cancel()
+        with suppress(asyncio.CancelledError):
+            await sweeper
 
 
 def create_app(

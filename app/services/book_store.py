@@ -39,7 +39,7 @@ import os
 import threading
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -194,6 +194,24 @@ class BookStore:
         """Mark books still rendering as failed (a restart orphaned them).
 
         Returns the number of books marked.
+        """
+        raise NotImplementedError
+
+    def expire(self, *, older_than_seconds: float) -> int:
+        """Delete books that finished longer ago than the retention window.
+
+        Books hold a portrait, nineteen page images and a PDF of a child —
+        several megabytes each, and nothing a visitor asked to keep forever.
+        Without this, a deployment's storage grows for as long as it runs and
+        the pictures of children in it are retained indefinitely.
+
+        A book that is still pending or rendering is never expired, whatever
+        its age: it is live work, and retention is measured from completion.
+        A directory with no readable record at all is removed once it is old
+        enough, because nothing will ever read it again.
+
+        Returns:
+            How many books were removed.
         """
         raise NotImplementedError
 
@@ -437,6 +455,33 @@ class FileBookStore(BookStore):
             reaped += 1
             logger.warning("book.reaped id=%s (server restart)", directory.name)
         return reaped
+
+    def expire(self, *, older_than_seconds: float) -> int:
+        """Delete finished books older than the window; see `BookStore.expire`."""
+        if older_than_seconds <= 0:
+            return 0
+        cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
+        removed = 0
+        for directory in self.root.iterdir():
+            if not directory.is_dir() or not _safe(directory.name):
+                continue
+            status = self.load_status(directory.name)
+            if status is not None and status.get("status") in {
+                BookStatus.PENDING,
+                BookStatus.RENDERING,
+            }:
+                continue
+            record = self.load_record(directory.name)
+            if record is not None:
+                if _started_at_or_after(record.created_at, cutoff):
+                    continue
+            elif directory.stat().st_mtime > cutoff.timestamp():
+                # No record to date it by — and not old enough to be junk.
+                continue
+            self.delete(directory.name)
+            removed += 1
+            logger.info("book.expired id=%s", directory.name)
+        return removed
 
     # --- plumbing --------------------------------------------------------------
 

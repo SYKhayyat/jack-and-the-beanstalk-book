@@ -13,12 +13,16 @@ object storage or a database.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
+from time import time
 
 from app.models import CartoonSettings
 
 __all__ = ["Draft", "GenerationStore", "StoredGeneration"]
+
+logger = logging.getLogger(__name__)
 
 
 class StoredGeneration:
@@ -215,6 +219,62 @@ class GenerationStore:
             if child.is_file():
                 child.unlink()
         stored.directory.rmdir()
+
+    def expire(self, *, older_than_seconds: float) -> int:
+        """Delete every draft whose newest file is older than the window.
+
+        Drafts are a child's uploaded photo and the portraits made from it, and
+        they exist only so the review flow can survive a restart: keeping them
+        after that is retention nobody asked for. The review flow needs
+        minutes, so the window (`Settings.draft_retention_hours`) is hours.
+
+        Age is the newest file's mtime, not the directory's: every write to a
+        draft touches a file inside it, so the newest file is the last activity.
+        A draft written while this runs is therefore never mistaken for stale.
+
+        Only a directory holding a `draft.json` is a draft. The store's root
+        also holds the app's other directories (`books/`, `users/`), and those
+        must never be mistaken for a stale generation.
+
+        Returns:
+            How many drafts were removed.
+        """
+        if older_than_seconds <= 0:
+            return 0
+        # `st_mtime` is epoch seconds, so the window boundary must be too.
+        cutoff = time() - older_than_seconds
+        removed = 0
+        for directory in self.root.iterdir():
+            if not directory.is_dir() or not _is_safe_id(directory.name):
+                continue
+            if not (directory / "draft.json").is_file():
+                continue
+            if _newest_file_mtime(directory) > cutoff:
+                continue
+            self.delete(directory.name)
+            removed += 1
+            logger.info("draft.expired id=%s", directory.name)
+        return removed
+
+
+def _newest_file_mtime(directory: Path) -> float:
+    """The most recent write inside `directory`, or 0 if it holds no files.
+
+    A directory with no readable files must not read as "brand new": 0 is
+    older than any cutoff, so it is cleaned up rather than kept forever.
+    """
+    newest = 0.0
+    try:
+        for child in directory.iterdir():
+            if not child.is_file():
+                continue
+            try:
+                newest = max(newest, child.stat().st_mtime)
+            except OSError:
+                continue
+    except OSError:
+        return 0.0
+    return newest
 
 
 def _filename(stem: str, data: bytes) -> str:

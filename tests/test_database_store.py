@@ -186,6 +186,46 @@ def test_data_survives_rebuilding_the_process(tmp_path: Path) -> None:
         second.dispose()
 
 
+def test_expire_deletes_only_finished_old_books(store: DatabaseBookStore, engine: Any) -> None:
+    """#10: retention in database mode, where the size limit is real."""
+    week = 7 * 24 * 3600
+    for book_id, status in (
+        ("old-complete", BookStatus.COMPLETE),
+        ("old-failed", BookStatus.FAILED),
+        ("old-rendering", BookStatus.RENDERING),
+        ("young", BookStatus.COMPLETE),
+    ):
+        store.save_record(book_id=book_id, user_id=USER, about=ABOUT, generation_id="gen")
+        store.save_status(book_id, status, [])
+    store.save_page("old-complete", 1, b"PNG-PAGE")
+
+    old = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=8)
+    with engine.begin() as conn:
+        conn.execute(
+            update(BookRow)
+            .where(BookRow.id.in_(("old-complete", "old-failed", "old-rendering")))
+            .values(created_at=old)
+        )
+
+    assert store.expire(older_than_seconds=week) == 2
+
+    assert store.load_status("old-complete") is None
+    assert store.read_page("old-complete", 1) is None
+    assert store.load_status("old-failed") is None
+    # A book still being made, and one inside the window, both survive.
+    assert store.load_status("old-rendering") is not None
+    assert store.load_status("young") is not None
+    with engine.connect() as conn:
+        assert conn.execute(select(func.count()).select_from(BookPageRow)).scalar_one() == 0
+
+
+def test_expire_with_a_zero_window_deletes_nothing(store: DatabaseBookStore) -> None:
+    _seed(store)
+    store.save_status("book-1", BookStatus.COMPLETE, [])
+    assert store.expire(older_than_seconds=0) == 0
+    assert store.load_status("book-1") is not None
+
+
 def test_find_started_matches_an_identical_live_request(store: DatabaseBookStore) -> None:
     """The idempotency lookup: same fingerprint, inside the window, not failed."""
     store.save_record(

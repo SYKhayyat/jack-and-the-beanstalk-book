@@ -189,6 +189,26 @@ class Settings(BaseSettings):
         default=BASE_DIR / "storage",
         description="Where uploads and generated images are written.",
     )
+    draft_retention_hours: int = Field(
+        default=24,
+        ge=1,
+        le=24 * 30,
+        description=(
+            "How long an uploaded photo and the portrait made from it are kept. "
+            "The review flow needs minutes; the rest of the window is slack for "
+            "a slow visit, not an archive. Expired on boot and hourly after that."
+        ),
+    )
+    book_retention_days: int = Field(
+        default=7,
+        ge=1,
+        le=365,
+        description=(
+            "How long a finished (or failed) book is kept before its pages, "
+            "portrait and PDF are deleted. Books of a child's photographs should "
+            "not be retained forever, and a database has a size limit."
+        ),
+    )
 
     database_url: str = Field(
         default="",

@@ -3,18 +3,30 @@
 from __future__ import annotations
 
 import io
+import json
+import os
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import time
 
 import pytest
 from PIL import Image
 from pydantic import ValidationError
 
 from app.config import ProviderName, Settings
+from app.container import build_container
+from app.main import expire_once
 from app.models import CartoonSettings
+from app.models.book import AboutMe
 from app.models.settings import CartoonStyle, LikenessStrength
+from app.services.book_store import BookStatus, FileBookStore
 from app.services.storage import Draft, GenerationStore
-from tests.helpers import tiny_png_bytes
+from tests.helpers import RecordingProvider, tiny_png_bytes
+
+ABOUT = AboutMe.model_validate({"prompt_name": "Jack", "about_name": "Jack"})
+HOUR = 3600.0
+DAY = 24 * HOUR
 
 
 class TestCartoonSettings:
@@ -165,6 +177,133 @@ class TestGenerationStore:
 
         assert not stored.directory.exists()
         assert store.read_image("abc123", "cartoon") is None
+
+
+def _age_files(directory: Path, seconds: float) -> None:
+    """Backdate every file in `directory`, as if it had been written then."""
+    stamp = time() - seconds
+    for child in directory.iterdir():
+        if child.is_file():
+            os.utime(child, (stamp, stamp))
+
+
+def _age_book(store: FileBookStore, book_id: str, seconds: float) -> None:
+    """Rewrite a book's recorded start time, so retention sees it as old."""
+    path = store.path(book_id, "book.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["created_at"] = (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat()
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+class TestDraftRetention:
+    """#10: a child's upload must not be kept for the life of the deployment."""
+
+    def test_an_old_draft_is_deleted_and_a_fresh_one_kept(self, tmp_path: Path) -> None:
+        store = GenerationStore(tmp_path)
+        store.save_draft(make_draft("old"))
+        store.save_draft(make_draft("fresh"))
+        _age_files(tmp_path / "old", 2 * HOUR)
+
+        assert store.expire(older_than_seconds=HOUR) == 1
+
+        assert not (tmp_path / "old").exists()
+        assert store.load_draft("old") is None
+        assert store.load_draft("fresh") is not None
+
+    def test_the_newest_file_dates_a_draft(self, tmp_path: Path) -> None:
+        """Writing a draft touches files inside it, so age must follow them."""
+        store = GenerationStore(tmp_path)
+        store.save_draft(make_draft("touched"))
+        # Old portrait, freshly re-saved draft document: the draft is live.
+        _age_files(tmp_path / "touched", 2 * HOUR)
+        (tmp_path / "touched" / "draft.json").touch()
+
+        assert store.expire(older_than_seconds=HOUR) == 0
+        assert store.load_draft("touched") is not None
+
+    def test_a_zero_window_deletes_nothing(self, tmp_path: Path) -> None:
+        store = GenerationStore(tmp_path)
+        store.save_draft(make_draft("kept"))
+        assert store.expire(older_than_seconds=0) == 0
+        assert store.load_draft("kept") is not None
+
+
+class TestBookRetention:
+    """#10: finished books are megabytes of a child's photographs."""
+
+    def _book(self, store: FileBookStore, book_id: str, status: str) -> None:
+        store.save_record(book_id=book_id, user_id=None, about=ABOUT, generation_id="gen-1")
+        store.save_status(book_id, status, [])
+
+    def test_an_old_finished_book_is_deleted(self, tmp_path: Path) -> None:
+        store = FileBookStore(tmp_path / "books")
+        self._book(store, "old", BookStatus.COMPLETE)
+        store.save_page("old", 1, b"PNG-PAGE")
+        self._book(store, "fresh", BookStatus.COMPLETE)
+        _age_book(store, "old", 8 * DAY)
+
+        assert store.expire(older_than_seconds=7 * DAY) == 1
+
+        # The whole directory goes: pages, portrait and PDF with it.
+        assert store.load_status("old") is None
+        assert store.read_page("old", 1) is None
+        assert not (tmp_path / "books" / "old").exists()
+        assert store.load_status("fresh") is not None
+
+    def test_an_old_failed_book_is_deleted(self, tmp_path: Path) -> None:
+        store = FileBookStore(tmp_path / "books")
+        self._book(store, "failed", BookStatus.FAILED)
+        _age_book(store, "failed", 8 * DAY)
+
+        assert store.expire(older_than_seconds=7 * DAY) == 1
+        assert store.load_status("failed") is None
+
+    @pytest.mark.parametrize("status", [BookStatus.PENDING, BookStatus.RENDERING])
+    def test_a_live_book_is_never_expired(self, tmp_path: Path, status: str) -> None:
+        """Age is not enough: a book that is still being made is not rubbish."""
+        store = FileBookStore(tmp_path / "books")
+        self._book(store, "live", status)
+        _age_book(store, "live", 8 * DAY)
+
+        assert store.expire(older_than_seconds=7 * DAY) == 0
+        assert store.load_status("live") is not None
+
+    def test_a_zero_window_deletes_nothing(self, tmp_path: Path) -> None:
+        store = FileBookStore(tmp_path / "books")
+        self._book(store, "kept", BookStatus.COMPLETE)
+        assert store.expire(older_than_seconds=0) == 0
+        assert store.load_status("kept") is not None
+
+
+class TestTheSweep:
+    """The lifespan sweep applies one policy to both stores."""
+
+    def test_startup_deletes_everything_past_retention(self, settings: Settings) -> None:
+        container = build_container(settings, provider=RecordingProvider())
+        draft = container.store.save_draft(make_draft("old-draft"))
+        _age_files(draft.directory, 25 * HOUR)
+        container.book_store.save_record(
+            book_id="old-book", user_id=None, about=ABOUT, generation_id="old-draft"
+        )
+        container.book_store.save_status("old-book", BookStatus.COMPLETE, [])
+        _age_book(container.book_store, "old-book", 8 * DAY)
+
+        assert expire_once(container) == (1, 1)
+
+        assert container.store.load_draft("old-draft") is None
+        assert container.book_store.load_status("old-book") is None
+
+    def test_a_young_deployment_loses_nothing(self, settings: Settings) -> None:
+        container = build_container(settings, provider=RecordingProvider())
+        container.store.save_draft(make_draft("fresh-draft"))
+        container.book_store.save_record(
+            book_id="fresh-book", user_id=None, about=ABOUT, generation_id="fresh-draft"
+        )
+        container.book_store.save_status("fresh-book", BookStatus.COMPLETE, [])
+
+        assert expire_once(container) == (0, 0)
+        assert container.store.load_draft("fresh-draft") is not None
+        assert container.book_store.load_status("fresh-book") is not None
 
 
 def get_settings_cache_clear() -> None:

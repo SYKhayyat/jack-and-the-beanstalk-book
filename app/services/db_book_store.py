@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from sqlalchemy import delete, select, update
@@ -323,6 +323,33 @@ class DatabaseBookStore(BookStore):
                 reaped += 1
                 logger.warning("book.reaped id=%s (server restart)", book_id)
         return reaped
+
+    def expire(self, *, older_than_seconds: float) -> int:
+        """Delete finished books older than the window; see `BookStore.expire`.
+
+        Page rows go first: they carry the foreign key, and this delete is not
+        declared `ON DELETE CASCADE` in the schema. All of it is one
+        transaction, so a poll never sees a book whose pages are gone.
+        """
+        if older_than_seconds <= 0:
+            return 0
+        cutoff = _now() - timedelta(seconds=older_than_seconds)
+        with self._engine.begin() as conn:
+            stale = (
+                conn.execute(
+                    select(BookRow.id).where(
+                        BookRow.created_at < cutoff,
+                        BookRow.status.in_((BookStatus.COMPLETE, BookStatus.FAILED)),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for book_id in stale:
+                conn.execute(delete(BookPageRow).where(BookPageRow.book_id == book_id))
+                conn.execute(delete(BookRow).where(BookRow.id == book_id))
+                logger.info("book.expired id=%s", book_id)
+        return len(stale)
 
 
 def _media_type(data: bytes) -> str:
