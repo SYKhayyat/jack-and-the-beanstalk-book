@@ -127,6 +127,14 @@ _INTENSITY_DESCRIPTIONS: dict[int, str] = {
     int(step): text for step, text in _DATA["intensity"].items()
 }
 
+# The same dial as book pages read it: how graphic the rendering is *inside*
+# the book's one fixed style. The portrait bands describe a photograph being
+# stylised ("keep the photograph almost intact" at 1 to 3), which contradicts the
+# page's own "nothing photorealistic" rule, so book pages never use them.
+_BOOK_INTENSITY_DESCRIPTIONS: dict[int, str] = {
+    int(step): text for step, text in cast("dict[str, str]", _BOOK["intensity"]).items()
+}
+
 _PHOTOREAL: dict[str, str] = _DATA["photoreal"]
 
 # The book's one fixed style sentence. `[book].style` holds the *key* of the
@@ -209,6 +217,16 @@ def _reference_map(character_photos: Iterable[str]) -> str:
 
 def _intensity_text(intensity: int) -> str:
     return _INTENSITY_DESCRIPTIONS[max(1, min(10, intensity))]
+
+
+def _book_intensity_text(intensity: int) -> str:
+    """The dial's wording on a book page: graphic-ness inside the fixed style.
+
+    Deliberately not falling back to the portrait bands: a missing band is a
+    data bug that would put "keep the photograph almost intact" on a page, and
+    `tests/test_book_prompts.py` fails if any band is missing.
+    """
+    return _BOOK_INTENSITY_DESCRIPTIONS[max(1, min(10, intensity))]
 
 
 def _photoreal_keywords(intensity: int) -> str:
@@ -369,7 +387,9 @@ def build_book_page_prompt(
         _ASSEMBLY["art_style"].format(style=_BOOK_STYLE),
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
         _avoid_clause(page.scene),
-        _ASSEMBLY["stylisation"].format(intensity=_intensity_text(settings.cartoon_intensity)),
+        task_book["stylisation"].format(
+            intensity=_book_intensity_text(settings.cartoon_intensity)
+        ),
         # The book's own negative tail: the single-scene tail's "only the one
         # person described above" contradicts the pages that require the
         # mother, which is how the child's face got onto her.

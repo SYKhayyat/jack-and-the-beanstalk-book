@@ -270,6 +270,22 @@ no_text = "Do not draw any text, lettering, numbers, watermark, signature, logo,
 # is a book-wide rule, and one place cannot drift from the others.
 negative = "Do not draw any text, letters, numbers, watermark, signature, logo, caption or speech bubble anywhere in the image — the page's story text is added later, outside this image, so any writing you draw would be doubled up and garbled. Every person is drawn with exactly two arms and two legs, and every animal with its own natural number of legs: no fifth limb, no extra, fused, doubled or duplicated limbs, no extra fingers, no distorted hands, no duplicate faces. The page shows exactly the characters its scene names and no others, and nothing borrowed from another page of the book. Every reference image in this prompt belongs to the character it is labelled for, and no reference face may ever be moved onto a different character — not the child's face onto anyone else, and not another character's face onto the child or onto a third character. A character with no reference image is a different person entirely — a different age, different bone structure, nothing borrowed from the photograph or from the child — drawn to the cast description given in this prompt, and the child's face is never placed on any other character."
 
+# The dial's wording on book pages, band by band. Each line stays inside the
+# book's fixed style and moves only how graphic the rendering is, so any level
+# is a legal instruction beside `one_art_style`. Levels map to the portrait
+# dial's own 1–10 scale: a visitor who picked 3 for the portrait gets the 3 here.
+[book.intensity]
+"1" = "the most literal rendering inside that one medium: simple softly shaded forms, the faintest line work, no exaggeration anywhere"
+"2" = "very restrained inside that medium: simple rounded forms, gentle shading, thin clean outlines"
+"3" = "restrained inside that medium: clean visible outlines and lightly simplified facial shapes, still fully modelled and softly shaded"
+"4" = "moderately graphic inside that medium: stronger outlines, flatter shading, gently simplified features"
+"5" = "half way towards graphic inside that medium: crisp bold outlines and simplified shapes, balanced with the medium's modelling"
+"6" = "clearly graphic inside that medium: bold outlines, simplified shapes and flatter areas of colour over the medium's modelling"
+"7" = "strongly graphic inside that medium: heavy clean outlines, large simple shapes, minimal shading"
+"8" = "very strongly graphic inside that medium: thick outlines, flat colour blocks, the most poster-like the medium allows"
+"9" = "almost entirely graphic inside that medium: bold flat shapes and thick outlines, almost no modelling"
+"10" = "fully graphic inside that medium: maximally simplified bold shapes, thick outlines and flat poster colour, reduced to the medium's most iconic forms"
+
 # No reference image exists for anyone except the child, so every other
 # character's invented look is pinned here: cast sections are the same data
 # trick as same_cow, keeping the mother the same mother from page to page and
@@ -325,6 +341,15 @@ task = "TASK: Draw page {page_number} of {total_pages} of the picture book \"{bo
 # catalogue and never restated here.
 story_context = "THE WHOLE STORY (context for you only):\n{story_lines}\n\nYou are illustrating one page of this story: page {page_number} of {total_pages}. Your picture must show exactly what page {page_number}'s line says — its events, its characters, and how many of each thing there are — and must not contradict that line in any way. The other pages' lines are here only so that you understand the story you are drawing; do not draw their scenes, their characters, their objects or their settings. Draw only what your own page's scene names, and nothing that belongs to another page of the book. Draw what your line means, never its lettering: the page's words are printed on the picture afterwards, outside the image."
 page_identity = "PAGE IDENTITY: this child is the single recurring character across all pages of this book — the same face, the same hair, the same clothes as every other page."
+# The intensity dial as book pages read it. The portrait version of this line
+# (`[assembly].stylisation` + `[intensity]`) describes a *photograph* being
+# stylised, so its low steps say "keep the photograph almost intact" — the
+# exact opposite of a book page, which is drawn in one fixed 3D style on all
+# nineteen calls. Without this separate line a visitor who chose intensity 1
+# for likeness was sending "keep the photograph almost intact" and "mix no
+# styles: nothing photorealistic" in the same prompt. `[book.intensity]` below
+# supplies the bands, which move graphic-ness only, never the medium.
+stylisation = "STYLISATION LEVEL (user setting, applied inside the book's ONE fixed art style): {intensity}. This dial never selects the medium: the whole scene is drawn in the art style stated for this book, at every level. The level only decides how graphic the outlines are and how far the forms are simplified, from literal and softly modelled at the low end to bold flat shapes at the high end. Never photographic, never painterly, never a sketch, never mixed media — whatever the level."
 # The text half of the character bible: the same block, byte for byte, on every
 # page of a book, so no character's look is restated (and allowed to drift) per
 # page. The reference-photo note is book-level on purpose — it names who has a

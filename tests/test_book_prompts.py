@@ -61,6 +61,48 @@ def test_a_page_never_changes_style_with_the_portrait_picker() -> None:
         assert moved == fixed
 
 
+def test_a_low_intensity_page_stays_in_the_book_style() -> None:
+    """#20: the portrait dial must never select a non-book medium on a page.
+
+    The portrait bands at 1 to 3 read "keep the photograph almost intact" because
+    they describe a photograph being stylised. A page is drawn in one fixed 3D
+    style on every call, so those words contradicted the page's own
+    "nothing photorealistic" rule on all nineteen calls.
+    """
+    page = BOOK_PAGES[0]
+    style = prompt_text()["styles"][prompt_text()["book"]["style"]]
+    for intensity in (1, 2, 3, 4):
+        prompt = _prompt(page, CartoonSettings(cartoon_intensity=intensity), 1)
+        assert "ART STYLE: " + style in prompt
+        for photographic in (
+            "photograph almost intact",
+            "photographic shading and texture",
+            "photographic likeness with visible outline lines",
+            "painterly realism",
+        ):
+            assert photographic not in prompt, (intensity, photographic)
+    # The portrait pass is unchanged: it still talks about stylising a photo.
+    assert "photograph almost intact" in build_cartoon_prompt(
+        CartoonSettings(cartoon_intensity=1)
+    )
+
+
+def test_every_book_intensity_band_exists() -> None:
+    """Ten vetted bands, none of them describing a photograph."""
+    bands = prompt_text()["book"]["intensity"]
+    assert set(map(int, bands)) == set(range(1, 11))
+    for level, text in bands.items():
+        assert "photograph" not in text, level
+
+
+def test_the_book_and_portrait_dials_differ_at_every_level() -> None:
+    """The two passes read different wording; only the level is shared."""
+    portrait_bands = prompt_text()["intensity"]
+    book_bands = prompt_text()["book"]["intensity"]
+    for level in range(1, 11):
+        assert portrait_bands[str(level)] != book_bands[str(level)]
+
+
 def test_model_is_told_not_to_draw_text() -> None:
     settings = CartoonSettings()
     prompt = _prompt(BOOK_PAGES[0], settings, 1)
