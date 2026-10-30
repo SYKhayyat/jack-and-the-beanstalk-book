@@ -65,7 +65,7 @@ REJECTION_LABELS: dict[RejectionReason, str] = {
     RejectionReason.BACKGROUND_DISTRACTING: "Background is distracting",
     RejectionReason.TOO_CARTOON: "Too cartoonish",
     RejectionReason.NOT_CARTOON_ENOUGH: "Not cartoonish enough",
-    RejectionReason.NO_SPECIFIC_FAULT: "Something else, just different",
+    RejectionReason.NO_SPECIFIC_FAULT: "Something else — vary the pose and background",
 }
 
 _PREAMBLE = prompt_text()["assembly"]["rejection_preamble"]

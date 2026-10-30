@@ -182,7 +182,12 @@ outfit_wrong = "The previous attempt's clothing was wrong. Wear exactly the stat
 background_distracting = "The previous attempt's background competed with the face. Put nothing behind the head: no objects, no pattern, no strong colour. Keep the whole face unobstructed and clearly lit."
 too_cartoon = "The previous attempt was over-stylised and lost the person. Pull back towards a realistic rendering while keeping light outlines."
 not_cartoon_enough = "The previous attempt looked like a photograph rather than a cartoon. Commit harder to the art style: visible outlines and simplified shapes."
-no_specific_fault = "The previous attempt was rejected without a specific fault. Make this attempt clearly different from it — do not repeat the previous result."
+# The visitor could not name what was wrong, and the rejected image is
+# deliberately never sent back as a reference (showing it invites the model to
+# converge on its faults). "Be different from an image you cannot see" was
+# therefore a plain re-roll with the same prompt; this names the axes to vary
+# instead, and leaves identity alone.
+no_specific_fault = "The previous attempt was rejected without a named fault, so change what is visible rather than guess at the fault: vary the shoulder line and the body's angle, the pose of the arms, what sits behind the head and the direction of the light — while keeping the framing, the face, the hair and the outfit exactly as specified."
 
 # Fixed scaffolding around the variable parts. {braces} are filled at build time.
 [assembly]

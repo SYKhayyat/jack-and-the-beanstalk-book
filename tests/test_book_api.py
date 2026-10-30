@@ -211,7 +211,17 @@ class TestPortraitFeedback:
         last_request = provider.requests[-1].prompt
         clause = REJECTION_CLAUSES[RejectionReason.NO_SPECIFIC_FAULT]
         assert clause in last_request
-        assert "do not repeat the previous result" in last_request
+        # #19: the rejected image is never sent back as a reference, so the
+        # clause names what to vary rather than asking for a difference from an
+        # image the model cannot see.
+        for axis in (
+            "shoulder line",
+            "pose of the arms",
+            "behind the head",
+            "direction of the light",
+        ):
+            assert axis in last_request
+        assert "different from it" not in last_request
 
     def test_no_chip_ticked_is_a_plain_retry(self, client_factory) -> None:
         provider = RecordingProvider()
