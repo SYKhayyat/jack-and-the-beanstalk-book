@@ -33,8 +33,9 @@ __all__ = ["SESSION_COOKIE", "Session", "SessionCodec"]
 
 SESSION_COOKIE = "jb_session"
 
-# One day, for state that only has to survive a redirect: the OAuth round trip,
-# the click back to the book, nothing longer.
+# Fifteen minutes, for state that only has to survive a redirect: the OAuth
+# round trip, the click back to the book, nothing longer. Deliberately not a
+# day — the long-lived cookie is the signed-in session, not this one.
 _SHORT_LIVED_SECONDS = 15 * 60
 
 

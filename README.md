@@ -195,10 +195,6 @@ OpenAI one.
 
 Two corrections worth stating plainly, because the obvious assumptions are wrong:
 
-
-Two corrections worth stating plainly, because the obvious assumptions are wrong:
-
-
 - **Google's free tier does not cover image generation.** The pricing page's
   free-tier column reads *Not available* for every image model, while text
   models read *Free of charge*. You need billing enabled on the API key. The
@@ -273,10 +269,10 @@ spending. Adding either as a third provider is a config change; see
   visitor's non-business.** Both are environment variables
   (`IMAGE_PROVIDER`, `OPENAI_MODEL` / `GEMINI_MODEL`), and no part of the UI
   lets a visitor change either. Nor does anything a visitor can fetch: the
-  page, the JSON the browser receives and the open `/healthz` endpoint all say
-  nothing about the backend beyond whether the pictures are real. The provider
-  and model are in the startup log and in the deployment's environment, which
-  is where the operator reads them.
+  page, the JSON the browser receives and the open `/healthz` endpoint say
+  nothing about the backend beyond whether the pictures are real and how many
+  generations may run at once. The provider and model are in the startup log
+  and in the deployment's environment, which is where the operator reads them.
 - `.env` is gitignored. `.env.example` is committed and contains only blank
   placeholders.
 - The app never logs it, and the open `/healthz` endpoint never names the
@@ -445,7 +441,7 @@ required.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/` | The book UI |
-| `GET` | `/healthz` | Liveness and whether the pictures are real. Names neither the provider nor the model, and never includes secrets. |
+| `GET` | `/healthz` | Liveness, whether the pictures are real, and the per-process generation ceiling (`max_concurrent_generations`). Names neither the provider nor the model, and never includes secrets. |
 | `GET` | `/api/settings-options` | Every enum, the defaults, and the slider limits |
 | `GET` | `/api/book/pages` | The book's page identities (titles, text zones) |
 | `GET` | `/api/book/characters` | The photoable cast slots (`mother`, `old_man`, `giant`); the cow is never listed |
@@ -486,7 +482,8 @@ ID=$(curl -s -X POST http://localhost:8000/api/cartoonify \
   -F photo=@me.jpg -F cartoon_intensity=9 -F cartoon_style=manga \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_id"])')
 
-# Calls 2–5 — the four story pages, rendered in the background.
+# Calls 2–20 — the nineteen story pages, rendered in the background. The
+# About page costs no call: the PDF draws it locally.
 BOOK=$(curl -s -X POST http://localhost:8000/api/book/start \
   -F generation_id="$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["book_id"])')
 

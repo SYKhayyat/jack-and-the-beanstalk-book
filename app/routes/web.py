@@ -83,13 +83,14 @@ def index(
 
 @router.get("/healthz")
 def healthz(container: ContainerDep) -> dict[str, object]:
-    """Liveness, and whether the pictures are real — but not which backend.
+    """Liveness, whether the pictures are real, and the concurrency ceiling.
 
     This URL is open to anyone, because the platform polls it, so it says only
-    that the service is up and whether it is drawing real pictures. Which
-    provider and which model are behind it are the operator's business: they
-    live in the startup log and in the deployment's environment, where a
-    visitor cannot fetch them.
+    that the service is up, whether it is drawing real pictures, and how many
+    generations may run at once — the ceiling is operational, not a backend
+    detail. Which provider and which model are behind it are the operator's
+    business: they live in the startup log and in the deployment's environment,
+    where a visitor cannot fetch them.
     """
     status_payload = container.provider_status()
     return {
