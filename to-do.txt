@@ -1,0 +1,23 @@
+1. [x] Allow user to take pictures (use camera) for any picture (mother, giant, old man).
+       The in-page camera now works for every photoable cast slot (star, mother,
+       old man, giant), not just the star — one shared camera pane, one button
+       per slot.
+2. [x] Cover page.
+       One extra AI image per book: the star beside the beanstalk. The title
+       ("<Name> and the Beanstalk") is drawn by the PDF as real text. The PDF is
+       now 21 pages: cover + 19 story pages + About.
+3. [x] Ability to see all books when you sign in.
+       Google mode shows a library sidebar of the signed-in person's books
+       (newest first, cover thumbnails, status). Each book opens at
+       /books/{id} with the PDF, every page, and the edit controls: redraw one
+       page, replace a face, redraw the cover, rewrite the About text, delete.
+       Password mode deliberately has no library (no person to file books
+       under).
+       The "it says it has run out, makes me log in again, and wipes my book"
+       part was two things: Google's Testing-mode consent screen expires
+       sessions after 7 days (publish the consent screen — see
+       docs/google-oauth-setup.md), and a session expiring mid-render. The
+       second is fixed in code: the book, its pages, its PDF, its portrait and
+       the original photo are stored per user, an expired session sends the
+       visitor through sign-in back to the same book (/login?next=/books/{id}),
+       and the library is the way back if the tab was closed.

@@ -1,5 +1,22 @@
 # HANDOFF — from plan to code
 
+> **Update — features added after this brief was written.** The brief below is
+> the original plan and still describes the pipeline accurately, but these have
+> landed since and change what the app does:
+>
+> - **21 pages, not 20.** A book is now `cover + 19 story pages + About`. The
+>   cover is one extra image call (portrait 1, cover 2, pages 3–21).
+> - **Per-user library.** In Google mode the landing page has a library
+>   sidebar; `GET /api/books` lists the signed-in person's books. Password mode
+>   has no library on purpose.
+> - **Editing.** `POST /api/book/{id}/edit` takes
+>   `action=page|character|cover|about|retry|delete`; `DELETE /api/book/{id}`
+>   removes a book. One edit per book at a time (`409 book_busy`).
+> - **Camera for every cast slot** (mother, old man, giant), not just the star.
+> - **Migration `0003_book_editing_and_cover`** adds `books.settings`,
+>   `books.source_photo`, `books.cover` and the `book_characters` table.
+> - `README.md` is current; this file is history.
+
 Current HEAD when this file was written: `ca22a14` on `main`, working tree clean.
 This file is the whole brief: §0 is the operating prompt (paste it to the
 model), §1–§3 are context and judge-made decisions, §4 is the step plan with

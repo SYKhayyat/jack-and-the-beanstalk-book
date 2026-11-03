@@ -1,10 +1,12 @@
 # Jack and the Beanstalk
 
 Upload one photo. The app cartoonifies it with settings you control, then
-renders a **picture book**: the whole tale in 19 story pages, from the empty
-cupboard and the magic-beans trade to the giant's castle, the hen that lays
-golden eggs and the toppling beanstalk, plus an About page — 20 pages delivered
-as one downloadable PDF. See [The picture book](#the-picture-book).
+renders a **picture book**: an AI cover, the whole tale in 19 story pages —
+from the empty cupboard and the magic-beans trade to the giant's castle, the hen
+that lays golden eggs and the toppling beanstalk — plus an About page, all
+delivered as one downloadable PDF. Signed-in visitors get a library sidebar of
+their books and can redraw a page, replace a face, rewrite the About text or
+delete a book. See [The picture book](#the-picture-book).
 
 ---
 
@@ -91,12 +93,12 @@ Prices move; re-check before you rely on them.
 
 ### What actually costs money
 
-**Read this bit first: one finished book costs twenty API calls.** The pipeline
-cartoonifies the photo (call 1), then renders the nineteen story pages (calls
-2–20). So 200 finished books is **4,000 billed image generations**. Every figure
-below is per *call*.
+**Read this bit first: one finished book costs twenty-one API calls.** The
+pipeline cartoonifies the photo (call 1), draws the cover (call 2), then renders
+the nineteen story pages (calls 3–21). So 200 finished books is **4,200 billed
+image generations**. Every figure below is per *call*.
 
-| Provider | Per call (1K image) | 200 books (4,000 calls) | Free tier? |
+| Provider | Per call (1K image) | 200 books (4,200 calls) | Free tier? |
 | --- | --- | --- | --- |
 | **Agnes `agnes-image-2.5-flash`** | **$0** | **$0** | **Yes — free, ~10 requests/minute at 1K** |
 | **OpenAI `gpt-image-2.5-flare`, `quality=low`** (default) | **$0.00588** | **~$23.52** | No |
@@ -154,7 +156,7 @@ What the free tier costs you is **speed, not money**:
 | 2K output | 5 |
 | 3K / 4K output | 1 |
 
-One finished book is twenty calls, so at the free tier's 1K ceiling of ten
+One finished book is twenty-one calls, so at the free tier's 1K ceiling of ten
 requests a minute a book takes about two minutes — fine for a classroom or a
 family, not for a queue of strangers. `1K`
 is therefore the default and `AGNES_SIZE` is the dial if you upgrade. The 1K
@@ -209,7 +211,7 @@ Two corrections worth stating plainly, because the obvious assumptions are wrong
   the Lite model, and a test fails if the default ever reverts to the retired
   one.
 
-At roughly $0.034 per image and twenty calls per finished book, one book costs
+At roughly $0.034 per image and twenty-one calls per finished book, one book costs
 about **68 cents**. Twenty test books across several photos is roughly $13.60.
 (That is the star's portrait plus one call per story page; each optional
 character photo adds one more portrait call before the pages start.)
@@ -397,12 +399,15 @@ the per-call reference set stays small.
 
 ## The picture book
 
-`/` turns one approved portrait into a **20-page picture book PDF**. You star
+`/` turns one approved portrait into a **21-page picture book PDF**: a cover,
+nineteen story pages and an About page. You star
 on every page of the whole tale — the empty cupboard, the magic-beans trade, the
 beans flying out the window, the beanstalk at dawn, the climb into the clouds,
 the giant's kitchen and the bag of gold, the hen that lays golden eggs and the
 singing harp, "Fee-fi-fo-fum!", the chase and the toppling beanstalk — nineteen
-story pages followed by an **About** page. The story
+story pages followed by an **About** page. The cover is one extra AI image of
+the star beside the beanstalk; the title is drawn by the PDF as real text, not
+by the model. The story
 text is never drawn by the model: the art carries a deliberately empty quiet
 zone, and the PDF paints the polished storybook prose as real, selectable text
 (fpdf2, Comic Neue + Noto Sans Hebrew bundled, HarfBuzz shaping when
@@ -448,15 +453,37 @@ required.
 | `POST` | `/api/cartoonify` | multipart: `photo` + settings → the portrait (1 call) |
 | `POST` | `/api/book/start` | multipart: `generation_id` (+ optional star/About fields and repeated `character=key:generation_id`) → background book (1 call/page) |
 | `GET` | `/api/book/{id}` | Book status: rendering / complete / failed + page grid |
+| `GET` | `/api/books` | The signed-in person's library (empty in password mode) |
+| `POST` | `/api/book/{id}/edit` | multipart `action=page|character|cover|about|retry|delete` — edit an existing book |
+| `DELETE` | `/api/book/{id}` | Delete a book and all of its artefacts |
 | `GET` | `/media/{id}/cartoon` | The cartoon portrait |
 | `GET` | `/book-media/{id}/portrait` | The book's approved portrait |
+| `GET` | `/book-media/{id}/cover` | The AI cover illustration |
 | `GET` | `/book-media/{id}/pages/{n}` | One story page's art, once it exists |
-| `GET` | `/book-media/{id}/pdf` | The finished 20-page PDF (409 until complete) |
+| `GET` | `/book-media/{id}/pdf` | The finished 21-page PDF (409 until complete) |
 | `GET` | `/book-media/{id}/prompts.json` | The exact prompt sent for every page |
 
 `POST /api/cartoonify` returns image *URLs* rather than inline bytes, so the
 browser can fetch them lazily and the response stays small. Interactive docs are
 at `/docs`.
+
+### Your books, and editing one
+
+In Google mode the landing page carries a **library sidebar**: every book the
+signed-in person owns, newest first, with its cover thumbnail and status.
+Clicking one opens `/books/{id}` — the finished PDF, every page, and the edit
+controls. Password/open mode deliberately has no library: there is no person to
+file books under, and one shared pile of children's photographs would be the
+wrong answer.
+
+The edit surface is priced honestly: redrawing one page is one image call;
+replacing the star redraws the whole book and cover; replacing the mother, old
+man or giant redraws only the pages that cast them; rewriting the About text or
+changing the title rebuilds the PDF with no model call. The original photo,
+portrait, settings and every supplied character face are stored with the book,
+so an edit still works after the upload draft has expired. One edit per book may
+run at a time (`409 book_busy`), and a session that expires mid-render sends the
+visitor through sign-in back to the same book rather than losing it.
 
 Errors are mapped in one place (`app/errors.py`), so a failure never leaks a
 stack trace or a key:
@@ -482,7 +509,7 @@ ID=$(curl -s -X POST http://localhost:8000/api/cartoonify \
   -F photo=@me.jpg -F cartoon_intensity=9 -F cartoon_style=manga \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_id"])')
 
-# Calls 2–20 — the nineteen story pages, rendered in the background. The
+# Calls 3–21 — the nineteen story pages, rendered in the background. The
 # About page costs no call: the PDF draws it locally.
 BOOK=$(curl -s -X POST http://localhost:8000/api/book/start \
   -F generation_id="$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["book_id"])')
@@ -514,7 +541,7 @@ lines apply and how they are joined.
 
 ## Two steps, so you only pay for what you keep
 
-The book is twenty calls, and the interface keeps the portrait apart on purpose:
+The book is twenty-one calls, and the interface keeps the portrait apart on purpose:
 
 ```
   upload + settings
@@ -530,13 +557,13 @@ The book is twenty calls, and the interface keeps the portrait apart on purpose:
                                              v
                                +-------------------------------+
                                | /api/book/start               |
-                               | portrait -> the 19 story pages|
+                               | portrait -> cover -> 19 pages |
                                +-------------------------------+
 ```
 
 Three things fall out of that split, and all three are cost or quality wins:
 
-- **A likeness you dislike costs one call, not twenty.** Change the intensity,
+- **A likeness you dislike costs one call, not twenty-one.** Change the intensity,
   the style, the hair, the likeness strength, and retry — the settings panel
   stays live while you look at the portrait. Only an approved portrait is worth
   the nineteen story pages.
