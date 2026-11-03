@@ -42,10 +42,17 @@ from app.errors import (
     InvalidSettings,
     UnknownBook,
 )
-from app.models import BOOK_PAGES, AboutMe, CartoonSettings
+from app.models import (
+    BOOK_PAGES,
+    AboutMe,
+    BookPage,
+    CartoonSettings,
+    RejectionFeedback,
+    RejectionReason,
+)
 from app.routes.auth import CurrentSessionDep
 from app.services.book_runner import CharacterReference
-from app.services.book_store import BookRecord, BookStatus
+from app.services.book_store import BookRecord, BookStatus, BookSummary
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import (
     book_name_for,
@@ -55,12 +62,13 @@ from app.services.prompts import (
 )
 from app.services.storage import Draft
 
-__all__ = ["media_router", "router"]
+__all__ = ["books_router", "media_router", "router"]
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/book", tags=["book"])
 media_router = APIRouter(prefix="/book-media", tags=["book-media"])
+books_router = APIRouter(prefix="/api/books", tags=["books"])
 
 #: How long an identical `start` request reuses the book it already started.
 #: Long enough to cover a double-submit, a second tab and a client retrying a
@@ -117,6 +125,35 @@ def list_characters() -> dict[str, object]:
         "characters": [
             {"key": key, "label": label, "photoable": True} for key, label in photoable_cast()
         ]
+    }
+
+
+@books_router.get("")
+def list_books(container: ContainerDep, session: CurrentSessionDep) -> dict[str, object]:
+    """The signed-in person's books, newest first.
+
+    Password/open deployments have no person to file a book under, so the
+    library is deliberately unavailable there: an empty list is the honest
+    answer, not a shared pile of everybody's children's photographs.
+    """
+    owner = _user_id(session)
+    if not owner:
+        return {"books": []}
+    summaries = container.book_store.list_for_owner(owner)
+    return {"books": [_summary_dict(summary) for summary in summaries]}
+
+
+def _summary_dict(summary: BookSummary) -> dict[str, object]:
+    return {
+        "book_id": summary.book_id,
+        "title": summary.title,
+        "status": summary.status,
+        "created_at": summary.created_at,
+        "updated_at": summary.updated_at,
+        "page_count": summary.page_count,
+        "pages_done": summary.pages_done,
+        "cover_url": summary.cover_url,
+        "pdf_url": summary.pdf_url,
     }
 
 
@@ -191,6 +228,7 @@ async def start_book(
         generation_id,
         about,
         character,
+        draft.settings,
     )
     book_id = record.book_id
     if reused:
@@ -244,6 +282,7 @@ def _start_or_reuse(
     generation_id: str,
     about: AboutMe,
     character: list[str],
+    settings: CartoonSettings,
 ) -> tuple[BookRecord, bool]:
     """The book this request already started, or a newly recorded one.
 
@@ -279,6 +318,7 @@ def _start_or_reuse(
             about=about,
             generation_id=generation_id,
             fingerprint=fingerprint,
+            settings=settings,
         )
     return (
         BookRecord(
@@ -288,6 +328,7 @@ def _start_or_reuse(
             generation_id=generation_id,
             created_at="",
             fingerprint=fingerprint,
+            settings=settings,
         ),
         False,
     )
@@ -310,6 +351,190 @@ def _request_fingerprint(
         separators=(",", ":"),
     )
     return hashlib.sha256(material.encode()).hexdigest()
+
+
+@router.post("/{book_id}/edit", status_code=status.HTTP_202_ACCEPTED)
+async def edit_book(
+    request: Request,
+    book_id: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    action: str = Form(...),
+    page_number: int | None = Form(None),
+    character_key: str = Form(""),
+    generation_id: str = Form(""),
+    child_name: str = Form("", max_length=60),
+    about_name: str = Form("", max_length=60),
+    about_age: int | None = Form(None, ge=0, le=99),
+    about_title: str | None = Form(None, max_length=60),
+    details: str = Form("", max_length=1000),
+    reason: list[str] = Form(default=[]),
+) -> dict[str, object]:
+    """Edit a finished book without starting a new one.
+
+    Actions, and exactly what each one costs:
+
+    * `page` — redraw one story page. One image call. The ticked chips are the
+      same closed-set feedback vocabulary as the portrait review.
+    * `character` — replace one face. A new portrait draft is made by
+      `/api/cartoonify` first (one call); pages that cast that character are
+      redrawn. `character_key="star"` replaces the child themselves and redraws
+      the whole book plus the cover.
+    * `cover` — redraw only the cover. One image call.
+    * `about` — rewrite the PDF text only. No image call.
+    * `retry` — pick up the pages (and cover) a failed book never finished.
+    * `delete` — remove the book and every artefact.
+
+    Every image action returns immediately; poll `GET /api/book/{id}` exactly as
+    for a new book. One edit per book may run at a time (409 otherwise).
+    """
+    user_id = _user_id(session)
+    _ensure_book(book_id, user_id, container)
+    record = await asyncio.to_thread(container.book_store.load_record, book_id)
+    if record is None:
+        raise UnknownBook("No book with that id. It may have expired — start a new one.")
+
+    if action == "about":
+        about = _about_from_form(
+            child_name or record.about.prompt_name,
+            about_name or record.about.about_name,
+            about_age,
+            about_title,
+            details,
+            record.settings,
+        )
+        await asyncio.to_thread(container.book_store.update_about, book_id, about)
+        status_payload = (
+            await asyncio.to_thread(container.book_store.load_status, book_id) or {}
+        )
+        if status_payload.get("status") == BookStatus.COMPLETE:
+            await asyncio.to_thread(container.book_runner.rebuild_pdf, book_id)
+        return _edit_started(book_id, "about")
+
+    if action == "delete":
+        await asyncio.to_thread(container.book_store.delete, book_id)
+        return {"book_id": book_id, "deleted": True}
+
+    charge = lambda: container.rate_limiter.allow(_client_key(request), 1)  # noqa: E731
+
+    if action == "cover":
+        await container.book_runner.start_edit(
+            book_id, page_numbers=set(), draw_cover=True, page_charge=charge
+        )
+        return _edit_started(book_id, "cover")
+
+    if action == "retry":
+        has_cover = await asyncio.to_thread(container.book_store.read_cover, book_id)
+        await container.book_runner.start_edit(
+            book_id,
+            page_numbers=None,
+            draw_cover=has_cover is None,
+            only_missing=True,
+            page_charge=charge,
+        )
+        return _edit_started(book_id, "retry")
+
+    if action == "page":
+        page = _page_to_edit(page_number)
+        corrections = {page.number: _correction_text(reason)}
+        await container.book_runner.start_edit(
+            book_id,
+            page_numbers={page.number},
+            draw_cover=False,
+            corrections=corrections,
+            page_charge=charge,
+        )
+        return _edit_started(book_id, "page")
+
+    if action == "character":
+        reference = await asyncio.to_thread(_character_reference, generation_id, container)
+        if character_key == "star":
+            await asyncio.to_thread(
+                container.book_store.update_identity,
+                book_id,
+                portrait=reference.portrait,
+                photo=reference.photo,
+                # Keep the book's own art settings: a replacement portrait
+                # made with the form defaults must not silently change the
+                # aspect ratio of every page already drawn.
+                settings=record.settings,
+            )
+            await container.book_runner.start_edit(
+                book_id, page_numbers=None, draw_cover=True, page_charge=charge
+            )
+            return _edit_started(book_id, "character")
+
+        if not cast_photoable(character_key):
+            raise InvalidSettings(
+                f"There is no character slot for {character_key!r} — "
+                "it cannot be given a photo."
+            )
+        await asyncio.to_thread(
+            container.book_store.save_character, book_id, character_key, reference
+        )
+        affected = {page.number for page in BOOK_PAGES if character_key in page.cast}
+        if not affected:
+            raise InvalidSettings(f"{character_key} does not appear in this book.")
+        await container.book_runner.start_edit(
+            book_id,
+            page_numbers=affected,
+            draw_cover=False,
+            page_charge=charge,
+        )
+        return _edit_started(book_id, "character")
+
+    raise InvalidSettings(f"Unknown edit action {action!r}.")
+
+
+def _edit_started(book_id: str, action: str) -> dict[str, object]:
+    return {
+        "book_id": book_id,
+        "action": action,
+        "status": BookStatus.RENDERING,
+        "status_url": f"/api/book/{book_id}",
+    }
+
+
+def _page_to_edit(page_number: int | None) -> BookPage:
+    if page_number is None:
+        raise InvalidSettings("Choose a page to redraw.")
+    for page in BOOK_PAGES:
+        if page.number == page_number:
+            return page
+    raise InvalidSettings("That page does not exist in this book.")
+
+
+def _correction_text(reasons: list[str]) -> str:
+    """Validate the ticked chips and render them as page-correction text."""
+    try:
+        feedback = RejectionFeedback(
+            reasons=tuple(RejectionReason(value) for value in reasons)
+        )
+    except ValueError as exc:
+        raise InvalidSettings(f"Unknown rejection reason: {exc}") from exc
+    return feedback.prompt_block()
+
+
+def _character_reference(generation_id: str, container: ContainerDep) -> CharacterReference:
+    if not generation_id:
+        raise InvalidSettings("Choose the replacement photo first.")
+    draft = container.store.load_draft(generation_id)
+    if draft is None:
+        raise UnknownGeneration(generation_id)
+    return CharacterReference(
+        portrait=draft.cartoon_image,
+        portrait_media_type=draft.cartoon_media_type,
+        photo=draft.photo_data,
+        photo_media_type=draft.photo_media_type,
+    )
+
+
+@router.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_book(book_id: str, container: ContainerDep, session: CurrentSessionDep) -> Response:
+    """Delete a book and every artefact that belongs to it."""
+    _ensure_book(book_id, _user_id(session), container)
+    container.book_store.delete(book_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{book_id}")
@@ -358,6 +583,16 @@ def book_portrait(
     data = container.book_store.read_portrait(book_id)
     if data is None:
         raise UnknownBook("That book has no portrait stored.")
+    return _no_store(data, media_type=_detect_media_type(data))
+
+
+@media_router.get("/{book_id}/cover")
+def book_cover(book_id: str, container: ContainerDep, session: CurrentSessionDep) -> Response:
+    """The finished cover illustration, as soon as it exists."""
+    _ensure_book(book_id, _user_id(session), container)
+    data = container.book_store.read_cover(book_id)
+    if data is None:
+        raise BookNotReady("The cover is not ready yet — poll the book's status.")
     return _no_store(data, media_type=_detect_media_type(data))
 
 

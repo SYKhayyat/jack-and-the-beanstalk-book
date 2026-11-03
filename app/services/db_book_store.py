@@ -29,9 +29,16 @@ from sqlalchemy import delete, select, update
 from sqlalchemy import insert as sa_insert
 from sqlalchemy.engine import Engine
 
-from app.db import BookPageRow, BookRow
+from app.db import BookCharacterRow, BookPageRow, BookRow
 from app.models.book import AboutMe
-from app.services.book_store import BookRecord, BookStatus, BookStore
+from app.models.settings import CartoonSettings
+from app.services.book_store import (
+    BookRecord,
+    BookStatus,
+    BookStore,
+    BookSummary,
+    CharacterReference,
+)
 
 __all__ = ["DatabaseBookStore"]
 
@@ -67,6 +74,7 @@ class DatabaseBookStore(BookStore):
         about: AboutMe,
         generation_id: str,
         fingerprint: str | None = None,
+        settings: CartoonSettings | None = None,
     ) -> None:
         with self._engine.begin() as conn:
             conn.execute(
@@ -77,11 +85,14 @@ class DatabaseBookStore(BookStore):
                     generation_id=generation_id,
                     request_fingerprint=fingerprint,
                     about=about.model_dump(mode="json"),
+                    settings=(settings or CartoonSettings()).model_dump(mode="json"),
                     # The file store has always written the pending document
                     # with the record; do the same here, or a poll landing
                     # before the runner's first status write reads NULL and
                     # answers "unknown book" for a book that already exists.
-                    status_payload=self._status_payload(book_id, BookStatus.PENDING, [], None),
+                    status_payload=self._status_payload(
+                        book_id, BookStatus.PENDING, [], None, title=about.book_title
+                    ),
                     created_at=_now(),
                     updated_at=_now(),
                 )
@@ -100,7 +111,80 @@ class DatabaseBookStore(BookStore):
             created_at=row.created_at.isoformat() if row.created_at else "",
             user_id=row.user_id,
             fingerprint=row.request_fingerprint,
+            settings=CartoonSettings.model_validate(row.settings or {}),
         )
+
+    def update_about(self, book_id: str, about: AboutMe) -> None:
+        with self._engine.begin() as conn:
+            row = conn.execute(
+                select(BookRow.status, BookRow.status_payload, BookRow.error).where(
+                    BookRow.id == book_id
+                )
+            ).one_or_none()
+            if row is None:
+                raise KeyError(f"No record for book {book_id!r}.")
+            payload = (
+                dict(row.status_payload)
+                if row.status_payload is not None
+                else self._status_payload(book_id, row.status, [], row.error)
+            )
+            payload["title"] = about.book_title
+            conn.execute(
+                update(BookRow)
+                .where(BookRow.id == book_id)
+                .values(
+                    about=about.model_dump(mode="json"),
+                    status_payload=payload,
+                    updated_at=_now(),
+                )
+            )
+
+    def list_for_owner(self, user_id: str, *, limit: int = 50) -> list[BookSummary]:
+        """One indexed-ish query for the signed-in person's library."""
+        if not user_id:
+            return []
+        with self._engine.connect() as conn:
+            rows = conn.execute(
+                select(
+                    BookRow.id,
+                    BookRow.about,
+                    BookRow.status,
+                    BookRow.status_payload,
+                    BookRow.created_at,
+                    BookRow.updated_at,
+                    BookRow.cover,
+                )
+                .where(BookRow.user_id == user_id)
+                .order_by(BookRow.created_at.desc())
+                .limit(limit)
+            ).all()
+        summaries: list[BookSummary] = []
+        for row in rows:
+            about = AboutMe.model_validate(row.about)
+            payload = dict(row.status_payload) if row.status_payload is not None else {}
+            pages = payload.get("pages", [])
+            page_list = pages if isinstance(pages, list) else []
+            done = sum(
+                1
+                for page in page_list
+                if isinstance(page, dict) and page.get("status") == "done"
+            )
+            summaries.append(
+                BookSummary(
+                    book_id=row.id,
+                    title=about.book_title,
+                    status=row.status,
+                    created_at=row.created_at.isoformat() if row.created_at else "",
+                    updated_at=row.updated_at.isoformat() if row.updated_at else "",
+                    page_count=len(page_list),
+                    pages_done=done,
+                    cover_url=self.cover_url(row.id) if row.cover is not None else None,
+                    pdf_url=self.pdf_url(row.id)
+                    if row.status == BookStatus.COMPLETE
+                    else None,
+                )
+            )
+        return summaries
 
     def find_started(self, *, fingerprint: str, since: datetime) -> str | None:
         """One indexed query, newest match first.
@@ -132,6 +216,9 @@ class DatabaseBookStore(BookStore):
         status: str,
         pages: list[dict[str, object]],
         error: str | None,
+        *,
+        title: str | None = None,
+        cover_url: str | None = None,
     ) -> dict[str, object]:
         """The exact document the poll returns, in either store's shape."""
         return {
@@ -140,6 +227,8 @@ class DatabaseBookStore(BookStore):
             "pages": pages,
             "error": error,
             "pdf_url": self.pdf_url(book_id) if status == BookStatus.COMPLETE else None,
+            "cover_url": cover_url,
+            "title": title,
             "updated_at": _now().isoformat(),
         }
 
@@ -149,9 +238,26 @@ class DatabaseBookStore(BookStore):
         status: str,
         pages: list[dict[str, object]],
         error: str | None = None,
+        *,
+        title: str | None = None,
+        cover_url: str | None = None,
     ) -> None:
-        payload = self._status_payload(book_id, status, pages, error)
         with self._engine.begin() as conn:
+            row = conn.execute(
+                select(BookRow.status_payload, BookRow.cover).where(BookRow.id == book_id)
+            ).one_or_none()
+            previous = (
+                dict(row.status_payload)
+                if row is not None and row.status_payload is not None
+                else {}
+            )
+            if title is None:
+                title = cast("str | None", previous.get("title"))
+            if cover_url is None and row is not None and row.cover is not None:
+                cover_url = self.cover_url(book_id)
+            payload = self._status_payload(
+                book_id, status, pages, error, title=title, cover_url=cover_url
+            )
             conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id)
@@ -218,6 +324,103 @@ class DatabaseBookStore(BookStore):
             return conn.execute(
                 select(BookRow.portrait).where(BookRow.id == book_id)
             ).scalar_one_or_none()
+
+    def save_source_photo(self, book_id: str, data: bytes) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(
+                update(BookRow)
+                .where(BookRow.id == book_id)
+                .values(source_photo=data, updated_at=_now())
+            )
+
+    def update_identity(
+        self,
+        book_id: str,
+        *,
+        portrait: bytes,
+        photo: bytes,
+        settings: CartoonSettings,
+    ) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(
+                update(BookRow)
+                .where(BookRow.id == book_id)
+                .values(
+                    portrait=portrait,
+                    source_photo=photo,
+                    settings=settings.model_dump(mode="json"),
+                    updated_at=_now(),
+                )
+            )
+
+    def read_source_photo(self, book_id: str) -> bytes | None:
+        with self._engine.connect() as conn:
+            return conn.execute(
+                select(BookRow.source_photo).where(BookRow.id == book_id)
+            ).scalar_one_or_none()
+
+    def save_cover(self, book_id: str, data: bytes) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(
+                update(BookRow)
+                .where(BookRow.id == book_id)
+                .values(cover=data, updated_at=_now())
+            )
+
+    def read_cover(self, book_id: str) -> bytes | None:
+        with self._engine.connect() as conn:
+            return conn.execute(
+                select(BookRow.cover).where(BookRow.id == book_id)
+            ).scalar_one_or_none()
+
+    def save_characters(self, book_id: str, characters: dict[str, CharacterReference]) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(delete(BookCharacterRow).where(BookCharacterRow.book_id == book_id))
+            for key, ref in characters.items():
+                conn.execute(
+                    sa_insert(BookCharacterRow).values(
+                        book_id=book_id,
+                        cast_key=key,
+                        portrait=ref.portrait,
+                        portrait_media_type=ref.portrait_media_type,
+                        photo=ref.photo,
+                        photo_media_type=ref.photo_media_type,
+                    )
+                )
+
+    def save_character(self, book_id: str, key: str, ref: CharacterReference) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(
+                delete(BookCharacterRow).where(
+                    BookCharacterRow.book_id == book_id,
+                    BookCharacterRow.cast_key == key,
+                )
+            )
+            conn.execute(
+                sa_insert(BookCharacterRow).values(
+                    book_id=book_id,
+                    cast_key=key,
+                    portrait=ref.portrait,
+                    portrait_media_type=ref.portrait_media_type,
+                    photo=ref.photo,
+                    photo_media_type=ref.photo_media_type,
+                )
+            )
+
+    def load_characters(self, book_id: str) -> dict[str, CharacterReference]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(
+                select(BookCharacterRow).where(BookCharacterRow.book_id == book_id)
+            ).all()
+        return {
+            row.cast_key: CharacterReference(
+                portrait=row.portrait,
+                portrait_media_type=row.portrait_media_type,
+                photo=row.photo,
+                photo_media_type=row.photo_media_type,
+            )
+            for row in rows
+        }
 
     def save_page(self, book_id: str, page_number: int, data: bytes) -> None:
         """Persist one page's art. Raises on a bad page number, never on disk."""
@@ -294,6 +497,7 @@ class DatabaseBookStore(BookStore):
 
     def delete(self, book_id: str) -> None:
         with self._engine.begin() as conn:
+            conn.execute(delete(BookCharacterRow).where(BookCharacterRow.book_id == book_id))
             conn.execute(delete(BookPageRow).where(BookPageRow.book_id == book_id))
             conn.execute(delete(BookRow).where(BookRow.id == book_id))
 
@@ -326,12 +530,15 @@ class DatabaseBookStore(BookStore):
                         entry for entry in cast("list[object]", raw) if isinstance(entry, dict)
                     ]
                 stamp = _now()
+                previous = cast("dict[str, object]", payload) if payload is not None else {}
                 stamped = {
                     "book_id": book_id,
                     "status": BookStatus.FAILED,
                     "pages": pages,
                     "error": message,
                     "pdf_url": None,
+                    "cover_url": previous.get("cover_url"),
+                    "title": previous.get("title"),
                     "updated_at": stamp.isoformat(),
                 }
                 conn.execute(
@@ -370,6 +577,9 @@ class DatabaseBookStore(BookStore):
                 .all()
             )
             for book_id in stale:
+                conn.execute(
+                    delete(BookCharacterRow).where(BookCharacterRow.book_id == book_id)
+                )
                 conn.execute(delete(BookPageRow).where(BookPageRow.book_id == book_id))
                 conn.execute(delete(BookRow).where(BookRow.id == book_id))
                 logger.info("book.expired id=%s", book_id)

@@ -19,6 +19,7 @@ from app.services.pipeline import UnknownGeneration
 
 __all__ = [
     "AppError",
+    "BookBusy",
     "BookNotReady",
     "GenerationRateLimited",
     "InvalidSettings",
@@ -84,6 +85,17 @@ class UnknownBook(AppError):
 
     status_code = 404
     error_code = "unknown_book"
+
+
+class BookBusy(AppError):
+    """An edit is already running for this book.
+
+    409: the book exists, the request is valid, but two model jobs writing the
+    same pages at once would race each other.
+    """
+
+    status_code = 409
+    error_code = "book_busy"
 
 
 class BookNotReady(AppError):

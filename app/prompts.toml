@@ -340,6 +340,11 @@ age_line = "{child_age} years old"
 # for a 20-page PDF.
 [book.assembly]
 task = "TASK: Draw page {page_number} of {total_pages} of the picture book \"{book_title}\". Every page of the book shows the same child character: {name}. The reference images are the same person: the first is their cartoon portrait, the second is their original photograph."
+# The cover is one extra call, made before the story pages. The title itself is
+# never drawn by the model (the PDF adds it as real text), so the prompt asks
+# for a calm, uncluttered title area instead of lettering.
+cover_task = "TASK: Draw the COVER ILLUSTRATION for the picture book \"{book_title}\". The cover stars the same child as every page of the book: {name}. The reference images are the same person: the first is their cartoon portrait, the second is their original photograph. This is the book's front cover, not a story page."
+cover_scene = "SCENE TO DRAW (this is the entire content of the picture): {name} stands in the foreground, full of wonder and courage, beside a towering green beanstalk that climbs out of the frame and disappears into the clouds. Make the beanstalk the unmistakable hero of the composition: a thick, twisting stalk with broad leaves. Leave the upper third of the picture calm and uncluttered — a simple sky gradient with no important faces or objects there — because the book's title is added afterwards, outside this image. Draw no lettering, title or writing of any kind anywhere."
 # The whole story, one labelled line per page, so the model knows which line it
 # is illustrating and what the other lines mean. This is what lets page 3 know
 # the beans it throws are the "five magic beans" of page 2, and it is why the

@@ -18,6 +18,12 @@ const book = state.createBookState();
 const photoInput = view.elements.photo();
 const filePicker = createFilePickerSource(photoInput);
 const camera = createCameraSource(view.elements.cameraVideo());
+const characterCamera = createCameraSource(view.elements.characterCameraVideo());
+
+/* Camera-captured character photos, keyed by cast slot. A captured frame is
+   used in preference to the slot's file input, exactly as for the star. */
+const characterPhotos = new Map();
+let characterCameraTarget = null;
 
 /* Story-page total. Seeded with the full-tale count (19 story pages, then the
    About page in the PDF) and then corrected from the server's own page list,
@@ -27,8 +33,9 @@ seedTotalPages();
 
 wirePhotoInput();
 wireCamera();
+wireCharacterCameras();
 wirePortraitFlow();
-wireBookFlow();
+view.restartLink().addEventListener("click", () => view.forgetBook());
 
 /* --- the photo ----------------------------------------------------------- */
 
@@ -106,13 +113,67 @@ function wireCamera() {
   });
 }
 
+/* Each extra cast slot gets the same in-page camera as the star, with one
+   shared pane re-targeted to the slot whose button was pressed. */
+function wireCharacterCameras() {
+  for (const input of view.characterInputs()) {
+    const key = input.dataset.character;
+    view.useCharacterCamera(key).addEventListener("click", async () => {
+      try {
+        await characterCamera.open();
+        characterCameraTarget = key;
+        view.setCharacterCameraTarget(view.characterLabel(key));
+        view.showCharacterCameraPane(true);
+        view.showCharacterCameraMessage("");
+      } catch (error) {
+        view.showCharacterMessage(key, cameraOpenMessage(error), "error");
+      }
+    });
+  }
+  view.elements.characterCameraShutter().addEventListener("click", () => {
+    const key = characterCameraTarget;
+    if (!key) return;
+    characterCamera
+      .capture()
+      .then((frame) => {
+        characterCamera.close();
+        view.showCharacterCameraPane(false);
+        return acceptCharacterPhoto(key, frame);
+      })
+      .catch((error) => view.showCharacterCameraMessage(error.message));
+  });
+  view.elements.characterCameraCancel().addEventListener("click", () => {
+    characterCamera.close();
+    view.showCharacterCameraPane(false);
+    characterCameraTarget = null;
+  });
+}
+
+async function acceptCharacterPhoto(key, captured) {
+  try {
+    view.showCharacterMessage(key, "Preparing the photo…");
+    const prepared = await preparePhoto(captured, { maxBytes: MAX_UPLOAD });
+    characterPhotos.set(key, prepared.blob);
+    view.renderCharacterPreview(key, prepared.blob);
+    view.showCharacterMessage(key, prepared.scaled ? "Photo shrunk to fit." : "");
+  } catch (error) {
+    view.showCharacterMessage(
+      key,
+      error instanceof UnreadableImageError
+        ? "That frame is not a readable photo — try again."
+        : "The photo could not be prepared — try again.",
+      "error",
+    );
+  }
+}
+
 /* --- portrait: make, review, approve ------------------------------------- */
 
 function wirePortraitFlow() {
   const form = view.elements.form();
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (camera.active) {
+    if (camera.active || characterCamera.active) {
       view.showCameraMessage("Close the camera before continuing — cancel or take the picture.");
       return;
     }
@@ -130,6 +191,15 @@ function wirePortraitFlow() {
    `reasons` are the ticked rejection chips, sent as repeated `reason` fields
    for closed-set retry feedback. postForm() appends the photo once (settingsForm
    owns it) and throws on non-ok responses, mapping the server's `detail`. */
+/* A session that expired mid-flow is not an error message to show: it is a
+   sign-in to do, and the book (if it exists) must survive the detour. */
+function sessionGone(error) {
+  if (error.status !== 401) return false;
+  const next = book.bookId ? `/books/${book.bookId}` : "/";
+  view.redirectTo(`/login?next=${next}`);
+  return true;
+}
+
 function settingsForm(reasons = []) {
   const form = view.readCharacterSettings();
   form.append("photo", book.photo, book.photoName);
@@ -162,6 +232,7 @@ async function cartoonify(reasons = []) {
     if (reasons.length) view.showRejectBody(false);
   } catch (error) {
     view.setBusyPortrait("");
+    if (sessionGone(error)) return;
     view.showPhotoMessage(error.message || "The portrait did not come out — try again.", "error");
   }
 }
@@ -204,13 +275,21 @@ function seedTotalPages() {
 async function characterReferences() {
   const entries = [];
   for (const input of view.characterInputs()) {
+    const key = input.dataset.character;
+    const captured = characterPhotos.get(key);
     const file = input.files?.[0];
-    if (!file) continue;
-    const prepared = await preparePhoto(file, { maxBytes: MAX_UPLOAD });
-    const form = new FormData();
-    form.append("photo", prepared.blob, file.name || "character.jpg");
-    const payload = await postForm("/api/cartoonify", form);
-    entries.push([input.dataset.character, payload.generation_id]);
+    if (captured) {
+      const form = new FormData();
+      form.append("photo", captured, `${key}.jpg`);
+      const payload = await postForm("/api/cartoonify", form);
+      entries.push([key, payload.generation_id]);
+    } else if (file) {
+      const prepared = await preparePhoto(file, { maxBytes: MAX_UPLOAD });
+      const form = new FormData();
+      form.append("photo", prepared.blob, file.name || "character.jpg");
+      const payload = await postForm("/api/cartoonify", form);
+      entries.push([key, payload.generation_id]);
+    }
   }
   return entries;
 }
@@ -235,6 +314,7 @@ async function approveAndStart() {
     }
     const payload = await bookApi.start(form);
     state.setBook(book, payload.book_id);
+    view.rememberBook(payload.book_id);
     view.showReviewMessage("");
     // The book now has an id: make its prompts.json inspectable.
     view.showPrompts({ bookId: payload.book_id });
@@ -244,6 +324,7 @@ async function approveAndStart() {
     pollBook();
   } catch (error) {
     view.elements.approve().disabled = false;
+    if (sessionGone(error)) return;
     view.showReviewMessage(
       error.message || "Could not reach the server — try again.",
       "error",
@@ -278,11 +359,18 @@ function pollBook(failures = 0) {
       }
       view.renderBookProgress(done, total);
       pollBook();
-    } catch {
+    } catch (error) {
+      if (book.bookId !== expectedBook) return;
+      if (error.status === 401) {
+        // The session went away mid-render. Keep the book id, sign in, and
+        // come straight back to this book instead of losing the page.
+        view.rememberBook(expectedBook);
+        view.redirectTo(`/login?next=/books/${expectedBook}`);
+        return;
+      }
       /* transient network hiccup: retry quietly, but not forever. The count
          must travel with the retry — a fresh `started` per call could never
          accumulate four consecutive failures. */
-      if (book.bookId !== expectedBook) return;
       const failedPolls = failures + 1;
       if (failedPolls < MAX_QUIET_POLLS) {
         pollBook(failedPolls);

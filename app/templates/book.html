@@ -6,7 +6,7 @@
   <title>Make a picture book — {{ book_title }}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body data-max-upload-mb="{{ max_upload_mb }}" data-page="book">
+<body class="{% if library_enabled %}has-library{% endif %}" data-max-upload-mb="{{ max_upload_mb }}" data-page="book">
   <header class="masthead">
     <h1>{{ book_title }}</h1>
     <p class="tagline">Jack and the Beanstalk, starring You!</p>
@@ -20,6 +20,34 @@
       </form>
     {% endif %}
   </header>
+
+  {% if library_enabled %}
+  <aside class="library" aria-label="Your books">
+    <h2 class="library-title">Your books</h2>
+    {% if books %}
+    <nav class="library-stack">
+      {% for item in books %}
+      <a class="library-card {{ item.status }}" href="/books/{{ item.book_id }}">
+        {% if item.cover_url %}
+        <img class="library-thumb" src="{{ item.cover_url }}" alt="" loading="lazy">
+        {% else %}
+        <span class="library-thumb placeholder" aria-hidden="true"></span>
+        {% endif %}
+        <span class="library-card-text">
+          <strong>{{ item.title or "Untitled book" }}</strong>
+          <span class="library-meta">
+            {% if item.status == "complete" %}{{ item.page_count + 2 }} pages{% else %}{{ item.pages_done }} of {{ item.page_count or 19 }} pages{% endif %}
+            {% if item.status == "failed" %} — stopped{% endif %}
+          </span>
+        </span>
+      </a>
+      {% endfor %}
+    </nav>
+    {% else %}
+    <p class="library-empty">Your finished books will collect here.</p>
+    {% endif %}
+  </aside>
+  {% endif %}
 
   <main>
     <form id="book-form" class="panel" enctype="multipart/form-data">
@@ -81,13 +109,30 @@
         </p>
         <div class="grid-2">
           {% for key, label in characters %}
-          <div class="control">
+          <div class="control character-slot" data-slot="{{ key }}">
             <label for="character-{{ key }}">{{ label }}</label>
-            <input type="file" id="character-{{ key }}" name="character_photo_{{ key }}"
-                   accept="image/jpeg,image/png,image/webp" data-character="{{ key }}">
+            <div class="photo-controls">
+              <input type="file" id="character-{{ key }}" name="character_photo_{{ key }}"
+                     accept="image/jpeg,image/png,image/webp" data-character="{{ key }}">
+              <button type="button" id="use-camera-{{ key }}" class="button secondary">Use camera</button>
+            </div>
+            <p id="character-message-{{ key }}" class="inline-message hidden" role="status" aria-live="polite"></p>
+            <div id="character-preview-wrap-{{ key }}" class="preview-wrap small hidden">
+              <img id="character-preview-{{ key }}" alt="Preview of the {{ label }} photo">
+            </div>
           </div>
           {% endfor %}
         </div>
+
+        <div id="character-camera-pane" class="camera-pane hidden">
+          <p id="character-camera-target" class="field-help"></p>
+          <video id="character-camera-video" autoplay playsinline muted></video>
+          <div class="camera-actions">
+            <button type="button" id="character-camera-shutter" class="primary">Take the picture</button>
+            <button type="button" id="character-camera-cancel" class="button secondary">Cancel</button>
+          </div>
+        </div>
+        <p id="character-camera-message" class="inline-message error hidden" role="status" aria-live="polite"></p>
       </fieldset>
 
       <!-- The About page: displayed exactly as written -->

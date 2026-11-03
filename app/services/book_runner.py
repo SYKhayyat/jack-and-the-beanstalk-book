@@ -2,13 +2,14 @@
 
 Flow of one book, in story order:
 
-    portrait (already approved) -> pages 1..N together -> PDF
+    portrait (already approved) -> cover -> pages 1..N together -> PDF
 
 The portrait was made and approved before the book started; the runner sends it
 into **every** page alongside the original photo — the same double identity
 anchor the portrait pipeline uses. That is the mechanism that keeps the
 child the same child from page 1 to page 3: no page is ever generated without
-both anchors.
+both anchors. Both anchors are copied into the book so a later edit can re-use
+them after the original draft has expired.
 
 Pages render **concurrently**: one coroutine per page goes through
 `asyncio.gather`, each taking its own lease on the shared concurrency gate, so
@@ -17,6 +18,10 @@ this job, is what bounds the spend — and a page that outlives its deadline
 hands its slot to the worker (the same slot-transfer pattern
 `api._run_gated` uses) so the gate never believes the server is idle while a
 billable call is still running.
+
+The same job backs every edit: one page re-drawn, every page that casts a
+replaced face, the cover alone, or the missing pages of a failed book. Only the
+finished pages are re-read; the rest stay exactly as they were.
 
 Status is written to the `BookStore` as each page moves pending -> making ->
 done, so the browser can poll and show every page's state; a late failure still
@@ -27,20 +32,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from time import monotonic
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
+from app.errors import BookBusy
 from app.models.book import BOOK_PAGES, BookPage
 from app.models.settings import CartoonSettings
-from app.services.book_store import BookRecord, BookStatus, BookStore
+from app.services.book_store import (
+    BookRecord,
+    BookStatus,
+    BookStore,
+    CharacterReference,
+)
 from app.services.concurrency import ConcurrencyGate, GateTimeout, Slot
 from app.services.image_providers.base import ImageProvider, ImageRequest
 from app.services.pdf import PageArt, build_book_pdf
 from app.services.pipeline import UnknownGeneration
-from app.services.prompts import build_book_page_prompt, render_book_page
-from app.services.storage import Draft, GenerationStore
+from app.services.prompts import build_book_page_prompt, build_cover_prompt, render_book_page
+from app.services.storage import GenerationStore
 
 __all__ = ["BookRunner", "CharacterReference"]
 
@@ -52,20 +63,24 @@ _T = TypeVar("_T")
 # minute is full. Small enough to resume promptly, large enough not to spin.
 _PAGE_CHARGE_RETRY_SECONDS = 0.25
 
+#: The prompt record uses one pseudo-page for the cover.
+_COVER_KEY = "cover"
+
 
 @dataclass(frozen=True, slots=True)
-class CharacterReference:
-    """A cast member the uploader gave a face to.
+class _Artwork:
+    """Everything one render needs, reloaded from the book itself."""
 
-    Two images, mirroring the child's double anchor: the approved cartoon
-    portrait (style-matched to the book) and the original photograph behind
-    it. The portrait and photo take the same place per page as the child's.
-    """
-
+    about: object  # AboutMe, kept loose to avoid an import cycle at runtime
+    settings: CartoonSettings
     portrait: bytes
     portrait_media_type: str
     photo: bytes
     photo_media_type: str
+    characters: Mapping[str, CharacterReference]
+    # True when the photograph is missing and the portrait stands in for it,
+    # which happens for books made before the photograph was stored.
+    photo_is_portrait: bool = False
 
 
 class BookRunner:
@@ -86,6 +101,7 @@ class BookRunner:
         self._gate = gate
         self._page_timeout = page_timeout_seconds
         self._tasks: set[asyncio.Task[None]] = set()
+        self._active: dict[str, asyncio.Task[None]] = {}
 
     async def start(
         self,
@@ -95,71 +111,177 @@ class BookRunner:
     ) -> None:
         """Kick off rendering. Raises if the draft with the portrait is gone.
 
-        `characters` maps cast keys to the reference images the uploader
-        supplied for them (validated by the route against the book's
-        photoable cast). It is held by the job, not re-read per page: the set
-        of photographed characters is fixed for the book.
-
-        `page_charge` is the per-minute brake's per-page admission: it returns
-        True when one billable page was charged and False when the minute is
-        full. A full minute makes the book take longer, never fail — a book is
-        one product, and its page count must not be able to refuse its own
-        start. The route supplies it so this class stays ignorant of HTTP
-        client keys.
-
-        This is async because both the draft read and the portrait write are
-        blocking I/O — against a database, each is a network round trip with a
-        multi-megabyte payload. They run on worker threads, so an in-flight
-        book start cannot stall the event loop and the progress polls it is
-        serving. The render task itself is created on the caller's loop and
-        outlives the POST /api/book/start response.
+        The portrait, source photograph and character faces are copied into the
+        book immediately: from here on the book owns its art, independent of
+        draft expiry and cleanup, and it can be edited later.
         """
         draft = await asyncio.to_thread(self._store.load_draft, record.generation_id)
         if draft is None:
             raise UnknownGeneration(record.generation_id)
-        # Copy the portrait into the book immediately: from here on the book
-        # owns its art, independent of draft expiry and cleanup.
         await asyncio.to_thread(
             self._book_store.save_portrait, record.book_id, draft.cartoon_image
         )
-
-        task = asyncio.create_task(
-            self._render(record, draft, dict(characters or {}), page_charge)
+        await asyncio.to_thread(
+            self._book_store.save_source_photo, record.book_id, draft.photo_data
         )
+        resolved_characters = dict(characters or {})
+        await asyncio.to_thread(
+            self._book_store.save_characters, record.book_id, resolved_characters
+        )
+        self._schedule(
+            record.book_id,
+            self._render(
+                record.book_id,
+                page_charge=page_charge,
+                page_numbers=None,
+                draw_cover=True,
+                only_missing=False,
+                corrections={},
+            ),
+        )
+
+    async def start_edit(
+        self,
+        book_id: str,
+        *,
+        page_numbers: set[int] | None,
+        draw_cover: bool,
+        only_missing: bool = False,
+        corrections: Mapping[int, str] | None = None,
+        page_charge: Callable[[], bool] | None = None,
+    ) -> None:
+        """Mark the edit as rendering, then schedule it; returns before any call.
+
+        The status write happens before the response, so a browser polling
+        immediately after the 202 can never see the *previous* `complete`
+        document and conclude the edit already finished.
+
+        `page_numbers=None` means every story page. `only_missing` leaves pages
+        that already finished untouched (the retry path).
+        """
+        await asyncio.to_thread(self._mark_rendering, book_id, page_numbers, only_missing)
+        self._schedule(
+            book_id,
+            self._render(
+                book_id,
+                page_charge=page_charge,
+                page_numbers=page_numbers,
+                draw_cover=draw_cover,
+                only_missing=only_missing,
+                corrections=corrections or {},
+            ),
+        )
+
+    def _mark_rendering(
+        self,
+        book_id: str,
+        page_numbers: set[int] | None,
+        only_missing: bool,
+    ) -> None:
+        """Publish the edit's starting status before the job runs."""
+        record = self._book_store.load_record(book_id)
+        if record is None:
+            return
+        titles = tuple(
+            render_book_page(
+                page, record.settings, prompt_name=record.about.prompt_name
+            ).scene.title
+            for page in BOOK_PAGES
+        )
+        existing = self._stored_progress(book_id)
+        progress = {
+            page.number: "done" if existing.get(page.number) == "done" else "pending"
+            for page in BOOK_PAGES
+        }
+        target = (
+            {page.number for page in BOOK_PAGES} if page_numbers is None else set(page_numbers)
+        )
+        if only_missing:
+            target = {number for number in target if progress[number] != "done"}
+        for number in target:
+            progress[number] = "pending"
+        self._book_store.save_status(
+            book_id,
+            BookStatus.RENDERING,
+            self._page_view(book_id, progress, titles),
+            title=record.about.book_title,
+        )
+
+    def _schedule(self, book_id: str, coro: Coroutine[Any, Any, None]) -> None:
+        """Run one job per book; refuse a second concurrent edit of it."""
+        current = self._active.get(book_id)
+        if current is not None and not current.done():
+            raise BookBusy("This book is already being worked on. Wait for it to finish.")
+        task = asyncio.create_task(coro)
+        self._active[book_id] = task
         self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+
+        def _finished(done: asyncio.Task[None]) -> None:
+            self._tasks.discard(done)
+            if self._active.get(book_id) is done:
+                self._active.pop(book_id, None)
+
+        task.add_done_callback(_finished)
+
+    def rebuild_pdf(self, book_id: str) -> None:
+        """Re-assemble the PDF from the pages already on disk (no model calls).
+
+        Used by the cheap About edit: only the PDF text changes, so re-drawing
+        an image would be waste. Raises if the book is not complete yet; the
+        next normal render will pick the new text up.
+        """
+        record = self._book_store.load_record(book_id)
+        if record is None:
+            return
+        titles = tuple(
+            render_book_page(
+                page, record.settings, prompt_name=record.about.prompt_name
+            ).scene.title
+            for page in BOOK_PAGES
+        )
+        self._assemble_and_save(record, titles, self._stored_progress(book_id))
 
     # --- the job ----------------------------------------------------------------
 
     async def _render(
         self,
-        record: BookRecord,
-        draft: Draft,
-        characters: Mapping[str, CharacterReference],
+        book_id: str,
+        *,
         page_charge: Callable[[], bool] | None,
+        page_numbers: set[int] | None,
+        draw_cover: bool,
+        only_missing: bool,
+        corrections: Mapping[int, str],
     ) -> None:
-        book_id = record.book_id
+        record = await asyncio.to_thread(self._book_store.load_record, book_id)
+        if record is None:
+            logger.warning("book.edit_missing id=%s", book_id)
+            return
         user = record.user_id or "-"
         started = monotonic()
         try:
+            artwork = await asyncio.to_thread(self._artwork, record)
             pages = list(BOOK_PAGES)
             total = len(pages)
             prompt_name = record.about.prompt_name
-            # The live progress map, page number -> pending | making | done.
-            # Pages render concurrently, so every status write takes the lock
-            # and snapshots the whole map: two pages finishing at once can
-            # never publish a document each missing the other's page.
-            progress: dict[int, str] = {page.number: "pending" for page in pages}
-            status_lock = asyncio.Lock()
-            # Rendered once for the whole book. The titles depend only on the
-            # settings and the prompt name, and `paint` runs twice per page, so
-            # formatting them inside `_page_view` meant ~40 full-catalogue
-            # re-renders per book to publish documents that differed only in
-            # one page's status.
             titles = tuple(
-                render_book_page(page, draft.settings, prompt_name=prompt_name).scene.title
+                render_book_page(page, artwork.settings, prompt_name=prompt_name).scene.title
                 for page in pages
             )
+            existing = await asyncio.to_thread(self._stored_progress, book_id)
+            progress: dict[int, str] = {
+                page.number: "done" if existing.get(page.number) == "done" else "pending"
+                for page in pages
+            }
+            target = (
+                {page.number for page in pages} if page_numbers is None else set(page_numbers)
+            )
+            if only_missing:
+                target = {number for number in target if progress[number] != "done"}
+            # A regenerated page is not done any more until its new bytes land.
+            for number in target:
+                progress[number] = "pending"
+            status_lock = asyncio.Lock()
 
             async def paint() -> None:
                 async with status_lock:
@@ -168,6 +290,8 @@ class BookRunner:
                         book_id,
                         BookStatus.RENDERING,
                         self._page_view(book_id, progress, titles),
+                        None,
+                        title=record.about.book_title,
                     )
 
             async def mark(page_number: int, state: str) -> None:
@@ -175,35 +299,30 @@ class BookRunner:
                 await paint()
 
             async def _render_page(page: BookPage) -> PageArt:
-                page_photos = [name for name in page.cast if name in characters]
+                page_photos = [name for name in page.cast if name in artwork.characters]
                 prompt = build_book_page_prompt(
                     page,
-                    draft.settings,
+                    artwork.settings,
                     page_number=page.number,
                     total_pages=total,
                     prompt_name=prompt_name,
-                    supplied_characters=tuple(characters),
+                    supplied_characters=tuple(artwork.characters),
                     character_photos=page_photos,
+                    correction=corrections.get(page.number, ""),
                 )
-                references, media_types = _references(draft, page, characters)
-                # Take this page's share of the per-minute brake before the
-                # gate: a page waiting for allowance is not yet being drawn,
-                # so it must not hold a slot or claim "making". A full minute
-                # delays the book; it never fails it.
+                references, media_types = _references(artwork, page)
+
                 await _await_page_charge(page_charge)
 
                 async def on_slot() -> None:
-                    # "making" the moment the page owns a slot, and not before:
-                    # a page still queued behind the gate's limit is waiting,
-                    # not being drawn, and the visitor is told the difference.
                     await mark(page.number, "making")
 
                 image = await self._on_worker_thread_with_slot(
-                    self._page_call(references, media_types, prompt, draft.settings),
+                    self._page_call(
+                        references, media_types, prompt, artwork.settings, "book-page"
+                    ),
                     on_slot=on_slot,
                 )
-                # Craft first, then publish: the payload may only advertise a
-                # done page once its bytes are actually in the store.
                 await asyncio.to_thread(
                     self._book_store.save_page, book_id, page.number, image
                 )
@@ -215,14 +334,10 @@ class BookRunner:
                 await mark(page.number, "done")
                 return PageArt(
                     image=image,
-                    page=render_book_page(page, draft.settings, prompt_name=prompt_name),
+                    page=render_book_page(page, artwork.settings, prompt_name=prompt_name),
                 )
 
             async def run_page(page: BookPage) -> PageArt:
-                # One line per page, whatever the outcome: book id, owner, page
-                # number, bytes and how long it took. `done` means the bytes are
-                # in the store; `failed` is logged here and then re-raised so
-                # the book-level failure keeps the pages that did finish.
                 page_started = monotonic()
                 try:
                     art = await _render_page(page)
@@ -253,38 +368,34 @@ class BookRunner:
                 return art
 
             await paint()
-            results = await asyncio.gather(
-                *(run_page(page) for page in pages), return_exceptions=True
-            )
-            fatal = [result for result in results if isinstance(result, BaseException)]
-            if fatal:
-                # gather(return_exceptions=True) lets every page settle, so the
-                # pages that did finish are on disk and stay visible; the first
-                # failure in story order is the one worth reporting.
-                raise fatal[0]
+            if draw_cover:
+                await self._render_cover(record, artwork, page_charge)
+            to_render = [page for page in pages if page.number in target]
+            rendered: dict[int, PageArt] = {}
+            if to_render:
+                results = await asyncio.gather(
+                    *(run_page(page) for page in to_render), return_exceptions=True
+                )
+                fatal = [result for result in results if isinstance(result, BaseException)]
+                if fatal:
+                    raise fatal[0]
+                rendered = {
+                    cast("PageArt", result).page.number: cast("PageArt", result)
+                    for result in results
+                }
 
-            arts = [cast("PageArt", result) for result in results]
-            pdf_bytes = await asyncio.to_thread(build_book_pdf, record.about, arts)
-            await asyncio.to_thread(self._book_store.save_pdf, book_id, pdf_bytes)
-            await asyncio.to_thread(
-                self._book_store.save_status,
-                book_id,
-                BookStatus.COMPLETE,
-                self._page_view(book_id, progress, titles),
+            pdf_bytes = await asyncio.to_thread(
+                self._assemble_and_save, record, titles, progress, rendered
             )
             logger.info(
                 "book.complete user=%s book=%s pages=%d pdf_bytes=%d ms=%.0f outcome=complete",
                 user,
                 book_id,
                 total,
-                len(pdf_bytes),
+                pdf_bytes,
                 (monotonic() - started) * 1000,
             )
         except asyncio.CancelledError:
-            # A cancelled task is still an orphaned book: the process may be
-            # shutting down, or a caller may have cancelled the job. Record the
-            # failure before propagating, so a poll never keeps saying
-            # "rendering" for work that is no longer running.
             self._fail(
                 book_id,
                 "Rendering was cancelled before the book finished. The pages "
@@ -320,32 +431,72 @@ class BookRunner:
                 elapsed_ms=(monotonic() - started) * 1000,
             )
 
-    # --- one page ---------------------------------------------------------------
-
-    def _page_call(
+    def _assemble_and_save(
         self,
-        references: Sequence[bytes],
-        media_types: Sequence[str],
-        prompt: str,
-        settings: CartoonSettings,
-    ) -> Callable[[], bytes]:
-        """The blocking half of one page render (not yet on a thread)."""
+        record: BookRecord,
+        titles: Sequence[str],
+        progress: Mapping[int, str],
+        rendered: Mapping[int, PageArt] | None = None,
+    ) -> int:
+        """Build the PDF from every page on disk, then publish complete.
 
-        def work() -> bytes:
-            return self._provider.generate(
-                ImageRequest(
-                    prompt=prompt,
-                    # The child's double anchor on every single page, plus this
-                    # page's own photographed cast — never the whole book cast.
-                    reference_images=tuple(references),
-                    reference_media_types=tuple(media_types),
-                    output_format="png",
-                    aspect_ratio=str(settings.aspect_ratio),
-                    label="book-page",
+        `rendered` carries the pages this job just drew, so a full render does
+        not re-format every page a third time just to assemble them. Pages an
+        edit did not touch are read back from the store.
+        """
+        arts: list[PageArt] = []
+        fresh = rendered or {}
+        for page in BOOK_PAGES:
+            if page.number in fresh:
+                arts.append(fresh[page.number])
+                continue
+            image = self._book_store.read_page(record.book_id, page.number)
+            if image is None:
+                raise ValueError(f"Page {page.number} is missing; cannot assemble the book.")
+            arts.append(
+                PageArt(
+                    image=image,
+                    page=render_book_page(
+                        page, record.settings, prompt_name=record.about.prompt_name
+                    ),
                 )
-            ).data
+            )
+        cover = self._book_store.read_cover(record.book_id)
+        pdf_bytes = build_book_pdf(record.about, arts, cover)
+        self._book_store.save_pdf(record.book_id, pdf_bytes)
+        self._book_store.save_status(
+            record.book_id,
+            BookStatus.COMPLETE,
+            self._page_view(record.book_id, progress, titles),
+            title=record.about.book_title,
+        )
+        return len(pdf_bytes)
 
-        return work
+    async def _render_cover(
+        self,
+        record: BookRecord,
+        artwork: _Artwork,
+        page_charge: Callable[[], bool] | None,
+    ) -> bytes:
+        """Draw and persist the cover: one billable call, before the pages."""
+        prompt = build_cover_prompt(artwork.settings, prompt_name=record.about.prompt_name)
+        await _await_page_charge(page_charge)
+        image = await self._on_worker_thread_with_slot(
+            self._page_call(
+                [artwork.portrait, artwork.photo],
+                [artwork.portrait_media_type, artwork.photo_media_type],
+                prompt,
+                artwork.settings,
+                "book-cover",
+            )
+        )
+        await asyncio.to_thread(self._book_store.save_cover, record.book_id, image)
+        await asyncio.to_thread(
+            self._book_store.append_prompt,
+            record.book_id,
+            {"page": "cover", "key": _COVER_KEY, "prompt": prompt},
+        )
+        return image
 
     async def _on_worker_thread_with_slot(
         self, work: Callable[[], _T], *, on_slot: Callable[[], Awaitable[None]] | None = None
@@ -355,9 +506,6 @@ class BookRunner:
         The page timeout binds the slot wait and the work together. If the work
         outlives it, ownership of the slot transfers to the worker: it is still
         running (and possibly still billing), and only it knows when it ends.
-
-        `on_slot` runs once the slot is in hand, before the billable work
-        starts — the point at which the page is genuinely being drawn.
         """
         async with self._gate.lease(timeout=self._page_timeout) as slot:
             if on_slot is not None:
@@ -366,36 +514,96 @@ class BookRunner:
             try:
                 return await asyncio.wait_for(asyncio.shield(hop), timeout=self._page_timeout)
             except BaseException:
-                # A deadline is not the only way to stop waiting: the task is
-                # also cancelled when the book is cancelled (server shutdown,
-                # or a caller giving up). The worker thread cannot be
-                # interrupted either way, and it may still be billing, so the
-                # slot belongs to it until it finishes. Letting the lease
-                # release it here would tell the gate the server is idle while
-                # a billable call is still running.
                 if not hop.done():
                     _hand_slot_to_worker(slot, hop)
                 raise
 
+    # --- one page ---------------------------------------------------------------
+
+    def _page_call(
+        self,
+        references: Sequence[bytes],
+        media_types: Sequence[str],
+        prompt: str,
+        settings: CartoonSettings,
+        label: str,
+    ) -> Callable[[], bytes]:
+        """The blocking half of one render (not yet on a thread)."""
+
+        def work() -> bytes:
+            return self._provider.generate(
+                ImageRequest(
+                    prompt=prompt,
+                    reference_images=tuple(references),
+                    reference_media_types=tuple(media_types),
+                    output_format="png",
+                    aspect_ratio=str(settings.aspect_ratio),
+                    label=label,
+                )
+            ).data
+
+        return work
+
     # --- helpers ----------------------------------------------------------------
+
+    def _artwork(self, record: BookRecord) -> _Artwork:
+        portrait = self._book_store.read_portrait(record.book_id)
+        if portrait is None:
+            raise ValueError("This book's stored portrait is gone, so it cannot be redrawn.")
+        photo = self._book_store.read_source_photo(record.book_id)
+        # Books made before the photograph was stored keep their portrait only.
+        # The portrait is the likeness the pages were drawn from, so it stands
+        # in as the second anchor rather than the book becoming uneditable.
+        if photo is None:
+            photo = portrait
+            photo_is_portrait = True
+        else:
+            photo_is_portrait = False
+        return _Artwork(
+            about=record.about,
+            settings=record.settings,
+            portrait=portrait,
+            portrait_media_type=_media_type(portrait),
+            photo=photo,
+            photo_media_type=_media_type(photo),
+            photo_is_portrait=photo_is_portrait,
+            characters=self._book_store.load_characters(record.book_id),
+        )
+
+    def _stored_progress(self, book_id: str) -> dict[int, str]:
+        status = self._book_store.load_status(book_id) or {}
+        progress: dict[int, str] = {}
+        raw = status.get("pages", [])
+        if isinstance(raw, list):
+            for entry in raw:
+                if isinstance(entry, dict) and entry.get("status") == "done":
+                    try:
+                        progress[int(str(entry["number"]))] = "done"
+                    except (KeyError, TypeError, ValueError):
+                        continue
+        return progress
 
     def _fail(
         self, book_id: str, message: str, *, user: str = "-", elapsed_ms: float = 0.0
     ) -> None:
         status = self._book_store.load_status(book_id) or {"pages": []}
+        record = self._book_store.load_record(book_id)
         pages: list[dict[str, object]] = []
         for entry in cast("list[object]", status.get("pages", [])):
             if not isinstance(entry, dict):
                 continue
             page_entry = dict(entry)
             if page_entry.get("status") != "done":
-                # A page that was mid-flight when the book stopped is neither
-                # done nor carrying bytes; report it as pending so no tile and
-                # no url claims progress that never completed.
                 page_entry["status"] = "pending"
                 page_entry["url"] = None
             pages.append(page_entry)
-        self._book_store.save_status(book_id, BookStatus.FAILED, pages, error=message)
+        self._book_store.save_status(
+            book_id,
+            BookStatus.FAILED,
+            pages,
+            error=message,
+            title=record.about.book_title if record is not None else None,
+        )
         done = sum(1 for entry in pages if entry.get("status") == "done")
         logger.error(
             "book.failure user=%s book=%s pages_done=%d ms=%.0f outcome=failed message=%s",
@@ -412,15 +620,7 @@ class BookRunner:
         progress: Mapping[int, str],
         titles: Sequence[str],
     ) -> list[dict[str, object]]:
-        """The full page list for status, in story order, from live progress.
-
-        Every page carries one of `pending`, `making` or `done`; only a done
-        page has a url, because only a done page has bytes behind it.
-
-        `titles` is computed once per book by `_render`, not here: this runs on
-        every page transition, and re-rendering the catalogue each time was the
-        reason a nineteen-page book formatted its titles hundreds of times.
-        """
+        """The full page list for status, in story order, from live progress."""
         view: list[dict[str, object]] = []
         for page, title in zip(BOOK_PAGES, titles, strict=True):
             state = progress.get(page.number, "pending")
@@ -440,13 +640,7 @@ class BookRunner:
 
 
 async def _await_page_charge(charge: Callable[[], bool] | None) -> None:
-    """Wait until one billable page fits in this minute's allowance.
-
-    The brake is an abuse guard, not a per-book budget: a book may be larger
-    than a single minute's allowance, so a denied charge means *later*, not
-    *never*. Retry at a small interval; the concurrency gate still bounds how
-    many calls are actually in flight.
-    """
+    """Wait until one billable page fits in this minute's allowance."""
     if charge is None:
         return
     while not charge():
@@ -454,21 +648,18 @@ async def _await_page_charge(charge: Callable[[], bool] | None) -> None:
 
 
 def _references(
-    draft: Draft,
+    artwork: _Artwork,
     page: BookPage,
-    characters: Mapping[str, CharacterReference],
 ) -> tuple[list[bytes], list[str]]:
-    """Exactly the reference images for one page, in the order the prompt names.
-
-    The child's two anchors first (always), then each of the page's own cast
-    members that has a photo — portrait then photograph — in the page's cast
-    order. A page never receives the book's whole cast, and a cast member
-    without a photo contributes no image (the cast sheet's prose defines them).
-    """
-    references = [draft.cartoon_image, draft.photo_data]
-    media_types = [draft.cartoon_media_type, draft.photo_media_type]
+    """Exactly the reference images for one page, in the order the prompt names."""
+    references = [artwork.portrait]
+    media_types = [artwork.portrait_media_type]
+    if not artwork.photo_is_portrait:
+        # The same picture twice is a wasted reference slot.
+        references.append(artwork.photo)
+        media_types.append(artwork.photo_media_type)
     for name in page.cast:
-        character = characters.get(name)
+        character = artwork.characters.get(name)
         if character is None:
             continue
         references.extend([character.portrait, character.photo])
@@ -476,12 +667,11 @@ def _references(
     return references, media_types
 
 
-def _hand_slot_to_worker(slot: Slot, hop: asyncio.Task[object]) -> None:
-    """Give the slot to work that outlives the awaited request.
+def _media_type(data: bytes) -> str:
+    return "image/jpeg" if data[:2] == b"\xff\xd8" else "image/png"
 
-    The request may have timed out or been cancelled, but its worker thread is
-    still generating (and possibly billing). The gate must show busy until that
-    worker really finishes, so the worker releases the slot when it is done.
-    """
+
+def _hand_slot_to_worker(slot: Slot, hop: asyncio.Task[object]) -> None:
+    """Give the slot to work that outlives the awaited request."""
     slot.transfer()
     hop.add_done_callback(lambda _finished: slot.release())

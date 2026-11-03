@@ -38,14 +38,22 @@ import logging
 import os
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
 from app.models.book import AboutMe
+from app.models.settings import CartoonSettings
 
-__all__ = ["BookRecord", "BookStatus", "BookStore", "FileBookStore"]
+__all__ = [
+    "BookRecord",
+    "BookStatus",
+    "BookStore",
+    "BookSummary",
+    "CharacterReference",
+    "FileBookStore",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +65,35 @@ class BookStatus:
     RENDERING = "rendering"
     COMPLETE = "complete"
     FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterReference:
+    """A cast member the uploader gave a face to.
+
+    Two images, mirroring the child's double anchor: the approved cartoon
+    portrait (style-matched to the book) and the original photograph behind it.
+    """
+
+    portrait: bytes
+    portrait_media_type: str
+    photo: bytes
+    photo_media_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class BookSummary:
+    """One card in the library: enough to list and link, no blobs."""
+
+    book_id: str
+    title: str
+    status: str
+    created_at: str
+    updated_at: str
+    page_count: int
+    pages_done: int
+    cover_url: str | None
+    pdf_url: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +111,9 @@ class BookRecord:
     #: find it instead of billing a second one. None on books written before
     #: this field existed.
     fingerprint: str | None = None
+    #: The settings the portrait and every page were made with. Persisted so a
+    #: page (or the cover) can be regenerated long after the draft expires.
+    settings: CartoonSettings = field(default_factory=CartoonSettings)
 
 
 class BookStore:
@@ -97,8 +137,21 @@ class BookStore:
         about: AboutMe,
         generation_id: str,
         fingerprint: str | None = None,
+        settings: CartoonSettings | None = None,
     ) -> None:
         """Persist the book's request. Written once, before rendering starts."""
+        raise NotImplementedError
+
+    def update_about(self, book_id: str, about: AboutMe) -> None:
+        """Replace the About fields (the cheap edit: PDF text only)."""
+        raise NotImplementedError
+
+    def list_for_owner(self, user_id: str, *, limit: int = 50) -> list[BookSummary]:
+        """A signed-in person's books, newest first.
+
+        An empty `user_id` is password/open mode, where there is no person to
+        own a library; it returns nothing by design.
+        """
         raise NotImplementedError
 
     def find_started(self, *, fingerprint: str, since: datetime) -> str | None:
@@ -129,6 +182,9 @@ class BookStore:
         status: str,
         pages: list[dict[str, object]],
         error: str | None = None,
+        *,
+        title: str | None = None,
+        cover_url: str | None = None,
     ) -> None:
         """Persist job status. Called after every page so clients can poll it."""
         raise NotImplementedError
@@ -159,6 +215,42 @@ class BookStore:
         raise NotImplementedError
 
     def read_portrait(self, book_id: str) -> bytes | None:
+        raise NotImplementedError
+
+    def save_source_photo(self, book_id: str, data: bytes) -> None:
+        """Keep the original photograph: the second identity anchor for edits."""
+        raise NotImplementedError
+
+    def update_identity(
+        self,
+        book_id: str,
+        *,
+        portrait: bytes,
+        photo: bytes,
+        settings: CartoonSettings,
+    ) -> None:
+        """Replace the star's portrait, photo and settings (a face edit)."""
+        raise NotImplementedError
+
+    def read_source_photo(self, book_id: str) -> bytes | None:
+        raise NotImplementedError
+
+    def save_cover(self, book_id: str, data: bytes) -> None:
+        raise NotImplementedError
+
+    def read_cover(self, book_id: str) -> bytes | None:
+        raise NotImplementedError
+
+    def save_characters(self, book_id: str, characters: dict[str, CharacterReference]) -> None:
+        """Replace the photographed cast for a book."""
+        raise NotImplementedError
+
+    def load_characters(self, book_id: str) -> dict[str, CharacterReference]:
+        """Every cast member with a face, or an empty map."""
+        raise NotImplementedError
+
+    def save_character(self, book_id: str, key: str, ref: CharacterReference) -> None:
+        """Add or replace one photographed cast member."""
         raise NotImplementedError
 
     def save_page(self, book_id: str, page_number: int, data: bytes) -> None:
@@ -197,6 +289,9 @@ class BookStore:
 
     def portrait_url(self, book_id: str) -> str:
         return f"/book-media/{book_id}/portrait"
+
+    def cover_url(self, book_id: str) -> str:
+        return f"/book-media/{book_id}/cover"
 
     def page_url(self, book_id: str, page_number: int) -> str:
         return f"/book-media/{book_id}/pages/{page_number}"
@@ -269,6 +364,7 @@ class FileBookStore(BookStore):
         about: AboutMe,
         generation_id: str,
         fingerprint: str | None = None,
+        settings: CartoonSettings | None = None,
     ) -> None:
         _guard(book_id)
         payload: dict[str, object] = {
@@ -277,13 +373,67 @@ class FileBookStore(BookStore):
             "about": about.model_dump(mode="json"),
             "generation_id": generation_id,
             "request_fingerprint": fingerprint,
+            "settings": (settings or CartoonSettings()).model_dump(mode="json"),
             "created_at": _now(),
             "status": BookStatus.PENDING,
             "pages": [],
         }
         self._book_dir(book_id).mkdir(parents=True, exist_ok=True)
         self._atomic_write_json(self.path(book_id, "book.json"), payload)
-        self.save_status(book_id, cast(str, payload["status"]), [])
+        self.save_status(book_id, cast(str, payload["status"]), [], title=about.book_title)
+
+    def update_about(self, book_id: str, about: AboutMe) -> None:
+        """Rewrite just the About fields; the request fingerprint stays."""
+        _guard(book_id)
+        path = self.path(book_id, "book.json")
+        try:
+            payload = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise KeyError(f"No record for book {book_id!r}.") from exc
+        payload["about"] = about.model_dump(mode="json")
+        self._atomic_write_json(path, payload)
+        status = self.load_status(book_id)
+        if status is not None:
+            self.save_status(
+                book_id,
+                str(status.get("status", BookStatus.PENDING)),
+                _pages_of(status),
+                cast("str | None", status.get("error")),
+                title=about.book_title,
+                cover_url=self._cover_url_if_present(book_id),
+            )
+
+    def list_for_owner(self, user_id: str, *, limit: int = 50) -> list[BookSummary]:
+        """Scan the book directories for this owner's books, newest first."""
+        if not user_id:
+            return []
+        found: list[BookSummary] = []
+        for directory in self.root.iterdir():
+            if not directory.is_dir() or not _safe(directory.name):
+                continue
+            record = self.load_record(directory.name)
+            if record is None or record.user_id != user_id:
+                continue
+            found.append(self._summary(directory.name, record))
+        found.sort(key=lambda summary: summary.created_at, reverse=True)
+        return found[:limit]
+
+    def _summary(self, book_id: str, record: BookRecord) -> BookSummary:
+        status = self.load_status(book_id) or {}
+        pages = _pages_of(status)
+        done = sum(1 for page in pages if page.get("status") == "done")
+        state = str(status.get("status", BookStatus.PENDING))
+        return BookSummary(
+            book_id=book_id,
+            title=record.about.book_title,
+            status=state,
+            created_at=record.created_at,
+            updated_at=str(status.get("updated_at", record.created_at)),
+            page_count=len(pages),
+            pages_done=done,
+            cover_url=self._cover_url_if_present(book_id),
+            pdf_url=self.pdf_url(book_id) if state == BookStatus.COMPLETE else None,
+        )
 
     def load_record(self, book_id: str) -> BookRecord | None:
         """Reload a book's request, or None if it is gone or malformed."""
@@ -295,6 +445,7 @@ class FileBookStore(BookStore):
         try:
             payload: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
             about = AboutMe.model_validate(payload["about"])
+            settings = CartoonSettings.model_validate(payload.get("settings") or {})
         except (OSError, json.JSONDecodeError, KeyError, ValueError):
             return None
         owner = payload.get("user_id")
@@ -306,6 +457,7 @@ class FileBookStore(BookStore):
             created_at=str(payload.get("created_at", "")),
             user_id=str(owner) if owner else None,
             fingerprint=str(fingerprint) if fingerprint else None,
+            settings=settings,
         )
 
     def find_started(self, *, fingerprint: str, since: datetime) -> str | None:
@@ -337,6 +489,9 @@ class FileBookStore(BookStore):
         status: str,
         pages: list[dict[str, object]],
         error: str | None = None,
+        *,
+        title: str | None = None,
+        cover_url: str | None = None,
     ) -> None:
         """Persist job status. Called after every page so clients can poll it."""
         payload = {
@@ -345,6 +500,10 @@ class FileBookStore(BookStore):
             "pages": pages,
             "error": error,
             "pdf_url": self.pdf_url(book_id) if status == BookStatus.COMPLETE else None,
+            "cover_url": cover_url
+            if cover_url is not None
+            else self._cover_url_if_present(book_id),
+            "title": title,
             "updated_at": _now(),
         }
         self._atomic_write_json(self.path(book_id, "status.json"), payload)
@@ -373,6 +532,74 @@ class FileBookStore(BookStore):
 
     def read_portrait(self, book_id: str) -> bytes | None:
         return self._read_image(book_id, "portrait")
+
+    def save_source_photo(self, book_id: str, data: bytes) -> None:
+        self._write_image(book_id, "photo", data)
+
+    def update_identity(
+        self,
+        book_id: str,
+        *,
+        portrait: bytes,
+        photo: bytes,
+        settings: CartoonSettings,
+    ) -> None:
+        self.save_portrait(book_id, portrait)
+        self.save_source_photo(book_id, photo)
+        path = self.path(book_id, "book.json")
+        try:
+            payload = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise KeyError(f"No record for book {book_id!r}.") from exc
+        payload["settings"] = settings.model_dump(mode="json")
+        self._atomic_write_json(path, payload)
+
+    def read_source_photo(self, book_id: str) -> bytes | None:
+        return self._read_image(book_id, "photo")
+
+    def save_cover(self, book_id: str, data: bytes) -> None:
+        self._write_image(book_id, "cover", data)
+
+    def read_cover(self, book_id: str) -> bytes | None:
+        return self._read_image(book_id, "cover")
+
+    def save_characters(self, book_id: str, characters: dict[str, CharacterReference]) -> None:
+        directory = self._book_dir(book_id) / "characters"
+        directory.mkdir(parents=True, exist_ok=True)
+        for key, ref in characters.items():
+            self.save_character(book_id, key, ref)
+
+    def save_character(self, book_id: str, key: str, ref: CharacterReference) -> None:
+        _guard(key)
+        directory = self._book_dir(book_id) / "characters"
+        directory.mkdir(parents=True, exist_ok=True)
+        self._atomic_write_bytes(
+            directory / _image_name(f"{key}-portrait", ref.portrait), ref.portrait
+        )
+        self._atomic_write_bytes(directory / _image_name(f"{key}-photo", ref.photo), ref.photo)
+
+    def load_characters(self, book_id: str) -> dict[str, CharacterReference]:
+        directory = self._book_dir(book_id) / "characters"
+        if not directory.is_dir():
+            return {}
+        found: dict[str, CharacterReference] = {}
+        for child in directory.iterdir():
+            if not child.is_file() or "-portrait" not in child.stem:
+                continue
+            key = child.stem.removesuffix("-portrait")
+            if not _safe(key):
+                continue
+            portrait = self._read_image_file(directory, f"{key}-portrait")
+            photo = self._read_image_file(directory, f"{key}-photo")
+            if portrait is None or photo is None:
+                continue
+            found[key] = CharacterReference(
+                portrait=portrait,
+                portrait_media_type=_media_type(portrait),
+                photo=photo,
+                photo_media_type=_media_type(photo),
+            )
+        return found
 
     def save_page(self, book_id: str, page_number: int, data: bytes) -> None:
         """Persist one page's art. Raises on a bad page number, never on disk."""
@@ -437,9 +664,11 @@ class FileBookStore(BookStore):
             return
         directory = self._book_dir(book_id)
         if directory.is_dir():
-            for child in directory.iterdir():
+            for child in sorted(directory.rglob("*"), reverse=True):
                 if child.is_file():
                     child.unlink()
+                elif child.is_dir():
+                    child.rmdir()
             directory.rmdir()
 
     def reap_incomplete(self) -> int:
@@ -467,12 +696,14 @@ class FileBookStore(BookStore):
                 "list[dict[str, object]]",
                 cast("dict[str, object]", status).get("pages", []),
             )
+            record = self.load_record(directory.name)
             self.save_status(
                 directory.name,
                 BookStatus.FAILED,
                 pages,
                 error="The server restarted while this book was rendering. "
                 "Start a new one — the finished pages shown here were kept.",
+                title=record.about.book_title if record is not None else None,
             )
             reaped += 1
             logger.warning("book.reaped id=%s (server restart)", directory.name)
@@ -512,15 +743,22 @@ class FileBookStore(BookStore):
         return self.root / book_id
 
     def _write_image(self, book_id: str, stem: str, data: bytes) -> None:
-        suffix = "jpg" if data[:2] == b"\xff\xd8" else "png"
-        self._atomic_write_bytes(self.path(book_id, f"{stem}.{suffix}"), data)
+        self._atomic_write_bytes(self.path(book_id, _image_name(stem, data)), data)
 
     def _read_image(self, book_id: str, stem: str) -> bytes | None:
-        directory = self._book_dir(book_id)
+        return self._read_image_file(self._book_dir(book_id), stem)
+
+    @staticmethod
+    def _read_image_file(directory: Path, stem: str) -> bytes | None:
         for suffix in ("png", "jpg"):
             candidate = directory / f"{stem}.{suffix}"
             if candidate.is_file():
                 return candidate.read_bytes()
+        return None
+
+    def _cover_url_if_present(self, book_id: str) -> str | None:
+        if self.read_cover(book_id) is not None:
+            return self.cover_url(book_id)
         return None
 
     @staticmethod
@@ -541,6 +779,23 @@ class FileBookStore(BookStore):
             tmp.replace(path)
         finally:
             tmp.unlink(missing_ok=True)
+
+
+def _pages_of(status: dict[str, object]) -> list[dict[str, object]]:
+    """The page list from a status document, safely typed for rewriting."""
+    raw = status.get("pages", [])
+    if not isinstance(raw, list):
+        return []
+    return [dict(entry) for entry in raw if isinstance(entry, dict)]
+
+
+def _image_name(stem: str, data: bytes) -> str:
+    """Pick the extension from the bytes, never from a claim."""
+    return f"{stem}.jpg" if data[:2] == b"\xff\xd8" else f"{stem}.png"
+
+
+def _media_type(data: bytes) -> str:
+    return "image/jpeg" if data[:2] == b"\xff\xd8" else "image/png"
 
 
 def _guard(book_id: str) -> None:

@@ -31,6 +31,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 __all__ = [
+    "BookCharacterRow",
     "BookPageRow",
     "BookRow",
     "UserRow",
@@ -80,10 +81,16 @@ class BookRow(Base):
         String(64), nullable=True, index=True
     )
     about: Mapped[dict[str, Any]] = mapped_column(JSON)
+    #: The settings the portrait and pages were made with, so a single page can
+    #: be regenerated after the original draft has expired.
+    settings: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     prompts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     status_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     portrait: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    #: The original photograph: the second identity anchor for an edit.
+    source_photo: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    cover: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     pdf: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -94,10 +101,31 @@ class BookPageRow(Base):
 
     __tablename__ = "book_pages"
 
-    book_id: Mapped[str] = mapped_column(ForeignKey("books.id"), primary_key=True)
+    book_id: Mapped[str] = mapped_column(
+        ForeignKey("books.id", ondelete="CASCADE"), primary_key=True
+    )
     page_number: Mapped[int] = mapped_column(primary_key=True)
     image: Mapped[bytes] = mapped_column(LargeBinary)
     media_type: Mapped[str] = mapped_column(String(50))
+
+
+class BookCharacterRow(Base):
+    """A photographed cast member's portrait and source photo.
+
+    Kept per book rather than per draft: a draft expires in a day, while a book
+    lives for its retention window and must be editable throughout.
+    """
+
+    __tablename__ = "book_characters"
+
+    book_id: Mapped[str] = mapped_column(
+        ForeignKey("books.id", ondelete="CASCADE"), primary_key=True
+    )
+    cast_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    portrait: Mapped[bytes] = mapped_column(LargeBinary)
+    portrait_media_type: Mapped[str] = mapped_column(String(50))
+    photo: Mapped[bytes] = mapped_column(LargeBinary)
+    photo_media_type: Mapped[str] = mapped_column(String(50))
 
 
 def normalise_database_url(database_url: str) -> str:

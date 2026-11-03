@@ -169,6 +169,7 @@ def create_app(
     app.include_router(web.router)
     app.include_router(api.router)
     app.include_router(book.router)
+    app.include_router(book.books_router)
     app.include_router(book.media_router)
     app.include_router(media.router)
     app.include_router(auth.router)

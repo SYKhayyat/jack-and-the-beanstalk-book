@@ -29,7 +29,7 @@ from PIL import Image, UnidentifiedImageError
 
 from app.models.book import AboutMe, BookPage, TextZone
 
-__all__ = ["PageArt", "build_book_pdf", "draw_about_page"]
+__all__ = ["PageArt", "build_book_pdf", "draw_about_page", "draw_cover_page"]
 
 logger = logging.getLogger(__name__)
 
@@ -81,12 +81,15 @@ class PageArt:
         self.page = page
 
 
-def build_book_pdf(about: AboutMe, pages: Sequence[PageArt]) -> bytes:
-    """Assemble the book: full-bleed art pages in story order, About last.
+def build_book_pdf(
+    about: AboutMe, pages: Sequence[PageArt], cover: bytes | None = None
+) -> bytes:
+    """Assemble the book: cover, full-bleed art pages in story order, About last.
 
-    All pages share the aspect ratio of the first one (they come from the same
-    provider and aspect setting, so they already match); any unexpected drift is
-    letterboxed by `Image.open`'s placement rather than rejected.
+    All pages share the aspect ratio of the cover (or the first story page when
+    there is no cover; they come from the same provider and aspect setting, so
+    they already match). Any unexpected drift is letterboxed by `Image.open`'s
+    placement rather than rejected.
 
     Raises:
         ValueError: if `pages` is empty or any image is unreadable.
@@ -94,7 +97,7 @@ def build_book_pdf(about: AboutMe, pages: Sequence[PageArt]) -> bytes:
     if not pages:
         raise ValueError("A book needs at least one page.")
 
-    pdf = FPDF(unit="pt", format=_page_shape(pages[0].image))
+    pdf = FPDF(unit="pt", format=_page_shape(cover or pages[0].image))
     pdf.set_auto_page_break(False)
     _register_fonts(pdf)
     if _shaping_supported():
@@ -102,6 +105,9 @@ def build_book_pdf(about: AboutMe, pages: Sequence[PageArt]) -> bytes:
         logger.info("pdf.text_shaping=on")
     else:
         logger.info("pdf.text_shaping=off reason=uharfbuzz_not_importable")
+
+    if cover is not None:
+        draw_cover_page(pdf, about, cover)
 
     for entry in pages:
         _draw_page(pdf, entry)
@@ -111,6 +117,43 @@ def build_book_pdf(about: AboutMe, pages: Sequence[PageArt]) -> bytes:
     output = io.BytesIO()
     pdf.output(output)
     return output.getvalue()
+
+
+def draw_cover_page(pdf: FPDF, about: AboutMe, cover: bytes) -> None:
+    """The front cover: full-bleed cover art plus the real, extractable title.
+
+    The title is drawn as PDF text on a solid panel, exactly like the story
+    lines, so it is always spelled right and always readable regardless of what
+    the image model produced. The panel sits in the calm upper third the cover
+    prompt reserves for it.
+    """
+    width, height = pdf.w, pdf.h
+    pdf.add_page()
+    pdf.image(io.BytesIO(cover), x=0, y=0, w=width, h=height)
+
+    title = about.book_title
+    panel_width = width * (1 - 2 * _SIDE_MARGIN)
+    panel_top = height * 0.07
+    panel_height = height * 0.16
+    pdf.set_fill_color(*_PANEL_FILL)
+    pdf.rect(
+        x=(width - panel_width) / 2,
+        y=panel_top,
+        w=panel_width,
+        h=panel_height,
+        style="F",
+    )
+
+    title_size = width * 0.075
+    while (
+        title_size > 18.0
+        and _text_width("ComicNeue", "B", title_size, title) > panel_width * 0.92
+    ):
+        title_size *= 0.9
+    pdf.set_font("ComicNeue", "B", title_size)
+    pdf.set_text_color(*_PANEL_TEXT)
+    pdf.set_xy(width * _SIDE_MARGIN, panel_top + (panel_height - title_size * 1.4) / 2)
+    pdf.cell(panel_width, title_size * 1.4, title, align="C")
 
 
 def _draw_page(pdf: FPDF, entry: PageArt) -> None:

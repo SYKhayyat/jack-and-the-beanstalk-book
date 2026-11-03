@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -77,6 +77,56 @@ def index(
             # without asking the store on every render.
             "user_name": session.name if session else "",
             "signed_in": session is not None,
+            # Google mode files each book under a person, so the library is
+            # available there. Password/open mode has no identity and
+            # deliberately offers no shared pile of everybody's books.
+            "books": container.book_store.list_for_owner(session.user_id)
+            if session and session.user_id
+            else [],
+            "library_enabled": bool(session and session.user_id),
+        },
+    )
+
+
+@router.get("/books/{book_id}", response_class=HTMLResponse)
+def book_page(
+    book_id: str, request: Request, container: ContainerDep, session: CurrentSessionDep
+) -> HTMLResponse:
+    """One owned book, with its PDF, pages and edit controls."""
+    owner = session.user_id if session else None
+    stored_owner = container.book_store.owner_of(book_id)
+    if stored_owner and stored_owner != (owner or ""):
+        raise HTTPException(status_code=404, detail="No book with that id.")
+    record = container.book_store.load_record(book_id)
+    status_payload = container.book_store.load_status(book_id)
+    if record is None or status_payload is None:
+        raise HTTPException(status_code=404, detail="No book with that id.")
+
+    templates: Jinja2Templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request=request,
+        name="book_detail.html",
+        context={
+            "book": record,
+            "about": record.about,
+            "status": status_payload,
+            "pages": status_payload.get("pages", []),
+            "cover_url": f"/book-media/{book_id}/cover"
+            if container.book_store.read_cover(book_id) is not None
+            else None,
+            "pdf_url": f"/book-media/{book_id}/pdf"
+            if status_payload.get("status") == "complete"
+            else None,
+            "characters": photoable_cast(),
+            "rejection_reasons": [
+                {"value": reason.value, "label": REJECTION_LABELS[reason]}
+                for reason in RejectionReason
+            ],
+            "user_name": session.name if session else "",
+            "signed_in": session is not None,
+            "max_upload_mb": container.settings.max_upload_mb,
+            "books": container.book_store.list_for_owner(owner) if owner else [],
+            "library_enabled": bool(owner),
         },
     )
 

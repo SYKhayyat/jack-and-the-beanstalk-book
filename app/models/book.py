@@ -197,6 +197,11 @@ class AboutMe(BaseModel):
         lines = (_sanitize(line) for line in value.splitlines())
         return "\n".join(line for line in lines if line).strip()
 
+    @property
+    def book_title(self) -> str:
+        """The book's own title, shown on the cover and in the library."""
+        return f"{self.prompt_name} and the Beanstalk"
+
     def rendered_about_lines(self) -> list[str]:
         """The About page as PDF copy, built entirely from what was typed.
 

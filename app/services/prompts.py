@@ -43,6 +43,7 @@ __all__ = [
     "book_name_for",
     "build_book_page_prompt",
     "build_cartoon_prompt",
+    "build_cover_prompt",
     "cast_photoable",
     "photoable_cast",
     "render_book_page",
@@ -302,6 +303,7 @@ def build_book_page_prompt(
     prompt_name: str | None = None,
     supplied_characters: Iterable[str] = (),
     character_photos: Iterable[str] = (),
+    correction: str = "",
 ) -> str:
     """Prompt for one picture-book page.
 
@@ -418,8 +420,42 @@ def build_book_page_prompt(
         _ASSEMBLY["camera"].format(camera=page.scene.camera),
         page.scene.checklist,
         _avoid_clause(page.scene),
+        correction,
     ]
     return _join_sections([*shared, *this_page])
+
+
+def build_cover_prompt(settings: CartoonSettings, *, prompt_name: str | None = None) -> str:
+    """Prompt for the book's one cover call.
+
+    The cover shares the book's fixed style, identity anchor and consistency
+    rules so it belongs to the same book as the pages. It deliberately names
+    only the child: the cover is one hero image of the star beside the
+    beanstalk, not a group shot. The title is drawn by the PDF layer, never by
+    the model, so the upper third is asked to stay calm for it.
+    """
+    task_book = cast("dict[str, str]", _BOOK["assembly"])
+    name = _substitutions(settings, prompt_name)["name"]
+    title = f"{name} and the Beanstalk"
+    sections = [
+        task_book["cover_task"].format(book_title=title, name=name),
+        settings.identity_directive(),
+        _LIKENESS_EMPHASIS[settings.likeness_strength],
+        str(_BOOK["likeness_not_size"]),
+        str(_BOOK["body_coherence"]),
+        str(_BOOK["same_clothes"]),
+        str(_BOOK["one_art_style"]),
+        _ASSEMBLY["art_style"].format(style=_BOOK_STYLE),
+        _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
+        task_book["stylisation"].format(
+            intensity=_book_intensity_text(settings.cartoon_intensity)
+        ),
+        _common_character_block(settings),
+        str(_BOOK["negative"]),
+        str(_BOOK["no_text"]),
+        task_book["cover_scene"].format(name=name),
+    ]
+    return _join_sections(sections)
 
 
 def _common_character_block(settings: CartoonSettings) -> str:

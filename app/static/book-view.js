@@ -14,6 +14,13 @@ export const elements = {
   preview: () => document.getElementById("preview"),
   previewWrap: () => document.getElementById("preview-wrap"),
 
+  characterCameraPane: () => document.getElementById("character-camera-pane"),
+  characterCameraVideo: () => document.getElementById("character-camera-video"),
+  characterCameraShutter: () => document.getElementById("character-camera-shutter"),
+  characterCameraCancel: () => document.getElementById("character-camera-cancel"),
+  characterCameraMessage: () => document.getElementById("character-camera-message"),
+  characterCameraTarget: () => document.getElementById("character-camera-target"),
+
   makePortrait: () => document.getElementById("make-portrait"),
 
   reviewStage: () => document.getElementById("review-stage"),
@@ -44,6 +51,58 @@ export const elements = {
    inputs are ignored by the controller; a slot never exists for the cow. */
 export function characterInputs() {
   return Array.from(document.querySelectorAll("input[data-character]"));
+}
+
+export function useCharacterCamera(key) {
+  return document.getElementById(`use-camera-${key}`);
+}
+
+export function characterLabel(key) {
+  const input = document.getElementById(`character-${key}`);
+  const label = input ? document.querySelector(`label[for="character-${key}"]`) : null;
+  return label ? label.textContent.trim() : key;
+}
+
+/* One preview URL per character slot, so a retake replaces the old blob. */
+const characterPreviewUrls = new Map();
+
+export function renderCharacterPreview(key, blob) {
+  const previous = characterPreviewUrls.get(key);
+  if (previous) URL.revokeObjectURL(previous);
+  const url = URL.createObjectURL(blob);
+  characterPreviewUrls.set(key, url);
+  const image = document.getElementById(`character-preview-${key}`);
+  image.src = url;
+  document.getElementById(`character-preview-wrap-${key}`).classList.remove("hidden");
+}
+
+export function showCharacterMessage(key, message, kind = "info") {
+  const node = document.getElementById(`character-message-${key}`);
+  if (!message) {
+    node.classList.add("hidden");
+    return;
+  }
+  node.textContent = message;
+  node.classList.toggle("error", kind === "error");
+  node.classList.remove("hidden");
+}
+
+export function showCharacterCameraPane(open) {
+  elements.characterCameraPane().classList.toggle("hidden", !open);
+}
+
+export function showCharacterCameraMessage(message) {
+  const node = elements.characterCameraMessage();
+  if (!message) {
+    node.classList.add("hidden");
+    return;
+  }
+  node.textContent = message;
+  node.classList.remove("hidden");
+}
+
+export function setCharacterCameraTarget(label) {
+  elements.characterCameraTarget().textContent = label ? `Photo of ${label}` : "";
 }
 
 export function showPhotoMessage(message, kind = "info") {
@@ -96,6 +155,27 @@ export function oneStepChecked() {
 
 export function showRestart() {
   elements.restart().classList.remove("hidden");
+}
+
+export function restartLink() {
+  return elements.restart();
+}
+
+/* The only navigation the controller asks for; the view owns the window. */
+export function redirectTo(path) {
+  window.location.assign(path);
+}
+
+export function currentBook() {
+  return window.localStorage.getItem("jbt.activeBook");
+}
+
+export function rememberBook(bookId) {
+  window.localStorage.setItem("jbt.activeBook", bookId);
+}
+
+export function forgetBook() {
+  window.localStorage.removeItem("jbt.activeBook");
 }
 
 /* Transparency: the wording the model actually received. The cartoon prompt
