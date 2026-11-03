@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from app.models import CartoonSettings, RejectionReason
+from app.services.prompts import photoable_cast
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC = PROJECT_ROOT / "app" / "static"
@@ -125,6 +126,27 @@ def test_the_book_poller_gives_up_after_consecutive_failures() -> None:
     assert "failedPolls < MAX_QUIET_POLLS" in source
     assert "pollBook(failedPolls);" in source
     assert "Date.now() - started" not in source
+
+
+def test_the_detail_page_also_fetches_only_from_the_api_client() -> None:
+    """The one-book page is its own controller, but `fetch` still lives in api.js."""
+    source = _read("book-detail.js")
+    assert not re.search(r"\bfetch\(", source), "book-detail.js must not fetch"
+    assert 'from "./api.js"' in source
+    assert "createBookDetailClient" in source
+
+
+def test_api_errors_carry_the_http_status() -> None:
+    """A 401 must be tellable apart from a failure, or the resume flow is dead.
+
+    The poller sends the visitor to sign-in and back to the same book when the
+    session expires mid-render. That only works if the thrown error still
+    knows the status code.
+    """
+    source = _read("api.js")
+    assert "error.status = status" in source
+    for name in ("book.js", "book-detail.js"):
+        assert "error.status === 401" in _read(name)
 
 
 def test_photo_sources_satisfy_one_seam() -> None:
@@ -291,13 +313,29 @@ def test_the_photo_fieldset_offers_a_camera(page_html: str) -> None:
     assert re.search(r'id="camera-message"[^>]*class="[^"]*hidden', page_html)
 
 
+def test_every_character_slot_offers_the_same_camera(page_html: str) -> None:
+    """The extra cast photos get the in-page camera too, not just the star."""
+    for key, _label in photoable_cast():
+        assert f'id="use-camera-{key}"' in page_html
+        assert f'id="character-preview-{key}"' in page_html
+        assert f'id="character-message-{key}"' in page_html
+    for element_id in (
+        "character-camera-pane",
+        "character-camera-video",
+        "character-camera-shutter",
+        "character-camera-cancel",
+        "character-camera-message",
+    ):
+        assert f'id="{element_id}"' in page_html
+
+
 def test_photo_input_no_longer_blocks_camera_only_submission(page_html: str) -> None:
     file_input = re.search(r'<input type="file"[^>]*>', page_html).group(0)
     assert "required" not in file_input
 
 
 def test_size_limit_is_a_data_attribute_backstop(page_html: str) -> None:
-    assert re.search(r'<body data-max-upload-mb="\d+"[^>]*>', page_html)
+    assert re.search(r'<body[^>]*data-max-upload-mb="\d+"[^>]*>', page_html)
     help_text = re.search(
         r"<p class=\"field-help\">[^<]*shrink it for you[^<]*</p>", page_html
     ).group(0)

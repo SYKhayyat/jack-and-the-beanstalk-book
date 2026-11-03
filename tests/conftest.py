@@ -23,6 +23,11 @@ from app.main import create_app
 from app.services.image_providers.base import ImageProvider
 from tests.helpers import RecordingProvider, make_photo_bytes
 
+# `Settings` reads `.env` by default. A developer's real `.env` (Google
+# credentials, a database URL) must never leak into a test run or change what
+# the tests exercise, so the suite always builds settings from scratch.
+Settings.model_config["env_file"] = None
+
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:

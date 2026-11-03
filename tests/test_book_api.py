@@ -280,7 +280,7 @@ class TestBookEndToEnd:
         assert pdf.headers["content-type"] == "application/pdf"
         assert pdf.content[:5] == b"%PDF-"
         reader = PdfReader(io.BytesIO(pdf.content))
-        assert len(reader.pages) == PAGE_COUNT + 1  # story pages + About
+        assert len(reader.pages) == PAGE_COUNT + 2  # cover + story pages + About
 
     def test_portrait_media_available(self, client: TestClient) -> None:
         portrait = make_portrait(client)

@@ -16,6 +16,7 @@ the live Render page still has to be opened by a person.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -64,9 +65,24 @@ SECRET_KEYS = (
 
 
 def _repo_files() -> list[Path]:
+    """The files git would publish, not the developer's local working tree.
+
+    A real `.env` is gitignored and expected on a developer's machine; scanning
+    the working tree would flag it as a leak even though it can never be
+    committed. `git ls-files` answers the question this test actually asks:
+    what is in the repository.
+    """
+    listed = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout.decode()
     return [
         path
-        for path in PROJECT_ROOT.rglob("*")
+        for name in listed.split("\0")
+        if name
+        for path in [PROJECT_ROOT / name]
         if path.is_file() and not any(part in SKIP_DIRS for part in path.parts)
     ]
 

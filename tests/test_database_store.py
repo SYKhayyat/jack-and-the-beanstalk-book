@@ -449,9 +449,16 @@ def test_file_and_database_stores_serve_the_same_status_shapes(
         s.save_prompts("book-1", [{"page": "1", "key": "k", "prompt": "p"}])
         file_status = s.load_status("book-1")
         keys = set((file_status or {}).keys())
-        assert keys == {"book_id", "status", "pages", "error", "pdf_url", "updated_at"}, (
-            s.__class__.__name__
-        )
+        assert keys == {
+            "book_id",
+            "status",
+            "pages",
+            "error",
+            "pdf_url",
+            "cover_url",
+            "title",
+            "updated_at",
+        }, s.__class__.__name__
 
 
 # --- the acceptance flow, through the real routes --------------------------------

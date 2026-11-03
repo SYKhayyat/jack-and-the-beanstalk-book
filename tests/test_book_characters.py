@@ -232,6 +232,7 @@ class TestPerPageReferences:
                 if section.startswith("THE CAST (")
             )
             for entry in prompts
+            if entry["key"] != "cover"
         }
         assert len(sheets) == 1, "the cast sheet drifted between pages"
         sheet = sheets.pop()
@@ -251,7 +252,11 @@ class TestPerPageReferences:
         assert final["status"] == "complete", final
 
         prompts = client.get(f"/book-media/{start['book_id']}/prompts.json").json()["prompts"]
-        by_page = {int(entry["page"]): entry["prompt"] for entry in prompts}
+        by_page = {
+            int(entry["page"]): entry["prompt"]
+            for entry in prompts
+            if entry["page"] != "cover"
+        }
         # The mother's pages name her two references after the child's two.
         assert "3) Mother's cartoon portrait" in by_page[1]
         assert "4) Mother's photograph" in by_page[1]
