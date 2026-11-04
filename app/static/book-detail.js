@@ -25,6 +25,9 @@ document.getElementById("edit-face-form").addEventListener("submit", (event) => 
   void replaceFace();
 });
 document.getElementById("redraw-cover").addEventListener("click", () => void redrawCover());
+// Only a failed book renders this button: it draws just the pages (and the
+// cover) that never finished, and keeps every finished page as it is.
+document.getElementById("finish-book")?.addEventListener("click", () => void finishBook());
 document.getElementById("edit-about-form").addEventListener("submit", (event) => {
   event.preventDefault();
   void saveAbout();
@@ -63,6 +66,12 @@ async function redrawPage() {
     form.append("reason", chip.value);
   }
   await runEdit(() => postEdit(form), "Redrawing that page…");
+}
+
+async function finishBook() {
+  const form = new FormData();
+  form.append("action", "retry");
+  await runEdit(() => postEdit(form), "Finishing the pages that are missing…");
 }
 
 async function redrawCover() {

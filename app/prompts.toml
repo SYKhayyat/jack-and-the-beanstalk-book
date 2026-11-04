@@ -583,7 +583,7 @@ cast = ["giant"]
 settling = "the great stone floor across the bottom third of the frame, kept free of clutter"
 story = "Beside the hen's perch stood a tall golden harp with silver strings, and it was singing by itself, softly, as though it had been waiting a long time for company. {name} set the hen down and reached out with one hand to the strings. The music swelled and filled the enormous kitchen, and {name} smiled: this was worth more than any purse of coins. But in the great chair behind, the giant stirred."
 beat = "{name} finds the golden harp that sings all by itself."
-caption = "Beside the hen stood a harp that sang all by itself. In the giant's kitchen, a tall golden harp with silver strings stands on a low stool, and soft ribbons of music seem to curl from it into the air. {name} reaches for the harp with one hand while hugging the plump brown hen with the other. The giant sleeps on in his great chair behind them, one huge hand hanging down."
+caption = "Beside the hen stood a harp that sang all by itself. In the giant's kitchen, a tall golden harp with silver strings stands on a low stool, and soft ribbons of music seem to curl from it into the air. {name} reaches for the harp with one hand while hugging the plump brown hen with the other. The giant sleeps on in his great chair far behind them, his hands folded peacefully on his belly."
 subject_action = "reaching for the tall golden harp with one hand while holding the plump brown hen against {possessive} chest with the other"
 environment = "the same enormous stone kitchen: a tall golden harp with silver strings on a low stool, the wooden perch and straw, the giant asleep in the huge chair behind, the towering hearth, warm firelight"
 time_of_day = "warm late afternoon light through the high narrow window, firelight inside"
@@ -599,13 +599,13 @@ cast = ["giant"]
 settling = "the great stone floor across the bottom third of the frame, kept free of clutter"
 story = "\"Fee-fi-fo-fum!\" the giant roared, and the whole kitchen shook. \"I smell the blood of a young one!\" {name} flattened against the wall beside the door with the harp clutched to {possessive} chest and the hen tucked under one arm, hardly breathing, hardly blinking. The great shadow of the giant moved across the floor towards {object}, and every hair stood up on {possessive} head."
 beat = "The giant wakes and roars, smelling a young one in the kitchen."
-caption = "\"Fee-fi-fo-fum!\" roared the giant. \"I smell the blood of a young one!\" The giant lurches awake and up out of his chair, his great beard bristling, one massive fist raised, his deep-set eyes searching the kitchen. {name} is pressed flat against the wall beside the great door, the golden harp clutched to {possessive} chest, the plump brown hen under one arm, holding {possessive} breath."
-subject_action = "pressed flat against the huge door frame, harp and hen held tight, eyes wide and fixed on the roaring giant"
-environment = "the same enormous stone kitchen thrown into alarm: the giant risen huge in the middle, the great chair knocked back, coins scattered, the towering hearth, the great door behind {name}"
+caption = "\"Fee-fi-fo-fum!\" boomed the giant, waking with a start. Across the vast kitchen the giant sits bolt upright in his great chair, blinking and sniffing the air with a puzzled frown, his great beard all rumpled from sleep, looking the wrong way towards the hearth. Near the great door, well out of his sight, {name} hides safely behind the door frame, the golden harp held to {possessive} chest and the plump brown hen under one arm, a finger to {possessive} lips. A suspenseful but gentle storybook moment, warm and playful."
+subject_action = "hiding behind the huge door frame, harp and hen held tight, one finger to {possessive} lips, peeking back at the far-off giant with wide, alert eyes"
+environment = "the same enormous stone kitchen: the giant just awake in his great chair across the room, coins scattered on the table, the towering hearth, the great door beside {name}"
 time_of_day = "warm late afternoon light through the high narrow window, firelight and long shadows"
-camera = "low wide interior shot looking up at the huge giant, {name} small and flattened at the door frame in the foreground, the quiet stone floor across the bottom third where the story text will sit"
-must_include = ["the giant awake and roaring, huge and filling the upper frame", "his great bearded face and raised fist", "{name} small against the door frame holding the harp and hen", "the same kitchen as the earlier pages", "the child's figure keeps a natural head-to-body ratio"]
-must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant already grabbing {name}", "blood, injury or anything frightening for a child", "anyone else in the kitchen", "Milky-White the cow"]
+camera = "wide interior shot from beside the great door, {name} small and hidden at the door frame in the foreground, the giant in the middle distance across the kitchen, plenty of floor between them, the quiet stone floor across the bottom third where the story text will sit"
+must_include = ["the giant just awake in his chair across the kitchen, sniffing the air and looking the other way", "{name} hidden at the door frame holding the harp and hen", "the same kitchen as the earlier pages", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant reaching for, grabbing or looking at {name}", "the giant close to {name}", "raised fists or an angry, menacing giant", "blood, injury or anything frightening for a child", "anyone else in the kitchen", "Milky-White the cow"]
 
 [[book_pages]]
 key = "the-chase"
@@ -631,13 +631,13 @@ cast = ["giant"]
 settling = "the open sky and the green stem across the top of the frame, kept free of cloud clutter"
 story = "The beanstalk was the only way down, and {name} went down it fast — faster than {subject} had climbed — the harp slung on {possessive} back and the hen held tight under one arm. Above, the giant had reached the top and was coming down after {object}, his great hands ringing the stem and the leaves shaking loose. \"Hold on,\" {name} whispered to {possessive} own hands, \"just a little further.\""
 beat = "{name} climbs down the beanstalk with the giant coming after."
-caption = "Down the beanstalk went {name}, with the giant close behind. {name} climbs down the great green beanstalk faster than ever before, the harp slung on {possessive} back and the plump brown hen tucked in one arm. High above, the giant swings himself onto the stalk and starts down after {name}, his huge hands and boots shaking the leaves."
+caption = "Down the beanstalk went {name}, with the giant far above. {name} climbs down the great green beanstalk faster than ever before, the harp slung on {possessive} back and the plump brown hen tucked in one arm. Far, far above, small among the clouds, the giant clambers clumsily onto the top of the stalk, the leaves wobbling. A brisk storybook adventure, bright and hopeful."
 subject_action = "climbing down the beanstalk fast, one arm hooked around the stem and the hen tucked under the other, looking down towards the cottage far below"
 environment = "the great beanstalk seen from the side: a thick twisting green stem, broad leaves, the cottage and fields now far below, the giant high above on the stalk, clouds drifting between them"
 time_of_day = "late afternoon, golden light below, cooler shadow up high"
 camera = "wide vertical shot of the beanstalk, {name} a third of the way down and in true proportion to the stalk, the giant small and high above, open sky across the top where the story text will sit"
-must_include = ["{name} climbing down the beanstalk with the harp and hen", "the giant above on the stalk, climbing after", "broad green leaves and the thick stem", "the cottage tiny and far below", "the child's figure keeps a natural head-to-body ratio"]
-must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant already beside {name}", "blood, injury or anything frightening for a child", "anyone else on the stalk", "Milky-White the cow"]
+must_include = ["{name} climbing down the beanstalk with the harp and hen", "the giant small and far above at the top of the stalk", "broad green leaves and the thick stem", "the cottage tiny and far below", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant reaching for, grabbing or close to {name}", "blood, injury or anything frightening for a child", "anyone else on the stalk", "Milky-White the cow"]
 
 [[book_pages]]
 key = "the-axe"
@@ -647,13 +647,13 @@ cast = []
 settling = "the dark grass and the base of the stalk across the bottom third of the frame, kept free of figures and clutter"
 story = "The cottage garden was dark when {name} landed, and the great stalk stood over {object} like a tree from a dream. There was an old axe in the shed, worn smooth on its handle, and {name} took it in both hands and swung at the base of the beanstalk. Green chips flew. {name} swung again, and again, and the wood cracked and groaned, and the whole stalk seemed to shudder."
 beat = "{name} chops at the base of the beanstalk with an axe."
-caption = "{name} seized the axe and chopped at the beanstalk with all {possessive} might. In the cottage garden the great green stalk rears up out of the ground and disappears into the clouds. {name} swings the heavy axe at its base, both hands on the handle, chips of green wood flying. Behind {name} the little cottage stands safe and ordinary."
+caption = "{name} seized the axe and chopped at the beanstalk with all {possessive} might. In the cottage garden the great green stalk rears up out of the ground and disappears into the clouds. Like a woodcutter at a tree, {name} chops at its base with an old wooden-handled garden axe, both hands on the handle, chips of green stalk flying like leaves. Behind {name} the little cottage stands safe and ordinary."
 subject_action = "mid-swing with the heavy axe, both hands on the handle, whole body leaning into the blow at the base of the beanstalk"
 environment = "the cottage garden: the great green stalk rising out of a mound in the ground, the small stone cottage safe behind, garden grass and a low fence, clouds far above"
 time_of_day = "late afternoon, warm low sun, long shadows across the grass"
 camera = "low wide shot from the grass, the axe and chips of wood sharp in the foreground, {name} in true proportion to the tall stalk, the quiet dark grass across the bottom third where the story text will sit"
 must_include = ["{name} swinging a heavy axe at the base of the beanstalk", "chips of green wood flying from the cut", "the great stalk rising into the clouds", "the little cottage safe behind {name}", "the child's figure keeps a natural head-to-body ratio"]
-must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant", "the beanstalk already fallen", "blood, injury or anything frightening for a child", "Milky-White the cow"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant", "the beanstalk already fallen", "the axe pointed at anyone or anything but the stalk", "blood, injury or anything frightening for a child", "Milky-White the cow"]
 
 [[book_pages]]
 key = "the-fall"
@@ -663,13 +663,13 @@ cast = ["giant"]
 settling = "the open sky across the top of the frame, kept free of cloud clutter"
 story = "The beanstalk toppled. It leaned away from the cottage and came down in a long sweep through the evening sky, its broad leaves tumbling as it fell. And on it, far out across the clouds, the giant fell too, arms and legs spread, growing smaller and smaller until the mist swallowed him whole. {name} stood by the cottage gate, safe, with the axe still in both hands, and watched the sky empty."
 beat = "The beanstalk topples and the giant falls far away into the clouds."
-caption = "The beanstalk toppled, and the giant fell far, far away into the clouds. With a great crack the severed beanstalk leans and falls away from the cottage, its long green stem sweeping down through the sky. Far across the clouds the giant tumbles away with it, arms and legs spread, his beard flying, growing smaller and smaller until he is lost in the white mist. {name} stands safe by the cottage, watching."
+caption = "The beanstalk toppled, and the giant fell far, far away into the clouds. With a great crack the severed beanstalk leans and falls away from the cottage, its long green stem sweeping down through the sky. Far, far across the clouds the giant drifts away with it, tiny in the distance, his beard flying, until he vanishes softly into the white mist like a story ending. {name} stands safe by the cottage, watching."
 subject_action = "standing safe by the cottage gate, one hand raised to shade {possessive} eyes, watching the beanstalk and the giant fall away"
 environment = "the cottage garden and the wide sky above: the severed beanstalk toppling away from the cottage, its broad leaves tumbling, the giant small and falling far away into the clouds, the little cottage solid in the foreground"
 time_of_day = "late afternoon, warm light with deep blue distance"
 camera = "very wide shot from beside the cottage, the falling stalk sweeping across the frame, {name} small at the bottom in true proportion, open sky across the top where the story text will sit"
 must_include = ["the severed beanstalk toppling away from the cottage", "the giant falling far away, small in the distance", "{name} safe beside the cottage watching", "the child's figure keeps a natural head-to-body ratio", "open sky across the top of the frame"]
-must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant landing or shown hurt", "blood, injury or anything frightening for a child", "the cottage damaged", "Milky-White the cow"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant landing, hurt, in pain or frightened", "the giant large or close", "blood, injury or anything frightening for a child", "the cottage damaged", "Milky-White the cow"]
 
 [[book_pages]]
 key = "safe-at-home"

@@ -36,6 +36,9 @@
           {% if status.status == "complete" %}Your book is ready.{% elif status.status == "failed" %}This book stopped early: {{ status.error }}{% else %}Working on your book…{% endif %}
         </p>
         <div class="download-block">
+          {% if status.status == "failed" %}
+          <button type="button" id="finish-book" class="button primary">Finish this book</button>
+          {% endif %}
           {% if pdf_url %}
           <a id="book-pdf-link" class="button primary" href="{{ pdf_url }}" download="book-{{ book.book_id }}.pdf">Download the book (PDF)</a>
           {% endif %}

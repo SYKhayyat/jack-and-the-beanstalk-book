@@ -12,7 +12,12 @@ from pypdf import PdfReader
 from app.config import Settings
 from app.main import create_app
 from app.models.book import BOOK_PAGES
-from app.services.image_providers.base import GeneratedImage, ImageProvider, ImageRequest
+from app.services.image_providers.base import (
+    GeneratedImage,
+    ImageProvider,
+    ImageRequest,
+    ProviderError,
+)
 from app.sessions import SESSION_COOKIE
 from tests.helpers import RecordingProvider, make_photo_bytes, multipart
 
@@ -330,3 +335,52 @@ class TestLibrary:
         _wait(client, book_id)
         assert client.get("/api/books").json() == {"books": []}
         assert 'class="library"' not in client.get("/").text
+
+
+class FlakyPageProvider(ImageProvider):
+    """Refuses one named page until `healed`, like a moderation block that a
+    reworded prompt (or a second roll) gets past."""
+
+    name = "flaky-page"
+
+    def __init__(self, fail_page: int) -> None:
+        self.fail_page = fail_page
+        self.healed = False
+        self.requests: list[ImageRequest] = []
+
+    def generate(self, request: ImageRequest) -> GeneratedImage:
+        self.requests.append(request)
+        if not self.healed and f"Draw page {self.fail_page} of" in request.prompt:
+            raise ProviderError("Your request was rejected by the safety system.")
+        return GeneratedImage(
+            data=make_photo_bytes(), media_type="image/png", model="flaky-v1"
+        )
+
+
+class TestFinishAFailedBook:
+    def test_finish_button_draws_only_the_missing_pages(self, client_factory) -> None:
+        provider = FlakyPageProvider(fail_page=2)
+        with client_factory(provider) as client:
+            book_id = _start(client)
+            failed = _wait(client, book_id)
+            assert failed["status"] == "failed"
+            finished = {
+                int(page["number"])
+                for page in failed["pages"]  # type: ignore[attr-defined]
+                if page["status"] == "done"
+            }
+            assert 2 not in finished
+            assert 'id="finish-book"' in client.get(f"/books/{book_id}").text
+
+            provider.healed = True
+            before = len(_page_calls(provider))
+            response = client.post(f"/api/book/{book_id}/edit", data={"action": "retry"})
+            assert response.status_code == 202, response.text
+            assert _wait(client, book_id)["status"] == "complete"
+
+            redrawn = _page_calls(provider)[before:]
+            assert redrawn, "the missing page was never drawn"
+            assert any("Draw page 2 of" in r.prompt for r in redrawn)
+            for number in finished:
+                assert not any(f"Draw page {number} of" in r.prompt for r in redrawn)
+            assert 'id="finish-book"' not in client.get(f"/books/{book_id}").text
