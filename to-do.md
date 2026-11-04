@@ -269,6 +269,39 @@ real-API pass can confirm all of them):
 - [ ] Each page draws only its own scene — no old man on page 1, no cow on
       page 3, nothing borrowed from another page.
 
+## UAT round 4 — the reader-reported bugs (done in code)
+
+Everything below is fixed in code and pinned by tests; the live pass is only
+needed to see the pictures.
+
+- [x] The delete failed and the PDF would not open. Both were the same
+      cause: the finished PDF was **42 MB**, and building it took the
+      512 MB Render instance over its memory limit, so Render restarted it —
+      the in-flight delete died with it ("Request failed") and the PDF request
+      502'd. The art is now embedded as a print-sized JPEG (1600 px, quality
+      85), so a book is a few MB, and the book is also read **in the page**
+      (picture + story line, page by page) without the PDF at all.
+- [x] Deleting a book is easy: every card in the library sidebar has its own
+      **×**, with a confirmation, without opening the book first.
+- [x] A cartoon portrait per picture: the mother, the old man and the giant
+      each have their own camera, preview and cartoon button, and the cartoon
+      is made for that slot alone. A portrait made for one slot cannot be filed
+      under another, and the star's slot refuses a character's portrait.
+- [x] The progress counts honestly: **20 pages** (the cover is page one), the
+      last step says "putting the book together", and the library card counts
+      the same way (21 in the finished PDF: cover + 19 story pages + About).
+- [x] The original photo and the cartoon can be downloaded
+      (`/book-media/{id}/photo?download=1`, `/book-media/{id}/portrait?download=1`).
+- [x] "That sign-in link had expired" no longer dead-ends: the session key is
+      stable across restarts, and a stale link returns the visitor to sign in
+      on the page they were on.
+- [x] Rejecting a portrait and approving a new one no longer says "make a
+      portrait first": approving clears the failed attempt's book id, and a
+      portrait that is still being drawn cannot start a book.
+
+**Prompt wording is not fixed in passing any more.** Every prompt problem is
+a line in one issue instead: [#34 "fix the prompt"](https://github.com/SYKhayyat/jack-and-the-beanstalk-book/issues/34).
+
 ## Ideas worth trying (not required)
 
 - Read-along voiceover per page (needs a speech provider key; none is wired yet).

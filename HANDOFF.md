@@ -13,6 +13,19 @@
 >   `action=page|character|cover|about|retry|delete`; `DELETE /api/book/{id}`
 >   removes a book. One edit per book at a time (`409 book_busy`).
 > - **Camera for every cast slot** (mother, old man, giant), not just the star.
+> - **A cartoon per cast slot.** Each photoable slot has its own "make the
+>   cartoon" button; the cartoon is drawn for that slot alone
+>   (`POST /api/cartoonify` takes `character=`), and a portrait made for one
+>   slot cannot be filed under another.
+> - **The book is read in the page.** `/books/{id}` shows picture + story line,
+>   page by page; the PDF is one click away. The art is embedded as a
+>   print-sized JPEG, so a finished book is a few MB, not ~42 MB — the old
+>   size took a 512 MB Render instance over its memory limit, which is what
+>   broke the delete and the PDF (502).
+> - **The library sidebar has a × on every card**, so a book can be deleted
+>   without opening it.
+> - **Prompt wording problems go into one issue**, not into the code while
+>   fixing something else: issue #34, "fix the prompt".
 > - **Migration `0003_book_editing_and_cover`** adds `books.settings`,
 >   `books.source_photo`, `books.cover` and the `book_characters` table.
 > - `README.md` is current; this file is history.
@@ -585,6 +598,15 @@ book". The current book is three story pages + About, with page 4 retired.
     ruff-format, mypy (disallow_untyped_defs, excludes only tests), pytest
     with coverage floor 85% (`pyproject.toml`). `make check` before every
     commit.
+11. **The PDF's size is a memory bug, not a file-size nicety.** Render free
+    instances have 512 MB; embedding provider PNGs verbatim made a 42 MB PDF
+    and the instance was OOM-killed mid-request (the delete died, the PDF
+    502'd). `pdf._image_for_pdf` re-encodes every picture as a 1600 px JPEG
+    before embedding — keep that, and keep the size test in
+    `tests/test_book_pdf.py`.
+12. **Prompt wording problems are not fixed in passing.** When a prompt is
+    wrong, add a line to issue #34 ("fix the prompt") and carry on with the
+    code work; the wording pass happens there, all at once.
 
 ## 6. Housekeeping on arrival
 

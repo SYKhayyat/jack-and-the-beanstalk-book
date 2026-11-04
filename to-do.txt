@@ -21,3 +21,40 @@
        the original photo are stored per user, an expired session sends the
        visitor through sign-in back to the same book (/login?next=/books/{id}),
        and the library is the way back if the tab was closed.
+4. [x] Easy delete: a small × on every book in the library sidebar.
+       Deleting a book never meant opening it first. Every card in the sidebar
+       now has its own × (with a confirmation); the book this page is showing
+       goes home after it is deleted. The delete itself deletes the PDF, every
+       page, every photo and the portrait.
+5. [x] A cartoon portrait per picture (mother, old man, giant).
+       Each photoable cast slot has its own camera, preview and "make the
+       cartoon" button, and the cartoon is drawn for that slot alone — the
+       mother's cartoon is the mother's, not the child's. A portrait made for
+       one slot cannot be filed under another, and the star's slot refuses a
+       character portrait (and the other way round).
+6. [x] Progress that counts honestly: "out of 20", cover included.
+       The cover is page one of the book, so the reader sees 20 pages, and the
+       last step says "putting the book together" instead of pretending the
+       book is done. The library card counts the same way (21 pages in the
+       finished PDF: cover + 19 story pages + About).
+7. [x] Download the original photo and the cartoon.
+       /book-media/{id}/photo and /book-media/{id}/portrait?download=1 hand
+       over the files, and the book's page has both buttons.
+8. [x] The PDF opens again (and the book is readable without it).
+       The PDF was 42 MB and the 512 MB Render instance was killed while
+       building it, so the delete died with it and the PDF 502'd. The art is
+       now embedded as a print-sized JPEG (a few MB per book), and the book is
+       read in the page: picture plus story line, page by page.
+9. [x] Five beans, always five.
+       The trade page names exactly five beans and forbids a sixth, in the
+       prompt itself.
+10. [x] The story reads as a story, not as captions.
+       Every page now carries a written paragraph (about 60-80 words), and the
+       PDF paints it over the art as real text in the page's quiet zone.
+11. [x] "That sign-in link had expired" is not a dead end.
+       The session key is stable across restarts now, so the link works; and
+       when it really is stale, the visitor is sent back to sign in with the
+       page they were on, not to a fresh empty start.
+12. [ ] Prompt wording: one big issue, "fix the prompt" (#34).
+       Prompt problems are not fixed in passing any more. Each one is a line
+       in that issue instead.

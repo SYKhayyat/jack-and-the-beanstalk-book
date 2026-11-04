@@ -429,8 +429,10 @@ prompt — that is enforced by a test.
   references, and only those pages do.
 - `GET /api/book/{id}` — poll: `rendering | complete | failed`, plus one entry
   per page (`pending | making | done`) and a url once a page is done
-- `GET /book-media/{id}/portrait`, `GET /book-media/{id}/pages/{n}`,
-  `GET /book-media/{id}/pdf`, `GET /book-media/{id}/prompts.json`
+- `GET /book-media/{id}/portrait`, `GET /book-media/{id}/photo`,
+  `GET /book-media/{id}/pages/{n}`, `GET /book-media/{id}/pdf`,
+  `GET /book-media/{id}/prompts.json` — the portrait and the original photo can
+  also be handed over as files with `?download=1`
 
 Pages render concurrently on the same concurrency gate as everything else, one
 slot each — so the gate, not the book, bounds how many provider calls are in
@@ -455,9 +457,10 @@ required.
 | `GET` | `/api/book/{id}` | Book status: rendering / complete / failed + page grid |
 | `GET` | `/api/books` | The signed-in person's library (empty in password mode) |
 | `POST` | `/api/book/{id}/edit` | multipart `action=page|character|cover|about|retry|delete` — edit an existing book |
-| `DELETE` | `/api/book/{id}` | Delete a book and all of its artefacts |
+| `DELETE` | `/api/book/{id}` | Delete a book and all of its artefacts (the sidebar has a × on every card) |
 | `GET` | `/media/{id}/cartoon` | The cartoon portrait |
-| `GET` | `/book-media/{id}/portrait` | The book's approved portrait |
+| `GET` | `/book-media/{id}/portrait` | The book's approved portrait (`?download=1` saves it as a file) |
+| `GET` | `/book-media/{id}/photo` | The original photograph the book was drawn from (`?download=1` saves it as a file) |
 | `GET` | `/book-media/{id}/cover` | The AI cover illustration |
 | `GET` | `/book-media/{id}/pages/{n}` | One story page's art, once it exists |
 | `GET` | `/book-media/{id}/pdf` | The finished 21-page PDF (409 until complete) |
@@ -470,11 +473,21 @@ at `/docs`.
 ### Your books, and editing one
 
 In Google mode the landing page carries a **library sidebar**: every book the
-signed-in person owns, newest first, with its cover thumbnail and status.
-Clicking one opens `/books/{id}` — the finished PDF, every page, and the edit
+signed-in person owns, newest first, with its cover thumbnail and status. Each
+card carries a small **×** so a book can be put away without opening it first
+(the current book is opened on purpose, so the page has somewhere to stand).
+Clicking one opens `/books/{id}` — the book itself in a **reader** (the picture
+and its story line, page by page), the download links, every page, and the edit
 controls. Password/open mode deliberately has no library: there is no person to
 file books under, and one shared pile of children's photographs would be the
 wrong answer.
+
+The finished book can be read without the PDF at all: `/books/{id}` shows the
+pictures and their story lines in the page, and the PDF (cover + 19 story pages
++ About = 21 pages) is one click away. The PDF embeds its pictures as
+print-sized JPEGs, so a finished book is a few megabytes rather than the ~42 MB
+it used to be — small enough to assemble, download and view on a 512 MB
+instance.
 
 The edit surface is priced honestly: redrawing one page is one image call;
 replacing the star redraws the whole book and cover; replacing the mother, old
