@@ -615,13 +615,13 @@ cast = ["giant"]
 settling = "the open misty sky across the top of the frame, kept free of cloud clutter"
 story = "There was no time to think. {name} ran for the door with the harp and the hen, out across the cloudy plain, and the giant came thundering after. Each of his steps shook the clouds, and his huge hand reached out again and again for {possessive} shoulder. The wind tore at {possessive} hair, and {name} ran faster than {subject} had ever run, towards the green stalk standing up out of the clouds."
 beat = "{name} runs across the cloud plain with the harp and the hen, the giant thundering after."
-caption = "{name} ran with the harp, and the giant came thundering after. Out across the cloudy plain {name} sprints as fast as {possessive} legs will go, the golden harp clutched to {possessive} chest and the plump brown hen tucked under one arm. Behind, the giant charges after, his huge boots shaking the clouds, one arm stretched out to catch {name}, his beard streaming in the wind."
+caption = "{name} ran with the harp, and the giant came thundering after. Out across the cloudy plain {name} races towards the beanstalk, the golden harp clutched to {possessive} chest and the plump brown hen tucked under one arm, quick and clever and well ahead. Far back by the castle the giant lumbers out of the great door, puffs of cloud bursting up around his heavy boots, his beard blowing comically in the wind. A lively storybook adventure, bright and playful."
 subject_action = "sprinting away across the cloud plain, harp and hen held tight, {possessive} face turned forward and determined"
 environment = "the strange country above the clouds: rolling white cloud-banks, the great stone castle behind, the top of the giant beanstalk visible at the far edge of the frame, mist flying where the giant's boots strike the clouds"
 time_of_day = "pale afternoon, long golden light across the clouds"
-camera = "wide lateral chase shot, {name} small and running in the lower foreground in true proportion, the giant huge behind filling the upper frame, open sky across the top where the story text will sit"
-must_include = ["{name} running with the golden harp and the plump brown hen", "the giant charging behind, one arm outstretched", "the great castle behind them across the cloud plain", "the top of the beanstalk at the edge of the frame", "the child's figure keeps a natural head-to-body ratio"]
-must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant catching {name}", "blood, injury or anything frightening for a child", "anyone else on the cloud plain", "Milky-White the cow"]
+camera = "wide lateral storybook shot, {name} running in the lower foreground in true proportion and heading towards the beanstalk, the giant small in the far distance by the castle, a wide stretch of cloud plain between them, open sky across the top where the story text will sit"
+must_include = ["{name} running with the golden harp and the plump brown hen", "the giant far behind in the distance near the castle", "the great castle behind them across the cloud plain", "the top of the beanstalk at the edge of the frame", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant reaching for, grabbing or touching {name}", "the giant close to {name}", "a menacing or angry close view of the giant", "blood, injury or anything frightening for a child", "anyone else on the cloud plain", "Milky-White the cow"]
 
 [[book_pages]]
 key = "down-the-beanstalk"
