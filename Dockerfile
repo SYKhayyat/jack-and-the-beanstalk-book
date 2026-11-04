@@ -24,8 +24,14 @@ RUN useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app
 USER appuser
 
+# MALLOC_ARENA_MAX: every asyncio.to_thread worker otherwise gets its own
+# glibc malloc arena, and churning multi-MB image buffers (provider responses,
+# PDF embeds) across them fragments memory that is never handed back. On the
+# 512 MiB free plan that bloat alone OOM-killed the instance mid-render; the
+# same workload measured 302 MiB resident by default and ~160 MiB with 2.
 ENV APP_ENV=production \
-    STORAGE_DIR=/app/storage
+    STORAGE_DIR=/app/storage \
+    MALLOC_ARENA_MAX=2
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
