@@ -334,6 +334,26 @@ def test_the_redirect_away_remembers_where_to_come_back(google_client: TestClien
     assert remembered[1] == "/api/settings-options"
 
 
+def test_the_sign_in_starts_on_the_host_google_returns_to(
+    google_client: TestClient,
+) -> None:
+    """A visitor on another host is moved to the callback's host first.
+
+    Otherwise the state cookie is set on one host and the callback is read on
+    another, so the first sign-in always fails and only the retry works.
+    """
+    response = google_client.get(
+        "http://other-host.example/auth/google/login?next=/books/abc123",
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        "http://testserver/auth/google/login?next=/books/abc123"
+    )
+    # No state cookie on the wrong host: it would never be read.
+    assert "jb_oauth_state" not in response.headers.get("set-cookie", "")
+
+
 def test_a_callback_without_the_state_cookie_is_refused(google_client: TestClient) -> None:
     response = google_client.get("/auth/callback?code=abc&state=abc", follow_redirects=False)
     assert response.status_code == 303

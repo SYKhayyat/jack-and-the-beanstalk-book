@@ -209,8 +209,25 @@ def google_login(
     if not settings.google_enabled or oauth is None:
         return RedirectResponse("/login", status_code=303)
 
-    state_token = secrets.token_urlsafe(32)
     next_path = _safe_next(request.query_params.get("next"))
+
+    # The state cookie is set on whatever host this request arrived at, but
+    # Google returns the visitor to the host in the redirect URI. When the two
+    # differ (the bare onrender.com address vs. a custom domain, `www.` vs. not,
+    # `localhost` vs. `127.0.0.1`) the callback never sees the cookie, and the
+    # first sign-in always failed with "that sign-in link had expired" — the
+    # failure itself then landed the visitor on the right host, which is why
+    # the second attempt always worked. Hop to the callback's host first, so
+    # the cookie is set where it will be read.
+    canonical = _canonical_origin(request)
+    if canonical is not None:
+        logger.info("auth.google_host_hop to=%s", canonical)
+        return RedirectResponse(
+            f"{canonical}/auth/google/login?next={quote(next_path, safe='/')}",
+            status_code=303,
+        )
+
+    state_token = secrets.token_urlsafe(32)
     # The state carries the random token *and* where the visitor was going.
     # The cookie below is what proves the state is ours; the path is only
     # there so that a round trip whose cookie has gone stale can still send
@@ -386,6 +403,25 @@ def _redirect_uri(request: Request) -> str:
     if configured:
         return str(configured)
     return f"{request.url.scheme}://{request.url.netloc}/auth/callback"
+
+
+def _canonical_origin(request: Request) -> str | None:
+    """The redirect URI's origin, when this request arrived on a different host.
+
+    None when no redirect URI is configured (it is then derived from this very
+    request) or when the hosts already agree. Only the host is compared: behind
+    Render's proxy the scheme the app sees can differ from what the browser
+    used, and a scheme-only difference does not lose a cookie.
+    """
+    configured = request.app.state.settings.google_redirect_uri
+    if not configured:
+        return None
+    target = urlsplit(str(configured))
+    if not target.scheme or not target.netloc:
+        return None
+    if target.netloc.lower() == request.url.netloc.lower():
+        return None
+    return f"{target.scheme}://{target.netloc}"
 
 
 # --- helpers ------------------------------------------------------------------
