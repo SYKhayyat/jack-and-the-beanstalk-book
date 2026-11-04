@@ -298,10 +298,11 @@ class TestPerPageReferences:
         assert len(sheets) == 1, "the cast sheet drifted between pages"
         sheet = sheets.pop()
         # It is the whole book's cast, once — not just the page's own.
-        assert "The mother is a character" in sheet
-        assert "The old man is a character" in sheet
+        # The mother has a photo in this book, so her photo-led look is used.
+        assert "The mother (she has reference images, named below)" in sheet
+        assert "The old man (no reference photo" in sheet
         assert "Milky-White is the family's cow" in sheet
-        assert "The giant is a character" in sheet
+        assert "The giant (no reference photo" in sheet
 
     def test_the_page_reference_map_states_the_supplied_order(
         self, client: TestClient
@@ -338,7 +339,7 @@ class TestCastPortraitPrompt:
         """
         _make_portrait(client, MOTHER_PHOTO, character="mother")
         prompt = provider.requests[-1].prompt
-        assert "THE CHARACTER: the mother" in prompt
+        assert "THE CHARACTER: the woman in the photograph, as the mother" in prompt
         assert "TASK: Turn the person in the supplied photograph" in prompt
         # The child's clothing/identity block belongs only to the star.
         assert "The character's name is" not in prompt
@@ -352,6 +353,17 @@ class TestCastPortraitPrompt:
         # The book's fixed style, word for word, on the character portrait too.
         style_sentence = prompt_text()["styles"][prompt_text()["book"]["style"]]
         assert "ART STYLE: " + style_sentence in prompt
+        # Issue #34: the slot's glasses / facial-hair switches reach the prompt
+        # (the browser sent them; the prompt used to drop them).
+        accessories = prompt_text()["accessories"]
+        assert accessories["keep_glasses"] in prompt or accessories["remove_glasses"] in prompt
+        assert (
+            accessories["keep_facial_hair"] in prompt
+            or accessories["remove_facial_hair"] in prompt
+        )
+        # The photo is the authority on head covering and hair, not the text.
+        assert "grey-brown hair" not in prompt
+        assert prompt.endswith(prompt_text()["negative"]["standing"])
 
     def test_the_star_portrait_still_names_the_child(
         self, client: TestClient, provider: RecordingProvider

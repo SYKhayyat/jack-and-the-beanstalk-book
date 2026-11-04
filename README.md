@@ -345,7 +345,7 @@ app/
 ├── db.py                 # the database engine and tables (only used with DATABASE_URL)
 ├── routes/               # CONTROLLER: book (the UI), api, media, auth, settings_form
 ├── templates/            # VIEW: book.html, login.html
-├── models/book.py        #     book pages, text zones, About
+├── models/book.py        #     book pages, emotional beats, About
 ├── models/labels.py      #     UI labels for the closed enums
 └── static/               # VIEW: style.css + book.js, book-view.js
 ```
@@ -408,10 +408,12 @@ singing harp, "Fee-fi-fo-fum!", the chase and the toppling beanstalk — ninetee
 story pages followed by an **About** page. The cover is one extra AI image of
 the star beside the beanstalk; the title is drawn by the PDF as real text, not
 by the model. The story
-text is never drawn by the model: the art carries a deliberately empty quiet
-zone, and the PDF paints the polished storybook prose as real, selectable text
-(fpdf2, Comic Neue + Noto Sans Hebrew bundled, HarfBuzz shaping when
-available). The About free text you type is PDF-only and never reaches a
+text is never drawn by the model: every story page is one template — the art
+edge to edge on top, the fairy-tale prose set beneath it in a parchment margin
+of the same height on every page, at one font size for the whole book, as
+real, selectable text (fpdf2, Literata + Noto Sans Hebrew bundled, HarfBuzz
+shaping when available). Text never covers the art. The last page frames the
+child's portrait above a few sentences built from the About fields. The About free text you type is PDF-only and never reaches a
 prompt — that is enforced by a test.
 
 - `GET /` — the book UI (photo → who is the star → About → portrait →
@@ -450,7 +452,7 @@ required.
 | `GET` | `/` | The book UI |
 | `GET` | `/healthz` | Liveness, whether the pictures are real, and the per-process generation ceiling (`max_concurrent_generations`). Names neither the provider nor the model, and never includes secrets. |
 | `GET` | `/api/settings-options` | Every enum, the defaults, and the slider limits |
-| `GET` | `/api/book/pages` | The book's page identities (titles, text zones) |
+| `GET` | `/api/book/pages` | The book's page identities (titles, story text) |
 | `GET` | `/api/book/characters` | The photoable cast slots (`mother`, `old_man`, `giant`); the cow is never listed |
 | `POST` | `/api/cartoonify` | multipart: `photo` + settings → the portrait (1 call) |
 | `POST` | `/api/book/start` | multipart: `generation_id` (+ optional star/About fields and repeated `character=key:generation_id`) → background book (1 call/page) |

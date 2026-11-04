@@ -478,7 +478,9 @@ class BookRunner:
                 raise ValueError(f"Page {page.number} is missing; cannot assemble the book.")
             arts.append(PageArt(image=image, page=page))
         cover = self._book_store.read_cover(record.book_id)
-        pdf_bytes = build_book_pdf(record.about, arts, cover)
+        # The child's approved portrait is framed on the About page.
+        portrait = self._book_store.read_portrait(record.book_id)
+        pdf_bytes = build_book_pdf(record.about, arts, cover, portrait=portrait)
         self._book_store.save_pdf(record.book_id, pdf_bytes)
         self._book_store.save_status(
             record.book_id,
@@ -657,7 +659,6 @@ class BookRunner:
                 "url": self._book_store.cover_url(book_id) if cover_done else None,
                 "status": cover_state,
                 "story": "",
-                "text_zone": "",
             }
         ]
         for page in rendered_pages:
@@ -673,7 +674,6 @@ class BookRunner:
                     else None,
                     "status": state,
                     "story": page.story,
-                    "text_zone": page.text_zone.value,
                 }
             )
         return view

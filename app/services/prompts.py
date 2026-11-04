@@ -39,6 +39,7 @@ from app.prompt_data import prompt_text
 
 __all__ = [
     "NEGATIVE_PROMPT_TAIL",
+    "STANDING_NEGATIVE",
     "book_cast_sheet",
     "book_name_for",
     "build_book_page_prompt",
@@ -61,6 +62,9 @@ _ASSEMBLY: dict[str, str] = _DATA["assembly"]
 # Kept in one place so every pass rejects the same failure modes: text artefacts
 # (which would fight the caption) and extra people (which would break identity).
 NEGATIVE_PROMPT_TAIL: str = _DATA["negative"]["tail"]
+
+# The standing negative block: the last paragraph of every image prompt.
+STANDING_NEGATIVE: str = _DATA["negative"]["standing"]
 
 # Every map below is keyed by the enum's value. Iterating the enum (rather than
 # reading the TOML keys directly) is what makes a missing entry fail at import:
@@ -162,6 +166,19 @@ _CAST_LABELS: dict[str, str] = {
     for name, label in cast("dict[str, object]", _BOOK.get("cast_labels", {})).items()
 }
 
+# The same bible for a cast member who has a reference photo: face, colouring
+# and signature accessories defer to the photo; the costume stays fixed.
+_BOOK_CAST_WITH_PHOTO: dict[str, str] = {
+    name: str(text)
+    for name, text in cast("dict[str, object]", _BOOK.get("cast_with_photo", {})).items()
+}
+for _name, _photoable in _CAST_PHOTOABLE.items():
+    if _photoable and _name not in _BOOK_CAST_WITH_PHOTO:
+        raise KeyError(f"photoable cast member {_name!r} has no [book.cast_with_photo] look")
+
+# The prop and set bible, pasted whole into every page of a book.
+_BOOK_WORLD: str = str(cast("dict[str, object]", _BOOK["world"])["sheet"])
+
 # The portrait pass's wording for a photographed cast member, keyed by cast
 # key. Kept apart from _BOOK_CAST: a page with no reference photo must say so,
 # while this pass has exactly one photograph and must never deny it.
@@ -204,7 +221,10 @@ def book_cast_sheet(supplied: Iterable[str] = ()) -> str:
         )
     else:
         photo_note = assembly["cast_photos_none"]
-    looks = "\n".join(_BOOK_CAST[name] for name in _BOOK_CAST)
+    looks = "\n".join(
+        _BOOK_CAST_WITH_PHOTO[name] if name in supplied_keys else _BOOK_CAST[name]
+        for name in _BOOK_CAST
+    )
     return assembly["cast_sheet"].format(cast_looks=looks, photo_note=photo_note)
 
 
@@ -277,7 +297,9 @@ def _substitutions(
     `prompt_name`, when given (star name), overrides the gender default.
     """
     gender = settings.effective_gender
-    return {"name": prompt_name or _NAMES[gender], **_PRONOUNS[gender]}
+    pronouns = _PRONOUNS[gender]
+    capitalised = {key.capitalize(): value.capitalize() for key, value in pronouns.items()}
+    return {"name": prompt_name or _NAMES[gender], **pronouns, **capitalised}
 
 
 def render_book_page(
@@ -361,6 +383,7 @@ def build_book_page_prompt(
     """
     task_book = cast("dict[str, str]", _BOOK["assembly"])
     page = render_book_page(page, settings, prompt_name=prompt_name)
+    subs = _substitutions(settings, prompt_name)
     # Order is deliberate, and it is two blocks rather than one list.
     #
     # Everything that is byte-identical on every page of a book comes first:
@@ -382,7 +405,9 @@ def build_book_page_prompt(
         # coherence guard below it — the pair no longer sit pages apart.
         str(_BOOK["likeness_not_size"]),
         str(_BOOK["body_coherence"]),
+        str(_BOOK["same_age"]).format(**subs),
         str(_BOOK["same_clothes"]),
+        str(_BOOK["signature_features"]),
         str(_BOOK["same_characters"]),
         str(_BOOK["same_cow"]),
         str(_BOOK["one_art_style"]),
@@ -394,12 +419,20 @@ def build_book_page_prompt(
         task_book["stylisation"].format(
             intensity=_book_intensity_text(settings.cartoon_intensity)
         ),
-        _common_character_block(settings),
+        # The expression picker is left out on purpose: a page's face follows
+        # its EMOTIONAL BEAT, and "a warm, happy expression" on every page
+        # fought the fear and wonder beats.
+        _common_character_block(settings, include_expression=False),
         # The character bible: the same block, byte for byte, on every page of
         # this book — so no character's look is restated (and allowed to drift)
         # per page. It names every cast member; the page-scope clause below and
         # the negative tail are what keep the page to its own cast.
         book_cast_sheet(supplied_characters),
+        # The prop and set bible: every recurring object and place designed
+        # once, so no page re-describes the cottage or the harp its own way.
+        _BOOK_WORLD.format(**subs),
+        str(_BOOK["physics"]),
+        str(_BOOK["mood_and_light"]),
         # The book's own negative tail: the single-scene tail's "only the one
         # person described above" contradicts the pages that require the
         # mother, which is how the child's face got onto her.
@@ -413,7 +446,7 @@ def build_book_page_prompt(
             page_number=page_number,
             total_pages=total_pages,
             book_title=str(_BOOK["book_title"]),
-            name=_substitutions(settings, prompt_name)["name"],
+            name=subs["name"],
         ),
         # The whole story, labelled by page, so the model knows which line it
         # is illustrating and what the others are for. This is also how page 3
@@ -427,15 +460,17 @@ def build_book_page_prompt(
         # model can tell the child's two anchors from a character's portrait
         # and photograph. Page-level because the references are.
         _reference_map(character_photos),
-        task_book["quiet_zone"].format(area=page.settling),
+        task_book["full_frame"],
         _ASSEMBLY["scene_to_draw"].format(caption=page.scene.caption),
         _ASSEMBLY["character_doing"].format(action=page.scene.subject_action),
+        task_book["emotion"].format(emotion=page.emotion) if page.emotion else "",
         _ASSEMBLY["where"].format(environment=page.scene.environment),
         _ASSEMBLY["lighting"].format(time_of_day=page.scene.time_of_day),
         _ASSEMBLY["camera"].format(camera=page.scene.camera),
         page.scene.checklist,
         _avoid_clause(page.scene),
         correction,
+        STANDING_NEGATIVE,
     ]
     return _join_sections([*shared, *this_page])
 
@@ -450,7 +485,8 @@ def build_cover_prompt(settings: CartoonSettings, *, prompt_name: str | None = N
     the model, so the upper third is asked to stay calm for it.
     """
     task_book = cast("dict[str, str]", _BOOK["assembly"])
-    name = _substitutions(settings, prompt_name)["name"]
+    subs = _substitutions(settings, prompt_name)
+    name = subs["name"]
     title = f"{name} and the Beanstalk"
     sections = [
         task_book["cover_task"].format(book_title=title, name=name),
@@ -458,7 +494,9 @@ def build_cover_prompt(settings: CartoonSettings, *, prompt_name: str | None = N
         _LIKENESS_EMPHASIS[settings.likeness_strength],
         str(_BOOK["likeness_not_size"]),
         str(_BOOK["body_coherence"]),
+        str(_BOOK["same_age"]).format(**subs),
         str(_BOOK["same_clothes"]),
+        str(_BOOK["signature_features"]),
         str(_BOOK["one_art_style"]),
         _ASSEMBLY["art_style"].format(style=_BOOK_STYLE),
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
@@ -466,15 +504,25 @@ def build_cover_prompt(settings: CartoonSettings, *, prompt_name: str | None = N
             intensity=_book_intensity_text(settings.cartoon_intensity)
         ),
         _common_character_block(settings),
+        # The cottage and the beanstalk on the cover are the book's own.
+        _BOOK_WORLD.format(**subs),
+        str(_BOOK["physics"]),
         str(_BOOK["negative"]),
         str(_BOOK["no_text"]),
         task_book["cover_scene"].format(name=name),
+        STANDING_NEGATIVE,
     ]
     return _join_sections(sections)
 
 
-def _common_character_block(settings: CartoonSettings) -> str:
-    """The lines describing *who the character is*, shared by both passes."""
+def _common_character_block(
+    settings: CartoonSettings, *, include_expression: bool = True
+) -> str:
+    """The lines describing *who the character is*, shared by both passes.
+
+    Book pages pass ``include_expression=False``: their faces follow each
+    page's emotional beat, not the portrait's expression pick.
+    """
     return " ".join(
         [
             _AGE_DESCRIPTIONS[settings.apparent_age],
@@ -484,7 +532,7 @@ def _common_character_block(settings: CartoonSettings) -> str:
             _HAIR_STYLE_DESCRIPTIONS[settings.hair_style],
             _HAIR_COLOUR_DESCRIPTIONS[settings.hair_color],
             _OUTFIT_DESCRIPTIONS[settings.outfit],
-            _EXPRESSION_DESCRIPTIONS[settings.expression],
+            *([_EXPRESSION_DESCRIPTIONS[settings.expression]] if include_expression else []),
             *_accessory_directives(settings),
         ]
     )
@@ -516,6 +564,7 @@ def build_cartoon_prompt(
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
         retry_clauses,
         NEGATIVE_PROMPT_TAIL,
+        STANDING_NEGATIVE,
     ]
     return _join_sections(sections)
 
@@ -532,6 +581,13 @@ def build_cast_portrait_prompt(
     so their portrait matches the pages they appear on while staying that
     person.
 
+    How the slot's Advanced pickers apply (issue #34): `cartoon_style` is
+    ignored on purpose — a cast member exists only inside the book, so they
+    are always drawn in the book's one style; `cartoon_intensity` is read
+    through the book's bands, which move graphic-ness inside that style
+    rather than towards a photograph; `portrait_background`, the likeness
+    strength and the glasses / facial-hair switches apply as chosen.
+
     Raises:
         KeyError: if `cast_key` has no portrait wording — a data bug. The
             route refuses non-photoable keys before this point.
@@ -542,6 +598,9 @@ def build_cast_portrait_prompt(
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
         _BOOK_CAST_PORTRAIT[cast_key],
+        # The slot's own glasses / facial-hair pickers (issue #34: they were
+        # sent by the browser and then ignored).
+        *_accessory_directives(settings),
         _ASSEMBLY["stylisation"].format(
             intensity=_book_intensity_text(settings.cartoon_intensity)
         ),
@@ -552,6 +611,7 @@ def build_cast_portrait_prompt(
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
         retry_clauses,
         NEGATIVE_PROMPT_TAIL,
+        STANDING_NEGATIVE,
     ]
     return _join_sections(sections)
 

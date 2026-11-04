@@ -7,7 +7,7 @@ import re
 import pytest
 from pydantic import ValidationError
 
-from app.models.book import BOOK_PAGES, AboutMe, TextZone, get_book_page
+from app.models.book import BOOK_PAGES, AboutMe, get_book_page
 from app.models.settings import CartoonSettings
 from app.prompt_data import prompt_text
 from app.services.prompts import render_book_page
@@ -58,10 +58,14 @@ class TestPageCatalogue:
     def test_every_page_has_a_story_line(self) -> None:
         assert all(page.story.strip() for page in BOOK_PAGES)
 
-    def test_text_zones_are_zones_the_pdf_knows(self) -> None:
-        assert BOOK_PAGES[0].text_zone is TextZone.LOWER_THIRD
-        assert BOOK_PAGES[1].text_zone is TextZone.SKY
-        assert BOOK_PAGES[2].text_zone is TextZone.GRASS
+    def test_every_page_names_its_emotional_beat(self) -> None:
+        """AI assessment: expression tracks the story beat, page by page.
+
+        The three text zones are gone: the story is set in one margin under
+        the art on every page, so a page no longer says where its text goes.
+        """
+        for page in BOOK_PAGES:
+            assert page.emotion.strip(), page.key
 
     def test_lookup_by_key(self) -> None:
         assert get_book_page("the-trade") is BOOK_PAGES[1]
@@ -70,7 +74,7 @@ class TestPageCatalogue:
     def test_render_fills_name_and_pronouns(self) -> None:
         settings = CartoonSettings(photo_gender="girl")
         rendered = render_book_page(BOOK_PAGES[0], settings)
-        assert rendered.story.startswith("Once upon a time there was a child called Jane")
+        assert "there lived a child named Jane and her mother" in rendered.story
         assert "her mother" in rendered.story
         assert "{name}" not in rendered.story
         assert "{possessive}" not in rendered.scene.caption
@@ -124,8 +128,13 @@ class TestAboutMe:
             AboutMe(prompt_name="A", about_name="A", about_age=-1)
 
     def test_rendered_lines_compose_the_page(self) -> None:
-        # Display order: name (heading), age, title, then the details —
-        # with no "A few things you should know about" heading between them.
+        """The About page is real sentences, not bare field values.
+
+        AI assessment: "7 years old / Eli Belly / Eli is very cute!" read as
+        authoring notes left in the book, and "24 years old Author Shaul" as an
+        unpunctuated credit. Each field is now set in a sentence; the details
+        stay exactly as typed.
+        """
         about = AboutMe(
             prompt_name="Jack",
             about_name="Shai",
@@ -134,15 +143,33 @@ class TestAboutMe:
             details="Loves dinosaurs",
         )
         lines = about.rendered_about_lines()
-        assert lines[0] == "About Shai"
-        assert lines[1] == "7 years old"
-        assert lines[2] == "an astronaut"
-        assert lines[3] == "Loves dinosaurs"
+        assert lines == [
+            "About Shai",
+            "This book stars Shai.",
+            "Shai is 7 years old.",
+            "In real life, Shai is an astronaut.",
+            "Loves dinosaurs",
+        ]
         assert "A few things you should know about" not in " ".join(lines)
         assert "details_heading" not in prompt_text()["book"]["about"], (
             "the heading is gone from the data, not just unused"
         )
 
+    def test_a_bare_title_reads_as_a_phrase(self) -> None:
+        def title_line(title: str, age: int | None = None) -> list[str]:
+            return AboutMe(
+                prompt_name="S", about_name="Shaul", about_age=age, title=title
+            ).rendered_about_lines()
+
+        assert title_line("Author")[-1] == "In real life, Shaul is an author."
+        assert title_line("A teacher")[-1] == "In real life, Shaul is a teacher."
+        assert title_line("NASA engineer")[-1] == "In real life, Shaul is a NASA engineer."
+        assert title_line("Author", 1)[2] == "Shaul is 1 year old."
+        assert title_line("Author", 24)[2] == "Shaul is 24 years old."
+
+    def test_the_cover_credit_names_the_reader(self) -> None:
+        assert AboutMe(prompt_name="Eli", about_name="Eli").cover_credit() == "A story for Eli"
+
     def test_empty_optional_fields_add_no_lines(self) -> None:
         about = AboutMe(prompt_name="Shai", about_name="Shai")
-        assert about.rendered_about_lines() == ["About Shai"]
+        assert about.rendered_about_lines() == ["About Shai", "This book stars Shai."]

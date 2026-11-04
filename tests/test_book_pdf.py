@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import re
 
 import pytest
 from PIL import Image
@@ -107,11 +106,19 @@ class TestAssembly:
             opening = opening[:40]
             assert any(opening in text for text in texts), page.key
 
-    def test_page_shape_matches_the_art(self) -> None:
-        reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages())))
-        box = reader.pages[0].mediabox
-        assert box.width == pytest.approx(720)
-        assert box.height == pytest.approx(540)
+    def test_every_page_is_the_art_plus_one_story_margin(self) -> None:
+        """One template: the art's width, its height plus the same margin.
+
+        Used to pin a 720x540 page (the art alone, text over it). The story is
+        now set under the art, so the page is taller than the art, and every
+        page — cover and About included — has the same size.
+        """
+        reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages(), art_bytes())))
+        sizes = {(float(p.mediabox.width), float(p.mediabox.height)) for p in reader.pages}
+        assert len(sizes) == 1
+        width, height = sizes.pop()
+        assert width == pytest.approx(720)
+        assert height > 540
 
     def test_about_me_carries_the_typed_words(self) -> None:
         data = build_book_pdf(
@@ -135,21 +142,52 @@ class TestAssembly:
         text = reader.pages[-1].extract_text()
         assert "אוהבת" in text
 
-    def test_story_panel_is_opaque_over_the_art(self) -> None:
-        """The text sits on a solid panel, never washed over busy art (UAT 7).
+    def test_story_text_never_sits_on_the_art(self) -> None:
+        """AI assessment: no white boxes over the picture, no text on a face.
 
-        The page stream must show a plain opaque fill (`re f`) for the panel —
-        no graphics-state opacity (`gs`) — so the art behind the words cannot
-        bleed through them.
+        Every glyph of a story page is set in the margin below the art box
+        (PDF y runs upwards, so "below" means a y under the margin's height).
         """
+        reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages())))
+        for page in reader.pages[:-1]:
+            height = float(page.mediabox.height)
+            margin = height - 540
+            ys: list[float] = []
+
+            def visit(text, cm, tm, font, size, ys=ys):  # type: ignore[no-untyped-def]
+                if text.strip():
+                    ys.append(tm[5] * cm[3] + cm[5] if cm[3] else tm[5])
+
+            page.extract_text(visitor_text=visit)
+            assert ys, "the story is on the page"
+            assert max(ys) < margin, "story text was drawn over the art"
+
+    def test_one_font_size_for_the_whole_book(self) -> None:
+        """No font size drifting page to page."""
+        sizes: set[float] = set()
+        reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages())))
+        for page in reader.pages[:-1]:
+
+            def visit(text, cm, tm, font, size):  # type: ignore[no-untyped-def]
+                if len(text.strip()) > 3:
+                    sizes.add(round(size * (tm[0] or 1), 1))
+
+            page.extract_text(visitor_text=visit)
+        assert len(sizes) == 1, sizes
+
+    def test_the_book_is_set_in_literata(self) -> None:
         data = build_book_pdf(about(), pages())
-        for page in PdfReader(io.BytesIO(data)).pages[:-1]:  # art pages only
-            stream = page.get_contents().get_data().decode("latin-1")
-            assert " gs\n" not in stream, "no translucent panel may be drawn"
-            assert re.search(r"0\.9804 0\.9686 0\.9333 rg", stream), (
-                "the paper-tone panel fill must be present"
-            )
-            assert re.search(r"re\s+f", stream), "the panel is a filled rect"
+        assert b"Literata" in data
+        assert b"ComicNeue" not in data
+
+    def test_the_about_page_frames_the_portrait_and_ends_the_story(self) -> None:
+        data = build_book_pdf(about(), pages(), portrait=art_bytes(512, 512))
+        last = PdfReader(io.BytesIO(data)).pages[-1]
+        text = (last.extract_text() or "").replace("\n", " ")
+        assert "This book stars Shai." in text
+        assert "Shai is 7 years old." in text
+        assert "The End" in text
+        assert " Do" in last.get_contents().get_data().decode("latin-1"), "portrait drawn"
 
     def test_empty_pages_rejected(self) -> None:
         with pytest.raises(ValueError, match="at least one page"):

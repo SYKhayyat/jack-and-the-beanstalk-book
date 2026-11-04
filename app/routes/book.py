@@ -101,7 +101,6 @@ def _default_rendered_pages() -> tuple[dict[str, object], ...]:
             "key": page.key,
             "title": page.scene.title,
             "story": page.story,
-            "text_zone": page.text_zone.value,
         }
         for page in rendered
     )

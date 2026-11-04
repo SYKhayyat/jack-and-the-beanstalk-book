@@ -120,12 +120,17 @@ def test_both_identity_anchors_are_named_in_the_task() -> None:
     assert "original photograph" in prompt
 
 
-def test_quiet_zone_appears_with_the_page_settling_area() -> None:
-    settings = CartoonSettings()
-    page = BOOK_PAGES[1]  # trade: the sky must stay quiet
-    prompt = _prompt(page, settings, 2)
-    assert "QUIET ZONE:" in prompt
-    assert "open sky" in prompt
+def test_the_whole_frame_is_the_picture() -> None:
+    """The story is set in a margin under the art, so no band is kept empty.
+
+    This used to pin a per-page QUIET ZONE: the text sat on a panel over the
+    art. The AI assessment rejected panels pasted over the picture and text
+    over faces, so the PDF now prints the story beneath the art, and the
+    prompt tells the model it may compose the whole frame.
+    """
+    for prompt in _all_page_prompts():
+        assert "QUIET ZONE" not in prompt
+        assert "FRAME: the whole image is the illustration, edge to edge." in prompt
 
 
 def test_page_number_and_title_frame_the_call() -> None:
@@ -317,7 +322,7 @@ def test_the_invariant_block_is_a_cacheable_prefix() -> None:
     assert prefix.endswith("TASK: Draw page ")
     assert "THE WHOLE STORY" not in prefix
     assert "REFERENCE IMAGES" not in prefix
-    assert "QUIET ZONE" not in prefix
+    assert "FRAME:" not in prefix
 
 
 def test_the_book_owns_its_negative_tail() -> None:
@@ -482,8 +487,8 @@ def test_page_two_shows_exactly_five_beans() -> None:
     assert "holds out his open palm with exactly five magic beans" in prompt
     assert (
         "exactly five magic beans in the old man's open palm — five and only five, "
-        "one red, one blue, one green, one gold, one violet, no sixth bean and no "
-        "extra bean of any colour" in prompt
+        "one speckled red, one blue-grey, one deep green, one golden-tan, one dark "
+        "violet, no sixth bean and no extra bean of any colour" in prompt
     )
 
 
@@ -492,12 +497,13 @@ def test_page_three_shows_exactly_five_beans() -> None:
     prompt = _prompt(BOOK_PAGES[2], CartoonSettings(), 3)
     assert "throws the very same five magic beans" in prompt
     assert (
-        "exactly five magic beans tumbling and glinting mid-air, five and only five, "
-        "each one separately visible and countable — red, blue, green, gold and violet "
-        "— none missing, no sixth bean and no extra bean" in prompt
+        "exactly five magic beans falling in an arc towards the garden, five and only "
+        "five, each one separately visible and countable — speckled red, blue-grey, "
+        "deep green, golden-tan and dark violet — none missing, no sixth bean and no "
+        "extra bean" in prompt
     )
     # Page 3 used to name only four colours, which contradicted the count.
-    assert "red, blue, green, gold and violet" in prompt
+    assert "speckled red, blue-grey, deep green, golden-tan and dark violet" in prompt
 
 
 def test_pages_do_not_borrow_each_other_scenes() -> None:
@@ -507,7 +513,7 @@ def test_pages_do_not_borrow_each_other_scenes() -> None:
     beans; page 3's prompt quotes page 1's line, which names Milky-White.
     """
     cupboard = _prompt(BOOK_PAGES[0], CartoonSettings(), 1)
-    assert "the old man with the tall hat — he has not arrived in this story yet" in cupboard
+    assert "the old man — he has not arrived in this story yet" in cupboard
     assert "magic beans or any glowing object — none have been given yet" in cupboard
     window = _prompt(BOOK_PAGES[2], CartoonSettings(), 3)
     assert (
@@ -585,7 +591,7 @@ def test_every_page_obeys_the_page_block_contract() -> None:
         assert page.scene.environment.strip(), page.key
         assert page.scene.time_of_day.strip(), page.key
         assert page.scene.camera.strip(), page.key
-        assert page.settling.strip(), page.key
+        assert page.emotion.strip(), page.key
         assert page.scene.must_include, page.key
         assert page.scene.must_avoid, page.key
         for name in page.cast:
@@ -629,3 +635,181 @@ def test_the_mother_never_appears_in_the_clouds() -> None:
     """She is at home on pages 1, 3, 9 and the closing three; never up the stalk."""
     mother_pages = {page.number for page in BOOK_PAGES if "mother" in page.cast}
     assert mother_pages == {1, 3, 9, 17, 18, 19}
+
+
+# --- the AI assessment's generalised rules -----------------------------------
+#
+# Ten AI and ten human reviews of a real book were distilled into a checklist
+# (character bible, prop bible, physics, mood, artifacts). Each test below pins
+# one rule as it is encoded in the prompt; the real-API run judges the picture.
+
+
+def test_every_page_carries_the_same_prop_and_place_bible() -> None:
+    """Lock one asset per recurring prop and place; never re-describe it."""
+    prompts = _all_page_prompts()
+    sheets = {
+        next(s for s in prompt.split("\n\n") if s.startswith("THE PROPS AND PLACES"))
+        for prompt in prompts
+    }
+    assert len(sheets) == 1
+    sheet = sheets.pop()
+    for fixed in (
+        "exactly three round towers",
+        "iron hinges on its left edge",
+        "about the size of a loaf of bread",
+        "nobody plays it",
+        "as thick as an old oak trunk",
+        "never toy-like",
+        "one bowl at one end",
+        "going to market is always moving towards the right",
+    ):
+        assert fixed in sheet, fixed
+    # The harp's carrying rule follows the child's pronouns.
+    assert "Once Jack has it, he carries it on his back by that strap." in sheet
+
+
+def test_age_signature_features_physics_and_mood_reach_every_page() -> None:
+    for prompt in _all_page_prompts():
+        assert "Jack has exactly the same apparent age on every page" in prompt
+        assert "no beard or stubble, and no grey or white hair" in prompt
+        assert "glasses keep one frame shape, one frame colour and one frame thickness" in (
+            prompt
+        )
+        assert "never swapped for a beret, a skullcap or a different hat" in prompt
+        assert "anything that falls falls down towards the ground" in prompt
+        assert "an axe blade biting into the trunk it is cutting" in prompt
+        assert "never a stock neutral smile" in prompt
+        assert "colour-graded as one book" in prompt
+        assert "Every hand has exactly five fingers" in prompt
+        assert "the giant is never a larger copy of the old man" in prompt
+        assert "No item is omitted, swapped, restyled or recoloured" in prompt
+
+
+def test_the_standing_negative_is_the_last_word_of_every_page() -> None:
+    standing = prompt_text()["negative"]["standing"]
+    for prompt in _all_page_prompts():
+        assert prompt.endswith(standing)
+
+
+def test_a_page_face_follows_its_beat_not_the_portrait_expression() -> None:
+    """The expression picker fought every fear and wonder beat."""
+    settings = CartoonSettings(expression="happy")
+    happy = prompt_text()["expressions"]["happy"]
+    fee = get_book_page("fee-fi-fo-fum")
+    assert fee is not None
+    prompt = _prompt(fee, settings, fee.number)
+    assert happy not in prompt
+    assert "EMOTIONAL BEAT: real fear" in prompt
+    # The portrait still honours the pick.
+    assert happy in build_cartoon_prompt(settings)
+
+
+def test_a_photographed_cast_member_is_drawn_from_the_photo() -> None:
+    """With a photo, face and head covering defer to it; the costume is fixed."""
+    with_photo = prompt_text()["book"]["cast_with_photo"]
+    invented = prompt_text()["book"]["cast"]
+    settings = CartoonSettings()
+    page = BOOK_PAGES[0]
+    prompt = build_book_page_prompt(
+        page,
+        settings,
+        page_number=1,
+        total_pages=len(BOOK_PAGES),
+        supplied_characters=("mother",),
+        character_photos=("mother",),
+    )
+    assert with_photo["mother"] in prompt
+    assert invented["mother"] not in prompt
+    # The others keep their invented looks.
+    assert invented["old_man"] in prompt
+    assert invented["giant"] in prompt
+    assert "never a generic storybook mother" in with_photo["mother"]
+    assert "head covering" in with_photo["mother"]
+
+
+def test_the_giant_has_his_own_design() -> None:
+    invented = prompt_text()["book"]["cast"]
+    assert "black beard" in invented["giant"]
+    assert "white beard" in invented["old_man"]
+    assert "He is not the old man" in invented["giant"]
+    assert (
+        "never the child's or the old man's"
+        in (prompt_text()["book"]["cast_with_photo"]["giant"])
+    )
+
+
+def test_the_story_text_and_the_pictures_agree() -> None:
+    """Text/image agreement rules from the assessment, page by page."""
+    pages = {page.key: render_book_page(page, CartoonSettings()) for page in BOOK_PAGES}
+    harp = pages["the-singing-harp"]
+    assert "all by itself" in harp.story
+    assert "reached out with one hand to the strings" not in harp.story
+    assert "anyone's fingers on the harp strings" in harp.scene.must_avoid
+    # The hen and harp are set down before the axe, and stay by the door.
+    axe = pages["the-axe"]
+    assert "set the hen and the harp safely by the cottage door" in axe.story
+    assert "the hen or the harp in Jack's arms" in axe.scene.must_avoid
+    home = pages["safe-at-home"]
+    assert "the harp or the hen in Jack's arms" in home.scene.must_avoid
+    # The giant falls down, not up into the sky.
+    fall = pages["the-fall"]
+    assert "the giant rising, flying or floating up into the sky" in fall.scene.must_avoid
+    assert "came tumbling down" in fall.story
+    # A child-sized bag of gold.
+    assert "a sack of gold bigger than the child or carried with ease" in (
+        pages["the-bag-of-gold"].scene.must_avoid
+    )
+    # The mother acknowledges the magic glow she throws away.
+    assert "She saw how they glowed" in pages["beans-out-the-window"].story
+    # The chase runs towards the beanstalk, not away from it.
+    assert "Jack running away from the beanstalk" in pages["the-chase"].scene.must_avoid
+
+
+def test_a_sentence_never_starts_with_a_lower_case_pronoun() -> None:
+    """Capitalisation at sentence starts: {Possessive}, not {possessive}."""
+    import re
+
+    for page in BOOK_PAGES:
+        story = render_book_page(page, CartoonSettings()).story
+        for start in re.findall(r"(?:^|[.!?] )([a-z]\w*)", story):
+            assert start not in {"he", "his", "him", "she", "her"}, (page.key, start)
+
+
+def test_time_of_day_only_moves_forward_within_each_day() -> None:
+    """No jump from sunset back to noon inside one day of the tale."""
+    order = ["morning", "midday", "afternoon", "sunset", "dusk", "evening"]
+    first_day = ["empty-cupboard", "the-trade", "beans-out-the-window"]
+    second_day = [
+        "beanstalk-at-dawn",
+        "the-climb",
+        "the-cloud-country",
+        "the-giant's-kitchen",
+        "the-bag-of-gold",
+        "home-with-gold",
+    ]
+    last_day = [
+        "the-hen",
+        "the-singing-harp",
+        "fee-fi-fo-fum",
+        "the-chase",
+        "down-the-beanstalk",
+        "the-axe",
+        "the-fall",
+        "safe-at-home",
+    ]
+    for day in (first_day, second_day, last_day):
+        ranks = []
+        for key in day:
+            page = get_book_page(key)
+            assert page is not None
+            words = page.scene.time_of_day.lower()
+            if "sunrise" in words:
+                ranks.append(0)
+                continue
+            ranks.append(
+                max(
+                    (index for index, word in enumerate(order) if word in words.split(",")[0]),
+                    default=0,
+                )
+            )
+        assert ranks == sorted(ranks), (day, ranks)

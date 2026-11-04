@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from enum import StrEnum
 from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -27,15 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.models.scenes import Scene
 from app.prompt_data import prompt_text
 
-__all__ = ["BOOK_PAGES", "AboutMe", "BookPage", "TextZone", "get_book_page"]
-
-
-class TextZone(StrEnum):
-    """Where on the page the PDF puts the story text."""
-
-    LOWER_THIRD = "lower_third"
-    SKY = "sky"
-    GRASS = "grass"
+__all__ = ["BOOK_PAGES", "AboutMe", "BookPage", "get_book_page"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +45,8 @@ class BookPage:
             prompt's "whole story" context. The model needs the shape of the
             tale, not its prose — shipping the paragraphs to every call would
             make each prompt larger for no gain.
-        text_zone: Where the PDF puts the story text.
-        settling: Prompt clause telling the model to keep the text zone calm.
+        emotion: The page's emotional beat, stated in the prompt so faces
+            track the story instead of falling back on a stock smile.
         cast: Names of the non-reference characters this page draws (keys of
             ``[book.cast]`` in prompts.toml — the mother, the old man). Whoever
             a scene names beyond the child has no reference image, so their
@@ -66,15 +57,14 @@ class BookPage:
     key: str
     scene: Scene
     story: str
-    text_zone: TextZone
-    settling: str = ""
+    emotion: str = ""
     cast: tuple[str, ...] = ()
     beat: str = ""
 
     def formatted(self, substitutions: Mapping[str, str]) -> BookPage:
         """A copy with name/pronoun placeholders filled in for this child.
 
-        The returned page's `story` and `settling` are filled here; the page
+        The returned page's `story`, `beat` and `emotion` are filled here; the page
         title lives on `scene` and is filled by `Scene.formatted` — consumers
         must read the title from the *formatted* copy's scene, never from the
         raw catalogue entry.
@@ -88,7 +78,7 @@ class BookPage:
             scene=self.scene.formatted(substitutions),
             story=fill(self.story),
             beat=fill(self.beat) if self.beat else "",
-            settling=fill(self.settling),
+            emotion=fill(self.emotion),
         )
 
 
@@ -118,8 +108,7 @@ def _assemble_page(spec: Mapping[str, object], number: int) -> BookPage:
             ),
         ),
         story=str(spec["story"]),
-        text_zone=TextZone(str(spec["text_zone"])),
-        settling=str(spec.get("settling", "")),
+        emotion=str(spec.get("emotion", "")),
         cast=cast_names,
         # A page may leave the beat out; the story line then does double duty
         # as the model's context line. Every page in the catalogue has one.
@@ -127,8 +116,8 @@ def _assemble_page(spec: Mapping[str, object], number: int) -> BookPage:
     )
 
 
-# An unknown `text_zone` value in the TOML raises a ValueError the first time
-# this module is imported — a data mistake must fail at boot, not on a request.
+# A data mistake (an unknown cast name) raises the first time this module is
+# imported — it must fail at boot, not on a request.
 # Pages carrying `retired = true` are skipped entirely: no generation, no page
 # number, no PDF. Their prose stays in the TOML, so retiring is reversible with
 # a one-flag change — the catalogue is never written into a corner.
@@ -214,24 +203,59 @@ class AboutMe(BaseModel):
         return f"{self.prompt_name} and the Beanstalk"
 
     def rendered_about_lines(self) -> list[str]:
-        """The About page as PDF copy, built entirely from what was typed.
+        """The About page as PDF copy: a heading, then real sentences.
 
-        Copy text (headings) comes from ``prompts.toml``; field values come
-        from the uploader. Supplied-but-empty fields simply add no line. The
-        display order is the About page's reading order: name, age, title,
-        then the About lines.
+        Copy text comes from ``prompts.toml``; field values come from the
+        uploader. The AI assessment read the old bare lines ("7 years old",
+        "Author", a pet name) as authoring notes leaked into the book, so each
+        field is now set in a sentence: "Noa is 7 years old." and "In real
+        life, Noa is an astronaut." The free-text details stay exactly as typed.
+        Supplied-but-empty fields add no sentence.
         """
         about = prompt_text()["book"]["about"]
-        heading = about["heading"].format(child_name=self.about_name)
-        # The name itself is drawn as the page's title; it is not repeated here.
-        lines: list[str] = []
+        name = self.about_name
+        heading = about["heading"].format(about_name=name)
+        lines: list[str] = [about["star_line"].format(about_name=name)]
         if self.about_age is not None:
-            lines.append(about["age_line"].format(child_age=self.about_age))
+            unit = "year" if self.about_age == 1 else "years"
+            lines.append(
+                about["age_line"].format(
+                    about_name=name, age_phrase=f"{self.about_age} {unit} old"
+                )
+            )
         if self.title:
-            lines.append(self.title)
+            lines.append(
+                about["title_line"].format(
+                    about_name=name, title_phrase=_title_phrase(self.title)
+                )
+            )
         if self.details:
             lines.append(self.details)
         return [heading, *lines]
+
+    def cover_credit(self) -> str:
+        """The cover's dedication line, under the title."""
+        credit: str = prompt_text()["book"]["about"]["credit"]
+        return credit.format(about_name=self.about_name)
+
+
+_DETERMINERS = frozenset({"a", "an", "the", "my", "our", "his", "her", "their", "your"})
+
+
+def _title_phrase(title: str) -> str:
+    """Make a typed title read inside "In real life, X is ___."
+
+    "Author" becomes "an author", "an astronaut" stays as typed and an acronym
+    such as "NASA engineer" keeps its capitals ("a NASA engineer").
+    """
+    phrase = title.strip().rstrip(".!")
+    first, *_ = phrase.split()
+    if first.lower() in _DETERMINERS:
+        return phrase[0].lower() + phrase[1:]
+    if not (len(first) > 1 and first.isupper()):
+        phrase = phrase[0].lower() + phrase[1:]
+    article = "an" if phrase[0].lower() in "aeiou" else "a"
+    return f"{article} {phrase}"
 
 
 def _sanitize(text: str) -> str:
