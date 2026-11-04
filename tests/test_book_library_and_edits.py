@@ -19,11 +19,11 @@ from tests.helpers import RecordingProvider, make_photo_bytes, multipart
 PAGE_COUNT = len(BOOK_PAGES)
 
 
-def _portrait(client: TestClient) -> dict[str, object]:
-    response = client.post(
-        "/api/cartoonify",
-        **multipart({"photo": ("me.png", make_photo_bytes(), "image/png")}),
-    )
+def _portrait(client: TestClient, character: str = "") -> dict[str, object]:
+    form: dict[str, object] = {"photo": ("me.png", make_photo_bytes(), "image/png")}
+    if character:
+        form["character"] = character
+    response = client.post("/api/cartoonify", **multipart(form))
     assert response.status_code == 201, response.text
     return dict(response.json())
 
@@ -158,7 +158,7 @@ class TestEditing:
     ) -> None:
         provider = ChangingProvider()
         with client_factory(provider) as client:
-            mother = _portrait(client)
+            mother = _portrait(client, character="mother")
             child = _portrait(client)
             start = client.post(
                 "/api/book/start",
@@ -172,7 +172,7 @@ class TestEditing:
             book_id = str(start.json()["book_id"])
             _wait(client, book_id)
 
-            replacement = _portrait(client)
+            replacement = _portrait(client, character="mother")
             before = len(_page_calls(provider))
             response = client.post(
                 f"/api/book/{book_id}/edit",
@@ -282,6 +282,48 @@ class TestLibrary:
             page = client.get("/")
             assert 'class="library"' in page.text
             assert f"/books/{book_id}" in page.text
+
+    def test_every_book_in_the_sidebar_has_its_own_delete_button(self, tmp_path: Path) -> None:
+        """UAT: putting a book away meant opening it first. The cross is in the card."""
+        with _google_client(tmp_path) as client:
+            _sign_in(client, "owner-1")
+            book_id = _start(client)
+            _wait(client, book_id)
+            for path in ("/", f"/books/{book_id}"):
+                page = client.get(path)
+                assert 'class="library-item"' in page.text
+                assert 'class="library-delete"' in page.text
+                assert f'data-delete-book="{book_id}"' in page.text
+            # The count the reader sees: cover + nineteen story pages + About.
+            assert "21 pages" in page.text
+
+    def test_the_downloads_are_private_to_the_book_owner(self, tmp_path: Path) -> None:
+        """Another signed-in person must not fetch someone's photo or cartoon."""
+        with _google_client(tmp_path) as client:
+            _sign_in(client, "owner-1")
+            book_id = _start(client)
+            _wait(client, book_id)
+            assert client.get(f"/book-media/{book_id}/photo?download=1").status_code == 200
+
+            _sign_in(client, "owner-2")
+            for path in ("photo", "portrait"):
+                response = client.get(f"/book-media/{book_id}/{path}?download=1")
+                assert response.status_code == 404, path
+
+    def test_the_book_can_be_read_in_the_page_without_the_pdf(self, tmp_path: Path) -> None:
+        """UAT: the PDF would not open, so the book itself is shown in the page."""
+        with _google_client(tmp_path) as client:
+            _sign_in(client, "owner-1")
+            book_id = _start(client)
+            _wait(client, book_id)
+            page = client.get(f"/books/{book_id}")
+            assert page.status_code == 200
+            assert 'id="book-reader"' in page.text
+            assert 'id="reader-prev"' in page.text
+            assert 'id="reader-next"' in page.text
+            # The story line travels with the picture, not only in the PDF.
+            assert "reader-story" in page.text
+            assert page.text.count('class="reader-page') == 20
 
     def test_password_mode_has_no_library(self, client: TestClient) -> None:
         book_id = _start(client)

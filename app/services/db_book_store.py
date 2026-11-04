@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -38,6 +39,7 @@ from app.services.book_store import (
     BookStore,
     BookSummary,
     CharacterReference,
+    page_totals,
 )
 
 __all__ = ["DatabaseBookStore"]
@@ -163,12 +165,10 @@ class DatabaseBookStore(BookStore):
             about = AboutMe.model_validate(row.about)
             payload = dict(row.status_payload) if row.status_payload is not None else {}
             pages = payload.get("pages", [])
-            page_list = pages if isinstance(pages, list) else []
-            done = sum(
-                1
-                for page in page_list
-                if isinstance(page, dict) and page.get("status") == "done"
-            )
+            raw_pages = pages if isinstance(pages, list) else []
+            page_list = [page for page in raw_pages if isinstance(page, dict)]
+            cover_url = self.cover_url(row.id) if row.cover is not None else None
+            page_count, done = page_totals(page_list, cover_done=row.cover is not None)
             summaries.append(
                 BookSummary(
                     book_id=row.id,
@@ -176,9 +176,9 @@ class DatabaseBookStore(BookStore):
                     status=row.status,
                     created_at=row.created_at.isoformat() if row.created_at else "",
                     updated_at=row.updated_at.isoformat() if row.updated_at else "",
-                    page_count=len(page_list),
+                    page_count=page_count,
                     pages_done=done,
-                    cover_url=self.cover_url(row.id) if row.cover is not None else None,
+                    cover_url=cover_url,
                     pdf_url=self.pdf_url(row.id)
                     if row.status == BookStatus.COMPLETE
                     else None,
@@ -219,9 +219,10 @@ class DatabaseBookStore(BookStore):
         *,
         title: str | None = None,
         cover_url: str | None = None,
+        extra: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         """The exact document the poll returns, in either store's shape."""
-        return {
+        payload: dict[str, object] = {
             "book_id": book_id,
             "status": status,
             "pages": pages,
@@ -231,6 +232,9 @@ class DatabaseBookStore(BookStore):
             "title": title,
             "updated_at": _now().isoformat(),
         }
+        if extra:
+            payload.update(extra)
+        return payload
 
     def save_status(
         self,
@@ -241,6 +245,7 @@ class DatabaseBookStore(BookStore):
         *,
         title: str | None = None,
         cover_url: str | None = None,
+        extra: Mapping[str, object] | None = None,
     ) -> None:
         with self._engine.begin() as conn:
             row = conn.execute(
@@ -256,7 +261,13 @@ class DatabaseBookStore(BookStore):
             if cover_url is None and row is not None and row.cover is not None:
                 cover_url = self.cover_url(book_id)
             payload = self._status_payload(
-                book_id, status, pages, error, title=title, cover_url=cover_url
+                book_id,
+                status,
+                pages,
+                error,
+                title=title,
+                cover_url=cover_url,
+                extra=extra,
             )
             conn.execute(
                 update(BookRow)

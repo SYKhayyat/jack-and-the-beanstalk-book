@@ -273,10 +273,18 @@ class Settings(BaseSettings):
 
         1. `SESSION_SECRET`, when it is set: one stable key, so a restart does
            not sign anyone out.
-        2. A key derived from the shared password, which only exists in local
+        2. A key derived from the Google client secret, which is always set
+           where Google sign-in is. This is the fix for the deployment that
+           forgot `SESSION_SECRET`: without it the key was random per process,
+           so every restart — and Render's free plan restarts the container
+           whenever it wakes from sleep — invalidated the signed OAuth state
+           cookie mid-round-trip. The visitor saw "that sign-in link had
+           expired" and had to sign in a second time. The Google client secret
+           is stable for the life of the deployment, so the key is too.
+        3. A key derived from the shared password, which only exists in local
            development — the two are decoupled here rather than the password
            *being* the key, so rotating the password no longer has to.
-        3. A fresh random key per process, which means every restart signs
+        4. A fresh random key per process, which means every restart signs
            everyone out. That is the configuration mistake this property is
            designed to make loud in the log.
         """
@@ -284,11 +292,25 @@ class Settings(BaseSettings):
             return hashlib.sha256(
                 b"jack-and-the-beanstalk/session/" + self.session_secret.encode()
             ).digest()
+        if self.google_client_secret:
+            return hashlib.sha256(
+                b"jack-and-the-beanstalk/session/google/" + self.google_client_secret.encode()
+            ).digest()
         if self.app_password:
             return hashlib.sha256(
                 b"jack-and-the-beanstalk/session/dev/" + self.app_password.encode()
             ).digest()
         return _random_signing_key()
+
+    @property
+    def session_key_is_ephemeral(self) -> bool:
+        """Whether the signing key dies with this process.
+
+        True means every restart signs everyone out and breaks any sign-in in
+        flight. The operator needs to hear about it in the log, not discover it
+        as "the sign-in link expired" from a visitor.
+        """
+        return not (self.session_secret or self.google_client_secret or self.app_password)
 
     @property
     def max_upload_bytes(self) -> int:

@@ -24,6 +24,7 @@ stay open. Everything else needs a session.
 
 from __future__ import annotations
 
+import base64
 import logging
 import secrets
 from typing import Annotated, cast
@@ -73,7 +74,11 @@ _STATE_MAX_AGE_SECONDS = 15 * 60
 # never put its own wording on the page.
 _LOGIN_ERRORS = {
     "google_failed": "That sign-in did not work. Please try again.",
-    "google_state": "That sign-in link had expired. Please start again.",
+    # The usual cause is the server restarting between the button and Google's
+    # reply, which invalidates the signed state cookie the round trip needs.
+    # The key is now stable across restarts, so this should be rare — but when
+    # it happens it costs exactly one click, and the page says so.
+    "google_state": "That sign-in link had expired, so please sign in again.",
 }
 
 
@@ -204,8 +209,16 @@ def google_login(
     if not settings.google_enabled or oauth is None:
         return RedirectResponse("/login", status_code=303)
 
-    state = secrets.token_urlsafe(32)
+    state_token = secrets.token_urlsafe(32)
     next_path = _safe_next(request.query_params.get("next"))
+    # The state carries the random token *and* where the visitor was going.
+    # The cookie below is what proves the state is ours; the path is only
+    # there so that a round trip whose cookie has gone stale can still send
+    # the visitor back to their book instead of to the front door. It is
+    # base64url (no percent-encoding, so the query string cannot alter it)
+    # and re-validated by `_safe_next`, so it can only ever be a path on this
+    # site.
+    state = f"{state_token}.{_encode_next(next_path)}"
     logger.info("auth.google_redirect next=%s", next_path)
 
     response = RedirectResponse(
@@ -254,7 +267,15 @@ def google_callback(
     remembered = sessions.read_state(request.cookies.get(_STATE_COOKIE))
     if remembered is None or not code or not echoed_state or echoed_state != remembered[0]:
         logger.info("auth.google_state_mismatch")
-        return RedirectResponse("/login?error=google_state", status_code=303)
+        # The cookie is gone or stale (the usual cause is a server restart
+        # between the button and Google's reply). The visitor is sent back to
+        # the sign-in button with the page they were on, so the second click
+        # is the last one they need.
+        next_path = quote(_state_next_path(echoed_state), safe="/")
+        return RedirectResponse(
+            f"/login?error=google_state&next={next_path}",
+            status_code=303,
+        )
     next_path = _safe_next(remembered[1])
 
     if oauth is None:
@@ -436,3 +457,26 @@ def _safe_next(raw: str | None) -> str:
 
 def _client_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
+
+
+def _state_next_path(state: str) -> str:
+    """The destination carried by an OAuth state parameter, if it has one.
+
+    The state is `token.destination`, the token being random and the
+    destination a base64url path on this site. Only the destination is read
+    here, and it goes through `_safe_next` like every other redirect target —
+    so a forged state can at worst send the visitor to the front door.
+    """
+    _, _, encoded = state.partition(".")
+    if not encoded:
+        return "/"
+    try:
+        raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode()
+    except (ValueError, UnicodeDecodeError):
+        return "/"
+    return _safe_next(raw)
+
+
+def _encode_next(path: str) -> str:
+    """Encode a redirect path for the OAuth state parameter."""
+    return base64.urlsafe_b64encode(path.encode()).decode().rstrip("=")

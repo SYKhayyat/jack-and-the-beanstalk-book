@@ -633,6 +633,28 @@ pre {
   color: var(--ink-soft);
 }
 .library-stack { display: flex; flex-direction: column; gap: .6rem; }
+.library-item { position: relative; }
+.library-delete {
+  position: absolute;
+  top: .2rem;
+  right: .2rem;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.library-delete:hover,
+.library-delete:focus-visible {
+  background: var(--danger);
+  color: #fff;
+}
+.library-delete[disabled] { opacity: .4; cursor: progress; }
 .library-card {
   display: flex;
   gap: .65rem;
@@ -682,6 +704,33 @@ pre {
   .library-stack { flex-direction: row; overflow-x: auto; padding-bottom: .35rem; }
   .library-card { flex: 0 0 13rem; }
 }
+
+.reader { display: flex; flex-direction: column; gap: .8rem; }
+.reader-page { margin: 0; display: flex; flex-direction: column; gap: .6rem; }
+.reader-page img {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: #eee9df;
+}
+.reader-story {
+  margin: 0;
+  padding: .75rem 1rem;
+  border-radius: var(--radius);
+  background: var(--paper, #faf7ee);
+  border: 1px solid var(--line);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink, #3a2c1e);
+}
+.reader-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .8rem;
+}
+.reader-label { font-size: .85rem; color: var(--ink-soft); }
 
 .title-link { color: inherit; text-decoration: none; }
 .masthead-actions { display: flex; gap: 1rem; align-items: center; justify-content: center; margin-top: .9rem; }

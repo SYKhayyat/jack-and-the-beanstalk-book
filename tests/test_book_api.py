@@ -91,7 +91,7 @@ class TestReferenceMediaTypes:
         provider = JpegPortraitProvider()
         with client_factory(provider) as jpeg_client:
             child = make_portrait(jpeg_client)
-            mother = make_portrait(jpeg_client)
+            mother = make_portrait(jpeg_client, character="mother")
             start = jpeg_client.post(
                 "/api/book/start",
                 data={
@@ -267,11 +267,17 @@ class TestBookEndToEnd:
         status_payload = wait_for_book(client, book_id)
         assert status_payload["status"] == "complete", status_payload
         done = status_payload["pages"]
-        assert [page["status"] for page in done] == ["done"] * PAGE_COUNT
+        # The cover counts as a page of the book: the cover plus nineteen
+        # story pages.
+        assert len(done) == PAGE_COUNT + 1
+        assert [page["status"] for page in done] == ["done"] * (PAGE_COUNT + 1)
+        assert done[0]["key"] == "cover"
+        assert [page["number"] for page in done[1:]] == list(range(1, PAGE_COUNT + 1))
+        assert status_payload["total_pages"] == PAGE_COUNT + 1
 
         # Every page is shown as the browser's grid shows it.
-        for number, page in enumerate(status_payload["pages"], start=1):
-            image = client.get(f"/book-media/{book_id}/pages/{number}")
+        for page in done[1:]:
+            image = client.get(f"/book-media/{book_id}/pages/{page['number']}")
             assert image.status_code == 200, page
             assert Image.open(io.BytesIO(image.content)).size  # readable art
 
@@ -293,6 +299,34 @@ class TestBookEndToEnd:
         wait_for_book(client, book_id)
         portrait_image = client.get(f"/book-media/{book_id}/portrait")
         assert portrait_image.status_code == 200
+
+    def test_the_original_photo_and_the_cartoon_can_be_downloaded(
+        self, client: TestClient
+    ) -> None:
+        """UAT: the reader wanted their own photo and the cartoon of it back."""
+        portrait = make_portrait(client)
+        start = client.post(
+            "/api/book/start",
+            data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+        )
+        assert start.status_code == 201
+        book_id = start.json()["book_id"]
+        wait_for_book(client, book_id)
+
+        photo = client.get(f"/book-media/{book_id}/photo")
+        assert photo.status_code == 200
+        assert photo.headers["content-type"].startswith("image/")
+        assert Image.open(io.BytesIO(photo.content)).size
+
+        downloaded = client.get(f"/book-media/{book_id}/photo?download=1")
+        assert downloaded.status_code == 200
+        assert downloaded.headers["content-disposition"].startswith("attachment")
+        assert "original-photo" in downloaded.headers["content-disposition"]
+
+        cartoon = client.get(f"/book-media/{book_id}/portrait?download=1")
+        assert cartoon.status_code == 200
+        assert cartoon.headers["content-disposition"].startswith("attachment")
+        assert "cartoon" in cartoon.headers["content-disposition"]
 
 
 class FailingPageProvider(ImageProvider):
@@ -534,7 +568,7 @@ class TestPerPageProgress:
             provider.release_page_two.set()
             final = wait_for_book(blocking_client, book_id)
             assert final["status"] == "complete", final
-            assert [page["status"] for page in final["pages"]] == ["done"] * PAGE_COUNT
+            assert [page["status"] for page in final["pages"]] == ["done"] * (PAGE_COUNT + 1)
             # And the concurrency that made the mid-flight state observable.
             assert provider.peak_in_flight == 2, provider.peak_in_flight
 
@@ -825,7 +859,7 @@ class TestBookRateBudget:
             assert start.status_code == 201, start.text
             final = wait_for_book(client, start.json()["book_id"], seconds=10)
             assert final["status"] == "complete", final
-            assert [page["status"] for page in final["pages"]] == ["done"] * PAGE_COUNT
+            assert [page["status"] for page in final["pages"]] == ["done"] * (PAGE_COUNT + 1)
 
 
 class TestQuotaAccounting:

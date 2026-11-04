@@ -153,6 +153,22 @@ def create_app(
     sessions = SessionCodec(resolved.session_signing_key())
     app.state.sessions = sessions
     app.state.gate.codec = sessions
+    # The signing key's lifetime decides whether a container restart is
+    # invisible to the visitor. A key that dies with the process signs every
+    # session out and breaks any Google sign-in in flight ("that sign-in link
+    # had expired"), so the operator hears about it here rather than from a
+    # visitor. Render's free plan restarts the container whenever it wakes
+    # from sleep, which is exactly when this bites.
+    if resolved.session_key_is_ephemeral:
+        logger.warning(
+            "app.session_key source=ephemeral detail=no_SESSION_SECRET_no_google_client_secret"
+            " impact=every_restart_signs_everyone_out"
+        )
+    elif not resolved.session_secret:
+        logger.info(
+            "app.session_key source=derived detail=stable_across_restarts "
+            "action=set_SESSION_SECRET_to_choose_the_key_explicitly"
+        )
     # The Google sign-in client, only when it is configured. Without a client
     # there is nothing to build and nothing to call.
     app.state.oauth = (

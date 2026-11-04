@@ -128,6 +128,40 @@ def test_the_book_poller_gives_up_after_consecutive_failures() -> None:
     assert "Date.now() - started" not in source
 
 
+def test_approving_a_portrait_drops_the_previous_book() -> None:
+    """UAT: after a failed book, a fresh portrait said "make a portrait first".
+
+    `isApproved` requires no `bookId`, so approving a new portrait must clear
+    the stale id from the failed attempt — otherwise the user is stuck.
+    """
+    source = _strip_js_comments(_read("book-state.js"))
+    body = source.split("export function approveDraft")[1].split("export function")[0]
+    assert "state.bookId = null;" in body
+    assert "state.bookStatus = null;" in body
+
+
+def test_a_portrait_still_being_drawn_cannot_start_a_book() -> None:
+    """The retry call is slow; approving while it runs must say so, not lie."""
+    book = _strip_js_comments(_read("book.js"))
+    assert "state.beginPortrait(book);" in book
+    assert "state.endPortrait(book);" in book
+    assert "book.portraitBusy" in book
+    assert "The portrait is still being made" in book
+    view = _strip_js_comments(_read("book-view.js"))
+    assert "export function setReviewBusy" in view
+    assert "elements.approve().disabled = busy;" in view
+
+
+def test_the_library_can_delete_a_book_without_opening_it() -> None:
+    """The sidebar cross posts the same DELETE, then takes the card away."""
+    detail = _strip_js_comments(_read("book-detail.js"))
+    assert "function deleteLibraryBook" in detail
+    assert "api.removeOther(" in detail
+    assert 'window.location.assign("/")' in detail
+    api = _strip_js_comments(_read("api.js"))
+    assert "removeOther:" in api
+
+
 def test_the_detail_page_also_fetches_only_from_the_api_client() -> None:
     """The one-book page is its own controller, but `fetch` still lives in api.js."""
     source = _read("book-detail.js")
@@ -327,6 +361,20 @@ def test_every_character_slot_offers_the_same_camera(page_html: str) -> None:
         "character-camera-message",
     ):
         assert f'id="{element_id}"' in page_html
+
+
+def test_every_character_slot_makes_its_own_cartoon(page_html: str) -> None:
+    """UAT: each extra cast photo gets a cartoon before the pages are drawn.
+
+    The button and its result preview live in the slot, so a face can be judged
+    (and remade) without leaving the page.
+    """
+    for key, _label in photoable_cast():
+        assert f'id="make-character-cartoon-{key}"' in page_html
+        assert f'id="character-cartoon-wrap-{key}"' in page_html
+        assert f'id="character-cartoon-{key}"' in page_html
+    # Every slot's button starts disabled: there is no photo to draw yet.
+    assert re.search(r'id="make-character-cartoon-mother"[^>]*\bdisabled\b', page_html)
 
 
 def test_photo_input_no_longer_blocks_camera_only_submission(page_html: str) -> None:

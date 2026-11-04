@@ -92,6 +92,10 @@ class Draft:
     #: The media type of each candidate, in the same order. Empty on a draft
     #: written before this field existed, where the bytes are sniffed instead.
     candidate_media_types: tuple[str, ...] = ()
+    #: The cast member this portrait was made for, or "" for the book's own
+    #: star. The start endpoint checks it, so a mother's portrait can never be
+    #: used as the child (or as a different character).
+    cast_key: str = ""
 
     @property
     def cartoon_image(self) -> bytes:
@@ -154,6 +158,7 @@ class GenerationStore:
             "provider": draft.provider,
             "model": draft.model,
             "candidate_media_types": list(draft.candidate_media_types),
+            "cast_key": draft.cast_key,
         }
         stored.path("draft.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return stored
@@ -197,6 +202,7 @@ class GenerationStore:
             provider=str(payload.get("provider", "unknown")),
             model=str(payload.get("model", "unknown")),
             candidate_media_types=media_types,
+            cast_key=str(payload.get("cast_key", "")),
         )
 
     def read_image(self, generation_id: str, stem: str) -> bytes | None:

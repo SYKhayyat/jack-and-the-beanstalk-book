@@ -20,6 +20,7 @@ import time
 from fastapi.testclient import TestClient
 
 from app.models.book import BOOK_PAGES
+from app.prompt_data import prompt_text
 from app.services.prompts import cast_photoable, photoable_cast
 from tests.helpers import RecordingProvider, make_photo_bytes, multipart
 
@@ -31,11 +32,13 @@ CHILD_PHOTO = make_photo_bytes(colour="#3f6f8f")
 MOTHER_PHOTO = make_photo_bytes(colour="#aa3322")
 
 
-def _make_portrait(client: TestClient, photo: bytes = CHILD_PHOTO) -> dict[str, object]:
-    response = client.post(
-        "/api/cartoonify",
-        **multipart({"photo": ("child.png", photo, "image/png")}),
-    )
+def _make_portrait(
+    client: TestClient, photo: bytes = CHILD_PHOTO, character: str | None = None
+) -> dict[str, object]:
+    form: dict[str, object] = {"photo": ("child.png", photo, "image/png")}
+    if character:
+        form["character"] = character
+    response = client.post("/api/cartoonify", **multipart(form))
     assert response.status_code == 201, response.text
     return dict(response.json())
 
@@ -154,6 +157,64 @@ class TestCharacterValidation:
         assert response.status_code == 422
         assert response.json()["error"] == "invalid_settings"
 
+    def test_the_cow_can_never_be_cartoonified(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/cartoonify",
+            **multipart(
+                {
+                    "photo": ("cow.png", MOTHER_PHOTO, "image/png"),
+                    "character": "milky_white",
+                }
+            ),
+        )
+        assert response.status_code == 422
+        assert response.json()["error"] == "invalid_settings"
+
+    def test_an_unknown_character_slot_cannot_be_cartoonified(
+        self, client: TestClient
+    ) -> None:
+        response = client.post(
+            "/api/cartoonify",
+            **multipart(
+                {"photo": ("x.png", MOTHER_PHOTO, "image/png"), "character": "dragon"}
+            ),
+        )
+        assert response.status_code == 422
+        assert response.json()["error"] == "invalid_settings"
+
+    def test_a_star_portrait_cannot_be_filed_as_a_character(self, client: TestClient) -> None:
+        star = _make_portrait(client)
+        response = client.post(
+            "/api/book/start",
+            data={
+                "generation_id": star["generation_id"],
+                "character": f"mother:{star['generation_id']}",
+            },
+        )
+        assert response.status_code == 422
+        assert response.json()["error"] == "invalid_settings"
+
+    def test_a_character_portrait_cannot_be_the_books_star(self, client: TestClient) -> None:
+        mother = _make_portrait(client, MOTHER_PHOTO, character="mother")
+        response = client.post(
+            "/api/book/start", data={"generation_id": mother["generation_id"]}
+        )
+        assert response.status_code == 422
+        assert response.json()["error"] == "invalid_settings"
+
+    def test_a_portrait_cannot_be_moved_to_a_different_slot(self, client: TestClient) -> None:
+        child = _make_portrait(client, CHILD_PHOTO)
+        mother = _make_portrait(client, MOTHER_PHOTO, character="mother")
+        response = client.post(
+            "/api/book/start",
+            data={
+                "generation_id": child["generation_id"],
+                "character": f"old_man:{mother['generation_id']}",
+            },
+        )
+        assert response.status_code == 422
+        assert response.json()["error"] == "invalid_settings"
+
     def test_an_expired_character_draft_is_unknown(self, client: TestClient) -> None:
         portrait = _make_portrait(client)
         response = client.post(
@@ -189,7 +250,7 @@ class TestPerPageReferences:
         self, client: TestClient, provider: RecordingProvider
     ) -> None:
         child = _make_portrait(client, CHILD_PHOTO)
-        mother = _make_portrait(client, MOTHER_PHOTO)
+        mother = _make_portrait(client, MOTHER_PHOTO, character="mother")
         start = _start_book(client, child, [f"mother:{mother['generation_id']}"])
         final = _wait_for_book(client, start["book_id"])
         assert final["status"] == "complete", final
@@ -215,7 +276,7 @@ class TestPerPageReferences:
         self, client: TestClient
     ) -> None:
         child = _make_portrait(client, CHILD_PHOTO)
-        mother = _make_portrait(client, MOTHER_PHOTO)
+        mother = _make_portrait(client, MOTHER_PHOTO, character="mother")
         start = _start_book(client, child, [f"mother:{mother['generation_id']}"])
         final = _wait_for_book(client, start["book_id"])
         assert final["status"] == "complete", final
@@ -246,7 +307,7 @@ class TestPerPageReferences:
         self, client: TestClient
     ) -> None:
         child = _make_portrait(client, CHILD_PHOTO)
-        mother = _make_portrait(client, MOTHER_PHOTO)
+        mother = _make_portrait(client, MOTHER_PHOTO, character="mother")
         start = _start_book(client, child, [f"mother:{mother['generation_id']}"])
         final = _wait_for_book(client, start["book_id"])
         assert final["status"] == "complete", final
@@ -264,3 +325,38 @@ class TestPerPageReferences:
         assert "Mother's" not in by_page[2]
         assert "1) the child's cartoon portrait" in by_page[2]
         assert "2) the child's photograph" in by_page[2]
+
+
+class TestCastPortraitPrompt:
+    def test_a_character_portrait_is_not_prompted_as_the_child(
+        self, client: TestClient, provider: RecordingProvider
+    ) -> None:
+        """The mother's cartoon was coming back prompted as "Jack, a boy".
+
+        The cast pass must carry her own look and the book's fixed style, and
+        none of the child's name, age, pronouns or outfit.
+        """
+        _make_portrait(client, MOTHER_PHOTO, character="mother")
+        prompt = provider.requests[-1].prompt
+        assert "THE CHARACTER: the mother" in prompt
+        assert "TASK: Turn the person in the supplied photograph" in prompt
+        # The child's clothing/identity block belongs only to the star.
+        assert "The character's name is" not in prompt
+        assert "Jack" not in prompt
+        assert "Jane" not in prompt
+        assert "storybook tunic" not in prompt.lower()
+        assert (
+            "TASK: Turn the person in the supplied photograph into a single character portrait"
+            not in prompt
+        )
+        # The book's fixed style, word for word, on the character portrait too.
+        style_sentence = prompt_text()["styles"][prompt_text()["book"]["style"]]
+        assert "ART STYLE: " + style_sentence in prompt
+
+    def test_the_star_portrait_still_names_the_child(
+        self, client: TestClient, provider: RecordingProvider
+    ) -> None:
+        _make_portrait(client, CHILD_PHOTO)
+        prompt = provider.requests[-1].prompt
+        assert "The character's name is Jack" in prompt
+        assert "THE CHARACTER: the mother" not in prompt

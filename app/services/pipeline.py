@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from app.models import CartoonSettings, RejectionFeedback
 from app.services.image_providers.base import GeneratedImage, ImageProvider, ImageRequest
-from app.services.prompts import build_cartoon_prompt
+from app.services.prompts import build_cartoon_prompt, build_cast_portrait_prompt
 from app.services.storage import Draft, GenerationStore
 
 __all__ = [
@@ -53,6 +53,7 @@ class GenerationPipeline:
         generation_id: str | None = None,
         persist: bool = True,
         rejection: RejectionFeedback | None = None,
+        character: str | None = None,
     ) -> Draft:
         """Turn the photo into a cartoon portrait and persist it as a draft.
 
@@ -63,6 +64,11 @@ class GenerationPipeline:
 
         `rejection` carries the user's ticked faults from the review stage;
         None (or an empty set) is a byte-identical first-attempt prompt.
+
+        `character` names the cast member the photo belongs to (a photoable
+        cast key). It switches to the cast-portrait prompt — that prompt must
+        never describe the book's child — and stamps the draft, so the start
+        endpoint can refuse a portrait made for one slot being used as another.
         """
         draft = self._build_cartoon(
             photo_data=photo_data,
@@ -70,6 +76,7 @@ class GenerationPipeline:
             settings=settings,
             generation_id=generation_id or uuid4().hex,
             rejection=rejection,
+            character=character or "",
         )
         if persist:
             self._store.save_draft(draft)
@@ -83,17 +90,23 @@ class GenerationPipeline:
         settings: CartoonSettings,
         generation_id: str,
         rejection: RejectionFeedback | None = None,
+        character: str = "",
     ) -> Draft:
         """The portrait pass's work, returned as a draft without persisting it."""
-        prompt = build_cartoon_prompt(settings, rejection=rejection)
+        prompt = (
+            build_cast_portrait_prompt(character, settings, rejection=rejection)
+            if character
+            else build_cartoon_prompt(settings, rejection=rejection)
+        )
 
         logger.info(
-            "pipeline.cartoonify id=%s provider=%s style=%s intensity=%s retry=%s",
+            "pipeline.cartoonify id=%s provider=%s style=%s intensity=%s retry=%s cast=%s",
             generation_id,
             self._provider.name,
             settings.cartoon_style,
             settings.cartoon_intensity,
             bool(rejection and not rejection.is_empty),
+            character or "-",
         )
 
         # One API call for the whole set of alternatives. Providers that cannot
@@ -122,6 +135,7 @@ class GenerationPipeline:
             photo_media_type=photo_media_type,
             provider=self._provider.name,
             model=candidates[0].model or "unknown",
+            cast_key=character,
         )
 
 

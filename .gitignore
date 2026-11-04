@@ -28,3 +28,8 @@ htmlcov/
 .DS_Store
 .neon
 node_modules/
+
+# --- Neon CLI leftovers (not part of the app) -------------------------------------
+neon.ts
+package.json
+package-lock.json

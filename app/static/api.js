@@ -57,6 +57,8 @@ export function createBookDetailClient(bookId) {
     status: () => getJson(`/api/book/${bookId}`),
     edit: (body) => postForm(`/api/book/${bookId}/edit`, body),
     remove: () => deleteResource(`/api/book/${bookId}`),
+    /* Any book in the sidebar, not just the one this page is showing. */
+    removeOther: (otherId) => deleteResource(`/api/book/${otherId}`),
     cartoonify: (body) => postForm("/api/cartoonify", body),
   };
 }

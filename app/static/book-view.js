@@ -76,6 +76,30 @@ export function renderCharacterPreview(key, blob) {
   document.getElementById(`character-preview-wrap-${key}`).classList.remove("hidden");
 }
 
+export function makeCharacterCartoon(key) {
+  return document.getElementById(`make-character-cartoon-${key}`);
+}
+
+/* The per-slot button is enabled only once that slot has a photo, and its
+   label says whether pressing it makes the first cartoon or another one. */
+export function setCharacterCartoonButton(key, { disabled, label } = {}) {
+  const button = makeCharacterCartoon(key);
+  if (typeof disabled === "boolean") button.disabled = disabled;
+  if (label) button.textContent = label;
+}
+
+export function renderCharacterCartoon(key, url) {
+  const image = document.getElementById(`character-cartoon-${key}`);
+  image.src = url;
+  document.getElementById(`character-cartoon-wrap-${key}`).classList.remove("hidden");
+}
+
+export function hideCharacterCartoon(key) {
+  const image = document.getElementById(`character-cartoon-${key}`);
+  image.removeAttribute("src");
+  document.getElementById(`character-cartoon-wrap-${key}`).classList.add("hidden");
+}
+
 export function showCharacterMessage(key, message, kind = "info") {
   const node = document.getElementById(`character-message-${key}`);
   if (!message) {
@@ -221,6 +245,20 @@ export function hideReview() {
   elements.reviewStage().classList.add("hidden");
 }
 
+export function reviewVisible() {
+  return !elements.reviewStage().classList.contains("hidden");
+}
+
+/* While a portrait is being drawn, the review's controls are inert and its
+   message says why. Re-enabling leaves whatever message is already there, so
+   a success message or an error survives the switch. */
+export function setReviewBusy(busy, message = "") {
+  elements.approve().disabled = busy;
+  elements.reject().disabled = busy;
+  elements.rejectRetry().disabled = busy;
+  if (message) showReviewMessage(message);
+}
+
 /* The review stage's feedback flow: "Not right" opens the chip panel, the
    retry inside it re-runs the portrait with the ticked reasons as corrections.
    The chips are a closed set the server validates, so the controller only ever
@@ -258,13 +296,22 @@ export function hideBookError() {
   elements.bookProgress().classList.remove("error");
 }
 
-export function renderBookProgress(done, total) {
+/* The phase says what the book is doing right now, so the reader is never
+   left staring at a full bar while the PDF is still being put together:
+   "starting" (faces being made), "pages" (pictures being drawn), "assembling"
+   (all pictures done, PDF being written). */
+export function renderBookProgress(done, total, phase) {
   const node = elements.bookProgress();
   node.classList.remove("error");
-  node.textContent =
-    done >= total
-      ? "Assembling the pages into a PDF..."
-      : `${done} of ${total} pages made \u2014 check back in a moment`;
+  if (phase === "starting") {
+    node.textContent = "Getting the characters ready — the first page comes next\u2026";
+  } else if (phase === "assembling") {
+    node.textContent = "All the pages are made \u2014 putting the book together\u2026";
+  } else if (done >= total) {
+    node.textContent = "All the pages are made \u2014 putting the book together\u2026";
+  } else {
+    node.textContent = `${done} of ${total} pages made \u2014 check back in a moment`;
+  }
   const track = elements.progressTrack();
   track.setAttribute("aria-valuemax", String(total));
   track.setAttribute("aria-valuenow", String(done));
@@ -339,7 +386,10 @@ export function resetBookStage() {
    without the photo or the free-text fields (the controller adds those). */
 export function readCharacterSettings() {
   const fields = [
+    "cartoon_style",
+    "cartoon_intensity",
     "aspect_ratio",
+    "portrait_background",
     "apparent_age",
     "skin_tone",
     "hair_style",
@@ -353,6 +403,12 @@ export function readCharacterSettings() {
   for (const name of fields) {
     const node = document.getElementById(name);
     if (node && node.value) settings.append(name, node.value);
+  }
+  // Checkboxes have a value of "on" whether ticked or not, so they are sent
+  // explicitly: omitting one would let the server default it back to true.
+  for (const name of ["keep_glasses", "keep_facial_hair"]) {
+    const node = document.getElementById(name);
+    if (node) settings.append(name, node.checked ? "true" : "false");
   }
   return settings;
 }

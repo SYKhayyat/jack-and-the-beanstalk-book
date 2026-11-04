@@ -400,14 +400,39 @@ def test_the_whole_scene_keeps_one_art_style() -> None:
 
 
 def test_every_page_is_given_the_whole_story_labelled_by_page() -> None:
-    """The story is quoted once per prompt, labelled, from the pages' own text."""
+    """The story is quoted once per prompt, labelled, from the pages' own text.
+
+    The lines are the pages' *beats* — one line per moment — rather than the
+    paragraphs the PDF prints. The model needs the shape of the tale; the
+    prose is for the reader.
+    """
     for prompt in _all_page_prompts():
         assert "THE WHOLE STORY (context for you only):" in prompt
         assert (
-            "Page 1: Jack and his mother had nothing left to sell but Milky-White." in prompt
+            "Page 1: Jack and his mother have nothing left to sell but the white cow, "
+            "Milky-White." in prompt
         )
-        assert 'Page 2: "Five magic beans," said the old man. "For one cow."' in prompt
-        assert 'Page 3: "Beans!" she cried. And out the window they went.' in prompt
+        assert (
+            "Page 2: An old man offers Jack five magic beans in exchange for the cow."
+            in prompt
+        )
+        assert (
+            "Page 3: Jack's mother throws the five beans out of the cottage window." in prompt
+        )
+
+
+def test_the_prompt_carries_the_beats_not_the_paragraphs() -> None:
+    """The narrative belongs on the page, not in every prompt.
+
+    Nineteen paragraphs would make every call longer for no gain, so the
+    prompt quotes the one-line beat of each page.
+    """
+    prompt = _all_page_prompts()[0]
+    assert "Once upon a time there was a child called Jack" not in prompt
+    assert "We shall take her to market tomorrow" not in prompt
+    for page in BOOK_PAGES:
+        assert page.beat.strip(), page.key
+        assert len(page.beat.split()) <= 20, page.key
 
 
 def test_each_page_is_told_that_its_own_line_is_its_only_job() -> None:
@@ -435,7 +460,7 @@ def test_the_story_follows_the_child() -> None:
     """The story lines carry the name and pronouns of the chosen child."""
     settings = CartoonSettings(photo_gender="girl", character_gender="match")
     prompt = _prompt(BOOK_PAGES[0], settings, 1)
-    assert "Page 1: Jane and her mother had nothing left to sell but Milky-White." in prompt
+    assert "Page 1: Jane and her mother have nothing left to sell but the white cow" in prompt
 
 
 def test_every_page_forbids_extra_limbs() -> None:
@@ -454,10 +479,11 @@ def test_every_page_forbids_extra_limbs() -> None:
 def test_page_two_shows_exactly_five_beans() -> None:
     """The trade is the page where the beans are counted: exactly five."""
     prompt = _prompt(BOOK_PAGES[1], CartoonSettings(), 2)
-    assert "holds out exactly five magic beans in his open palm" in prompt
+    assert "holds out his open palm with exactly five magic beans" in prompt
     assert (
-        "exactly five magic beans in the old man's open palm — one red, one blue, "
-        "one green, one gold, one violet — no more and no fewer" in prompt
+        "exactly five magic beans in the old man's open palm — five and only five, "
+        "one red, one blue, one green, one gold, one violet, no sixth bean and no "
+        "extra bean of any colour" in prompt
     )
 
 
@@ -466,9 +492,9 @@ def test_page_three_shows_exactly_five_beans() -> None:
     prompt = _prompt(BOOK_PAGES[2], CartoonSettings(), 3)
     assert "throws the very same five magic beans" in prompt
     assert (
-        "exactly five magic beans tumbling and glinting mid-air, each one separately "
-        "visible and countable — red, blue, green, gold and violet — none missing and "
-        "no extra bean" in prompt
+        "exactly five magic beans tumbling and glinting mid-air, five and only five, "
+        "each one separately visible and countable — red, blue, green, gold and violet "
+        "— none missing, no sixth bean and no extra bean" in prompt
     )
     # Page 3 used to name only four colours, which contradicted the count.
     assert "red, blue, green, gold and violet" in prompt
@@ -524,8 +550,33 @@ def test_the_book_is_the_full_twenty_pages() -> None:
     ]
 
 
+def test_the_beans_are_always_exactly_five() -> None:
+    """The old man's palm holds five beans, and the prompt says so hard.
+
+    The model drew six. Counting is the one thing an image model is worst at,
+    so the number is stated three ways on the page that shows them — in the
+    caption, in what must be included, and in what must be avoided — and the
+    page that throws them says it too. "No sixth bean" is the negative that
+    was missing.
+    """
+    trade = get_book_page("the-trade")
+    window = get_book_page("beans-out-the-window")
+    assert trade is not None
+    assert window is not None
+
+    trade_prompt = _prompt(trade, CartoonSettings(), trade.number)
+    window_prompt = _prompt(window, CartoonSettings(), window.number)
+
+    for prompt in (trade_prompt, window_prompt):
+        assert "exactly five magic beans" in prompt
+        assert "no sixth bean" in prompt
+        assert "any number of beans other than exactly five" in prompt
+        # The five colours are named, so the count is checkable by eye.
+        for colour in ("red", "blue", "green", "gold", "violet"):
+            assert colour in prompt
+
+
 def test_every_page_obeys_the_page_block_contract() -> None:
-    """Every page has both kinds of writing and the scene fields the model needs."""
     cast = prompt_text()["book"]["cast"]
     for page in BOOK_PAGES:
         assert page.story.strip(), page.key

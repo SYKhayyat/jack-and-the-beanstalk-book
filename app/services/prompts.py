@@ -43,6 +43,7 @@ __all__ = [
     "book_name_for",
     "build_book_page_prompt",
     "build_cartoon_prompt",
+    "build_cast_portrait_prompt",
     "build_cover_prompt",
     "cast_photoable",
     "photoable_cast",
@@ -159,6 +160,14 @@ _CAST_PHOTOABLE: dict[str, bool] = {
 _CAST_LABELS: dict[str, str] = {
     name: str(label)
     for name, label in cast("dict[str, object]", _BOOK.get("cast_labels", {})).items()
+}
+
+# The portrait pass's wording for a photographed cast member, keyed by cast
+# key. Kept apart from _BOOK_CAST: a page with no reference photo must say so,
+# while this pass has exactly one photograph and must never deny it.
+_BOOK_CAST_PORTRAIT: dict[str, str] = {
+    name: str(text)
+    for name, text in cast("dict[str, object]", _BOOK.get("cast_portrait", {})).items()
 }
 
 
@@ -281,16 +290,22 @@ def render_book_page(
 def _story_lines(settings: CartoonSettings, prompt_name: str | None) -> str:
     """The whole book's story, one labelled line per page.
 
-    The lines come from the pages' own `story` text, so the story is stated
-    once in the catalogue and never restated in a prompt template. Labelling
-    them is what makes the block usable: the model can point at the line it is
-    illustrating, and can see that the beans on one page are the "five magic
-    beans" of another page's line.
+    The lines come from the pages' own `beat` text — the one-line summary of
+    each moment — so the story is stated once in the catalogue and never
+    restated in a prompt template. Labelling them is what makes the block
+    usable: the model can point at the line it is illustrating, and can see
+    that the beans on one page are the "five magic beans" of another page's
+    line.
+
+    The pages' full prose is deliberately *not* shipped here. The PDF prints
+    the narrative; the model needs the shape of the tale, and every call
+    would otherwise carry nineteen paragraphs it does not need.
     """
     lines = []
     for page in BOOK_PAGES:
-        story = render_book_page(page, settings, prompt_name=prompt_name).story
-        lines.append(f"Page {page.number}: {story}")
+        rendered = render_book_page(page, settings, prompt_name=prompt_name)
+        summary = rendered.beat or rendered.story
+        lines.append(f"Page {page.number}: {summary}")
     return "\n".join(lines)
 
 
@@ -496,6 +511,42 @@ def build_cartoon_prompt(
         _ASSEMBLY["stylisation"].format(intensity=_intensity_text(settings.cartoon_intensity)),
         _photoreal_keywords(settings.cartoon_intensity),
         _ASSEMBLY["art_style"].format(style=style_text),
+        _ASSEMBLY["framing"],
+        _PORTRAIT_BACKGROUNDS[settings.portrait_background],
+        _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
+        retry_clauses,
+        NEGATIVE_PROMPT_TAIL,
+    ]
+    return _join_sections(sections)
+
+
+def build_cast_portrait_prompt(
+    cast_key: str, settings: CartoonSettings, *, rejection: RejectionFeedback | None = None
+) -> str:
+    """Prompt for a photographed cast member's portrait pass.
+
+    Deliberately not `build_cartoon_prompt`: that prompt names the child,
+    their age, pronouns, hair, outfit and expression, so the mother's photo
+    came back prompted as a second Jack. This one carries only the cast
+    member's own look, the book's fixed style and the user's portrait dials,
+    so their portrait matches the pages they appear on while staying that
+    person.
+
+    Raises:
+        KeyError: if `cast_key` has no portrait wording — a data bug. The
+            route refuses non-photoable keys before this point.
+    """
+    retry_clauses = rejection.prompt_block() if rejection else ""
+    sections = [
+        _ASSEMBLY["task_cast_portrait"],
+        settings.identity_directive(),
+        _LIKENESS_EMPHASIS[settings.likeness_strength],
+        _BOOK_CAST_PORTRAIT[cast_key],
+        _ASSEMBLY["stylisation"].format(
+            intensity=_book_intensity_text(settings.cartoon_intensity)
+        ),
+        _photoreal_keywords(settings.cartoon_intensity),
+        _ASSEMBLY["art_style"].format(style=_BOOK_STYLE),
         _ASSEMBLY["framing"],
         _PORTRAIT_BACKGROUNDS[settings.portrait_background],
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),

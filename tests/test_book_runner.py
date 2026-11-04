@@ -201,3 +201,72 @@ def test_a_cancelled_render_is_recorded_as_failed(tmp_path: Path) -> None:
     assert status is not None
     assert status["status"] == BookStatus.FAILED
     assert "cancelled" in str(status["error"])
+
+
+def test_the_book_counts_its_cover_and_reports_the_pdf_phase(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A book is the cover plus the story pages, and assembly is its own phase.
+
+    The progress line used to say "19 pages", as if the cover did not exist,
+    and the last picture landing looked like the end of the job even while the
+    PDF was still being put together. Both are properties of the poll document
+    the runner writes, so they are pinned here.
+    """
+    store = GenerationStore(tmp_path / "drafts")
+    book_store = FileBookStore(tmp_path / "books")
+    generation_id = _persisted_draft(store)
+    runner = BookRunner(
+        provider=RecordingProvider(),
+        store=store,
+        book_store=book_store,
+        gate=ConcurrencyGate(2),
+        page_timeout_seconds=60,
+    )
+    record = BookRecord(
+        book_id="phase-book",
+        about=AboutMe(prompt_name="Jack", about_name="Jack"),
+        generation_id=generation_id,
+        created_at="",
+    )
+    book_store.save_record(
+        book_id=record.book_id,
+        user_id=None,
+        about=record.about,
+        generation_id=generation_id,
+    )
+
+    assembling = threading.Event()
+    release = threading.Event()
+    real_build = book_runner_module.build_book_pdf
+
+    def blocking_build(*args, **kwargs):
+        assembling.set()
+        release.wait(timeout=15)
+        return real_build(*args, **kwargs)
+
+    monkeypatch.setattr(book_runner_module, "build_book_pdf", blocking_build)
+
+    async def scenario() -> dict[str, object]:
+        await runner.start(record)
+        assert await asyncio.to_thread(assembling.wait, 10.0), "PDF assembly never started"
+        mid = book_store.load_status(record.book_id) or {}
+        release.set()
+        await asyncio.gather(*runner._tasks)
+        return mid
+
+    mid = asyncio.run(scenario())
+    final = book_store.load_status(record.book_id) or {}
+
+    # The cover is page zero, drawn and counted like the story pages.
+    assert mid["pages"][0]["key"] == "cover"
+    assert mid["pages"][0]["status"] == "done"
+    assert mid["pages"][0]["url"]
+    # Every story page is finished, and the document says the PDF is not.
+    assert all(page["status"] == "done" for page in mid["pages"])
+    assert mid["phase"] == "assembling"
+    assert mid["total_pages"] == len(BOOK_PAGES) + 1 == 20
+
+    assert final["status"] == BookStatus.COMPLETE
+    assert final["phase"] == "complete"
+    assert len(final["pages"]) == len(BOOK_PAGES) + 1

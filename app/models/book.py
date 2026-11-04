@@ -40,14 +40,20 @@ class TextZone(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class BookPage:
-    """One page of the book: a scene to draw plus the story line to overlay.
+    """One page of the book: a scene to draw plus the story text to overlay.
 
     Attributes:
         number: One-based position in story order, assigned by catalogue order.
         key: Stable identifier used in URLs and the API payload.
         scene: The image specification (the same `Scene` contract the
             single-scene pipeline uses, so every prompt helper applies).
-        story: The sentence rendered on the page, verbatim.
+        story: The narrative printed on the page, verbatim. This is the
+            book's prose: several sentences that carry the tale forward, not
+            a caption for the picture.
+        beat: The one-line summary of the same moment, used only in the
+            prompt's "whole story" context. The model needs the shape of the
+            tale, not its prose — shipping the paragraphs to every call would
+            make each prompt larger for no gain.
         text_zone: Where the PDF puts the story text.
         settling: Prompt clause telling the model to keep the text zone calm.
         cast: Names of the non-reference characters this page draws (keys of
@@ -63,6 +69,7 @@ class BookPage:
     text_zone: TextZone
     settling: str = ""
     cast: tuple[str, ...] = ()
+    beat: str = ""
 
     def formatted(self, substitutions: Mapping[str, str]) -> BookPage:
         """A copy with name/pronoun placeholders filled in for this child.
@@ -80,6 +87,7 @@ class BookPage:
             self,
             scene=self.scene.formatted(substitutions),
             story=fill(self.story),
+            beat=fill(self.beat) if self.beat else "",
             settling=fill(self.settling),
         )
 
@@ -113,6 +121,9 @@ def _assemble_page(spec: Mapping[str, object], number: int) -> BookPage:
         text_zone=TextZone(str(spec["text_zone"])),
         settling=str(spec.get("settling", "")),
         cast=cast_names,
+        # A page may leave the beat out; the story line then does double duty
+        # as the model's context line. Every page in the catalogue has one.
+        beat=str(spec.get("beat", "")),
     )
 
 

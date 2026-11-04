@@ -1,0 +1,30 @@
+{% if library_enabled %}
+<aside class="library" aria-label="Your books">
+  <h2 class="library-title">Your books</h2>
+  {% if books %}
+  <nav class="library-stack">
+    {% for item in books %}
+    <div class="library-item">
+      <a class="library-card {{ item.status }}{% if item.book_id == current_id|default('') %} current{% endif %}" href="/books/{{ item.book_id }}">
+        {% if item.cover_url %}
+        <img class="library-thumb" src="{{ item.cover_url }}" alt="" loading="lazy">
+        {% else %}
+        <span class="library-thumb placeholder" aria-hidden="true"></span>
+        {% endif %}
+        <span class="library-card-text">
+          <strong>{{ item.title or "Untitled book" }}</strong>
+          <span class="library-meta">
+            {% if item.status == "complete" %}{{ item.page_count + 1 }} pages{% else %}{{ item.pages_done }} of {{ item.page_count or 20 }} pages{% endif %}
+            {% if item.status == "failed" %} — stopped{% endif %}
+          </span>
+        </span>
+      </a>
+      <button type="button" class="library-delete" data-delete-book="{{ item.book_id }}" data-delete-title="{{ item.title or 'Untitled book' }}" aria-label="Delete {{ item.title or 'Untitled book' }}" title="Delete this book">&times;</button>
+    </div>
+    {% endfor %}
+  </nav>
+  {% else %}
+  <p class="library-empty">Your finished books will collect here.</p>
+  {% endif %}
+</aside>
+{% endif %}

@@ -111,6 +111,7 @@ def book_page(
             "about": record.about,
             "status": status_payload,
             "pages": status_payload.get("pages", []),
+            "reader_pages": _reader_pages(status_payload.get("pages", [])),
             "cover_url": f"/book-media/{book_id}/cover"
             if container.book_store.read_cover(book_id) is not None
             else None,
@@ -151,3 +152,29 @@ def healthz(container: ContainerDep) -> dict[str, object]:
             "max_concurrent_generations": status_payload["max_concurrent_generations"],
         },
     }
+
+
+def _reader_pages(raw: object) -> list[dict[str, object]]:
+    """The pages the reader shows: the ones that are drawn, in order.
+
+    The reader is the book itself in the page — art plus the story line — so
+    the finished book can be read without opening the PDF at all.
+    """
+    if not isinstance(raw, list):
+        return []
+    pages: list[dict[str, object]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        url = entry.get("url")
+        if not url:
+            continue
+        pages.append(
+            {
+                "number": entry.get("number", len(pages) + 1),
+                "title": entry.get("title", ""),
+                "url": url,
+                "story": entry.get("story", ""),
+            }
+        )
+    return pages

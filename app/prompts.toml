@@ -200,6 +200,10 @@ art_style = "ART STYLE: {style}."
 composition = "COMPOSITION: {aspect}."
 scene_to_draw = "SCENE TO DRAW (this is the entire content of the picture): {caption}"
 character_doing = "WHAT THE CHARACTER IS DOING: {action}. Get this action right — it is what the scene is about."
+# The portrait pass for a photographed cast member. Unlike task_cartoon, it
+# never names the book's child: the mother's portrait must not be drawn as a
+# second Jack. The role text lives in [book.cast_portrait].
+task_cast_portrait = "TASK: Turn the person in the supplied photograph into a single cartoon character portrait of one character from this picture book, drawn in the book's own fixed art style. The photograph is the authority on their face, their apparent age and their colouring; the character description below is what the book needs them to look like. Draw exactly this one person — never the book's child, and never anyone else's face."
 where = "WHERE: {environment}."
 lighting = "LIGHTING: {time_of_day}."
 camera = "CAMERA: {camera}."
@@ -323,6 +327,16 @@ old_man = "Old man"
 giant = "Giant"
 milky_white = "Milky-White"
 
+# The portrait pass's version of a photographed cast member's look. [book.cast]
+# above is written for a page where the character has no reference image; this
+# is written for the one call that *does* have a photograph, so it says what
+# the book needs from the likeness without ever claiming there is no photo.
+# Only photoable members have an entry; the cow has no portrait path.
+[book.cast_portrait]
+mother = "THE CHARACTER: the mother — a woman older and clearly taller than the book's child, with her own mature, plain, slightly weathered features, kind tired eyes, a soft square jaw, and grey-brown hair pinned up under a simple kerchief, wearing a plain dark dress and a light apron. Her face is entirely unlike the child's."
+old_man = "THE CHARACTER: the old man — a weathered elderly traveller with a wrinkled, sagging grey-brown face, white stubble over a set jaw, shaggy grey hair under a tall pointed hat, a worn travelling cloak and a small pack on his back. His face is entirely unlike the child's."
+giant = "THE CHARACTER: the giant — an enormous, broad-shouldered man many times the child's height, with a great wild beard, a heavy brow, deep-set eyes and a booming presence, dressed in a rough tunic and a broad belt, with huge boots and massive hands. His face is entirely unlike the child's."
+
 # PDF-layer copy for the About page. {child_name} is filled from the About
 # name the uploader typed (a pseudonym is fine); these strings never reach the
 # model. The name is also drawn large as the page's centrepiece (see pdf.py),
@@ -386,13 +400,19 @@ quiet_zone = "QUIET ZONE: {area}. It must stay calm and uncluttered, because the
 # `settling` names whatever in the frame must stay quiet, because it is where
 # the text will sit.
 
+# The book is the nineteen blocks below, plus a cover (page one of twenty to
+# the reader) and an About page the PDF draws itself — twenty-one pages in the
+# file. The count is never written here: it is the number of blocks below, and
+# the progress line counts the cover with them.
+
 [[book_pages]]
 key = "empty-cupboard"
 title = "{name} and the empty cupboard"
 text_zone = "lower_third"
 cast = ["mother"]
 settling = "the table front and the lower third of the frame, kept free of detail and character limbs"
-story = "{name} and {possessive} mother had nothing left to sell but Milky-White."
+story = "Once upon a time there was a child called {name}, who lived with {possessive} mother in a little cottage where the shelves stood bare and the cupboard hung open and empty. There was nothing left to sell but the white cow, Milky-White. \"We shall take her to market tomorrow,\" said {possessive} mother, \"and buy bread with whatever she brings.\""
+beat = "{name} and {possessive} mother have nothing left to sell but the white cow, Milky-White."
 caption = "{name} and {possessive} mother had nothing left to sell but their cow, Milky-White. {name} stands beside {possessive} worried mother at a big worn table inside their small bare cottage kitchen, looking up at her face. Nearly-empty wooden shelves and a cupboard with its doors open hang above the table."
 subject_action = "standing side by side at the table, {name}'s face fully towards the camera and front-lit, {possessive} eyes on {possessive} mother's face while she wrings her hands"
 environment = "a cosy but bare historic cottage kitchen: a big worn wooden table, nearly-empty open shelves, a cupboard with its doors open showing almost nothing inside, pale plaster walls, a window with soft daylight, and through the wide open cottage door the white cow Milky-White standing outside in the farmyard, clearly visible"
@@ -407,14 +427,15 @@ title = "The trade"
 text_zone = "sky"
 cast = ["old_man"]
 settling = "the open sky across the top of the frame, kept free of branches and clutter"
-story = "\"Five magic beans,\" said the old man. \"For one cow.\""
-caption = "Five magic beans, said the old man, for one cow. {name} is halfway down the road to market holding Milky-White's rope when a weathered old man with a tall hat steps out to meet {object} and holds out exactly five magic beans in his open palm — one red, one blue, one green, one gold, one violet — each faintly glowing."
+story = "Halfway to the market an old man in a tall hat stepped out of the hedgerow. \"You have a fine cow,\" he said, \"but she is older than the market pays for. Take these five magic beans instead — one for every day of the week — and you will never want for bread again.\" The five bright beans lay in his open palm, prettier than money."
+beat = "An old man offers {name} five magic beans in exchange for the cow."
+caption = "Five magic beans, said the old man, for one cow. {name} is halfway down the road to market holding Milky-White's rope when a weathered old man with a tall hat steps out to meet {object} and holds out his open palm with exactly five magic beans lying on it — five and only five: one red, one blue, one green, one gold, one violet, each faintly glowing. His palm holds nothing else: not four beans, not six, no sixth bean anywhere."
 subject_action = "three-quarter view from behind one shoulder, {name} leaning forward to look into the old man's open palm while holding the cow's rope in one hand"
 environment = "a dusty dirt road winding through green fields towards a distant market town, low stone walls, a few round trees, puffy open sky with soft clouds across the top of the frame, Milky-White's head visible at the edge waiting patiently — the same plain white cow, unchanged"
 time_of_day = "late morning, clear sky, the light gentle"
 camera = "over-the-shoulder three-quarter medium close shot centred on the old man's outstretched palm of beans, {name}'s profile strong and readable, lots of open sky at the top"
-must_include = ["exactly five magic beans in the old man's open palm — one red, one blue, one green, one gold, one violet — no more and no fewer", "{name} holding the cow's rope", "a dirt road to market", "the old man's friendly weathered face", "the child's figure keeps a natural head-to-body ratio"]
-must_avoid = ["the old man grabbing the rope or the cow", "money or coins changing hands", "a blade or weapon", "extra people on the road"]
+must_include = ["exactly five magic beans in the old man's open palm — five and only five, one red, one blue, one green, one gold, one violet, no sixth bean and no extra bean of any colour", "{name} holding the cow's rope", "a dirt road to market", "the old man's friendly weathered face", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["a sixth bean, or any number of beans other than exactly five", "beans hidden in a bag, a pouch or a closed fist instead of lying in the open palm", "the old man grabbing the rope or the cow", "money or coins changing hands", "a blade or weapon", "extra people on the road"]
 
 [[book_pages]]
 key = "beans-out-the-window"
@@ -422,14 +443,15 @@ title = "Out the window"
 text_zone = "grass"
 cast = ["mother"]
 settling = "the dark grass of the garden across the bottom third of the frame, kept free of figures and clutter"
-story = "\"Beans!\" she cried. And out the window they went."
-caption = "Beans! she cried. And out the window they went. At dusk, {name}'s mother leans far out of the small cottage window and throws the very same five magic beans down towards the garden below — one red, one blue, one green, one gold, one violet — each faintly glowing as it tumbles through the air. {name} is caught mid-step at the open doorway, watching."
+story = "By the time {name} was home, the beans had already gone out of the window. {possessive} mother had looked at them once, and then out they went, out over the garden and away into the grass. \"You have ruined us!\" she cried, for she was angry and tired and the cupboard was still as empty as ever. {name} said nothing at all, only turned to bed and lay awake wondering what could possibly be done."
+beat = "{name}'s mother throws the five beans out of the cottage window."
+caption = "Beans! she cried. And out the window they went. At dusk, {name}'s mother leans far out of the small cottage window and throws the very same five magic beans down towards the garden below — one red, one blue, one green, one gold, one violet, five in all and no sixth — each faintly glowing as it tumbles through the air. {name} is caught mid-step at the open doorway, watching."
 subject_action = "caught mid-step at the open doorway, one hand on the door frame, {name}'s face turned towards the window watching the beans arc through the air"
 environment = "the front of the small stone cottage at dusk: one lit window with the mother leaning out throwing beans, the open doorway below with {name} in it, small patches of dark garden grass across the bottom of the frame, the sky deep blue-violet with a band of sunset orange at the horizon"
 time_of_day = "dusk, a much darker palette than the morning pages: deep blue and violet shadows, beans glowing softly as the only sparks of colour"
 camera = "wide shot showing the whole cottage front from the garden, the lit window and the doorway both readable, plenty of quiet dark grass across the bottom third; {name} stands in the open doorway — small, roughly a quarter of the frame height, in true proportion to the cottage — never scaled up towards the camera"
-must_include = ["exactly five magic beans tumbling and glinting mid-air, each one separately visible and countable — red, blue, green, gold and violet — none missing and no extra bean", "the mother leaning out of the lit window throwing beans", "{name} standing small in the open doorway in true proportion to the cottage", "the child's figure drawn with a natural head-to-body ratio", "a much darker, duskier palette than the earlier pages"]
-must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the mother also standing in the doorway", "the beans already sprouted or growing", "a giant watching the house", "any pets or extra children in the garden", "Milky-White the cow — she was already sold, and she is nowhere in this scene"]
+must_include = ["exactly five magic beans tumbling and glinting mid-air, five and only five, each one separately visible and countable — red, blue, green, gold and violet — none missing, no sixth bean and no extra bean", "the mother leaning out of the lit window throwing beans", "{name} standing small in the open doorway in true proportion to the cottage", "the child's figure drawn with a natural head-to-body ratio", "a much darker, duskier palette than the earlier pages"]
+must_avoid = ["a sixth bean, or any number of beans other than exactly five", "an enlarged head, oversized face or close-up of {name}", "the mother also standing in the doorway", "the beans already sprouted or growing", "a giant watching the house", "any pets or extra children in the garden", "Milky-White the cow — she was already sold, and she is nowhere in this scene"]
 
 [[book_pages]]
 # Step 7 unretired this page: the hand-in book is the full tale, all 20 pages
@@ -439,7 +461,8 @@ key = "beanstalk-at-dawn"
 title = "The beanstalk at dawn"
 text_zone = "sky"
 settling = "the soft open sky above the beanstalk's crown, kept clear of leaves and cloud clutter"
-story = "By sunrise the beanstalk had grown all the way to the clouds."
+story = "But when {name} woke at sunrise, the world outside the cottage had changed. Where the beans had lain in the grass, a green stalk had pushed up in the night and climbed, and climbed, until it towered far above the cottage roof and went on into the clouds. {name} stood at the gate and looked up and up, hardly believing it, while the morning sun caught the wide, bright leaves."
+beat = "Overnight the five beans have grown into a beanstalk that reaches the clouds."
 caption = "By sunrise the beanstalk had grown all the way to the clouds. An enormous green beanstalk towers over the little cottage, its curling stem and broad leaves reaching up out of the frame, morning mist drifting around the leaves. {name} stands beside the cottage gate looking up, {possessive} mouth open in wonder, golden dawn light catching {name}'s face."
 subject_action = "seen small in the frame for scale, standing beside the gate with {possessive} head thrown back looking up at the vast beanstalk curling out of the top of the image"
 environment = "the cottage garden at dawn wrapping around an astoundingly tall beanstalk: the stalk winds up past the roof, broad green leaves reaching out of frame, the same five magic beans sprouted into the stalk they grew into, the night still fading low behind the hills"
@@ -462,7 +485,8 @@ title = "The climb"
 text_zone = "sky"
 cast = []
 settling = "the pale open sky across the top of the frame, kept free of leaves and cloud clutter"
-story = "{name} climbed and climbed, up and up, into the clouds."
+story = "{name} could not stop looking at it. \"Climb,\" said {possessive} mother, and {name} put a hand on the cool green stem and began to climb. Hand over hand and leaf over leaf, higher than the roof, until the cottage below was no bigger than a toy and the fields were a green patchwork far beneath. The clouds opened as {name} rose through them, and a strange, bright country waited on the far side."
+beat = "{name} climbs the beanstalk up into the clouds."
 caption = "{name} climbed and climbed, up and up, into the clouds. {name} grips the enormous green beanstalk, one hand over the other, boots braced on the broad curling leaves, far above the little cottage which is now only a tiny speck far below. White clouds drift around the stalk and a break in them shows a strange bright country overhead."
 subject_action = "mid-climb on the great beanstalk, both hands holding the thick green stem, feet on a broad leaf, {possessive} face lifted towards the clouds above"
 environment = "the middle of the towering beanstalk: a thick twisting green stem with broad leaves spiralling upward, soft white clouds drifting past, the cottage and fields tiny and far below at the very bottom of the frame, a glow of a strange bright country at the top"
@@ -477,7 +501,8 @@ title = "The land above the clouds"
 text_zone = "sky"
 cast = []
 settling = "the soft white cloud floor and the open sky across the top of the frame, kept free of figures and clutter"
-story = "At the top of the beanstalk stretched a strange country, and a giant's castle stood in it."
+story = "At the top the leaves stopped, and {name} stepped out onto a floor of cloud that held {possessive} weight like soft white snow. It was a strange country, with no trees and no roads and no sound but the wind. And standing in the middle of it, further away than the eye could believe, was a great stone castle with towers whose tops were lost in the mist. {name} swallowed hard, and went on."
+beat = "{name} reaches a strange country above the clouds, where a giant's castle stands."
 caption = "At the top of the beanstalk stretched a strange country, and a giant's castle stood in it. {name} steps off the last broad leaf onto a rolling white cloud-bank that holds {possessive} weight like soft ground. Ahead, across a wide cloudy plain, an enormous stone castle rises with towers so tall they vanish into the mist. {name} stands very small at the edge of the frame, looking towards it."
 subject_action = "standing small at the edge of the cloud-bank, one hand still on the beanstalk's leaf, gazing across the cloudy plain at the distant castle"
 environment = "a strange country above the clouds: rolling white cloud-banks that look almost like snow, a vast grey stone castle with tall towers and battlements far across the plain, soft mist, the top of the green beanstalk curling up at the frame's edge behind {name}"
@@ -492,7 +517,8 @@ title = "The giant's kitchen"
 text_zone = "lower_third"
 cast = ["giant"]
 settling = "the great stone floor across the bottom third of the frame, kept free of detail and character limbs"
-story = "In a huge kitchen a giant slept at a table piled with gold."
+story = "The castle door was ajar, and inside there was a kitchen as big as a barn. A giant slept in a chair beside a table, snoring so loudly that the pots rattled on the hearth, and one huge hand still lay on a leather bag and a heap of shining gold coins. {name} stood in the doorway, hardly breathing, and could not help looking at all that gold."
+beat = "{name} finds a giant asleep in a kitchen beside a table piled with gold."
 caption = "In a huge kitchen a giant slept at a table piled with gold. {name} peeks around the edge of an enormous wooden door into a vast stone kitchen. At a table as big as a barn, a giant sprawls asleep in a chair, his great bearded head tipped back, one massive hand still resting on a table piled with glittering gold coins and a fat leather bag. Everything in the room is built for someone many times {name}'s height: a towering hearth, a spoon the size of a boat."
 subject_action = "peeking around the edge of the huge door, only {possessive} head and shoulders visible, eyes wide at the sleeping giant"
 environment = "an enormous stone kitchen inside the giant's castle: a table as large as a barn, a chair like a small house, a towering hearth, giant pots and a spoon the size of a boat, gold coins and a fat leather bag heaped on the table, warm firelight"
@@ -507,7 +533,8 @@ title = "The bag of gold"
 text_zone = "lower_third"
 cast = ["giant"]
 settling = "the great stone floor across the bottom third of the frame, kept free of clutter"
-story = "Quiet as a mouse, {name} lifted the bag of gold and crept away."
+story = "Quiet as a mouse, {name} crept to the table and lifted the bag of gold with both arms. It was nearly as big as {object} was, and the coins inside shifted and jingled as {name} tiptoed back towards the door. The giant slept on, turning his great head the other way. Once {name} looked back at the sleeping face and thought what a very long way down it would be if it woke."
+beat = "{name} lifts the bag of gold and creeps away while the giant sleeps."
 caption = "Quiet as a mouse, {name} lifted the bag of gold and crept away. On tiptoe beside the giant's huge chair, {name} reaches up with both arms and takes the fat leather bag of gold from the table. The giant sleeps on, snoring, his great bearded face turned away. The bag is almost as big as {name}, and {possessive} arms strain to hold it."
 subject_action = "on tiptoe, both arms wrapped around the fat leather bag of gold, creeping backwards towards the door with {possessive} eyes on the sleeping giant"
 environment = "the same enormous stone kitchen: the giant asleep in the huge chair, the table with scattered gold coins, the towering hearth, the great door behind {name}, warm firelight"
@@ -522,7 +549,8 @@ title = "Rich for a while"
 text_zone = "lower_third"
 cast = ["mother"]
 settling = "the worn table front and the lower third of the frame, kept free of detail and character limbs"
-story = "{name} showed {possessive} mother the gold, and they were rich — for a while."
+story = "Down the beanstalk, home, and into the cottage before dark, with the bag of gold hidden under {possessive} coat. When the coins spilled out on the worn table, {possessive} mother put both hands over her mouth. There was bread for the first time in a year, and a fire in the hearth, and the bare shelves began to fill. For a while, they were the richest people in the whole village."
+beat = "{name} brings the gold home, and the family is rich for a while."
 caption = "{name} showed {possessive} mother the gold, and they were rich — for a while. Back in the little cottage kitchen, {name} tips the fat leather bag onto the worn wooden table and a heap of gold coins spills out, glittering in the lamplight. {possessive} mother claps her hands to her mouth, her tired face breaking into a delighted smile. The same bare shelves and open cupboard are behind them, now lit warmly."
 subject_action = "standing at the table pouring gold coins from the bag, {possessive} mother beside {name} with her hands at her mouth in happy surprise"
 environment = "the same small cottage kitchen as the first page, now warm with lamplight: the worn wooden table, the bare shelves, the open cupboard, a heap of gold coins shining on the table"
@@ -537,7 +565,8 @@ title = "The hen that laid golden eggs"
 text_zone = "lower_third"
 cast = ["giant"]
 settling = "the great stone floor across the bottom third of the frame, kept free of clutter"
-story = "Back up the beanstalk, {name} found a hen that laid golden eggs."
+story = "But the gold did not last forever, and when it was gone the cottage was as bare as before. So {name} climbed the beanstalk again to the giant's kitchen, and found a plump brown hen sitting quietly on a perch. Under her, in the straw, lay a single egg that shone like gold. {name} took the hen under one arm and the egg into the pocket, and neither said a word."
+beat = "Back in the giant's kitchen, {name} finds a hen that lays golden eggs."
 caption = "Back up the beanstalk, {name} found a hen that laid golden eggs. Once more in the giant's vast kitchen, {name} crouches beside a perch where a plump brown hen with a bright red comb and golden-brown feathers sits calmly. A single gleaming golden egg rests in the straw beneath her. In the background the giant sprawls asleep in his great chair, snoring."
 subject_action = "crouching low beside the perch, gently lifting the plump brown hen, one golden egg shining in the straw below"
 environment = "the same enormous stone kitchen: a wooden perch in the corner, a nest of straw, the giant asleep in the huge chair in the background, the towering hearth, warm firelight"
@@ -552,7 +581,8 @@ title = "The singing harp"
 text_zone = "lower_third"
 cast = ["giant"]
 settling = "the great stone floor across the bottom third of the frame, kept free of clutter"
-story = "Beside the hen stood a harp that sang all by itself."
+story = "Beside the hen's perch stood a tall golden harp with silver strings, and it was singing by itself, softly, as though it had been waiting a long time for company. {name} set the hen down and reached out with one hand to the strings. The music swelled and filled the enormous kitchen, and {name} smiled: this was worth more than any purse of coins. But in the great chair behind, the giant stirred."
+beat = "{name} finds the golden harp that sings all by itself."
 caption = "Beside the hen stood a harp that sang all by itself. In the giant's kitchen, a tall golden harp with silver strings stands on a low stool, and soft ribbons of music seem to curl from it into the air. {name} reaches for the harp with one hand while hugging the plump brown hen with the other. The giant sleeps on in his great chair behind them, one huge hand hanging down."
 subject_action = "reaching for the tall golden harp with one hand while holding the plump brown hen against {possessive} chest with the other"
 environment = "the same enormous stone kitchen: a tall golden harp with silver strings on a low stool, the wooden perch and straw, the giant asleep in the huge chair behind, the towering hearth, warm firelight"
@@ -567,7 +597,8 @@ title = "Fee-fi-fo-fum"
 text_zone = "lower_third"
 cast = ["giant"]
 settling = "the great stone floor across the bottom third of the frame, kept free of clutter"
-story = "\"Fee-fi-fo-fum!\" roared the giant. \"I smell the blood of a young one!\""
+story = "\"Fee-fi-fo-fum!\" the giant roared, and the whole kitchen shook. \"I smell the blood of a young one!\" {name} flattened against the wall beside the door with the harp clutched to {possessive} chest and the hen tucked under one arm, hardly breathing, hardly blinking. The great shadow of the giant moved across the floor towards {object}, and every hair stood up on {possessive} head."
+beat = "The giant wakes and roars, smelling a young one in the kitchen."
 caption = "\"Fee-fi-fo-fum!\" roared the giant. \"I smell the blood of a young one!\" The giant lurches awake and up out of his chair, his great beard bristling, one massive fist raised, his deep-set eyes searching the kitchen. {name} is pressed flat against the wall beside the great door, the golden harp clutched to {possessive} chest, the plump brown hen under one arm, holding {possessive} breath."
 subject_action = "pressed flat against the huge door frame, harp and hen held tight, eyes wide and fixed on the roaring giant"
 environment = "the same enormous stone kitchen thrown into alarm: the giant risen huge in the middle, the great chair knocked back, coins scattered, the towering hearth, the great door behind {name}"
@@ -582,7 +613,8 @@ title = "The chase"
 text_zone = "sky"
 cast = ["giant"]
 settling = "the open misty sky across the top of the frame, kept free of cloud clutter"
-story = "{name} ran with the harp, and the giant came thundering after."
+story = "There was no time to think. {name} ran for the door with the harp and the hen, out across the cloudy plain, and the giant came thundering after. Each of his steps shook the clouds, and his huge hand reached out again and again for {possessive} shoulder. The wind tore at {possessive} hair, and {name} ran faster than {subject} had ever run, towards the green stalk standing up out of the clouds."
+beat = "{name} runs across the cloud plain with the harp and the hen, the giant thundering after."
 caption = "{name} ran with the harp, and the giant came thundering after. Out across the cloudy plain {name} sprints as fast as {possessive} legs will go, the golden harp clutched to {possessive} chest and the plump brown hen tucked under one arm. Behind, the giant charges after, his huge boots shaking the clouds, one arm stretched out to catch {name}, his beard streaming in the wind."
 subject_action = "sprinting away across the cloud plain, harp and hen held tight, {possessive} face turned forward and determined"
 environment = "the strange country above the clouds: rolling white cloud-banks, the great stone castle behind, the top of the giant beanstalk visible at the far edge of the frame, mist flying where the giant's boots strike the clouds"
@@ -597,7 +629,8 @@ title = "Down the beanstalk"
 text_zone = "sky"
 cast = ["giant"]
 settling = "the open sky and the green stem across the top of the frame, kept free of cloud clutter"
-story = "Down the beanstalk went {name}, with the giant close behind."
+story = "The beanstalk was the only way down, and {name} went down it fast — faster than {subject} had climbed — the harp slung on {possessive} back and the hen held tight under one arm. Above, the giant had reached the top and was coming down after {object}, his great hands ringing the stem and the leaves shaking loose. \"Hold on,\" {name} whispered to {possessive} own hands, \"just a little further.\""
+beat = "{name} climbs down the beanstalk with the giant coming after."
 caption = "Down the beanstalk went {name}, with the giant close behind. {name} climbs down the great green beanstalk faster than ever before, the harp slung on {possessive} back and the plump brown hen tucked in one arm. High above, the giant swings himself onto the stalk and starts down after {name}, his huge hands and boots shaking the leaves."
 subject_action = "climbing down the beanstalk fast, one arm hooked around the stem and the hen tucked under the other, looking down towards the cottage far below"
 environment = "the great beanstalk seen from the side: a thick twisting green stem, broad leaves, the cottage and fields now far below, the giant high above on the stalk, clouds drifting between them"
@@ -612,7 +645,8 @@ title = "The axe"
 text_zone = "grass"
 cast = []
 settling = "the dark grass and the base of the stalk across the bottom third of the frame, kept free of figures and clutter"
-story = "{name} seized the axe and chopped at the beanstalk with all {possessive} might."
+story = "The cottage garden was dark when {name} landed, and the great stalk stood over {object} like a tree from a dream. There was an old axe in the shed, worn smooth on its handle, and {name} took it in both hands and swung at the base of the beanstalk. Green chips flew. {name} swung again, and again, and the wood cracked and groaned, and the whole stalk seemed to shudder."
+beat = "{name} chops at the base of the beanstalk with an axe."
 caption = "{name} seized the axe and chopped at the beanstalk with all {possessive} might. In the cottage garden the great green stalk rears up out of the ground and disappears into the clouds. {name} swings the heavy axe at its base, both hands on the handle, chips of green wood flying. Behind {name} the little cottage stands safe and ordinary."
 subject_action = "mid-swing with the heavy axe, both hands on the handle, whole body leaning into the blow at the base of the beanstalk"
 environment = "the cottage garden: the great green stalk rising out of a mound in the ground, the small stone cottage safe behind, garden grass and a low fence, clouds far above"
@@ -627,7 +661,8 @@ title = "The fall"
 text_zone = "sky"
 cast = ["giant"]
 settling = "the open sky across the top of the frame, kept free of cloud clutter"
-story = "The beanstalk toppled, and the giant fell far, far away into the clouds."
+story = "The beanstalk toppled. It leaned away from the cottage and came down in a long sweep through the evening sky, its broad leaves tumbling as it fell. And on it, far out across the clouds, the giant fell too, arms and legs spread, growing smaller and smaller until the mist swallowed him whole. {name} stood by the cottage gate, safe, with the axe still in both hands, and watched the sky empty."
+beat = "The beanstalk topples and the giant falls far away into the clouds."
 caption = "The beanstalk toppled, and the giant fell far, far away into the clouds. With a great crack the severed beanstalk leans and falls away from the cottage, its long green stem sweeping down through the sky. Far across the clouds the giant tumbles away with it, arms and legs spread, his beard flying, growing smaller and smaller until he is lost in the white mist. {name} stands safe by the cottage, watching."
 subject_action = "standing safe by the cottage gate, one hand raised to shade {possessive} eyes, watching the beanstalk and the giant fall away"
 environment = "the cottage garden and the wide sky above: the severed beanstalk toppling away from the cottage, its broad leaves tumbling, the giant small and falling far away into the clouds, the little cottage solid in the foreground"
@@ -642,7 +677,8 @@ title = "Safe at home"
 text_zone = "lower_third"
 cast = ["mother"]
 settling = "the cottage doorstep and the lower third of the frame, kept free of clutter"
-story = "{name} tumbled safe into {possessive} mother's arms."
+story = "The harp was still in {possessive} arms and the hen still under one arm when {possessive} mother came flying out of the door. She got {object} inside and held {object} so tightly that the hen squawked in protest, and then she sat down on the step and cried, and laughed, and cried again. That night nobody went to bed at all."
+beat = "{name} lands home safe and is hugged by {possessive} mother."
 caption = "{name} tumbled safe into {possessive} mother's arms. On the cottage doorstep, {possessive} mother kneels and wraps {name} in a tight hug, her face a mix of relief and joy. The golden harp leans against the door frame and the plump brown hen pecks calmly at the step. The great beanstalk is gone from the sky behind them."
 subject_action = "caught in a warm hug on the doorstep, {possessive} face pressed to {possessive} mother's shoulder, the harp against the door frame"
 environment = "the little cottage doorstep at evening: the worn wooden door, the stone step, the golden harp leaning against the frame, the plump brown hen on the step, a clear empty sky where the beanstalk used to be"
@@ -657,7 +693,8 @@ title = "The golden eggs"
 text_zone = "lower_third"
 cast = ["mother"]
 settling = "the worn table front and the lower third of the frame, kept free of detail and character limbs"
-story = "The hen laid golden eggs, the harp sang, and they were never hungry again."
+story = "And so they never went hungry again. The hen laid a golden egg every morning, and the harp sang its silver song by the door, and each morning {possessive} mother opened the door to find a new egg glowing on the step. The shelves filled with jars and bread, the fire never went out, and the little cottage that had once been the poorest in the village became the warmest."
+beat = "The hen lays golden eggs and the harp sings, so the family never goes hungry."
 caption = "The hen laid golden eggs, the harp sang, and they were never hungry again. In the little cottage kitchen the plump brown hen sits proudly on the worn table beside a nest of gleaming golden eggs, while the tall golden harp in the corner sends soft ribbons of music into the warm air. {name} and {possessive} mother sit together at the table, smiling, the bare shelves behind them now filled with jars and bread."
 subject_action = "sitting at the table beside {possessive} mother, both smiling at the hen and the golden eggs, the harp singing in the corner"
 environment = "the same small cottage kitchen, now comfortable: the worn table with a nest of golden eggs, the plump brown hen, the golden harp in the corner with ribbons of music, shelves filled with jars and bread, warm firelight"
@@ -672,7 +709,8 @@ title = "Ever after"
 text_zone = "lower_third"
 cast = ["mother"]
 settling = "the cottage garden path and the lower third of the frame, kept free of clutter"
-story = "{name} and {possessive} mother lived richly and happily ever after."
+story = "Years went by, and the cottage had a garden full of flowers. Travellers came from far away to hear the harp and see the hen with her golden eggs, and every one of them said what a clever child {name} had been to climb so high and come safely down again. {possessive} mother put a hand on {possessive} shoulder and smiled, and that is how the story ends — in the warm garden, with everything as it should be."
+beat = "{name} and {possessive} mother live richly and happily ever after."
 caption = "{name} and {possessive} mother lived richly and happily ever after. In the cottage garden on a bright morning, {name} and {possessive} mother stand together before their little home, now neatly kept, with the golden harp by the door and the plump brown hen scratching in the grass. {possessive} mother rests one proud hand on {name}'s shoulder, and both of them are smiling out at the reader. The sky is wide and clear and empty."
 subject_action = "standing together in the garden, {possessive} mother's proud hand on {name}'s shoulder, both smiling warmly towards the reader"
 environment = "the little cottage garden on a bright morning: the tidy stone cottage, flowers by the door, the golden harp leaning against the wall, the plump brown hen in the grass, a low fence and green fields beyond, a wide clear sky"

@@ -35,6 +35,7 @@ from app.models.labels import choices_for
 from app.routes.settings_form import cartoon_settings_from_form
 from app.services.concurrency import GateTimeout
 from app.services.images import InvalidImage, decode_upload
+from app.services.prompts import cast_photoable
 from app.services.storage import Draft, StoredGeneration
 
 SettingsDep = Annotated[CartoonSettings, Depends(cartoon_settings_from_form)]
@@ -79,6 +80,14 @@ async def cartoonify(
     container: ContainerDep,
     settings: SettingsDep,
     photo: UploadFile = File(..., description="A photo of a person. JPEG, PNG or WEBP."),
+    character: str = Form(
+        "",
+        description=(
+            "Optional photoable cast key (mother, old_man, giant) when this "
+            "photo is a book character rather than the star. The portrait is "
+            "then drawn as that character. Milky-White is refused."
+        ),
+    ),
     # Wire name is the singular "reason" because that is what each chip checkbox
     # in the form is called; it simply repeats. Aliased so the Python side can
     # read as a plural without the two drifting apart.
@@ -93,6 +102,13 @@ async def cartoonify(
     closed-set feedback as prompt corrections — no free text ever arrives
     here, so nothing the visitor writes can reach a prompt.
     """
+    # A character slot that cannot have a face is refused before the upload is
+    # even read, so a cow photo can never be billed. Empty means the star.
+    cast_key = character.strip()
+    if cast_key and not cast_photoable(cast_key):
+        raise InvalidSettings(
+            f"There is no character slot for {cast_key!r} — it cannot be given a photo."
+        )
     # Read the upload before billing anything: a missing, oversized or
     # unreadable file never reaches the model, so it must not spend quota.
     raw = await _read_upload(photo, container)
@@ -108,6 +124,7 @@ async def cartoonify(
             photo_media_type=decoded.media_type,
             settings=settings,
             rejection=feedback,
+            character=cast_key or None,
         )
 
     try:

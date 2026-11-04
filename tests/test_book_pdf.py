@@ -74,7 +74,7 @@ class TestAssembly:
             (page.extract_text() or "").replace("\n", " ")
             for page in PdfReader(io.BytesIO(data)).pages
         ]
-        assert any("sunrise the beanstalk had grown" in text for text in texts)
+        assert any("woke at sunrise" in text for text in texts)
 
     def test_story_text_is_real_pdf_text(self) -> None:
         data = build_book_pdf(about(), pages())
@@ -82,6 +82,30 @@ class TestAssembly:
         first = reader.pages[0]
         text = first.extract_text()
         assert "Milky-White" in text.replace("\n", " ")
+
+    def test_no_page_loses_the_end_of_its_story(self) -> None:
+        """A paragraph must fit the panel: nothing truncated, no ellipsis.
+
+        The text is no longer a caption, so the panel has to hold several
+        sentences. A page that ran out of room would end in an ellipsis — the
+        reader would lose the end of the story, which is the whole point of
+        rewriting it.
+        """
+        data = build_book_pdf(about(), pages())
+        reader = PdfReader(io.BytesIO(data))
+        for index, page in enumerate(reader.pages[:-1]):
+            text = (page.extract_text() or "").replace("\n", " ")
+            assert "…" not in text, f"page {index + 1} was truncated"
+
+    def test_every_page_prints_its_own_story(self) -> None:
+        """Each page's own paragraph is on that page, in full."""
+        data = build_book_pdf(about(), pages())
+        reader = PdfReader(io.BytesIO(data))
+        texts = [(page.extract_text() or "").replace("\n", " ") for page in reader.pages]
+        for page in BOOK_PAGES:
+            opening = page.story.split("{name}")[0].split("{possessive}")[0].strip()
+            opening = opening[:40]
+            assert any(opening in text for text in texts), page.key
 
     def test_page_shape_matches_the_art(self) -> None:
         reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages())))
@@ -135,3 +159,37 @@ class TestAssembly:
         bad = [PageArt(image=b"not an image", page=get_book_page("the-trade"))]
         with pytest.raises(ValueError, match="unreadable"):
             build_book_pdf(about(), bad)
+
+    def test_the_art_is_shrunk_before_it_is_embedded(self) -> None:
+        """A 42 MB PDF OOM-killed the 512 MB instance that built it.
+
+        Provider PNGs are re-encoded to print-sized JPEGs, so a book's PDF is
+        a small fraction of the raw art and can actually be viewed and deleted
+        on a free instance.
+        """
+        # Incompressible noise makes a genuinely large PNG, as a provider's
+        # detailed art would.
+        import random
+
+        random.seed(7)
+        width, height = 2048, 1536
+        noise = Image.new("RGB", (width, height))
+        noise.putdata(
+            [
+                (random.randrange(256), random.randrange(256), random.randrange(256))
+                for _ in range(width * height)
+            ]
+        )
+        raw = io.BytesIO()
+        noise.save(raw, format="PNG")
+        image = raw.getvalue()
+        assert len(image) > 4_000_000, "the fixture must be big enough to matter"
+
+        book = [
+            PageArt(image=image, page=get_book_page("the-trade")),
+            PageArt(image=image, page=get_book_page("beans-out-the-window")),
+        ]
+        pdf = build_book_pdf(about(), book)
+
+        assert len(pdf) < len(image), "the PDF grew instead of shrinking the art"
+        assert len(PdfReader(io.BytesIO(pdf)).pages) == 3

@@ -38,6 +38,7 @@ import logging
 import os
 import threading
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -185,8 +186,16 @@ class BookStore:
         *,
         title: str | None = None,
         cover_url: str | None = None,
+        extra: Mapping[str, object] | None = None,
     ) -> None:
-        """Persist job status. Called after every page so clients can poll it."""
+        """Persist job status. Called after every page so clients can poll it.
+
+        `extra` carries the fields the poll document needs beyond the status
+        itself — the phase the job is in ("pages", "assembling", "complete")
+        and the total page count. They live in the document rather than in
+        the status string so that a client can tell "the last picture is done
+        but the PDF is still being put together" from "the book is finished".
+        """
         raise NotImplementedError
 
     def load_status(self, book_id: str) -> dict[str, object] | None:
@@ -421,7 +430,8 @@ class FileBookStore(BookStore):
     def _summary(self, book_id: str, record: BookRecord) -> BookSummary:
         status = self.load_status(book_id) or {}
         pages = _pages_of(status)
-        done = sum(1 for page in pages if page.get("status") == "done")
+        cover_url = self._cover_url_if_present(book_id)
+        page_count, done = page_totals(pages, cover_done=cover_url is not None)
         state = str(status.get("status", BookStatus.PENDING))
         return BookSummary(
             book_id=book_id,
@@ -429,9 +439,9 @@ class FileBookStore(BookStore):
             status=state,
             created_at=record.created_at,
             updated_at=str(status.get("updated_at", record.created_at)),
-            page_count=len(pages),
+            page_count=page_count,
             pages_done=done,
-            cover_url=self._cover_url_if_present(book_id),
+            cover_url=cover_url,
             pdf_url=self.pdf_url(book_id) if state == BookStatus.COMPLETE else None,
         )
 
@@ -492,9 +502,10 @@ class FileBookStore(BookStore):
         *,
         title: str | None = None,
         cover_url: str | None = None,
+        extra: Mapping[str, object] | None = None,
     ) -> None:
         """Persist job status. Called after every page so clients can poll it."""
-        payload = {
+        payload: dict[str, object] = {
             "book_id": book_id,
             "status": status,
             "pages": pages,
@@ -506,6 +517,8 @@ class FileBookStore(BookStore):
             "title": title,
             "updated_at": _now(),
         }
+        if extra:
+            payload.update(extra)
         self._atomic_write_json(self.path(book_id, "status.json"), payload)
 
     def load_status(self, book_id: str) -> dict[str, object] | None:
@@ -787,6 +800,20 @@ def _pages_of(status: dict[str, object]) -> list[dict[str, object]]:
     if not isinstance(raw, list):
         return []
     return [dict(entry) for entry in raw if isinstance(entry, dict)]
+
+
+def page_totals(pages: list[dict[str, object]], *, cover_done: bool) -> tuple[int, int]:
+    """The library's page count and finished count, cover included.
+
+    Status written before the cover was counted (it is page zero now) lists
+    only the nineteen story pages; those documents are still readable, so the
+    cover is added back here. Either way the reader is told "out of 20", which
+    matches the progress line while the book is being drawn.
+    """
+    done = sum(1 for page in pages if page.get("status") == "done")
+    if any(page.get("number") == 0 for page in pages):
+        return len(pages), done
+    return len(pages) + 1, done + (1 if cover_done else 0)
 
 
 def _image_name(stem: str, data: bytes) -> str:

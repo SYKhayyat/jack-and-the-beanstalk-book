@@ -46,17 +46,23 @@ _FONT_FILES: tuple[tuple[str, str, str], ...] = (
 _PAGE_SHORT_EDGE = 720.0
 _SIDE_MARGIN = 0.07  # story text panel container, side inset
 _PANEL_TEXT_INSET = 8.0  # space, in pt, between text and its panel edges
-_STORY_FONT_FRACTION = 26.0  # story font size = page short edge / this
+_STORY_FONT_FRACTION = 30.0  # story font size = page short edge / this
 _MIN_STORY_FONT = 14.0  # nothing beneath this stays readable
 
 # Where each text zone's panel may live, as fractions of page height
 # (top, bottom). Exhaustive by construction: the completeness check below
 # fails at import when a TextZone member is missing here — the same
 # fail-at-boot discipline the TOML data is on.
+#
+# The bands are a third of the page each, because the text is no longer a
+# caption: it is a paragraph of story, and a paragraph needs a third of the
+# page to be readable. The page prompts ask for the same third to be kept
+# quiet (`settling` in the catalogue), so the art and the text still meet
+# cleanly.
 _TEXT_ZONE_BANDS: dict[TextZone, tuple[float, float]] = {
-    TextZone.LOWER_THIRD: (0.72, 0.92),
-    TextZone.SKY: (0.06, 0.28),
-    TextZone.GRASS: (0.76, 0.92),
+    TextZone.LOWER_THIRD: (0.60, 0.95),
+    TextZone.SKY: (0.03, 0.38),
+    TextZone.GRASS: (0.64, 0.95),
 }
 for _zone in TextZone:
     if _zone not in _TEXT_ZONE_BANDS:
@@ -69,6 +75,14 @@ _PANEL_FILL = (250, 247, 238)
 _PANEL_TEXT = (74, 56, 38)
 _ABOUT_BG = (247, 239, 222)
 _ABOUT_TEXT = (74, 56, 38)
+
+# The art is re-encoded before it is embedded. Providers return multi-megabyte
+# PNGs; embedding nineteen of them verbatim produced a ~42 MB PDF, which blew
+# Render's 512 MB instance apart while assembling and was too big to view.
+# A page is ~10 in on the short edge, so 1600 px is still >150 dpi — print
+# sharp — at a small fraction of the bytes.
+_EMBED_LONG_EDGE = 1600
+_EMBED_JPEG_QUALITY = 85
 
 
 class PageArt:
@@ -129,7 +143,7 @@ def draw_cover_page(pdf: FPDF, about: AboutMe, cover: bytes) -> None:
     """
     width, height = pdf.w, pdf.h
     pdf.add_page()
-    pdf.image(io.BytesIO(cover), x=0, y=0, w=width, h=height)
+    pdf.image(_image_for_pdf(cover), x=0, y=0, w=width, h=height)
 
     title = about.book_title
     panel_width = width * (1 - 2 * _SIDE_MARGIN)
@@ -160,7 +174,7 @@ def _draw_page(pdf: FPDF, entry: PageArt) -> None:
     """One book page: full-bleed art with the story line on a solid text panel."""
     width, height = pdf.w, pdf.h
     pdf.add_page()
-    pdf.image(io.BytesIO(entry.image), x=0, y=0, w=width, h=height)
+    pdf.image(_image_for_pdf(entry.image), x=0, y=0, w=width, h=height)
 
     story = entry.page.story
     if not story.strip():
@@ -318,6 +332,40 @@ def _shaping_supported() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _image_for_pdf(image: bytes) -> io.BytesIO:
+    """Re-encode one picture as a right-sized JPEG for embedding.
+
+    Memory and size are both reasons: the raw PNGs are kept for the page grid
+    and the original photo, but the PDF only needs a print-sized copy. RGBA is
+    flattened onto white, because JPEG has no alpha and a transparent page
+    would otherwise come out black.
+
+    Raises:
+        ValueError: if the bytes are not a readable image.
+    """
+    try:
+        with Image.open(io.BytesIO(image)) as opened:
+            has_alpha = opened.mode in ("RGBA", "LA") or "transparency" in opened.info
+            frame = opened.convert("RGBA" if has_alpha else "RGB")
+            if frame.mode == "RGBA":
+                background = Image.new("RGB", frame.size, (255, 255, 255))
+                background.paste(frame, mask=frame.split()[-1])
+                frame = background
+            frame.thumbnail((_EMBED_LONG_EDGE, _EMBED_LONG_EDGE), Image.Resampling.LANCZOS)
+            encoded = io.BytesIO()
+            frame.save(
+                encoded,
+                format="JPEG",
+                quality=_EMBED_JPEG_QUALITY,
+                optimize=True,
+                progressive=True,
+            )
+    except (OSError, UnidentifiedImageError) as exc:
+        raise ValueError("A page image was unreadable; cannot assemble the book.") from exc
+    encoded.seek(0)
+    return encoded
 
 
 def _page_shape(image: bytes) -> tuple[float, float]:

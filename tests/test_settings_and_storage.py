@@ -89,6 +89,40 @@ class TestSettingsConfig:
         assert Settings(_env_file=None, app_env="production").is_production
         assert not Settings(_env_file=None, app_env="development").is_production
 
+    def test_the_session_key_survives_a_restart(self) -> None:
+        """The key must outlive the process, or every restart breaks sign-in.
+
+        Render's free plan restarts the container whenever it wakes from
+        sleep. A key that dies with the process signs everyone out and
+        invalidates the signed OAuth state cookie mid-round-trip, which is
+        what made visitors see "that sign-in link had expired" and sign in
+        twice. The Google client secret is always set where Google sign-in
+        is, so it can carry the key when SESSION_SECRET was forgotten.
+        """
+        first = Settings(_env_file=None, google_client_secret="the-client-secret")
+        second = Settings(_env_file=None, google_client_secret="the-client-secret")
+        assert first.session_signing_key() == second.session_signing_key()
+        assert not first.session_key_is_ephemeral
+
+    def test_an_explicit_session_secret_wins(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            session_secret="explicit",
+            google_client_secret="the-client-secret",
+        )
+        other = Settings(
+            _env_file=None,
+            session_secret="different",
+            google_client_secret="the-client-secret",
+        )
+        assert settings.session_signing_key() != other.session_signing_key()
+
+    def test_a_keyless_deployment_says_so(self) -> None:
+        """No secret at all means a per-process key, and the app must know."""
+        settings = Settings(_env_file=None)
+        assert settings.session_key_is_ephemeral
+        assert settings.session_signing_key() != settings.session_signing_key()
+
 
 def make_draft(generation_id: str = "abc123") -> Draft:
     """A minimal valid draft: one cartoon, one photo, default settings.

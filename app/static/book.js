@@ -25,10 +25,10 @@ const characterCamera = createCameraSource(view.elements.characterCameraVideo())
 const characterPhotos = new Map();
 let characterCameraTarget = null;
 
-/* Story-page total. Seeded with the full-tale count (19 story pages, then the
-   About page in the PDF) and then corrected from the server's own page list,
-   so the first progress line cannot lie. */
-let totalPages = 19;
+/* Story-page total. Seeded with the full-tale count (19 story pages plus the
+   cover, which is a page of the book too) and then corrected from the server's
+   own page list, so the first progress line cannot lie. */
+let totalPages = 20;
 seedTotalPages();
 
 wirePhotoInput();
@@ -114,7 +114,9 @@ function wireCamera() {
 }
 
 /* Each extra cast slot gets the same in-page camera as the star, with one
-   shared pane re-targeted to the slot whose button was pressed. */
+   shared pane re-targeted to the slot whose button was pressed. The slot also
+   accepts a picked file (previewed like a camera frame) and offers its own
+   "Make the cartoon" pass, so the face can be judged before the book starts. */
 function wireCharacterCameras() {
   for (const input of view.characterInputs()) {
     const key = input.dataset.character;
@@ -129,6 +131,13 @@ function wireCharacterCameras() {
         view.showCharacterMessage(key, cameraOpenMessage(error), "error");
       }
     });
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file) void acceptCharacterPhoto(key, file);
+    });
+    view
+      .makeCharacterCartoon(key)
+      .addEventListener("click", () => void requestCharacterCartoon(key));
   }
   view.elements.characterCameraShutter().addEventListener("click", () => {
     const key = characterCameraTarget;
@@ -149,12 +158,19 @@ function wireCharacterCameras() {
   });
 }
 
-async function acceptCharacterPhoto(key, captured) {
+async function acceptCharacterPhoto(key, photo) {
   try {
     view.showCharacterMessage(key, "Preparing the photo…");
-    const prepared = await preparePhoto(captured, { maxBytes: MAX_UPLOAD });
+    const prepared = await preparePhoto(photo, { maxBytes: MAX_UPLOAD });
     characterPhotos.set(key, prepared.blob);
     view.renderCharacterPreview(key, prepared.blob);
+    // A new photo invalidates any cartoon made from the old one.
+    state.clearCharacterDraft(book, key);
+    view.hideCharacterCartoon(key);
+    view.setCharacterCartoonButton(key, {
+      disabled: false,
+      label: "Make the cartoon",
+    });
     view.showCharacterMessage(key, prepared.scaled ? "Photo shrunk to fit." : "");
   } catch (error) {
     view.showCharacterMessage(
@@ -164,6 +180,44 @@ async function acceptCharacterPhoto(key, captured) {
         : "The photo could not be prepared — try again.",
       "error",
     );
+  }
+}
+
+/* The character's own portrait pass. It sends the cast key with the photo, so
+   the server draws that character instead of the book's child, and returns a
+   draft that the start endpoint will accept for that slot only. */
+async function requestCharacterCartoon(key, { photo = null, silent = false } = {}) {
+  const blob = photo || characterPhotos.get(key);
+  if (!blob) {
+    if (!silent) view.showCharacterMessage(key, "Choose a photo first.", "error");
+    return null;
+  }
+  view.setCharacterCartoonButton(key, { disabled: true, label: "Making the cartoon…" });
+  if (!silent) view.showCharacterMessage(key, "");
+  const form = settingsFields();
+  form.append("photo", blob, `${key}.jpg`);
+  form.append("character", key);
+  try {
+    const payload = await postForm("/api/cartoonify", form);
+    state.setCharacterDraft(book, key, payload.generation_id, payload.images.cartoon_url);
+    view.renderCharacterCartoon(key, payload.images.cartoon_url);
+    view.setCharacterCartoonButton(key, { disabled: false, label: "Make another cartoon" });
+    view.showCharacterMessage(key, "");
+    return payload.generation_id;
+  } catch (error) {
+    const existing = state.characterDraft(book, key);
+    view.setCharacterCartoonButton(key, {
+      disabled: false,
+      label: existing ? "Make another cartoon" : "Make the cartoon",
+    });
+    if (!sessionGone(error)) {
+      view.showCharacterMessage(
+        key,
+        error.message || "The cartoon did not come out — try again.",
+        "error",
+      );
+    }
+    return null;
   }
 }
 
@@ -200,10 +254,15 @@ function sessionGone(error) {
   return true;
 }
 
-function settingsForm(reasons = []) {
+function settingsFields(reasons = []) {
   const form = view.readCharacterSettings();
-  form.append("photo", book.photo, book.photoName);
   for (const reason of reasons) form.append("reason", reason);
+  return form;
+}
+
+function settingsForm(reasons = []) {
+  const form = settingsFields(reasons);
+  form.append("photo", book.photo, book.photoName);
   return form;
 }
 
@@ -212,13 +271,20 @@ async function cartoonify(reasons = []) {
     view.showPhotoMessage("Choose a photo first.", "error");
     return;
   }
+  state.beginPortrait(book);
   view.setBusyPortrait(reasons.length ? "Making a better portrait…" : "Making the portrait…");
+  // The review's approve button must not be clickable while a new portrait is
+  // still being drawn: the old draft is about to be replaced.
+  view.setReviewBusy(true, reasons.length ? "Making a better portrait…" : "Making the portrait…");
   try {
     const payload = await postForm("/api/cartoonify", settingsForm(reasons));
     state.setDraft(book, payload.generation_id);
     if (view.oneStepChecked()) {
-      // Fast mode: skip the preview, start the book right away.
+      // Fast mode: skip the preview, start the book right away. The portrait
+      // is finished at this point, so it must not still look "being drawn".
+      state.endPortrait(book);
       view.setBusyPortrait("");
+      view.setReviewBusy(false);
       await approveAndStart();
       return;
     }
@@ -231,9 +297,16 @@ async function cartoonify(reasons = []) {
     view.showPrompts({ cartoonPrompt: payload.prompts?.cartoon || "", bookId: book.bookId });
     if (reasons.length) view.showRejectBody(false);
   } catch (error) {
-    view.setBusyPortrait("");
     if (sessionGone(error)) return;
-    view.showPhotoMessage(error.message || "The portrait did not come out — try again.", "error");
+    const message = error.message || "The portrait did not come out — try again.";
+    // The user is looking at the review stage, so the error belongs there —
+    // the photo field's message is scrolled out of sight.
+    if (view.reviewVisible()) view.showReviewMessage(message);
+    else view.showPhotoMessage(message, "error");
+  } finally {
+    state.endPortrait(book);
+    view.setBusyPortrait("");
+    if (view.reviewVisible()) view.setReviewBusy(false);
   }
 }
 
@@ -248,8 +321,9 @@ async function retryPortrait() {
   const reasons = view.rejectChipValues();
   view.showRejectBody(false);
   view.resetRejectChips();
-  state.retryPortrait(book);
-  view.hideReview();
+  // The current portrait is deliberately kept: if the retry fails, the user
+  // can still approve what they already have. The review stays visible with
+  // its buttons disabled until the new portrait lands.
   await cartoonify(reasons);
 }
 
@@ -260,7 +334,9 @@ function seedTotalPages() {
     .then((response) => (response.ok ? response.json() : null))
     .then((catalogue) => {
       if (catalogue && Array.isArray(catalogue.pages) && catalogue.pages.length) {
-        totalPages = catalogue.pages.length;
+        // The catalogue holds the story pages only; the cover is page one of
+        // the book, so the count the reader sees is one higher.
+        totalPages = catalogue.pages.length + 1;
       }
     })
     .catch(() => {
@@ -268,33 +344,49 @@ function seedTotalPages() {
     });
 }
 
-/* Each optional character photo gets the same cheap portrait pass the star
-   does: a cartoon of that face, made before the pages (the expensive part).
-   The page prompt carries the character's pinned look, so this only supplies
-   the face. Only photoable slots exist in the DOM; the cow has none. */
+/* Every filled character slot needs a cartoon before the book starts. Slots
+   whose cartoon was already made with the "Make the cartoon" button are
+   reused; any still missing one is made now, visibly, because that call can
+   take a while. A photo picked but not yet prepared is prepared here too. */
 async function characterReferences() {
   const entries = [];
   for (const input of view.characterInputs()) {
     const key = input.dataset.character;
-    const captured = characterPhotos.get(key);
-    const file = input.files?.[0];
-    if (captured) {
-      const form = new FormData();
-      form.append("photo", captured, `${key}.jpg`);
-      const payload = await postForm("/api/cartoonify", form);
-      entries.push([key, payload.generation_id]);
-    } else if (file) {
-      const prepared = await preparePhoto(file, { maxBytes: MAX_UPLOAD });
-      const form = new FormData();
-      form.append("photo", prepared.blob, file.name || "character.jpg");
-      const payload = await postForm("/api/cartoonify", form);
-      entries.push([key, payload.generation_id]);
+    let blob = characterPhotos.get(key);
+    if (!blob && input.files?.[0]) {
+      const prepared = await preparePhoto(input.files[0], { maxBytes: MAX_UPLOAD });
+      blob = prepared.blob;
+      characterPhotos.set(key, blob);
     }
+    if (!blob) continue;
+    if (!state.characterDraft(book, key)) {
+      view.showCharacterMessage(key, "Making the cartoon…");
+      const generationId = await requestCharacterCartoon(key, { photo: blob, silent: true });
+      if (!generationId) {
+        throw new Error(
+          `The ${view.characterLabel(key)} cartoon could not be made — try again.`,
+        );
+      }
+    }
+    entries.push([key, state.characterDraft(book, key).generationId]);
   }
   return entries;
 }
 
 async function approveAndStart() {
+  if (state.isBookInProgress(book)) {
+    // A double click, or "approve" pressed in a stale tab, must not start a
+    // second book over the one already running.
+    view.showReviewMessage("The book is already being made — watch the pages below.", "error");
+    return;
+  }
+  if (book.portraitBusy) {
+    view.showReviewMessage(
+      "The portrait is still being made — one moment, then press this again.",
+      "error",
+    );
+    return;
+  }
   if (book.pendingDraft) state.approveDraft(book);
   if (!state.isApproved(book)) {
     view.showReviewMessage("Make a portrait first — choose a photo and press the button.", "error");
@@ -303,6 +395,12 @@ async function approveAndStart() {
   const about = view.readAboutMe();
   view.elements.approve().disabled = true;
   view.showReviewMessage("Starting the book…");
+  // The waiting starts here: the character cartoons are made before the book
+  // is queued, and that can take a while, so the reader gets a progress line
+  // straight away rather than a frozen button.
+  view.showBookStage();
+  view.renderBookPages([]);
+  view.renderBookProgress(0, totalPages, "starting");
   const form = new FormData();
   form.append("generation_id", book.generationId);
   for (const [key, value] of Object.entries(about)) {
@@ -318,9 +416,7 @@ async function approveAndStart() {
     view.showReviewMessage("");
     // The book now has an id: make its prompts.json inspectable.
     view.showPrompts({ bookId: payload.book_id });
-    view.showBookStage();
-    view.renderBookPages([]);
-    view.renderBookProgress(0, totalPages);
+    view.renderBookProgress(0, totalPages, book.phase);
     pollBook();
   } catch (error) {
     view.elements.approve().disabled = false;
@@ -357,7 +453,7 @@ function pollBook(failures = 0) {
         view.renderBookFinished(book.bookId, `/book-media/${book.bookId}/pdf`);
         return;
       }
-      view.renderBookProgress(done, total);
+      view.renderBookProgress(done, total, book.phase);
       pollBook();
     } catch (error) {
       if (book.bookId !== expectedBook) return;

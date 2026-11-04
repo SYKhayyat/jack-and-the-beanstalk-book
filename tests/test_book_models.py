@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -9,6 +11,21 @@ from app.models.book import BOOK_PAGES, AboutMe, TextZone, get_book_page
 from app.models.settings import CartoonSettings
 from app.prompt_data import prompt_text
 from app.services.prompts import render_book_page
+
+
+def test_every_page_tells_the_story_rather_than_captioning_it() -> None:
+    """The words on a page are prose that carries the tale forward.
+
+    The complaint was that the pages read like captions — one sentence each,
+    labelling the picture. A page now carries several sentences of narration,
+    and the book's own model keeps a separate one-line beat for the model, so
+    the paragraph does not have to be shipped to every image call.
+    """
+    for page in BOOK_PAGES:
+        sentences = [part for part in re.split(r"(?<=[.!?])\s+", page.story) if part.strip()]
+        assert len(sentences) >= 2, f"{page.key} is a caption, not a story"
+        assert len(page.story.split()) >= 40, f"{page.key} is too short to narrate"
+        assert page.beat.strip(), f"{page.key} has no beat for the model"
 
 
 class TestPageCatalogue:
@@ -53,7 +70,8 @@ class TestPageCatalogue:
     def test_render_fills_name_and_pronouns(self) -> None:
         settings = CartoonSettings(photo_gender="girl")
         rendered = render_book_page(BOOK_PAGES[0], settings)
-        assert rendered.story.startswith("Jane and her mother")
+        assert rendered.story.startswith("Once upon a time there was a child called Jane")
+        assert "her mother" in rendered.story
         assert "{name}" not in rendered.story
         assert "{possessive}" not in rendered.scene.caption
 

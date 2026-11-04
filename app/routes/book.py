@@ -211,6 +211,13 @@ async def start_book(
     draft = await asyncio.to_thread(container.store.load_draft, generation_id)
     if draft is None:
         raise UnknownGeneration(generation_id)
+    if draft.cast_key:
+        # The book's identity anchor is the child. A portrait made for a cast
+        # member would put, say, the mother's face on every page as Jack.
+        raise InvalidSettings(
+            "That portrait was made for a book character, not the book's star. "
+            "Make the star's portrait from the child's own photo."
+        )
     about = _about_from_form(
         child_name, about_name, about_age, about_title, details, draft.settings
     )
@@ -447,7 +454,15 @@ async def edit_book(
         return _edit_started(book_id, "page")
 
     if action == "character":
-        reference = await asyncio.to_thread(_character_reference, generation_id, container)
+        if character_key != "star" and not cast_photoable(character_key):
+            raise InvalidSettings(
+                f"There is no character slot for {character_key!r} — "
+                "it cannot be given a photo."
+            )
+        expected = "" if character_key == "star" else character_key
+        reference = await asyncio.to_thread(
+            _character_reference, generation_id, container, expected
+        )
         if character_key == "star":
             await asyncio.to_thread(
                 container.book_store.update_identity,
@@ -464,11 +479,6 @@ async def edit_book(
             )
             return _edit_started(book_id, "character")
 
-        if not cast_photoable(character_key):
-            raise InvalidSettings(
-                f"There is no character slot for {character_key!r} — "
-                "it cannot be given a photo."
-            )
         await asyncio.to_thread(
             container.book_store.save_character, book_id, character_key, reference
         )
@@ -515,12 +525,19 @@ def _correction_text(reasons: list[str]) -> str:
     return feedback.prompt_block()
 
 
-def _character_reference(generation_id: str, container: ContainerDep) -> CharacterReference:
+def _character_reference(
+    generation_id: str, container: ContainerDep, expected_cast_key: str
+) -> CharacterReference:
     if not generation_id:
         raise InvalidSettings("Choose the replacement photo first.")
     draft = container.store.load_draft(generation_id)
     if draft is None:
         raise UnknownGeneration(generation_id)
+    if draft.cast_key != expected_cast_key:
+        raise InvalidSettings(
+            "That portrait was made for a different character — make the "
+            "cartoon from this slot's own photo."
+        )
     return CharacterReference(
         portrait=draft.cartoon_image,
         portrait_media_type=draft.cartoon_media_type,
@@ -576,14 +593,50 @@ def book_pdf(book_id: str, container: ContainerDep, session: CurrentSessionDep) 
 
 @media_router.get("/{book_id}/portrait")
 def book_portrait(
-    book_id: str, container: ContainerDep, session: CurrentSessionDep
+    book_id: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    download: bool = False,
 ) -> Response:
-    """The approved cartoon portrait every page is anchored on."""
+    """The approved cartoon portrait every page is anchored on.
+
+    With `?download=1` it is handed over as a file instead of shown in place,
+    so the reader can keep the cartoon of their face.
+    """
     _ensure_book(book_id, _user_id(session), container)
     data = container.book_store.read_portrait(book_id)
     if data is None:
         raise UnknownBook("That book has no portrait stored.")
-    return _no_store(data, media_type=_detect_media_type(data))
+    return _no_store(
+        data,
+        media_type=_detect_media_type(data),
+        filename=f"cartoon-{book_id}{_extension_for(data)}",
+        download=download,
+    )
+
+
+@media_router.get("/{book_id}/photo")
+def book_photo(
+    book_id: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    download: bool = False,
+) -> Response:
+    """The original photograph the book was drawn from.
+
+    With `?download=1` the reader gets the untouched photo back, not a copy of
+    somebody else's face.
+    """
+    _ensure_book(book_id, _user_id(session), container)
+    data = container.book_store.read_source_photo(book_id)
+    if data is None:
+        raise UnknownBook("That book has no original photo stored.")
+    return _no_store(
+        data,
+        media_type=_detect_media_type(data),
+        filename=f"original-photo-{book_id}{_extension_for(data)}",
+        download=download,
+    )
 
 
 @media_router.get("/{book_id}/cover")
@@ -722,6 +775,9 @@ def _character_references(
       to her;
     * the same key twice — two photos of one character is ambiguous, and the
       later one would silently win;
+    * a portrait made for a different slot (or for the star) — the portrait's
+      draft records the cast key it was made for, so the mother's face cannot
+      be filed as the giant's;
     * a malformed pair, or a draft that has expired.
 
     The returned map is keyed by cast key and handed whole to the runner; the
@@ -745,6 +801,11 @@ def _character_references(
         draft: Draft | None = container.store.load_draft(generation_id)
         if draft is None:
             raise UnknownGeneration(generation_id)
+        if draft.cast_key != key:
+            raise InvalidSettings(
+                f"That portrait was not made for {key} — make the cartoon from "
+                f"{key}'s own photo, with the character slot selected."
+            )
         references[key] = CharacterReference(
             portrait=draft.cartoon_image,
             portrait_media_type=draft.cartoon_media_type,
@@ -754,15 +815,29 @@ def _character_references(
     return references
 
 
-def _no_store(data: bytes, *, media_type: str, filename: str | None = None) -> Response:
+def _no_store(
+    data: bytes,
+    *,
+    media_type: str,
+    filename: str | None = None,
+    download: bool = False,
+) -> Response:
     """A response carrying child-derived data: private, never cached."""
     headers: dict[str, str] = {
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
     }
     if filename:
-        headers["Content-Disposition"] = f'inline; filename="{filename}"'
+        disposition = "attachment" if download else "inline"
+        headers["Content-Disposition"] = f'{disposition}; filename="{filename}"'
     return Response(content=data, media_type=media_type, headers=headers)
+
+
+def _extension_for(data: bytes) -> str:
+    """The file extension that matches the bytes, never a claim."""
+    if data.startswith(b"\xff\xd8"):
+        return ".jpg"
+    return ".png"
 
 
 def _detect_media_type(data: bytes) -> str:

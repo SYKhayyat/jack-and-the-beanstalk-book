@@ -337,7 +337,7 @@ def test_the_redirect_away_remembers_where_to_come_back(google_client: TestClien
 def test_a_callback_without_the_state_cookie_is_refused(google_client: TestClient) -> None:
     response = google_client.get("/auth/callback?code=abc&state=abc", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/login?error=google_state"
+    assert response.headers["location"].startswith("/login?error=google_state")
     assert google_client.cookies.get(SESSION_COOKIE) is None
 
 
@@ -347,7 +347,29 @@ def test_a_callback_with_the_wrong_state_is_refused(google_client: TestClient) -
         "/auth/callback?code=abc&state=not-the-state", follow_redirects=False
     )
     assert login.status_code == 303
-    assert login.headers["location"] == "/login?error=google_state"
+    assert login.headers["location"].startswith("/login?error=google_state")
+
+
+def test_a_stale_state_still_returns_the_visitor_where_they_were(
+    google_client: TestClient,
+) -> None:
+    """The second sign-in must not cost the visitor their place.
+
+    A round trip whose state cookie has gone stale (the server restarted
+    between the button and Google's reply) is refused — but the state carries
+    the destination, so the refusal sends the visitor back to the sign-in
+    button *with* that destination, and the retry lands where they were.
+    """
+    google_client.get("/auth/google/login?next=/books/abc123", follow_redirects=False)
+    state = _state_from_cookie(google_client)
+    # The cookie is what a restart (or a cleared cookie jar) loses; Google's
+    # reply still carries the state this app handed out.
+    google_client.cookies.clear()
+    login = google_client.get(f"/auth/callback?code=abc&state={state}", follow_redirects=False)
+    assert login.status_code == 303
+    location = login.headers["location"]
+    assert location.startswith("/login?error=google_state")
+    assert "next=%2Fbooks%2Fabc123" in location or "next=/books/abc123" in location
 
 
 def test_the_full_google_round_trip_signs_the_visitor_in(google_client: TestClient) -> None:

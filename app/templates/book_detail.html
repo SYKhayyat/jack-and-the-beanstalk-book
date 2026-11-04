@@ -21,33 +21,7 @@
     {% endif %}
   </header>
 
-  {% if library_enabled %}
-  <aside class="library" aria-label="Your books">
-    <h2 class="library-title">Your books</h2>
-    {% if books %}
-    <nav class="library-stack">
-      {% for item in books %}
-      <a class="library-card {{ item.status }}{% if item.book_id == book.book_id %} current{% endif %}" href="/books/{{ item.book_id }}">
-        {% if item.cover_url %}
-        <img class="library-thumb" src="{{ item.cover_url }}" alt="" loading="lazy">
-        {% else %}
-        <span class="library-thumb placeholder" aria-hidden="true"></span>
-        {% endif %}
-        <span class="library-card-text">
-          <strong>{{ item.title or "Untitled book" }}</strong>
-          <span class="library-meta">
-            {% if item.status == "complete" %}{{ item.page_count + 2 }} pages{% else %}{{ item.pages_done }} of {{ item.page_count or 19 }} pages{% endif %}
-            {% if item.status == "failed" %} — stopped{% endif %}
-          </span>
-        </span>
-      </a>
-      {% endfor %}
-    </nav>
-    {% else %}
-    <p class="library-empty">Your finished books will collect here.</p>
-    {% endif %}
-  </aside>
-  {% endif %}
+  {% with current_id = book.book_id %}{% include "_library.html" %}{% endwith %}
 
   <main class="book-detail">
     <section class="panel book-head">
@@ -65,15 +39,32 @@
           {% if pdf_url %}
           <a id="book-pdf-link" class="button primary" href="{{ pdf_url }}" download="book-{{ book.book_id }}.pdf">Download the book (PDF)</a>
           {% endif %}
+          <a id="book-cartoon-link" class="button secondary" href="/book-media/{{ book.book_id }}/portrait?download=1" download="cartoon-{{ book.book_id }}.png">Download the cartoon</a>
+          <a id="book-photo-link" class="button secondary" href="/book-media/{{ book.book_id }}/photo?download=1" download="original-photo-{{ book.book_id }}.png">Download the original photo</a>
           <a class="button secondary" href="/">Start a new book</a>
         </div>
       </div>
     </section>
 
-    {% if pdf_url %}
-    <section class="panel">
+    {% if reader_pages %}
+    <section class="panel" id="book-reader-panel">
       <h2>The book</h2>
-      <iframe class="pdf-frame" src="{{ pdf_url }}" title="Your picture book"></iframe>
+      <div id="book-reader" class="reader">
+        {% for page in reader_pages %}
+        <figure class="reader-page{% if loop.first %} current{% else %} hidden{% endif %}" data-reader-index="{{ loop.index0 }}">
+          <img src="{{ page.url }}" alt="Page {{ page.number }}: {{ page.title }}" loading="{% if loop.first %}eager{% else %}lazy{% endif %}">
+          {% if page.story %}<p class="reader-story">{{ page.story }}</p>{% endif %}
+        </figure>
+        {% endfor %}
+        <div class="reader-controls">
+          <button type="button" id="reader-prev" class="button secondary">Back</button>
+          <span id="reader-label" class="reader-label"></span>
+          <button type="button" id="reader-next" class="button secondary">Next</button>
+        </div>
+      </div>
+      {% if pdf_url %}
+      <p class="field-help">The PDF has every page in one file: <a href="{{ pdf_url }}">open it in a new tab</a>.</p>
+      {% endif %}
     </section>
     {% endif %}
 

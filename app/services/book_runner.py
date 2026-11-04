@@ -66,6 +66,18 @@ _PAGE_CHARGE_RETRY_SECONDS = 0.25
 #: The prompt record uses one pseudo-page for the cover.
 _COVER_KEY = "cover"
 
+#: The cover is page zero of the book. It is counted with the story pages —
+#: a book is the cover plus nineteen story pages — and it is drawn first.
+_COVER_NUMBER = 0
+
+#: The phases a book job moves through, as the poll document reports them.
+#: The distinction that matters to the reader: the pictures can all be done
+#: while the PDF is still being put together, and saying so is the difference
+#: between "your book is ready" and a progress bar that stops moving.
+_PHASE_PAGES = "pages"
+_PHASE_ASSEMBLING = "assembling"
+_PHASE_COMPLETE = "complete"
+
 
 @dataclass(frozen=True, slots=True)
 class _Artwork:
@@ -182,10 +194,8 @@ class BookRunner:
         record = self._book_store.load_record(book_id)
         if record is None:
             return
-        titles = tuple(
-            render_book_page(
-                page, record.settings, prompt_name=record.about.prompt_name
-            ).scene.title
+        rendered_pages = tuple(
+            render_book_page(page, record.settings, prompt_name=record.about.prompt_name)
             for page in BOOK_PAGES
         )
         existing = self._stored_progress(book_id)
@@ -193,6 +203,9 @@ class BookRunner:
             page.number: "done" if existing.get(page.number) == "done" else "pending"
             for page in BOOK_PAGES
         }
+        progress[_COVER_NUMBER] = (
+            "done" if existing.get(_COVER_NUMBER) == "done" else "pending"
+        )
         target = (
             {page.number for page in BOOK_PAGES} if page_numbers is None else set(page_numbers)
         )
@@ -203,8 +216,9 @@ class BookRunner:
         self._book_store.save_status(
             book_id,
             BookStatus.RENDERING,
-            self._page_view(book_id, progress, titles),
+            self._page_view(book_id, progress, rendered_pages),
             title=record.about.book_title,
+            extra={"phase": _PHASE_PAGES, "total_pages": len(rendered_pages) + 1},
         )
 
     def _schedule(self, book_id: str, coro: Coroutine[Any, Any, None]) -> None:
@@ -233,13 +247,11 @@ class BookRunner:
         record = self._book_store.load_record(book_id)
         if record is None:
             return
-        titles = tuple(
-            render_book_page(
-                page, record.settings, prompt_name=record.about.prompt_name
-            ).scene.title
+        rendered_pages = tuple(
+            render_book_page(page, record.settings, prompt_name=record.about.prompt_name)
             for page in BOOK_PAGES
         )
-        self._assemble_and_save(record, titles, self._stored_progress(book_id))
+        self._assemble_and_save(record, rendered_pages, self._stored_progress(book_id))
 
     # --- the job ----------------------------------------------------------------
 
@@ -264,8 +276,8 @@ class BookRunner:
             pages = list(BOOK_PAGES)
             total = len(pages)
             prompt_name = record.about.prompt_name
-            titles = tuple(
-                render_book_page(page, artwork.settings, prompt_name=prompt_name).scene.title
+            rendered_pages = tuple(
+                render_book_page(page, artwork.settings, prompt_name=prompt_name)
                 for page in pages
             )
             existing = await asyncio.to_thread(self._stored_progress, book_id)
@@ -273,6 +285,10 @@ class BookRunner:
                 page.number: "done" if existing.get(page.number) == "done" else "pending"
                 for page in pages
             }
+            # The cover counts as one of the book's pages and is drawn first.
+            progress[_COVER_NUMBER] = (
+                "done" if existing.get(_COVER_NUMBER) == "done" else "pending"
+            )
             target = (
                 {page.number for page in pages} if page_numbers is None else set(page_numbers)
             )
@@ -282,6 +298,7 @@ class BookRunner:
             for number in target:
                 progress[number] = "pending"
             status_lock = asyncio.Lock()
+            phase = _PHASE_PAGES
 
             async def paint() -> None:
                 async with status_lock:
@@ -289,9 +306,10 @@ class BookRunner:
                         self._book_store.save_status,
                         book_id,
                         BookStatus.RENDERING,
-                        self._page_view(book_id, progress, titles),
+                        self._page_view(book_id, progress, rendered_pages),
                         None,
                         title=record.about.book_title,
+                        extra={"phase": phase, "total_pages": total + 1},
                     )
 
             async def mark(page_number: int, state: str) -> None:
@@ -369,7 +387,7 @@ class BookRunner:
 
             await paint()
             if draw_cover:
-                await self._render_cover(record, artwork, page_charge)
+                await self._render_cover(record, artwork, page_charge, mark)
             to_render = [page for page in pages if page.number in target]
             rendered: dict[int, PageArt] = {}
             if to_render:
@@ -384,8 +402,13 @@ class BookRunner:
                     for result in results
                 }
 
+            # The pictures are done; the book is not. Say so, so the reader is
+            # told the PDF is being put together instead of watching a
+            # progress bar that has stopped moving.
+            phase = _PHASE_ASSEMBLING
+            await paint()
             pdf_bytes = await asyncio.to_thread(
-                self._assemble_and_save, record, titles, progress, rendered
+                self._assemble_and_save, record, rendered_pages, progress, rendered
             )
             logger.info(
                 "book.complete user=%s book=%s pages=%d pdf_bytes=%d ms=%.0f outcome=complete",
@@ -434,7 +457,7 @@ class BookRunner:
     def _assemble_and_save(
         self,
         record: BookRecord,
-        titles: Sequence[str],
+        rendered_pages: Sequence[BookPage],
         progress: Mapping[int, str],
         rendered: Mapping[int, PageArt] | None = None,
     ) -> int:
@@ -446,29 +469,23 @@ class BookRunner:
         """
         arts: list[PageArt] = []
         fresh = rendered or {}
-        for page in BOOK_PAGES:
+        for page in rendered_pages:
             if page.number in fresh:
                 arts.append(fresh[page.number])
                 continue
             image = self._book_store.read_page(record.book_id, page.number)
             if image is None:
                 raise ValueError(f"Page {page.number} is missing; cannot assemble the book.")
-            arts.append(
-                PageArt(
-                    image=image,
-                    page=render_book_page(
-                        page, record.settings, prompt_name=record.about.prompt_name
-                    ),
-                )
-            )
+            arts.append(PageArt(image=image, page=page))
         cover = self._book_store.read_cover(record.book_id)
         pdf_bytes = build_book_pdf(record.about, arts, cover)
         self._book_store.save_pdf(record.book_id, pdf_bytes)
         self._book_store.save_status(
             record.book_id,
             BookStatus.COMPLETE,
-            self._page_view(record.book_id, progress, titles),
+            self._page_view(record.book_id, progress, rendered_pages),
             title=record.about.book_title,
+            extra={"phase": _PHASE_COMPLETE, "total_pages": len(rendered_pages) + 1},
         )
         return len(pdf_bytes)
 
@@ -477,10 +494,12 @@ class BookRunner:
         record: BookRecord,
         artwork: _Artwork,
         page_charge: Callable[[], bool] | None,
+        mark: Callable[[int, str], Awaitable[None]],
     ) -> bytes:
         """Draw and persist the cover: one billable call, before the pages."""
         prompt = build_cover_prompt(artwork.settings, prompt_name=record.about.prompt_name)
         await _await_page_charge(page_charge)
+        await mark(_COVER_NUMBER, "making")
         image = await self._on_worker_thread_with_slot(
             self._page_call(
                 [artwork.portrait, artwork.photo],
@@ -496,6 +515,7 @@ class BookRunner:
             record.book_id,
             {"page": "cover", "key": _COVER_KEY, "prompt": prompt},
         )
+        await mark(_COVER_NUMBER, "done")
         return image
 
     async def _on_worker_thread_with_slot(
@@ -618,22 +638,42 @@ class BookRunner:
         self,
         book_id: str,
         progress: Mapping[int, str],
-        titles: Sequence[str],
+        rendered_pages: Sequence[BookPage],
     ) -> list[dict[str, object]]:
-        """The full page list for status, in story order, from live progress."""
-        view: list[dict[str, object]] = []
-        for page, title in zip(BOOK_PAGES, titles, strict=True):
+        """The full page list for status, in story order, from live progress.
+
+        The cover comes first and is counted like any other page: the book is
+        the cover plus nineteen story pages, and the reader should see that.
+        Each entry carries its own story text, so the browser can show the
+        book page by page without a second request.
+        """
+        cover_state = progress.get(_COVER_NUMBER, "pending")
+        cover_done = cover_state == "done"
+        view: list[dict[str, object]] = [
+            {
+                "number": _COVER_NUMBER,
+                "key": _COVER_KEY,
+                "title": "Cover",
+                "url": self._book_store.cover_url(book_id) if cover_done else None,
+                "status": cover_state,
+                "story": "",
+                "text_zone": "",
+            }
+        ]
+        for page in rendered_pages:
             state = progress.get(page.number, "pending")
             finished = state == "done"
             view.append(
                 {
                     "number": page.number,
                     "key": page.key,
-                    "title": title,
+                    "title": page.scene.title,
                     "url": self._book_store.page_url(book_id, page.number)
                     if finished
                     else None,
                     "status": state,
+                    "story": page.story,
+                    "text_zone": page.text_zone.value,
                 }
             )
         return view

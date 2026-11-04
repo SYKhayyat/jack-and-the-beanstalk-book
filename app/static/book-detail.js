@@ -30,6 +30,9 @@ document.getElementById("edit-about-form").addEventListener("submit", (event) =>
   void saveAbout();
 });
 document.getElementById("delete-book").addEventListener("click", () => void deleteBook());
+for (const button of document.querySelectorAll("[data-delete-book]")) {
+  button.addEventListener("click", () => void deleteLibraryBook(button));
+}
 for (const button of document.querySelectorAll(".edit-page-button")) {
   button.addEventListener("click", () => {
     document.getElementById("edit-page-number").value = button.dataset.pageNumber;
@@ -37,6 +40,7 @@ for (const button of document.querySelectorAll(".edit-page-button")) {
   });
 }
 wireCamera();
+wireReader();
 
 async function postEdit(fields) {
   try {
@@ -125,6 +129,35 @@ async function deleteBook() {
   }
 }
 
+/* The sidebar is the fastest way out of a book: one click on its own × , no
+   need to open the book first. Deleting the book this page is showing leaves
+   nowhere to stand, so those go home. */
+async function deleteLibraryBook(button) {
+  const otherId = button.dataset.deleteBook;
+  const title = button.dataset.deleteTitle || "this book";
+  if (!window.confirm(`Delete "${title}" and all of its pictures?`)) return;
+  button.disabled = true;
+  try {
+    const deleted = await api.removeOther(otherId);
+    if (!deleted) {
+      button.closest(".library-item")?.remove();
+      return;
+    }
+    if (otherId === bookId) {
+      window.location.assign("/");
+      return;
+    }
+    button.closest(".library-item")?.remove();
+  } catch (error) {
+    button.disabled = false;
+    if (error.status === 401) {
+      window.location.assign(`/login?next=/books/${bookId}`);
+      return;
+    }
+    showMessage(error.message || "That book could not be deleted.", true);
+  }
+}
+
 async function runEdit(start, message) {
   try {
     showMessage(message);
@@ -156,7 +189,11 @@ async function poll() {
     }
     const done = (payload.pages || []).filter((page) => page.status === "done").length;
     const total = (payload.pages || []).length;
-    showMessage(`${done} of ${total} pages ready — still working…`);
+    if (payload.phase === "assembling") {
+      showMessage("All the pages are made — putting the book together…");
+    } else {
+      showMessage(`${done} of ${total} pages ready — still working…`);
+    }
     window.setTimeout(poll, POLL_MS);
   } catch (error) {
     polling = false;
@@ -174,6 +211,36 @@ function showMessage(message, isError = false) {
   node.textContent = message;
   node.classList.toggle("error", isError);
   node.classList.remove("hidden");
+}
+
+/* --- the reader ------------------------------------------------------------ */
+
+/* The finished book is read in the page: the picture and its story line.
+   The PDF is still one click away, but nothing here depends on it. */
+function wireReader() {
+  const reader = document.getElementById("book-reader");
+  if (!reader) return;
+  const pages = Array.from(reader.querySelectorAll(".reader-page"));
+  const label = document.getElementById("reader-label");
+  const prev = document.getElementById("reader-prev");
+  const next = document.getElementById("reader-next");
+  if (!pages.length) return;
+  let index = 0;
+
+  const show = (wanted) => {
+    index = Math.max(0, Math.min(pages.length - 1, wanted));
+    pages.forEach((page, position) => {
+      page.classList.toggle("current", position === index);
+      page.classList.toggle("hidden", position !== index);
+    });
+    label.textContent = `Page ${index + 1} of ${pages.length}`;
+    prev.disabled = index === 0;
+    next.disabled = index === pages.length - 1;
+  };
+
+  prev.addEventListener("click", () => show(index - 1));
+  next.addEventListener("click", () => show(index + 1));
+  show(0);
 }
 
 /* --- camera ---------------------------------------------------------------- */
