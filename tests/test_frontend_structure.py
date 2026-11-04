@@ -15,6 +15,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.models import CartoonSettings, RejectionReason
 from app.services.prompts import photoable_cast
@@ -534,3 +535,10 @@ def test_the_intensity_dial_speaks_plain_english(page_html: str) -> None:
     assert ("1", "Almost a photo") in options
     assert ("8", "Very strongly a cartoon") in options
     assert ("10", "Fully graphic") in options
+
+
+def test_static_files_are_revalidated_so_a_deploy_is_never_stale(client: TestClient) -> None:
+    response = client.get("/static/book-detail.js")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert "etag" in response.headers

@@ -45,6 +45,23 @@ BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 
+
+class RevalidatedStaticFiles(StaticFiles):
+    """Static files every cache must check with us before reusing.
+
+    Without a Cache-Control header, Cloudflare in front of the custom domain
+    kept `book-detail.js` for four hours, so a deploy shipped new HTML that
+    called into an old script. `no-cache` still lets a browser keep the file,
+    but only after an ETag check — a 304 when nothing changed, the new file
+    the moment a deploy changes it.
+    """
+
+    def file_response(self, *args: object, **kwargs: object) -> Response:
+        response = super().file_response(*args, **kwargs)  # type: ignore[arg-type]
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # No request body may exceed this, whatever the endpoint. Uploads are already
 # capped lower by their own reader; this ceiling exists for the routes that
 # have no billable gate — /login is pre-session by definition — so an
@@ -189,7 +206,7 @@ def create_app(
     app.include_router(book.media_router)
     app.include_router(media.router)
     app.include_router(auth.router)
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/static", RevalidatedStaticFiles(directory=STATIC_DIR), name="static")
 
     @app.middleware("http")
     async def _limit_body(
