@@ -27,7 +27,10 @@ document.getElementById("edit-face-form").addEventListener("submit", (event) => 
 document.getElementById("redraw-cover").addEventListener("click", () => void redrawCover());
 // Only a failed book renders this button: it draws just the pages (and the
 // cover) that never finished, and keeps every finished page as it is.
-document.getElementById("finish-book")?.addEventListener("click", () => void finishBook());
+document.getElementById("finish-book")?.addEventListener("click", (event) => {
+  event.currentTarget.disabled = true; // one click, one job: a second POST is a 409
+  void finishBook();
+});
 document.getElementById("edit-about-form").addEventListener("submit", (event) => {
   event.preventDefault();
   void saveAbout();
@@ -44,6 +47,12 @@ for (const button of document.querySelectorAll(".edit-page-button")) {
 }
 wireCamera();
 wireReader();
+
+// A page opened mid-render (a reload, a second tab, a trip through sign-in)
+// must pick the progress up itself; otherwise it sits on its first message.
+if (!["complete", "failed"].includes(document.body.dataset.bookStatus)) {
+  startPolling();
+}
 
 async function postEdit(fields) {
   try {
@@ -175,7 +184,13 @@ async function runEdit(start, message) {
     startPolling();
   } catch (error) {
     showMessage(error.message || "The edit could not start.", true);
+    enableFinish();
   }
+}
+
+function enableFinish() {
+  const finish = document.getElementById("finish-book");
+  if (finish) finish.disabled = false;
 }
 
 function startPolling() {
@@ -194,6 +209,7 @@ async function poll() {
     if (payload.status === "failed") {
       polling = false;
       showMessage(payload.error || "The book stopped early.", true);
+      enableFinish();
       return;
     }
     const done = (payload.pages || []).filter((page) => page.status === "done").length;
@@ -216,10 +232,15 @@ async function poll() {
 }
 
 function showMessage(message, isError = false) {
-  const node = document.getElementById("edit-message");
-  node.textContent = message;
-  node.classList.toggle("error", isError);
-  node.classList.remove("hidden");
+  // The status line at the top is where the reader is looking; the line under
+  // the edit forms repeats it for whoever just pressed a button down there.
+  for (const id of ["book-status-line", "edit-message"]) {
+    const node = document.getElementById(id);
+    if (!node) continue;
+    node.textContent = message;
+    node.classList.toggle("error", isError);
+    node.classList.remove("hidden");
+  }
 }
 
 /* --- the reader ------------------------------------------------------------ */

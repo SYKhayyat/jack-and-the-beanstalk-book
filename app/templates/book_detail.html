@@ -6,7 +6,7 @@
   <title>{{ book.about.book_title }}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body data-book-id="{{ book.book_id }}" data-max-upload-mb="{{ max_upload_mb }}" data-page="book-detail">
+<body data-book-id="{{ book.book_id }}" data-max-upload-mb="{{ max_upload_mb }}" data-page="book-detail" data-book-status="{{ status.status }}">
   <header class="masthead">
     <h1><a class="title-link" href="/">{{ book.about.book_title }}</a></h1>
     <p class="tagline">A picture book starring {{ book.about.about_name }}</p>

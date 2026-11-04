@@ -542,3 +542,13 @@ def test_static_files_are_revalidated_so_a_deploy_is_never_stale(client: TestCli
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-cache"
     assert "etag" in response.headers
+
+
+def test_book_detail_picks_up_progress_on_load() -> None:
+    """A page opened mid-render polls on its own and reports at the top."""
+    root = Path(__file__).resolve().parents[1] / "app"
+    template = (root / "templates" / "book_detail.html").read_text()
+    script = (root / "static" / "book-detail.js").read_text()
+    assert 'data-book-status="{{ status.status }}"' in template
+    assert "document.body.dataset.bookStatus" in script
+    assert '"book-status-line"' in script
