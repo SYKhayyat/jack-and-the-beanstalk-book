@@ -10,7 +10,7 @@ from app.models import CartoonSettings
 from app.services.images import decode_upload
 from app.services.pipeline import GenerationPipeline
 from app.services.storage import GenerationStore
-from tests.helpers import RecordingProvider, make_photo_bytes
+from tests.helpers import RecordingProvider, jack, make_photo_bytes
 
 
 @pytest.fixture
@@ -24,12 +24,18 @@ def store(tmp_path: Path) -> GenerationStore:
     return GenerationStore(tmp_path / "storage")
 
 
+JACK = jack()
+
+
 class TestPortraitPass:
     def test_calls_the_provider_once(
         self, provider: RecordingProvider, store: GenerationStore, decoded: tuple[bytes, str]
     ) -> None:
         GenerationPipeline(provider, store).cartoonify(
-            photo_data=decoded[0], photo_media_type=decoded[1], settings=CartoonSettings()
+            story=JACK,
+            photo_data=decoded[0],
+            photo_media_type=decoded[1],
+            settings=CartoonSettings(),
         )
         assert [request.label for request in provider.requests] == ["cartoonify"]
 
@@ -37,7 +43,10 @@ class TestPortraitPass:
         self, provider: RecordingProvider, store: GenerationStore, decoded: tuple[bytes, str]
     ) -> None:
         draft = GenerationPipeline(provider, store).cartoonify(
-            photo_data=decoded[0], photo_media_type=decoded[1], settings=CartoonSettings()
+            story=JACK,
+            photo_data=decoded[0],
+            photo_media_type=decoded[1],
+            settings=CartoonSettings(),
         )
         assert provider.requests[0].prompt == draft.cartoon_prompt
         assert draft.cartoon_prompt  # not an empty prompt
@@ -47,6 +56,7 @@ class TestPortraitPass:
     ) -> None:
         """Providers that cannot batch return one image, not `count` calls."""
         draft = GenerationPipeline(provider, store).cartoonify(
+            story=JACK,
             photo_data=decoded[0],
             photo_media_type=decoded[1],
             settings=CartoonSettings(candidates=3),
@@ -58,10 +68,16 @@ class TestPortraitPass:
     ) -> None:
         pipeline = GenerationPipeline(provider, store)
         first = pipeline.cartoonify(
-            photo_data=decoded[0], photo_media_type=decoded[1], settings=CartoonSettings()
+            story=JACK,
+            photo_data=decoded[0],
+            photo_media_type=decoded[1],
+            settings=CartoonSettings(),
         )
         second = pipeline.cartoonify(
-            photo_data=decoded[0], photo_media_type=decoded[1], settings=CartoonSettings()
+            story=JACK,
+            photo_data=decoded[0],
+            photo_media_type=decoded[1],
+            settings=CartoonSettings(),
         )
         assert first.generation_id != second.generation_id
 
@@ -72,7 +88,7 @@ class TestPersistence:
     ) -> None:
         settings = CartoonSettings()
         draft = GenerationPipeline(provider, store).cartoonify(
-            photo_data=decoded[0], photo_media_type=decoded[1], settings=settings
+            story=JACK, photo_data=decoded[0], photo_media_type=decoded[1], settings=settings
         )
         loaded = store.load_draft(draft.generation_id)
         assert loaded is not None
@@ -84,6 +100,7 @@ class TestPersistence:
         self, provider: RecordingProvider, store: GenerationStore, decoded: tuple[bytes, str]
     ) -> None:
         draft = GenerationPipeline(provider, store).cartoonify(
+            story=JACK,
             photo_data=decoded[0],
             photo_media_type=decoded[1],
             settings=CartoonSettings(),

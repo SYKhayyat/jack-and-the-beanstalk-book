@@ -32,6 +32,7 @@ from app.models.book import AboutMe
 from app.services.book_store import BookStatus
 from app.services.db_book_store import DatabaseBookStore
 from app.services.user_store import DatabaseUserStore, User
+from tests.helpers import edition_in
 
 ROOT = Path(__file__).resolve().parent.parent
 VERSION_TABLE = "alembic_version"
@@ -136,6 +137,7 @@ class TestTheMigratedSchema:
             )
             store = DatabaseBookStore(engine)
             store.save_record(
+                edition=edition_in(store),
                 book_id="book-1",
                 user_id="sub-1",
                 about=AboutMe.model_validate({"prompt_name": "Shai", "about_name": "Shai"}),
@@ -307,4 +309,48 @@ class TestMigration0005:
         assert page.attempt_count == 0
         assert page.review is None
         assert not page.best_effort
+        alembic(empty_database, "downgrade", "base")
+
+
+class TestMigration0006:
+    """Books pin their story; the bible carries every look; the start gate."""
+
+    def test_up_down_up_lands_on_the_models_each_time(self, empty_database: str) -> None:
+        models = describe(Base.metadata, affinity=True)
+        alembic(empty_database, "upgrade", "0005")
+        before = describe(reflect(empty_database), affinity=True)
+
+        alembic(empty_database, "upgrade", "head")
+        assert describe(reflect(empty_database), affinity=True) == models
+
+        alembic(empty_database, "downgrade", "0005")
+        assert describe(reflect(empty_database), affinity=True) == before
+
+        alembic(empty_database, "upgrade", "head")
+        assert describe(reflect(empty_database), affinity=True) == models
+        alembic(empty_database, "downgrade", "base")
+
+    def test_an_existing_book_is_titled_from_the_name_it_was_made_with(
+        self, empty_database: str
+    ) -> None:
+        alembic(empty_database, "upgrade", "0005")
+        engine = create_engine(empty_database)
+        try:
+            with engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "INSERT INTO books (id, status, generation_id, about, created_at, "
+                    "updated_at) VALUES ('old', 'complete', 'g', "
+                    '\'{"prompt_name": "Noa", "about_name": "Noa"}\', '
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            alembic(empty_database, "upgrade", "head")
+            with engine.connect() as connection:
+                title = connection.exec_driver_sql("SELECT title FROM books").scalar_one()
+                gate = connection.exec_driver_sql(
+                    "SELECT count(*) FROM stories WHERE requires_template"
+                ).scalar_one()
+        finally:
+            engine.dispose()
+        assert title == "Noa and the Beanstalk"
+        assert gate == 0
         alembic(empty_database, "downgrade", "base")

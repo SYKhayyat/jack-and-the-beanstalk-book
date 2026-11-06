@@ -35,6 +35,7 @@ from app.models.book import AboutMe
 from app.services.book_store import BookStatus
 from app.services.db_book_store import DatabaseBookStore
 from app.services.user_store import DatabaseUserStore, User
+from tests.helpers import edition_in
 
 ABOUT = AboutMe.model_validate({"prompt_name": "Jack", "about_name": "Jack"})
 USER = "109876543210987654321"
@@ -49,7 +50,13 @@ def store(engine: Any) -> DatabaseBookStore:
 
 
 def _seed(store: DatabaseBookStore, *, user_id: str | None = USER) -> str:
-    store.save_record(book_id="book-1", user_id=user_id, about=ABOUT, generation_id="gen-1")
+    store.save_record(
+        edition=edition_in(store),
+        book_id="book-1",
+        user_id=user_id,
+        about=ABOUT,
+        generation_id="gen-1",
+    )
     return "book-1"
 
 
@@ -206,7 +213,13 @@ def test_expire_deletes_only_finished_old_books(store: DatabaseBookStore, engine
         ("old-rendering", BookStatus.RENDERING),
         ("young", BookStatus.COMPLETE),
     ):
-        store.save_record(book_id=book_id, user_id=USER, about=ABOUT, generation_id="gen")
+        store.save_record(
+            edition=edition_in(store),
+            book_id=book_id,
+            user_id=USER,
+            about=ABOUT,
+            generation_id="gen",
+        )
         store.save_status(book_id, status, [])
     store.save_page("old-complete", 1, b"PNG-PAGE")
 
@@ -233,7 +246,13 @@ def test_expire_deletes_only_finished_old_books(store: DatabaseBookStore, engine
 def test_a_recent_edit_keeps_an_old_book_alive(store: DatabaseBookStore, engine: Any) -> None:
     """Retention follows `updated_at`, not the request's creation time."""
     week = 7 * 24 * 3600
-    store.save_record(book_id="edited", user_id=USER, about=ABOUT, generation_id="gen")
+    store.save_record(
+        edition=edition_in(store),
+        book_id="edited",
+        user_id=USER,
+        about=ABOUT,
+        generation_id="gen",
+    )
     store.save_status("edited", BookStatus.COMPLETE, [])
     old = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=30)
     with engine.begin() as conn:
@@ -253,6 +272,7 @@ def test_expire_with_a_zero_window_deletes_nothing(store: DatabaseBookStore) -> 
 def test_find_started_matches_an_identical_live_request(store: DatabaseBookStore) -> None:
     """The idempotency lookup: same fingerprint, inside the window, not failed."""
     store.save_record(
+        edition=edition_in(store),
         book_id="book-1",
         user_id=USER,
         about=ABOUT,
@@ -271,6 +291,7 @@ def test_find_started_matches_an_identical_live_request(store: DatabaseBookStore
 def test_find_started_skips_a_failed_book(store: DatabaseBookStore) -> None:
     """After a failure the visitor asking again is asking for a new attempt."""
     store.save_record(
+        edition=edition_in(store),
         book_id="book-1",
         user_id=USER,
         about=ABOUT,
@@ -302,7 +323,13 @@ def test_a_mid_render_book_is_reaped_on_restart(store: DatabaseBookStore) -> Non
     store.save_page(book_id, 1, b"kept")
     pages = [{"number": 1, "status": "done", "url": "/book-media/book-1/pages/1"}]
     store.save_status(book_id, BookStatus.RENDERING, pages)
-    store.save_record(book_id="book-2", user_id=None, about=ABOUT, generation_id="gen-2")
+    store.save_record(
+        edition=edition_in(store),
+        book_id="book-2",
+        user_id=None,
+        about=ABOUT,
+        generation_id="gen-2",
+    )
     store.save_status("book-2", BookStatus.COMPLETE, [])
 
     assert store.reap_incomplete() == 1
@@ -438,7 +465,13 @@ def test_a_pasted_postgres_url_names_the_installed_driver() -> None:
 
 def test_a_new_book_polls_as_pending(store: DatabaseBookStore) -> None:
     """The poll's document is right from the moment the book exists."""
-    store.save_record(book_id="book-1", user_id=USER, about=ABOUT, generation_id="gen-1")
+    store.save_record(
+        edition=edition_in(store),
+        book_id="book-1",
+        user_id=USER,
+        about=ABOUT,
+        generation_id="gen-1",
+    )
     status = store.load_status("book-1")
     assert status is not None
     assert status["status"] == BookStatus.PENDING
@@ -449,7 +482,13 @@ def test_a_new_book_polls_as_pending(store: DatabaseBookStore) -> None:
 def test_the_status_document_has_exactly_the_polls_fields(
     store: DatabaseBookStore,
 ) -> None:
-    store.save_record(book_id="book-1", user_id=USER, about=ABOUT, generation_id="gen-1")
+    store.save_record(
+        edition=edition_in(store),
+        book_id="book-1",
+        user_id=USER,
+        about=ABOUT,
+        generation_id="gen-1",
+    )
     store.save_status(
         "book-1", BookStatus.COMPLETE, [{"number": 1, "status": "done", "url": "u"}]
     )
@@ -549,7 +588,11 @@ def _seed_book(settings: Settings, user_id: str) -> str:
     store = container.book_store
     assert isinstance(store, DatabaseBookStore)
     store.save_record(
-        book_id="owned-book", user_id=user_id, about=ABOUT, generation_id="gen-1"
+        edition=edition_in(store),
+        book_id="owned-book",
+        user_id=user_id,
+        about=ABOUT,
+        generation_id="gen-1",
     )
     store.save_pdf("owned-book", b"%PDF-owned")
     store.save_status("owned-book", BookStatus.COMPLETE, [])

@@ -14,27 +14,32 @@ from app.models.settings import (
     SkinTone,
 )
 from app.services.prompts import build_cartoon_prompt
+from tests.helpers import jack
+
+#: Jack's tale exactly as a new book is made from it (its seed's edition).
+JACK = jack()
+BOOK_PAGES = JACK.pages
 
 
 class TestCartoonPrompt:
     def test_defaults_carry_identity_and_style(self) -> None:
-        prompt = build_cartoon_prompt(CartoonSettings())
+        prompt = build_cartoon_prompt(CartoonSettings(), story=JACK)
         assert "Preserve the identity" in prompt
         assert "modern 3d animated feature" in prompt.lower()
         assert "no writing in it" in prompt
 
     def test_no_text_artifacts_requested(self) -> None:
-        prompt = build_cartoon_prompt(CartoonSettings())
+        prompt = build_cartoon_prompt(CartoonSettings(), story=JACK)
         assert "Do not include any text" in prompt
         assert "speech bubble" in prompt
 
     def test_only_one_person_requested(self) -> None:
-        prompt = build_cartoon_prompt(CartoonSettings())
+        prompt = build_cartoon_prompt(CartoonSettings(), story=JACK)
         assert "only the one" in prompt
 
     @pytest.mark.parametrize("style", list(CartoonStyle), ids=lambda s: s.value)
     def test_every_style_has_distinct_language(self, style: CartoonStyle) -> None:
-        prompt = build_cartoon_prompt(CartoonSettings(cartoon_style=style))
+        prompt = build_cartoon_prompt(CartoonSettings(cartoon_style=style), story=JACK)
         expected_terms = {
             CartoonStyle.MANGA: "screentone",
             CartoonStyle.ANIME: "cel shading",
@@ -50,19 +55,19 @@ class TestCartoonPrompt:
 
     def test_styles_are_not_all_identical(self) -> None:
         prompts = {
-            build_cartoon_prompt(CartoonSettings(cartoon_style=style))
+            build_cartoon_prompt(CartoonSettings(cartoon_style=style), story=JACK)
             for style in CartoonStyle
         }
         assert len(prompts) == len(CartoonStyle)
 
     @pytest.mark.parametrize("intensity", list(range(1, 11)))
     def test_every_intensity_has_guidance(self, intensity: int) -> None:
-        prompt = build_cartoon_prompt(CartoonSettings(cartoon_intensity=intensity))
+        prompt = build_cartoon_prompt(CartoonSettings(cartoon_intensity=intensity), story=JACK)
         assert "STYLISATION LEVEL" in prompt
 
     def test_low_and_high_intensity_differ_in_meaning(self) -> None:
-        low = build_cartoon_prompt(CartoonSettings(cartoon_intensity=1))
-        high = build_cartoon_prompt(CartoonSettings(cartoon_intensity=10))
+        low = build_cartoon_prompt(CartoonSettings(cartoon_intensity=1), story=JACK)
+        high = build_cartoon_prompt(CartoonSettings(cartoon_intensity=10), story=JACK)
         assert "almost intact" in low
         assert "maximally simplified" in high
 
@@ -77,13 +82,15 @@ class TestCartoonPrompt:
     def test_identity_overrides_reach_the_prompt(
         self, field: str, value: object, expected: str
     ) -> None:
-        prompt = build_cartoon_prompt(CartoonSettings(**{field: value}))
+        prompt = build_cartoon_prompt(CartoonSettings(**{field: value}), story=JACK)
         assert expected in prompt
 
     def test_glasses_and_facial_hair_toggles(self) -> None:
-        kept = build_cartoon_prompt(CartoonSettings(keep_glasses=True, keep_facial_hair=True))
+        kept = build_cartoon_prompt(
+            CartoonSettings(keep_glasses=True, keep_facial_hair=True), story=JACK
+        )
         dropped = build_cartoon_prompt(
-            CartoonSettings(keep_glasses=False, keep_facial_hair=False)
+            CartoonSettings(keep_glasses=False, keep_facial_hair=False), story=JACK
         )
         assert "keep those glasses" in kept
         assert "Remove any glasses" in dropped
@@ -99,18 +106,22 @@ class TestCartoonPrompt:
     def test_likeness_strength_is_reflected(
         self, strength: LikenessStrength, expected: str
     ) -> None:
-        prompt = build_cartoon_prompt(CartoonSettings(likeness_strength=strength))
+        prompt = build_cartoon_prompt(CartoonSettings(likeness_strength=strength), story=JACK)
         assert expected in prompt
 
 
 class TestCharacterGender:
     def test_boy_settings_name_the_character_jack(self) -> None:
-        prompt = build_cartoon_prompt(CartoonSettings(character_gender=CharacterGender.BOY))
+        prompt = build_cartoon_prompt(
+            CartoonSettings(character_gender=CharacterGender.BOY), story=JACK
+        )
         assert "Jack" in prompt
         assert "Jane" not in prompt
 
     def test_girl_settings_name_the_character_jane(self) -> None:
-        prompt = build_cartoon_prompt(CartoonSettings(character_gender=CharacterGender.GIRL))
+        prompt = build_cartoon_prompt(
+            CartoonSettings(character_gender=CharacterGender.GIRL), story=JACK
+        )
         assert "Jane" in prompt
         assert "Jack" not in prompt
 
@@ -118,13 +129,17 @@ class TestCharacterGender:
         settings = CartoonSettings(
             character_gender=CharacterGender.MATCH, photo_gender=PhotoGender.GIRL
         )
-        prompt = build_cartoon_prompt(settings)
+        prompt = build_cartoon_prompt(settings, story=JACK)
         assert "Jane" in prompt
         assert "Jack" not in prompt
 
     def test_pronouns_follow_the_name(self) -> None:
-        girl = build_cartoon_prompt(CartoonSettings(character_gender=CharacterGender.GIRL))
-        boy = build_cartoon_prompt(CartoonSettings(character_gender=CharacterGender.BOY))
+        girl = build_cartoon_prompt(
+            CartoonSettings(character_gender=CharacterGender.GIRL), story=JACK
+        )
+        boy = build_cartoon_prompt(
+            CartoonSettings(character_gender=CharacterGender.BOY), story=JACK
+        )
         assert " her " in girl
         assert " her " not in boy
 
@@ -140,7 +155,7 @@ class TestPromptHygiene:
         ids=["default", "max-style", "min-style"],
     )
     def test_prompts_have_no_broken_whitespace(self, settings: CartoonSettings) -> None:
-        prompt = build_cartoon_prompt(settings)
+        prompt = build_cartoon_prompt(settings, story=JACK)
         assert "\n\n\n" not in prompt
         assert not any(line != line.strip() for line in prompt.splitlines())
         assert "None" not in prompt

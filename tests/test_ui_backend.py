@@ -21,15 +21,22 @@ from pypdf import PdfReader
 from app.config import Settings
 from app.main import create_app
 from app.models import AboutMe, AboutPhotoChoice
-from app.models.book import BOOK_PAGES
 from app.services.image_providers.base import GeneratedImage, ImageRequest
 from app.services.pdf import PageArt, build_book_pdf
-from tests.helpers import RecordingProvider, make_photo_bytes, multipart
+from tests.helpers import RecordingProvider, jack, make_photo_bytes, multipart
 from tests.test_book_library_and_edits import _google_client, _sign_in, _wait
+
+#: Jack's tale exactly as a new book is made from it (its seed's edition).
+JACK = jack()
+BOOK_PAGES = JACK.pages
 
 
 def _comic(client: TestClient, **fields: object) -> dict[str, object]:
-    form: dict[str, object] = {"photo": ("me.png", make_photo_bytes(), "image/png"), **fields}
+    form: dict[str, object] = {
+        "story": "jack_and_the_beanstalk",
+        "photo": ("me.png", make_photo_bytes(), "image/png"),
+        **fields,
+    }
     response = client.post("/api/cartoonify", **multipart(form))
     assert response.status_code == 201, response.text
     return dict(response.json())
@@ -37,7 +44,13 @@ def _comic(client: TestClient, **fields: object) -> dict[str, object]:
 
 def _start(client: TestClient, generation_id: str, **fields: object) -> str:
     response = client.post(
-        "/api/book/start", data={"generation_id": generation_id, "child_name": "Mia", **fields}
+        "/api/book/start",
+        data={
+            "story": "jack_and_the_beanstalk",
+            "generation_id": generation_id,
+            "child_name": "Mia",
+            **fields,
+        },
     )
     assert response.status_code == 201, response.text
     return str(response.json()["book_id"])
@@ -133,7 +146,11 @@ class TestPageShape:
         comic = _comic(client)
         response = client.post(
             "/api/book/start",
-            data={"generation_id": comic["generation_id"], "aspect_ratio": "5:7"},
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": comic["generation_id"],
+                "aspect_ratio": "5:7",
+            },
         )
         assert response.status_code == 422
 
@@ -157,7 +174,9 @@ class TestAboutPhoto:
         counts = {}
         for choice in AboutPhotoChoice:
             about = AboutMe(prompt_name="Mia", about_name="Mia", about_photo=choice)
-            pdf = build_book_pdf(about, pages, None, portrait=portrait, photo=photo)
+            pdf = build_book_pdf(
+                "Jack and the Beanstalk", about, pages, None, portrait=portrait, photo=photo
+            )
             counts[choice.value] = len(PdfReader(io.BytesIO(pdf)).pages[-1].images)
         assert counts == {"cartoon": 1, "photo": 1, "both": 2}
 
@@ -166,7 +185,14 @@ class TestAboutPhoto:
         about = AboutMe(
             prompt_name="Mia", about_name="Mia", about_photo=AboutPhotoChoice.PHOTO
         )
-        pdf = build_book_pdf(about, pages, None, portrait=make_photo_bytes(), photo=None)
+        pdf = build_book_pdf(
+            "Jack and the Beanstalk",
+            about,
+            pages,
+            None,
+            portrait=make_photo_bytes(),
+            photo=None,
+        )
         assert len(PdfReader(io.BytesIO(pdf)).pages[-1].images) == 1
 
     def test_the_finished_book_uses_the_choice(self, client: TestClient) -> None:
@@ -180,7 +206,11 @@ class TestAboutPhoto:
         comic = _comic(client)
         response = client.post(
             "/api/book/start",
-            data={"generation_id": comic["generation_id"], "about_photo": "selfie"},
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": comic["generation_id"],
+                "about_photo": "selfie",
+            },
         )
         assert response.status_code == 422
 

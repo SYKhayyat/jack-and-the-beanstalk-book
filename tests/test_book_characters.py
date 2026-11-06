@@ -19,10 +19,13 @@ import time
 
 from fastapi.testclient import TestClient
 
-from app.models.book import BOOK_PAGES
 from app.prompt_data import prompt_text
-from app.services.prompts import cast_photoable, photoable_cast
-from tests.helpers import RecordingProvider, make_photo_bytes, multipart
+from tests.helpers import RecordingProvider, jack, make_photo_bytes, multipart
+
+#: Jack's tale exactly as a new book is made from it (its seed's edition).
+JACK = jack()
+BOOK_PAGES = JACK.pages
+
 
 # The full book: page 1 and page 3 cast the mother, page 2 the old man, and the
 # giant's pages follow. Read the count from the catalogue so it tracks Step 7.
@@ -35,7 +38,10 @@ MOTHER_PHOTO = make_photo_bytes(colour="#aa3322")
 def _make_portrait(
     client: TestClient, photo: bytes = CHILD_PHOTO, character: str | None = None
 ) -> dict[str, object]:
-    form: dict[str, object] = {"photo": ("child.png", photo, "image/png")}
+    form: dict[str, object] = {
+        "story": "jack_and_the_beanstalk",
+        "photo": ("child.png", photo, "image/png"),
+    }
     if character:
         form["character"] = character
     response = client.post("/api/cartoonify", **multipart(form))
@@ -52,7 +58,7 @@ def _start_book(
     }
     if characters:
         data["character"] = characters
-    response = client.post("/api/book/start", data=data)
+    response = client.post("/api/book/start", data={"story": "jack_and_the_beanstalk", **data})
     assert response.status_code == 201, response.text
     return dict(response.json())
 
@@ -86,24 +92,26 @@ def _page_number(prompt: str) -> int:
 
 class TestCharacterCatalogue:
     def test_catalogue_lists_only_the_photoable_cast(self, client: TestClient) -> None:
-        response = client.get("/api/book/characters")
+        response = client.get("/api/stories/jack_and_the_beanstalk/characters")
         assert response.status_code == 200
         keys = [entry["key"] for entry in response.json()["characters"]]
-        assert keys == [key for key, _ in photoable_cast()]
+        assert keys == [
+            key for key, _ in [(member.key, member.label) for member in JACK.photoable_cast]
+        ]
         assert "milky_white" not in keys
         assert "mother" in keys and "old_man" in keys and "giant" in keys
         assert all(entry["photoable"] is True for entry in response.json()["characters"])
 
     def test_the_cow_is_not_photoable(self) -> None:
-        assert cast_photoable("mother")
-        assert cast_photoable("old_man")
-        assert not cast_photoable("milky_white")
+        assert JACK.can_photograph("mother")
+        assert JACK.can_photograph("old_man")
+        assert not JACK.can_photograph("milky_white")
 
     def test_the_form_offers_a_slot_per_photoable_character_only(
         self, client: TestClient
     ) -> None:
         html = client.get("/stories/jack_and_the_beanstalk/studio").text
-        for key, _ in photoable_cast():
+        for key, _ in [(member.key, member.label) for member in JACK.photoable_cast]:
             assert f'data-section="{key}"' in html
         # No upload path for the cow, anywhere in the studio.
         assert 'data-section="milky_white"' not in html
@@ -116,6 +124,7 @@ class TestCharacterValidation:
         response = client.post(
             "/api/book/start",
             data={
+                "story": "jack_and_the_beanstalk",
                 "generation_id": portrait["generation_id"],
                 "character": f"milky_white:{portrait['generation_id']}",
             },
@@ -128,6 +137,7 @@ class TestCharacterValidation:
         response = client.post(
             "/api/book/start",
             data={
+                "story": "jack_and_the_beanstalk",
                 "generation_id": portrait["generation_id"],
                 "character": f"dragon:{portrait['generation_id']}",
             },
@@ -140,7 +150,11 @@ class TestCharacterValidation:
         pair = f"mother:{portrait['generation_id']}"
         response = client.post(
             "/api/book/start",
-            data={"generation_id": portrait["generation_id"], "character": [pair, pair]},
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+                "character": [pair, pair],
+            },
         )
         assert response.status_code == 422
         assert response.json()["error"] == "invalid_settings"
@@ -150,6 +164,7 @@ class TestCharacterValidation:
         response = client.post(
             "/api/book/start",
             data={
+                "story": "jack_and_the_beanstalk",
                 "generation_id": portrait["generation_id"],
                 "character": "mother",
             },
@@ -162,6 +177,7 @@ class TestCharacterValidation:
             "/api/cartoonify",
             **multipart(
                 {
+                    "story": "jack_and_the_beanstalk",
                     "photo": ("cow.png", MOTHER_PHOTO, "image/png"),
                     "character": "milky_white",
                 }
@@ -176,7 +192,11 @@ class TestCharacterValidation:
         response = client.post(
             "/api/cartoonify",
             **multipart(
-                {"photo": ("x.png", MOTHER_PHOTO, "image/png"), "character": "dragon"}
+                {
+                    "story": "jack_and_the_beanstalk",
+                    "photo": ("x.png", MOTHER_PHOTO, "image/png"),
+                    "character": "dragon",
+                }
             ),
         )
         assert response.status_code == 422
@@ -187,6 +207,7 @@ class TestCharacterValidation:
         response = client.post(
             "/api/book/start",
             data={
+                "story": "jack_and_the_beanstalk",
                 "generation_id": star["generation_id"],
                 "character": f"mother:{star['generation_id']}",
             },
@@ -197,7 +218,8 @@ class TestCharacterValidation:
     def test_a_character_portrait_cannot_be_the_books_star(self, client: TestClient) -> None:
         mother = _make_portrait(client, MOTHER_PHOTO, character="mother")
         response = client.post(
-            "/api/book/start", data={"generation_id": mother["generation_id"]}
+            "/api/book/start",
+            data={"story": "jack_and_the_beanstalk", "generation_id": mother["generation_id"]},
         )
         assert response.status_code == 422
         assert response.json()["error"] == "invalid_settings"
@@ -208,6 +230,7 @@ class TestCharacterValidation:
         response = client.post(
             "/api/book/start",
             data={
+                "story": "jack_and_the_beanstalk",
                 "generation_id": child["generation_id"],
                 "character": f"old_man:{mother['generation_id']}",
             },
@@ -220,6 +243,7 @@ class TestCharacterValidation:
         response = client.post(
             "/api/book/start",
             data={
+                "story": "jack_and_the_beanstalk",
                 "generation_id": portrait["generation_id"],
                 "character": "mother:does-not-exist",
             },
@@ -301,7 +325,9 @@ class TestPerPageReferences:
         # The mother has a photo in this book, so her photo-led look is used.
         assert "The mother (she has reference images, named below)" in sheet
         assert "The old man (no reference photo" in sheet
-        assert "Milky-White is the family's cow" in sheet
+        # The cow is a prop of the places, not a cast member: the world sheet
+        # carries her look, the cast sheet does not.
+        assert "Milky-White" not in sheet
         assert "The giant (no reference photo" in sheet
 
     def test_the_page_reference_map_states_the_supplied_order(
@@ -351,7 +377,9 @@ class TestCastPortraitPrompt:
             not in prompt
         )
         # The book's fixed style, word for word, on the character portrait too.
-        style_sentence = prompt_text()["styles"][prompt_text()["book"]["style"]]
+        style_sentence = prompt_text()["styles"][
+            prompt_text()["stories"]["jack_and_the_beanstalk"]["style"]
+        ]
         assert "ART STYLE: " + style_sentence in prompt
         # Issue #34: the slot's glasses / facial-hair switches reach the prompt
         # (the browser sent them; the prompt used to drop them).

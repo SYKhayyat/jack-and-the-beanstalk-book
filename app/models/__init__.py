@@ -1,10 +1,10 @@
-"""Domain models: settings, scene data and the book.
+"""Domain models: settings, scene data, stories and the book.
 
 Re-exported here so callers can `from app.models import CartoonSettings`
 without knowing the internal module layout.
 """
 
-from app.models.book import BOOK_PAGES, AboutMe, AboutPhotoChoice, BookPage, get_book_page
+from app.models.book import AboutMe, AboutPhotoChoice, BookPage
 from app.models.feedback import (
     REJECTION_CLAUSES,
     REJECTION_LABELS,
@@ -27,9 +27,9 @@ from app.models.settings import (
     PortraitBackground,
     SkinTone,
 )
+from app.models.story import CastMember, StoryEdition
 
 __all__ = [
-    "BOOK_PAGES",
     "REJECTION_CLAUSES",
     "REJECTION_LABELS",
     "AboutMe",
@@ -39,6 +39,7 @@ __all__ = [
     "BookPage",
     "CartoonSettings",
     "CartoonStyle",
+    "CastMember",
     "CharacterGender",
     "Expression",
     "HairColour",
@@ -51,5 +52,5 @@ __all__ = [
     "RejectionReason",
     "Scene",
     "SkinTone",
-    "get_book_page",
+    "StoryEdition",
 ]

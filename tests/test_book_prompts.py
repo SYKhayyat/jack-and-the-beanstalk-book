@@ -4,19 +4,30 @@ from __future__ import annotations
 
 from app.books import check_readability
 from app.models import CartoonSettings, CartoonStyle
-from app.models.book import BOOK_PAGES, get_book_page
 from app.prompt_data import prompt_text
 from app.services.prompts import (
+    book_name_for,
     build_book_page_prompt,
     build_cartoon_prompt,
     render_book_page,
 )
+from tests.helpers import jack
+
+#: Jack's tale exactly as a new book is made from it (its seed's edition).
+JACK = jack()
+BOOK_PAGES = JACK.pages
+
+
+def get_book_page(key: str):
+    """One of Jack's pages by key."""
+    return next((page for page in BOOK_PAGES if page.key == key), None)
 
 
 def _prompt(page, settings, number):
-    """One page's prompt at its real catalogue position."""
+    """One page's prompt, for a child left with the story's default name."""
+    assert page.number == number
     return build_book_page_prompt(
-        page, settings, page_number=number, total_pages=len(BOOK_PAGES)
+        page, settings, story=JACK, prompt_name=book_name_for(settings, JACK)
     )
 
 
@@ -25,9 +36,11 @@ def test_every_page_carries_the_same_style_sentence() -> None:
     settings = CartoonSettings()
     # [book].style is the *key* of the shared style sentence, kept in one place
     # in the data — book pages and the portrait default read the same words.
-    style_sentence = prompt_text()["styles"][prompt_text()["book"]["style"]]
+    style_sentence = prompt_text()["styles"][
+        prompt_text()["stories"]["jack_and_the_beanstalk"]["style"]
+    ]
     prompts = [
-        build_book_page_prompt(page, settings, page_number=n, total_pages=len(BOOK_PAGES))
+        build_book_page_prompt(page, settings, story=JACK, prompt_name="Jack")
         for n, page in enumerate(BOOK_PAGES, start=1)
     ]
     assert len(prompts) == len(BOOK_PAGES)
@@ -38,10 +51,8 @@ def test_every_page_carries_the_same_style_sentence() -> None:
 def test_the_book_style_is_the_portrait_default() -> None:
     """The UAT sentence pins both hands: one shared sentence, one source."""
     settings = CartoonSettings()
-    portrait = build_cartoon_prompt(settings)
-    page = build_book_page_prompt(
-        BOOK_PAGES[0], settings, page_number=1, total_pages=len(BOOK_PAGES)
-    )
+    portrait = build_cartoon_prompt(settings, story=JACK)
+    page = build_book_page_prompt(BOOK_PAGES[0], settings, story=JACK, prompt_name="Jack")
     assert "ART STYLE: Modern 3D animated feature: rounded sculpted forms," in portrait
     assert "ART STYLE: Modern 3D animated feature: rounded sculpted forms," in page
 
@@ -53,15 +64,10 @@ def test_a_page_never_changes_style_with_the_portrait_picker() -> None:
     in another style does not drag the book's pages away from the one style.
     """
     page = BOOK_PAGES[0]
-    fixed = build_book_page_prompt(
-        page, CartoonSettings(), page_number=1, total_pages=len(BOOK_PAGES)
-    )
+    fixed = build_book_page_prompt(page, CartoonSettings(), story=JACK, prompt_name="Jack")
     for other in (CartoonStyle.MANGA, CartoonStyle.WATERCOLOUR, CartoonStyle.WESTERN_CARTOON):
         moved = build_book_page_prompt(
-            page,
-            CartoonSettings(cartoon_style=other),
-            page_number=1,
-            total_pages=len(BOOK_PAGES),
+            page, CartoonSettings(cartoon_style=other), story=JACK, prompt_name="Jack"
         )
         assert moved == fixed
 
@@ -75,7 +81,9 @@ def test_a_low_intensity_page_stays_in_the_book_style() -> None:
     "nothing photorealistic" rule on all nineteen calls.
     """
     page = BOOK_PAGES[0]
-    style = prompt_text()["styles"][prompt_text()["book"]["style"]]
+    style = prompt_text()["styles"][
+        prompt_text()["stories"]["jack_and_the_beanstalk"]["style"]
+    ]
     for intensity in (1, 2, 3, 4):
         prompt = _prompt(page, CartoonSettings(cartoon_intensity=intensity), 1)
         assert "ART STYLE: " + style in prompt
@@ -88,7 +96,7 @@ def test_a_low_intensity_page_stays_in_the_book_style() -> None:
             assert photographic not in prompt, (intensity, photographic)
     # The portrait pass is unchanged: it still talks about stylising a photo.
     assert "photograph almost intact" in build_cartoon_prompt(
-        CartoonSettings(cartoon_intensity=1)
+        CartoonSettings(cartoon_intensity=1), story=JACK
     )
 
 
@@ -136,9 +144,19 @@ def test_the_whole_frame_is_the_picture() -> None:
 
 def test_page_number_and_title_frame_the_call() -> None:
     settings = CartoonSettings()
-    prompt = build_book_page_prompt(BOOK_PAGES[2], settings, page_number=3, total_pages=3)
-    assert "page 3 of 3" in prompt
-    assert "Jack and the Beanstalk" in prompt
+    prompt = build_book_page_prompt(BOOK_PAGES[2], settings, story=JACK, prompt_name="Jack")
+    assert "page 3 of 20" in prompt
+    assert 'the picture book "Jack and the Beanstalk"' in prompt
+
+
+def test_the_title_carries_the_childs_name() -> None:
+    """The book is the child's: Noa's book is "Noa and the Beanstalk"."""
+    prompt = build_book_page_prompt(
+        BOOK_PAGES[0], CartoonSettings(), story=JACK, prompt_name="Noa"
+    )
+    assert 'the picture book "Noa and the Beanstalk"' in prompt
+    assert "The character's name is Noa." in prompt
+    assert "Jack" not in prompt.split("THE WHOLE STORY")[1]
 
 
 def test_pronouns_follow_the_child() -> None:
@@ -158,7 +176,7 @@ def test_pronouns_follow_the_child() -> None:
 def _all_page_prompts() -> list[str]:
     settings = CartoonSettings()
     return [
-        build_book_page_prompt(page, settings, page_number=n, total_pages=len(BOOK_PAGES))
+        build_book_page_prompt(page, settings, story=JACK, prompt_name="Jack")
         for n, page in enumerate(BOOK_PAGES, start=1)
     ]
 
@@ -176,9 +194,7 @@ def test_milky_white_has_a_pinned_coat() -> None:
     settings = CartoonSettings()
     cow_pages = [BOOK_PAGES[0], BOOK_PAGES[1]]
     for page in cow_pages:
-        prompt = build_book_page_prompt(
-            page, settings, page_number=page.number, total_pages=len(BOOK_PAGES)
-        )
+        prompt = build_book_page_prompt(page, settings, story=JACK, prompt_name="Jack")
         assert "plain white coat" in prompt
     # Every page carries the pinned sentence; the ones drawing her also name her.
     for prompt in _all_page_prompts():
@@ -209,8 +225,8 @@ def test_likeness_at_distance_is_carried_by_silhouette_not_a_big_head() -> None:
     doorway = build_book_page_prompt(
         get_book_page("beans-out-the-window"),  # type: ignore[arg-type]
         CartoonSettings(),
-        page_number=3,
-        total_pages=len(BOOK_PAGES),
+        story=JACK,
+        prompt_name="Jack",
     )
     assert "roughly a quarter of the frame height" in doorway
     assert "never scaled up towards the camera" in doorway
@@ -218,16 +234,15 @@ def test_likeness_at_distance_is_carried_by_silhouette_not_a_big_head() -> None:
     # The scale point lives on the checklist too: enumerated like content the
     # scene must clearly show, not buried in prose.
     assert "the child's figure drawn with a natural head-to-body ratio" in doorway
-    gate = next(
-        spec for spec in prompt_text()["book_pages"] if spec["key"] == "beanstalk-at-dawn"
-    )
-    gate_items = " ".join(str(item) for item in gate["must_include"])
+    gate = get_book_page("beanstalk-at-dawn")
+    assert gate is not None
+    gate_items = " ".join(gate.scene.must_include)
     assert (
-        "tiny at the bottom" in gate["camera"]
-        and "true proportion to the gate and the beanstalk" in gate["camera"]
+        "tiny at the bottom" in gate.scene.camera
+        and "true proportion to the gate and the beanstalk" in gate.scene.camera
         and "keeps a natural head-to-body ratio" in gate_items
     )
-    assert "an enlarged head, oversized face or close-up of {name}" in gate["must_avoid"]
+    assert "an enlarged head, oversized face or close-up of {name}" in gate.scene.must_avoid
 
 
 def test_likeness_means_features_when_zoomed_never_size() -> None:
@@ -279,7 +294,9 @@ def test_every_page_states_the_childs_proportions() -> None:
     got it — the rule belongs on all nineteen.
     """
     for page in BOOK_PAGES:
-        checklist = render_book_page(page, CartoonSettings()).scene.checklist
+        checklist = render_book_page(
+            page, CartoonSettings(), prompt_name="Jack"
+        ).scene.checklist
         assert "natural head-to-body ratio" in checklist, page.number
 
 
@@ -293,9 +310,7 @@ def test_the_invariant_block_is_a_cacheable_prefix() -> None:
     """
     settings = CartoonSettings()
     prompts = [
-        build_book_page_prompt(
-            page, settings, page_number=page.number, total_pages=len(BOOK_PAGES)
-        )
+        build_book_page_prompt(page, settings, story=JACK, prompt_name="Jack")
         for page in BOOK_PAGES
     ]
 
@@ -360,12 +375,10 @@ def test_the_cast_sheet_is_the_same_on_every_page() -> None:
     is ever restated (and allowed to drift) page by page. Keeping the page to
     its own cast is the scene-scope clause's job, not the sheet's.
     """
-    looks = prompt_text()["book"]["cast"]
+    looks = {key: member.look for key, member in JACK.cast.items()}
     settings = CartoonSettings()
     prompts = [
-        build_book_page_prompt(
-            page, settings, page_number=page.number, total_pages=len(BOOK_PAGES)
-        )
+        build_book_page_prompt(page, settings, story=JACK, prompt_name="Jack")
         for page in BOOK_PAGES
     ]
     # Every page's own cast appears…
@@ -593,7 +606,7 @@ def test_the_beans_are_always_exactly_five() -> None:
 
 
 def test_every_page_obeys_the_page_block_contract() -> None:
-    cast = prompt_text()["book"]["cast"]
+    cast = JACK.cast
     for page in BOOK_PAGES:
         assert page.story.strip(), page.key
         assert page.scene.caption.strip(), page.key
@@ -687,11 +700,11 @@ def test_age_signature_features_physics_and_mood_reach_every_page() -> None:
         )
         assert "never swapped for a beret, a skullcap or a different hat" in prompt
         assert "anything that falls falls down towards the ground" in prompt
-        assert "an axe blade biting into the trunk it is cutting" in prompt
+        assert "the axe blade bites into the trunk it is cutting" in prompt
         assert "never a stock neutral smile" in prompt
         assert "colour-graded as one book" in prompt
         assert "Every hand has exactly five fingers" in prompt
-        assert "the giant is never a larger copy of the old man" in prompt
+        assert "The giant is never a larger copy of the old man" in prompt
         assert "No item is omitted, swapped, restyled or recoloured" in prompt
 
 
@@ -711,20 +724,20 @@ def test_a_page_face_follows_its_beat_not_the_portrait_expression() -> None:
     assert happy not in prompt
     assert "EMOTIONAL BEAT: real fear" in prompt
     # The portrait still honours the pick.
-    assert happy in build_cartoon_prompt(settings)
+    assert happy in build_cartoon_prompt(settings, story=JACK)
 
 
 def test_a_photographed_cast_member_is_drawn_from_the_photo() -> None:
     """With a photo, face and head covering defer to it; the costume is fixed."""
-    with_photo = prompt_text()["book"]["cast_with_photo"]
-    invented = prompt_text()["book"]["cast"]
+    with_photo = {key: member.look_with_photo for key, member in JACK.cast.items()}
+    invented = {key: member.look for key, member in JACK.cast.items()}
     settings = CartoonSettings()
     page = BOOK_PAGES[0]
     prompt = build_book_page_prompt(
         page,
         settings,
-        page_number=1,
-        total_pages=len(BOOK_PAGES),
+        story=JACK,
+        prompt_name="Jack",
         supplied_characters=("mother",),
         character_photos=("mother",),
     )
@@ -738,19 +751,19 @@ def test_a_photographed_cast_member_is_drawn_from_the_photo() -> None:
 
 
 def test_the_giant_has_his_own_design() -> None:
-    invented = prompt_text()["book"]["cast"]
-    assert "black beard" in invented["giant"]
-    assert "white beard" in invented["old_man"]
-    assert "He is not the old man" in invented["giant"]
-    assert (
-        "never the child's or the old man's"
-        in (prompt_text()["book"]["cast_with_photo"]["giant"])
-    )
+    giant, old_man = JACK.cast["giant"], JACK.cast["old_man"]
+    assert "black beard" in giant.look
+    assert "white beard" in old_man.look
+    assert "He is not the old man" in giant.look
+    assert "never the child's or the old man's" in giant.look_with_photo
 
 
 def test_the_story_text_and_the_pictures_agree() -> None:
     """Text/image agreement rules from the assessment, page by page."""
-    pages = {page.key: render_book_page(page, CartoonSettings()) for page in BOOK_PAGES}
+    pages = {
+        page.key: render_book_page(page, CartoonSettings(), prompt_name="Jack")
+        for page in BOOK_PAGES
+    }
     harp = pages["the-singing-harp"]
     assert "all by itself" in harp.story
     assert "reached out with one hand to the strings" not in harp.story
@@ -784,7 +797,7 @@ def test_a_sentence_never_starts_with_a_lower_case_pronoun() -> None:
     import re
 
     for page in BOOK_PAGES:
-        story = render_book_page(page, CartoonSettings()).story
+        story = render_book_page(page, CartoonSettings(), prompt_name="Jack").story
         for start in re.findall(r"(?:^|[.!?] )([a-z]\w*)", story):
             assert start not in {"he", "his", "him", "she", "her"}, (page.key, start)
 

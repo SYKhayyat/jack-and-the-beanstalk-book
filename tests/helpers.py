@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import io
 import os
+from functools import lru_cache
 
 from PIL import Image
+from sqlalchemy.engine import Engine
 
+from app.books import SEEDS
+from app.models.story import StoryEdition
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
     ImageRequest,
 )
+from app.services.template_store import TemplateStore, seed_edition
 
 
 def make_photo_bytes(size: tuple[int, int] = (640, 480), colour: str = "#3f6f8f") -> bytes:
@@ -87,3 +92,52 @@ def multipart(form: dict[str, object]) -> dict[str, dict[str, object]]:
     files = {key: value for key, value in form.items() if isinstance(value, tuple)}
     data = {key: value for key, value in form.items() if not isinstance(value, tuple)}
     return {"files": files, "data": data}
+
+
+# --- stories ---------------------------------------------------------------------
+
+JACK_KEY = "jack_and_the_beanstalk"
+RED_KEY = "little_red_riding_hood"
+
+
+def edition_for(story_key: str) -> StoryEdition:
+    """A story's edition straight from its seed: what a new book would hold.
+
+    Built by the same constructor the database path uses, so a prompt or page
+    test sees exactly the words and looks a book of that story is made from.
+    """
+    return _seed_editions()[story_key]
+
+
+def jack() -> StoryEdition:
+    return edition_for(JACK_KEY)
+
+
+def red() -> StoryEdition:
+    return edition_for(RED_KEY)
+
+
+@lru_cache(maxsize=1)
+def _seed_editions() -> dict[str, StoryEdition]:
+    return {seed.key: seed_edition(seed) for seed in SEEDS}
+
+
+def stored_edition(engine: Engine, story_key: str = JACK_KEY) -> StoryEdition:
+    """The edition a new book would pin, read from a seeded database."""
+    store = TemplateStore(engine)
+    store.seed(SEEDS)
+    return store.edition_for_new_book(story_key)
+
+
+#: Keyed by database URL, never by `id(engine)`: every test has its own file,
+#: and an id is reused as soon as an old engine is garbage-collected.
+_STORED: dict[str, dict[str, StoryEdition]] = {}
+
+
+def edition_in(store: object, story_key: str = JACK_KEY) -> StoryEdition:
+    """The stored edition a book saved through `store` pins (seeding once per database)."""
+    engine: Engine = store._engine  # type: ignore[attr-defined]
+    per_engine = _STORED.setdefault(engine.url.render_as_string(hide_password=False), {})
+    if story_key not in per_engine:
+        per_engine[story_key] = stored_edition(engine, story_key)
+    return per_engine[story_key]

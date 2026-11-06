@@ -10,9 +10,10 @@
     <h1>Plates</h1>
     <p class="field-help">
       A story's pages are painted empty once — the place, the props and the light,
-      with nobody in them and no lettering. Each plate is approved here before any
-      book can be made on it. A story with no complete template version cannot start
-      a book at all.
+      with nobody in them and no lettering, and each one is approved here. When every
+      page of a story has an approved plate, that set is a template version, and new
+      books of the story are made on it. The start gate below decides whether a story
+      may start books before it has one.
     </p>
   </section>
 
@@ -26,6 +27,16 @@
         · template version {{ story.version }}{% else %} · no complete version yet{% endif %}
       </p>
       <p class="field-help">{{ story.drafts }} draft plate(s) waiting for review.</p>
+      <form class="admin-gate" method="post" action="/admin/plates/{{ story.key }}/gate">
+        <label>
+          <input type="checkbox" name="required" value="on" {% if story.requires_template %}checked{% endif %}>
+          Only start books on approved plates
+        </label>
+        <button type="submit" class="button">Save</button>
+        <p class="field-help" data-gate-state>
+          {% if story.can_start %}New books of this story can start now.{% else %}New books are held back: the shelf says “{{ not_ready }}”{% endif %}
+        </p>
+      </form>
       {% else %}
       <p class="inline-message error">This story is not seeded yet. Run <code>make seed</code> first.</p>
       {% endif %}

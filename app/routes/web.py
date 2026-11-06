@@ -34,15 +34,17 @@ from app.models import (
     PortraitBackground,
     SkinTone,
 )
-from app.models.book import BOOK_PAGES, AboutPhotoChoice, BookPage
+from app.models.book import AboutPhotoChoice, BookPage
 from app.models.feedback import REJECTION_LABELS, RejectionReason
 from app.models.labels import choices_for, intensity_label
+from app.models.story import COVER_NUMBER, StoryEdition
 from app.routes.auth import CurrentSessionDep
-from app.services.book_document import COVER_NUMBER
+from app.routes.book_access import book_edition
 from app.services.book_store import BookStatus, BookSummary
-from app.services.prompts import photoable_cast, render_book_page
+from app.services.prompts import render_book_page
 from app.services.wallet import format_cents
-from app.stories import STORIES, Story, story_for
+from app.stories import NOT_READY, Story, shelf_story
+from app.stories import shelf as shelf_cards
 
 __all__ = ["page_chrome", "router"]
 
@@ -75,7 +77,10 @@ def shelf(
     return _render(
         request,
         "shelf.html",
-        {**chrome, "cards": [_card(story, books) for story in STORIES]},
+        {
+            **chrome,
+            "cards": [_card(story, books) for story in shelf_cards(container.templates)],
+        },
     )
 
 
@@ -84,11 +89,14 @@ def studio(
     story_key: str, request: Request, container: ContainerDep, session: CurrentSessionDep
 ) -> HTMLResponse:
     """Who's in the story: one collapsible section per character, star first."""
-    story = _story_or_404(story_key)
+    story, edition = _startable_or_404(container, story_key)
     defaults = CartoonSettings()
     sections = [
         {"key": "star", "label": "The star", "required": True},
-        *({"key": key, "label": label, "required": False} for key, label in photoable_cast()),
+        *(
+            {"key": member.key, "label": member.label, "required": False}
+            for member in edition.photoable_cast
+        ),
     ]
     return _render(
         request,
@@ -97,6 +105,9 @@ def studio(
             **page_chrome(container, session),
             "story": story,
             "sections": sections,
+            # A tale whose star wears the story's own costume (the red hood)
+            # has no outfit to choose.
+            "star_costume": bool(edition.star_member.costume),
             "defaults": defaults,
             "photo_genders": choices_for(PhotoGender),
             "styles": choices_for(CartoonStyle),
@@ -120,7 +131,7 @@ def about_screen(
     story_key: str, request: Request, container: ContainerDep, session: CurrentSessionDep
 ) -> HTMLResponse:
     """The last page is about the star: words, the picture choice, the shape."""
-    story = _story_or_404(story_key)
+    story, edition = _startable_or_404(container, story_key)
     chrome = page_chrome(container, session)
     return _render(
         request,
@@ -131,7 +142,10 @@ def about_screen(
             "page_shapes": _PAGE_SHAPES,
             "default_shape": CartoonSettings().aspect_ratio,
             "about_photo_choices": _ABOUT_PHOTO_LABELS,
-            "cast": [("star", "Star"), *photoable_cast()],
+            "cast": [
+                ("star", "Star"),
+                *((member.key, member.label) for member in edition.photoable_cast),
+            ],
             "fee_label": format_cents(container.wallet.price_cents)
             if chrome["wallet_enabled"]
             else "",
@@ -154,9 +168,10 @@ def book_page(
         raise HTTPException(status_code=404, detail="No book with that id.")
 
     state = str(status_payload.get("status", BookStatus.PENDING))
+    edition = book_edition(container, book_id)
     rendered = [
         render_book_page(page, record.settings, prompt_name=record.about.prompt_name)
-        for page in BOOK_PAGES
+        for page in edition.pages
     ]
     tiles = _tiles(status_payload.get("pages", []), rendered)
     heading, *sentences = record.about.rendered_about_lines()
@@ -167,6 +182,7 @@ def book_page(
             **page_chrome(container, session),
             "current_id": book_id,
             "book": record,
+            "title": record.title,
             "about": record.about,
             "status": state,
             "error": status_payload.get("error") or "",
@@ -178,7 +194,7 @@ def book_page(
             "about_images": _about_images(book_id, record.about.about_photo),
             "pdf_url": f"/book-media/{book_id}/pdf" if state == BookStatus.COMPLETE else None,
             "sources_url": f"/book-media/{book_id}/sources.zip",
-            "characters": photoable_cast(),
+            "characters": [(member.key, member.label) for member in edition.photoable_cast],
             "rejection_reasons": _rejection_reasons(),
             "about_photo_choices": _ABOUT_PHOTO_LABELS,
             "max_upload_mb": container.settings.max_upload_mb,
@@ -239,11 +255,19 @@ def page_chrome(container: ContainerDep, session: CurrentSessionDep) -> dict[str
     }
 
 
-def _story_or_404(key: str) -> Story:
-    story = story_for(key)
+def _startable_or_404(container: ContainerDep, key: str) -> tuple[Story, StoryEdition]:
+    """The story a studio or About screen is for, and what a book of it holds.
+
+    A story the start gate is holding back has no studio yet: its card says
+    so, and a hand-typed URL gets the same sentence rather than a studio whose
+    first portrait would be refused.
+    """
+    story = shelf_story(container.templates, key)
     if story is None:
         raise HTTPException(status_code=404, detail="There is no book by that name yet.")
-    return story
+    if not story.ready:
+        raise HTTPException(status_code=409, detail=NOT_READY)
+    return story, container.templates.latest_edition(key)
 
 
 def _rejection_reasons() -> list[dict[str, str]]:
@@ -256,19 +280,26 @@ def _rejection_reasons() -> list[dict[str, str]]:
 def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
     """A shelf card and its one honest state.
 
-    Every stored book is Jack's until the story catalogue lands, so a person's
-    books only ever change Jack's card. "Keep going" is decided in the browser
-    (the studio draft lives there) and only ever replaces "Start this book" or
-    "Make another".
+    A person's books change only their own story's card. "Keep going" is
+    decided in the browser (the studio draft lives there) and only ever
+    replaces "Start this book" or "Make another". A story the start gate is
+    holding back is "waiting": no way in, and one sentence saying why.
     """
+    if not story.available:
+        state = "soon"
+    elif not story.ready:
+        state = "waiting"
+    else:
+        state = "fresh"
     card: dict[str, Any] = {
         "story": story,
-        "state": "fresh" if story.available else "soon",
-        "href": f"/stories/{story.key}/studio" if story.available else None,
+        "state": state,
+        "href": f"/stories/{story.key}/studio" if state == "fresh" else None,
         "cover_url": None,
     }
-    if not story.available or story.key != "jack_and_the_beanstalk":
+    if state != "fresh":
         return card
+    books = [book for book in books if book.story_key == story.key]
     drawing = next((book for book in books if book.status in _IN_PROGRESS), None)
     finished = next((book for book in books if book.status == BookStatus.COMPLETE), None)
     if drawing is not None:
@@ -281,7 +312,7 @@ def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
 
 
 def _tiles(raw: object, rendered: list[BookPage]) -> list[dict[str, Any]]:
-    """The 21 drawn pictures in book order — cover first — with their state.
+    """Every drawn picture in book order — cover first — with its state.
 
     The status document may be empty (a book that has just started) or
     partial; every picture the book will have gets a tile regardless, so the

@@ -13,18 +13,26 @@
 # cast slots: a slot is for a character who can be given a photograph, and the
 # cow, the hen and the harp cannot.
 #
-# The prose here is the same prose `prompts.toml` prints today. T7's other half
-# (making the page prompts read this file) still has to come, and until it does
-# the catalogue stays the source the PDF prints.
+# A finished page is drawn from the same block. Where the empty stage and the
+# finished picture need different framing — the child's size in the frame, the
+# light on a face — the page carries a `[pages.compose]` table, and the page
+# prompt reads those lines instead of the plate's. This file is the only place
+# a page's words or scene are written; the app loads it into the database at
+# boot and every book pins the revision it was made from.
 
 
 [story]
 key = "jack_and_the_beanstalk"
 title = "Jack and the Beanstalk"
 blurb = "A cow, five magic beans, and a castle above the clouds."
-book_title = "Jack and the Beanstalk"
+book_title = "{name} and the Beanstalk"
 star = "jack"
 available = true
+
+# The name a blank name field resolves to, by the photo-gender answer.
+[story.names]
+boy = "Jack"
+girl = "Jane"
 
 # The cover is full-bleed art under a title lockup. The top band is kept calm so
 # real text can sit there; the plate check refuses a busy band at approval time.
@@ -39,26 +47,42 @@ camera = "wide storybook shot at a child's height from the garden, the empty pat
 must_include = ["{name} in the garden looking up at the beanstalk", "the towering beanstalk rising out of the frame with broad leaves", "the little cottage with its golden thatched roof and blue-green door", "the garden gate and the ring of grey stones", "the upper third calm and uncluttered"]
 must_avoid = ["lettering, a title, a logo or a caption of any kind", "a face in the title band", "any other person", "the giant", "Milky-White the cow", "the hen or the harp"]
 
-# The character bible. Only the people who can be given a photograph are here:
-# the cow, the hen and the harp belong to the places, and are painted into the
-# plate instead of being composited in.
-[cast]
-jack = "The child in this book: {Possessive} own face, hair, skin and age in every picture, exactly as in the approved portrait and photograph, and never a different child. There is no story costume: {subject} wears the visitor's own outfit from the book, garment for garment, identical on every page — every item of it drawn whenever that part of the body is in view, and no item added, dropped, swapped, restyled or recoloured. {name} is a child throughout: childlike head-to-body proportions, a round young face, short limbs, and no adult or teenage features."
-mother = "The mother: a woman in her mid-thirties, older and clearly taller than the child, with her own distinct face — an oval face with high cheekbones, warm hazel eyes, straight dark brows, a gentle smile line at each corner of her mouth and a light dusting of freckles — and dark brown hair fully tucked under a plain cream linen kerchief, with no loose strands. When the uploader has supplied her portrait and photograph, her face, colouring and hair come exactly from them instead, and this description is the fallback. Her outfit, identical on every page: a long plain dark-brown wool dress with sleeves to the wrist, a light linen apron tied at the waist, and brown leather shoes. She stays the same age on every page, and her face is entirely unlike the child's."
-old_man = "The old man: a kindly grandfatherly traveller in his seventies, with a broad warm face, smiling eyes with deep crow's feet, rosy cheeks, a round nose and a full bushy curly white beard down to his chest. His hat is a wide-brimmed brown felt hat with a dark band; his outfit, identical on every page, is a long worn grey-green travelling cloak over a brown tunic, a small leather pack on two straps on his back, and scuffed brown boots. When the uploader has supplied his portrait and photograph, his face, eyes, skin tone and the colour, fullness, length and curl of his beard come exactly from them instead. He is grandfatherly, never elfin and never sinister, and his face is entirely unlike the child's and the giant's."
-giant = "The giant: an enormous man in his forties, so big that the child would barely reach his knee, with a wide square face, a broad flat nose, small deep-set dark eyes under thick black eyebrows, a bald head with a black fringe of hair at the back, and a short thick black beard. When the uploader has supplied his portrait and photograph, his face, eyes, skin tone and hair come exactly from them instead. His outfit, identical on every page: a rough brown sackcloth tunic, a wide leather belt with an iron buckle, dark trousers and huge laced boots. He is not the old man: a different age, a different face, a different beard and a different build. His face is entirely unlike the child's."
+# The cow, the hen and the harp are not here: they cannot be given a photograph,
+# so they belong to the places — the plate paints them, and the props and places
+# sheet in prompts.toml ([stories.jack_and_the_beanstalk].page_world) fixes how
+# they look on a finished page.
 
-[cast_photoable]
-jack = true
-mother = true
-old_man = true
-giant = true
+# The character bible: the single source of every look (T4.3). Each entry is
+# its label, whether a photograph may be attached, the look a page uses when
+# there is no photograph, the look it uses when there is one, and the brief
+# the portrait pass draws a photographed cast member from. The star wears the
+# visitor's own outfit in this tale, so it has no costume.
 
-[cast_labels]
-jack = "The child"
-mother = "Mother"
-old_man = "Old man"
-giant = "Giant"
+[cast.jack]
+label = "The child"
+photoable = true
+look = "The child in this book: {Possessive} own face, hair, skin and age in every picture, exactly as in the approved portrait and photograph, and never a different child. There is no story costume: {subject} wears the visitor's own outfit from the book, garment for garment, identical on every page — every item of it drawn whenever that part of the body is in view, and no item added, dropped, swapped, restyled or recoloured. {name} is a child throughout: childlike head-to-body proportions, a round young face, short limbs, and no adult or teenage features."
+
+[cast.mother]
+label = "Mother"
+photoable = true
+look = "The mother (no reference photo, so this is her one look on every page): a woman in her mid-thirties, older and clearly taller than the child, with her own distinct face — an oval face with high cheekbones, warm hazel eyes, straight dark brows, a gentle smile line at each corner of her mouth and a light dusting of freckles — and dark brown hair fully tucked under a plain cream linen kerchief, with no loose strands. Her outfit, identical on every page: a long plain dark-brown wool dress with sleeves to the wrist, a light linen apron tied at the waist, and brown leather shoes. She stays the same age on every page. Her face is entirely unlike the child's; she is never a generic storybook mother."
+look_with_photo = "The mother (she has reference images, named below): the woman in her reference images, older and clearly taller than the child. Her face, bone structure, eye colour, smile, skin tone and hair come exactly from her cartoon portrait — never a generic storybook mother — and she stays the same age on every page. Any head covering or glasses in her portrait are worn on every page exactly as there, covering her hair just as fully. Her outfit, identical on every page: a long plain dark-brown wool dress with sleeves to the wrist, a light linen apron tied at the waist, and brown leather shoes. Her face is never the child's."
+portrait = "THE CHARACTER: the woman in the photograph, as the mother in this picture book. Her face, bone structure, eye colour, smile, skin tone, hair and apparent age exactly as in the photograph — never a generic storybook mother. Any head covering or glasses she wears in the photograph stay, with the same shape, colour and pattern, worn the same way. She wears her costume from the book: a long plain dark-brown wool dress and a light linen apron."
+
+[cast.old_man]
+label = "Old man"
+photoable = true
+look = "The old man (no reference photo, so this is his one look on every page): a kindly, grandfatherly traveller in his seventies, with a broad warm face, smiling eyes with deep crow's feet, rosy cheeks, a round nose and a full, bushy, curly white beard down to his chest. He wears a wide-brimmed brown felt hat with a dark band, a long worn grey-green travelling cloak over a brown tunic, a small leather pack on two straps on his back, and scuffed brown boots — identical on every page. He is grandfatherly, never elfin and never sinister. His face is entirely unlike the child's and the giant's."
+look_with_photo = "The old man (he has reference images, named below): the man in his reference images, as a kindly, grandfatherly traveller. His face, eyes, skin tone and his beard — its colour, fullness, length and curl — come exactly from his cartoon portrait, keeping his warm expression and the smile in his eyes. If his portrait shows a hat, his hat in the story keeps that hat's silhouette, brim width and colour, adapted to the tale (a modern brimmed hat becomes a period felt hat with the same brim and band, never a pointed or floppy hat); glasses in his portrait stay on. His costume, identical on every page: a long worn grey-green travelling cloak over a brown tunic, a small leather pack on two straps on his back, and scuffed brown boots. His face is never the child's or the giant's."
+portrait = "THE CHARACTER: the man in the photograph, as the kindly old traveller in this picture book. His face, eyes, skin tone, apparent age and his beard — its colour, fullness, length and curl — exactly as in the photograph, with a warm expression and smiling eyes. If he wears a hat in the photograph, it becomes a period felt hat with the same silhouette, brim width and colour; glasses stay. He wears his costume from the book: a long worn grey-green travelling cloak over a brown tunic."
+
+[cast.giant]
+label = "Giant"
+photoable = true
+look = "The giant (no reference photo, so this is his one look on every page): an enormous man in his forties, so big that the child would barely reach his knee, with a wide square face, a broad flat nose, small deep-set dark eyes under thick black eyebrows, a bald head with a black fringe of hair at the back, and a short, thick black beard — the same black beard on every page. He wears a rough brown sackcloth tunic, a wide leather belt with an iron buckle, dark trousers and huge laced boots. He is not the old man: a different age, a different face, a different beard colour and a different build. His face is entirely unlike the child's."
+look_with_photo = "The giant (he has reference images, named below): the man in his reference images, drawn as a giant so big that the child would barely reach his knee. His face, eyes, skin tone, hair and beard — its colour and shape — come exactly from his cartoon portrait and stay the same on every page. His costume, identical on every page: a rough brown sackcloth tunic, a wide leather belt with an iron buckle, dark trousers and huge laced boots. His face is never the child's or the old man's."
+portrait = "THE CHARACTER: the man in the photograph, as the giant in this picture book: broad, heavy-set and huge-shouldered. His face, eyes, skin tone, hair, apparent age and beard exactly as in the photograph. He wears his costume from the book: a rough brown sackcloth tunic with a wide leather belt."
 
 # Words this tale needs beyond the shared simple vocabulary. The shared list is
 # a small core (451 words); these are the tale's own nouns, its two roars, and
@@ -104,6 +128,11 @@ story = "Once upon a time, {name} lived in a little stone cottage at the end of 
 beat = "{name} and {possessive} mother have nothing left to sell but the white cow, Milky-White."
 emotion = "quiet worry: the mother anxious and tired, her brows drawn together; {name} sad and concerned, looking up at her"
 
+[pages.compose]
+environment = "the cottage kitchen as fixed in the props and places: the hearth with its copper pots on the left, the worn oak table and two stools in the middle, the nearly-empty shelves and the open, empty cupboard on the back wall, soft daylight from the window on the right, and the cottage door open onto the yard where Milky-White stands, clearly visible"
+time_of_day = "bright morning, soft daylight from the window falling on {name}'s face"
+camera = "eye-level medium shot at table height, both faces clearly readable, the cow framed through the open door behind them"
+
 [[pages]]
 key = "the-trade"
 title = "The trade"
@@ -118,6 +147,10 @@ must_avoid = ["a sixth bean, or any number of beans other than exactly five", "b
 story = "So {name} set off down the road to market, leading Milky-White by her rope. Halfway there, a kindly old man stepped out from behind the fence. “That is a fine cow,” he said. “I will give you five beans for her.” He opened his hand. In it lay five beans: one red, one blue, one green, one gold, one violet. {name} had never seen beans like them. {name} looked at them for a long time. Then {subject} said yes."
 beat = "An old man offers {name} five beans in exchange for the cow."
 emotion = "curious temptation: {name} leaning in, eyes wide and fascinated by the beans; the old man warm and twinkling, smiling with his eyes"
+
+[pages.compose]
+environment = "a dusty dirt road leading to the right through green fields towards the market, a hedgerow beside the road, low stone walls, a few round trees, puffy clouds, Milky-White's head at the left edge of the frame waiting patiently — the same plain white cow, unchanged"
+camera = "over-the-shoulder three-quarter medium close shot centred on the old man's outstretched palm of beans, {name}'s profile strong and readable"
 
 [[pages]]
 key = "beans-out-the-window"
@@ -134,6 +167,11 @@ story = "When {name} came home with five beans and no cow, {possessive} mother c
 beat = "{name}'s mother throws the five beans out of the cottage window."
 emotion = "exasperation and dismay: the mother cross and despairing as she flings the beans, never violent; {name} dismayed, mouth open, watching them go"
 
+[pages.compose]
+environment = "the front of the cottage as fixed in the props and places, at dusk: the lit square window to the left of the door with the mother leaning out of it, the open blue-green door with {name} in it, the stone doorstep, the dark vegetable garden in front, the sky deep blue-violet with a band of sunset orange at the horizon"
+time_of_day = "dusk, a much darker palette than the morning pages: deep blue and violet shadows, warm lamplight from the window, the beans dark and dull as they fall"
+camera = "wide shot showing the whole cottage front from the garden, the lit window and the doorway both readable; {name} stands in the open doorway — small, roughly a quarter of the frame height, in true proportion to the cottage — never scaled up towards the camera"
+
 [[pages]]
 key = "beanstalk-at-dawn"
 title = "The beanstalk at dawn"
@@ -148,6 +186,10 @@ must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the gia
 story = "But when {name} woke at sunrise, the garden was not the same. Where the beans had fallen, a great beanstalk had grown up in the night. It was as thick as an old tree. It climbed past the roof, past the birds, and up and away into the clouds. {name} ran out to the gate and stared with wide eyes."
 beat = "Overnight the five beans have grown into a beanstalk that reaches the clouds."
 emotion = "pure wonder: {name} wide-eyed in amazement, mouth open, head tipped right back"
+
+[pages.compose]
+environment = "the cottage garden at dawn as fixed in the props and places: the little thatched cottage on the left, the beanstalk rising from its stone ring on the right of it, the picket fence and gate in front, the night still fading low behind the hills"
+camera = "very wide vertical composition with the beanstalk rising through the whole frame and out of view, {name} tiny at the bottom — only a small part of the frame height, drawn in true proportion to the gate and the beanstalk, never scaled up towards the camera"
 
 [[pages]]
 key = "the-climb"
@@ -164,6 +206,10 @@ story = "{name} took hold of the beanstalk and began to climb. Hand over hand, {
 beat = "{name} climbs the beanstalk up into the clouds."
 emotion = "determination with a thrill of excitement: {name} gripping hard, face lifted eagerly upwards"
 
+[pages.compose]
+environment = "the middle of the towering beanstalk: a thick twisting green stem with broad leaves spiralling upward, soft white clouds drifting past, the cottage and fields tiny and far below at the very bottom of the frame, a warm glow at the top"
+camera = "wide vertical shot looking up the beanstalk, {name} roughly a third of the frame height and in true proportion to the huge stalk, clouds opening at the top"
+
 [[pages]]
 key = "the-cloud-country"
 title = "The land above the clouds"
@@ -178,6 +224,10 @@ must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the gia
 story = "At the very top, {name} stepped off the last leaf and onto the clouds. They were soft and white, yet they held {object} up. There were no trees here, and no roads, and no sound but the wind. Far, far away stood a great grey castle with three tall towers. {name} took a deep breath and walked on towards it."
 beat = "{name} reaches a strange country above the clouds, where a giant's castle stands."
 emotion = "awe touched with nervousness: {name} wide-eyed, a hand still on the leaf, swallowing hard"
+
+[pages.compose]
+environment = "the cloud country as fixed in the props and places: rolling white cloud-banks, the top of the green beanstalk curling up at the right-hand edge behind {name}, and far across the plain to the left the grey castle with exactly three round towers, soft mist"
+camera = "very wide establishing shot, {name} small at the lower right in true proportion to the cloud plain, the castle distant on the left"
 
 [[pages]]
 key = "the-giant's-kitchen"
@@ -194,6 +244,10 @@ story = "The great castle door stood open a little, and {name} slipped inside. B
 beat = "{name} finds a giant asleep in his kitchen, a bag of gold beside his chair."
 emotion = "fearful awe: {name} wide-eyed, holding {possessive} breath, pressed close to the door"
 
+[pages.compose]
+environment = "the giant's kitchen as fixed in the props and places: the towering hearth with giant iron pots on the left wall, the great oak table and the high-backed chair in the middle, the perch with straw in the right-hand corner, warm firelight"
+camera = "wide interior shot from the doorway, {name} small in the near foreground at the door's edge, the sleeping giant and his chair across the middle of the room"
+
 [[pages]]
 key = "the-bag-of-gold"
 title = "The bag of gold"
@@ -208,6 +262,10 @@ must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the gia
 story = "Very quiet, {name} walked past the giant’s big boots. The bag was small, but it was so heavy that {subject} had to hug it with both arms. Step by careful step, {name} went back to the door. The giant made a sound in his sleep, and then he began to snore again."
 beat = "{name} takes the bag of gold and tiptoes away while the giant sleeps."
 emotion = "tense, breathless concentration: {name} biting {possessive} lip, eyes fixed on the sleeping giant"
+
+[pages.compose]
+environment = "the giant's kitchen as fixed in the props and places, seen from floor level: the giant's enormous laced boots and the thick leg of his chair close by, the great door on the right, the hearth glowing on the left, warm firelight"
+camera = "low-angle shot from near the floor, {name} and the purse small beside the giant's boots, the sleeping giant towering into the upper part of the frame"
 
 [[pages]]
 key = "home-with-gold"
@@ -224,6 +282,10 @@ story = "Down the beanstalk {name} climbed, and home {subject} ran. When {subjec
 beat = "{name} brings the gold home, and the family is rich for a while."
 emotion = "delight: the mother laughing with joy, hands at her cheeks; {name} beaming proudly"
 
+[pages.compose]
+environment = "the cottage kitchen as fixed in the props and places, now warm with lamplight and a fire in the hearth on the left: the worn oak table, the bare shelves and cupboard on the back wall, a heap of flat gold coins shining in the middle of the table, none at its edge"
+camera = "eye-level medium shot across the table, both faces clearly readable and happy, the gold heap in the middle"
+
 [[pages]]
 key = "the-second-climb"
 title = "The last coin"
@@ -238,6 +300,10 @@ must_avoid = ["an enlarged head, oversized face or close-up of {name}", "a full 
 story = "But gold does not last. One by one the coins went, until the purse was empty and the shelves were bare again. {Possessive} mother looked at the empty cupboard and sighed. {name} looked at the beanstalk rising into the clouds. That night {subject} made up {possessive} mind: {subject} would climb it once more."
 beat = "{name} spends the last coin, sees the empty cupboard, and decides to climb again."
 emotion = "quiet resolve: the mother worried, {name} looking up at the beanstalk with a set jaw"
+
+[pages.compose]
+environment = "the cottage kitchen as fixed in the props and places, at dusk: the worn oak table with the empty purse and one last coin, the open cupboard with bare shelves, the window on the right wall framing the beanstalk rising into the clouds, the hearth"
+camera = "eye-level medium shot across the kitchen, {name} and the empty purse in the foreground, the mother and the cupboard on the left, the beanstalk through the window on the right"
 
 [[pages]]
 key = "the-hen"
@@ -254,6 +320,10 @@ story = "In the giant's kitchen a brown hen sat on a wooden perch. Under her, in
 beat = "Back in the giant's kitchen, {name} finds a hen that lays golden eggs."
 emotion = "hushed, careful tenderness: {name} gentle and quiet, eyes shining at the golden egg"
 
+[pages.compose]
+environment = "the giant's kitchen as fixed in the props and places, seen from its right-hand corner: the wooden perch over its nest of straw in the foreground, the giant asleep with his head on his arms at the great table far behind, the hearth glowing on the far left wall"
+camera = "medium shot low to the floor in the corner, {name}, the hen and the golden egg clear in the foreground, the sleeping giant small and soft in the background"
+
 [[pages]]
 key = "the-singing-harp"
 title = "The singing harp"
@@ -268,6 +338,10 @@ must_avoid = ["an enlarged head, oversized face or close-up of {name}", "anyone'
 story = "By the perch stood a little golden harp with silver strings. As {name} came near, it began to sing all by itself, so sweet that the whole kitchen seemed to listen. {name} put the harp on {possessive} back, with its strap over one shoulder. But behind {object}, in the great chair, the giant began to move."
 beat = "{name} finds a golden harp that sings all by itself, and the giant stirs."
 emotion = "delighted wonder turning to alarm: {name} smiling at the music, then glancing back with sudden worry"
+
+[pages.compose]
+environment = "the giant's kitchen as fixed in the props and places, from beside the perch in the right-hand corner: the small golden harp with its silver strings and strap, the straw nest, the giant across the room stretching in his chair at the great table, the hearth glowing on the left"
+camera = "medium-wide interior shot from the corner, {name} and the shining harp in the foreground, the stirring giant small and soft across the room behind"
 
 [[pages]]
 key = "fee-fi-fo-fum"
@@ -284,6 +358,10 @@ story = "“Fee-fi-fo-fum!” roared the giant, and the whole kitchen shook. “
 beat = "The giant wakes and roars, sniffing for the child hidden in his kitchen."
 emotion = "real fear: {name} wide-eyed and pale, mouth open, one hand clapped over it, hair standing on end; the giant suspicious and puzzled, sniffing"
 
+[pages.compose]
+environment = "the giant's kitchen as fixed in the props and places: the giant standing by his chair and the great table across the room, the hearth's orange glow behind him, his long shadow across the floor, the great door beside {name}"
+camera = "wide interior shot from beside the great door, {name} small and hidden at the wall in the foreground, the giant in the middle distance across the kitchen, plenty of floor between them; dramatic low firelight"
+
 [[pages]]
 key = "the-chase"
 title = "The chase"
@@ -298,6 +376,10 @@ must_avoid = ["an enlarged head, oversized face or close-up of {name}", "{name} 
 story = "{name} ran out of the door and away across the clouds. The hen was held tight, and the harp bounced on {possessive} back. Behind {object}, the giant came out of the castle with a roar. Every step he took made the clouds shake. {name} ran faster than {subject} had ever run, straight for the top of the beanstalk."
 beat = "{name} runs across the cloud plain to the beanstalk, the giant thundering after."
 emotion = "fear and urgency: {name} running flat out, mouth open, hair blown back by the wind"
+
+[pages.compose]
+environment = "the cloud country as fixed in the props and places: rolling white cloud-banks, the castle with three towers far behind on the left, the top of the beanstalk ahead at the right-hand edge, puffs of cloud where the giant's boots strike"
+camera = "wide lateral shot, {name} running to the right in the lower foreground in true proportion, the giant small and far behind by the castle on the left, a wide stretch of cloud plain between them"
 
 [[pages]]
 key = "down-the-beanstalk"
@@ -314,6 +396,10 @@ story = "Down the beanstalk {name} went, faster than {subject} had ever climbed,
 beat = "{name} climbs down the beanstalk while the giant starts down after."
 emotion = "fear and grit: {name} jaw set, eyes wide, glancing up at the swaying stalk"
 
+[pages.compose]
+environment = "the great beanstalk seen from the side: the thick twisting green stem, broad leaves, the cottage and fields far below, the giant small and high above at the top among the clouds, loose leaves fluttering down"
+camera = "wide vertical shot of the beanstalk, {name} a third of the way down and in true proportion to the stalk, the giant small and high above"
+
 [[pages]]
 key = "the-axe"
 title = "The axe"
@@ -328,6 +414,10 @@ must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the axe
 story = "{name} jumped down into the garden just as the sun was setting. {Subject} set the hen and the harp safely by the cottage door. Then {Subject} took the old axe from beside the woodpile, and swung it with all {possessive} might. Chop! Green chips flew. Chop! The great stalk groaned. Chop! And the whole beanstalk began to shake."
 beat = "{name} sets down the hen and harp and chops at the beanstalk with an axe."
 emotion = "fierce determination: {name} gritting {possessive} teeth, every muscle in the swing"
+
+[pages.compose]
+environment = "the cottage garden as fixed in the props and places: the beanstalk rising from its ring of stones to the right of the cottage, the cottage on the left with the harp leaning against the wall by the door and the hen on the step, the picket fence, the clouds high above"
+camera = "low wide shot from the grass, the axe and the flying chips sharp in the foreground, {name} in true proportion to the huge stalk, the cottage door with the harp and hen in the background"
 
 [[pages]]
 key = "the-fall"
@@ -344,6 +434,10 @@ story = "With a crack like thunder, the beanstalk broke. Slowly at first, and th
 beat = "The cut beanstalk topples over the far fields, and the giant falls down with it."
 emotion = "awe and relief: {name} wide-eyed, the axe lowered, watching"
 
+[pages.compose]
+environment = "the cottage garden and the wide sky as fixed in the props and places: the cottage solid and undamaged, the flat cut stump in its stone ring, the long beanstalk falling away to the right towards the distant fields and hills, the giant tiny and far away falling with it"
+camera = "very wide shot from beside the cottage, the falling stalk sweeping down across the frame to the right, {name} small at the bottom in true proportion"
+
 [[pages]]
 key = "safe-at-home"
 title = "Safe at home"
@@ -358,6 +452,10 @@ must_avoid = ["an enlarged head, oversized face or close-up of {name}", "arms me
 story = "Out of the cottage flew {possessive} mother. She threw her arms around {name} and held {object} tight, laughing and crying and laughing again. For a long moment nobody said a word. Beside them on the step, the little hen fluffed her feathers. The harp, leaning against the door, sang a soft and happy song."
 beat = "{name}'s mother rushes out and hugs {object}, safe at home."
 emotion = "relief and joy: the mother tearful and laughing, {name} hugging her tight, eyes closed in happiness"
+
+[pages.compose]
+environment = "the cottage front as fixed in the props and places, at dusk: the blue-green door, the stone doorstep, the harp leaning against the wall by the door, the hen on the step, the cut stump in its stone ring in the garden, a clear sky with the first stars and no beanstalk"
+camera = "eye-level medium shot at the doorstep, both faces readable, the harp and the hen at the edges"
 
 [[pages]]
 key = "the-golden-eggs"
@@ -374,6 +472,10 @@ story = "From that day on, they were never hungry again. Every morning the littl
 beat = "The hen lays golden eggs and the harp sings, so the family never goes hungry."
 emotion = "warm contentment: {name} and {possessive} mother smiling softly, at ease"
 
+[pages.compose]
+environment = "the cottage kitchen as fixed in the props and places, now comfortable: a straw nest by the hearth on the left with the hen and three golden eggs, the small golden harp on a shelf with ribbons of music, the shelves full of bread and jars, a bright fire, the worn oak table"
+camera = "eye-level medium-wide shot across the kitchen, the hen and eggs by the hearth, {name} and the mother at the table, the harp on its shelf"
+
 [[pages]]
 key = "riches-and-pride"
 title = "Ever after"
@@ -388,3 +490,7 @@ must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the gia
 story = "The years went by, and wildflowers grew all around the old beanstalk stump. Travellers came from far and wide to hear the harp sing and to see the hen that laid golden eggs. Every one of them said what a brave and clever child {name} had been. {Possessive} mother would smile and rest a hand on {possessive} shoulder. And they lived happily ever after."
 beat = "{name} and {possessive} mother live happily ever after."
 emotion = "happy pride: both smiling warmly out at the reader, the mother proud"
+
+[pages.compose]
+environment = "the cottage garden as fixed in the props and places, on a bright morning: the neat thatched cottage, flowers by the blue-green door, the harp leaning by the door, the hen in the grass, the old stump in its stone ring covered in wildflowers, the picket fence, green fields beyond, a wide clear sky"
+camera = "eye-level medium-wide shot in the garden, {name} and the mother centred and both faces readable, the cottage behind them"

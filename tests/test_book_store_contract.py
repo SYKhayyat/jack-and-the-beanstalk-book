@@ -28,6 +28,7 @@ from app.services.book_store import (
 )
 from app.services.db_book_store import DatabaseBookStore
 from app.services.user_store import DatabaseUserStore, User
+from tests.helpers import edition_in
 
 USER = "contract-user-1"
 ABOUT = AboutMe.model_validate({"prompt_name": "Jack", "about_name": "Jack", "about_age": 8})
@@ -48,6 +49,7 @@ def store(engine: Engine) -> Iterator[BookStore]:
 
 def seed(store: BookStore, *, book_id: str = "book-1", user_id: str | None = USER) -> str:
     store.save_record(
+        edition=edition_in(store),
         book_id=book_id,
         user_id=user_id,
         about=ABOUT,

@@ -113,6 +113,10 @@ class Draft:
     #: star. The start endpoint checks it, so a mother's portrait can never be
     #: used as the child (or as a different character).
     cast_key: str = ""
+    #: The story this portrait was made for. Cast keys repeat across tales (both
+    #: have a mother), and the star's costume is the story's, so a portrait made
+    #: for one story is refused by another.
+    story_key: str = ""
 
     @property
     def cartoon_image(self) -> bytes:
@@ -176,6 +180,7 @@ class GenerationStore:
             "model": draft.model,
             "candidate_media_types": list(draft.candidate_media_types),
             "cast_key": draft.cast_key,
+            "story_key": draft.story_key,
         }
         stored.path("draft.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return stored
@@ -220,6 +225,7 @@ class GenerationStore:
             model=str(payload.get("model", "unknown")),
             candidate_media_types=media_types,
             cast_key=str(payload.get("cast_key", "")),
+            story_key=str(payload.get("story_key", "")),
         )
 
     def read_image(self, generation_id: str, stem: str) -> bytes | None:

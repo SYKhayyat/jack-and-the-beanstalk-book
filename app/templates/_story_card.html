@@ -1,12 +1,12 @@
-{# One shelf card. `card` carries story, state (fresh/drawing/finished/soon), href, cover_url.
+{# One shelf card. `card` carries story, state (fresh/drawing/finished/waiting/soon), href, cover_url.
    `signed_out` turns the card into a picture only: the banner is the way in. #}
 {% set story = card.story %}
-{% set labels = {"fresh": "Start this book", "drawing": "Being drawn…", "finished": "Make another", "soon": "Coming soon"} %}
+{% set labels = {"fresh": "Start this book", "drawing": "Being drawn…", "finished": "Make another", "waiting": "Not ready yet", "soon": "Coming soon"} %}
 <article class="story-card state-{{ card.state }}" data-story="{{ story.key }}" data-state="{{ card.state }}">
   {% if card.href and not signed_out %}
   <a class="story-card-link" href="{{ card.href }}" data-studio-href="/stories/{{ story.key }}/studio">
   {% else %}
-  <div class="story-card-link" {% if card.state == "soon" %}aria-disabled="true"{% endif %}>
+  <div class="story-card-link" {% if card.state in ("soon", "waiting") %}aria-disabled="true"{% endif %}>
   {% endif %}
     <span class="cover-frame">
       {% if card.cover_url and not signed_out %}
@@ -19,10 +19,11 @@
       <span class="story-title">{{ story.title }}</span>
       <span class="story-blurb">{{ story.blurb }}</span>
       <span class="story-meta">21 pictures · about 5 minutes</span>
+      {% if card.state == "waiting" %}<span class="story-note">{{ not_ready }}</span>{% endif %}
       {% if not signed_out %}
-      <span class="button primary story-action" data-card-action>{{ labels[card.state] }}{% if card.state in ("fresh", "finished") %} <span aria-hidden="true">▸</span>{% endif %}</span>
-      {% elif card.state == "soon" %}
-      <span class="button story-action" data-card-action>Coming soon</span>
+      <span class="button{% if card.state not in ("soon", "waiting") %} primary{% endif %} story-action" data-card-action>{{ labels[card.state] }}{% if card.state in ("fresh", "finished") %} <span aria-hidden="true">▸</span>{% endif %}</span>
+      {% elif card.state in ("soon", "waiting") %}
+      <span class="button story-action" data-card-action>{{ labels[card.state] }}</span>
       {% endif %}
     </span>
   {% if card.href and not signed_out %}</a>{% else %}</div>{% endif %}

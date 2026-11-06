@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy.engine import Engine
 
 from app.models import CartoonSettings
-from app.models.book import BOOK_PAGES, AboutMe
+from app.models.book import AboutMe
 from app.services import book_document as book_document_module
 from app.services import book_runner as book_runner_module
 from app.services.book_runner import BookRunner
@@ -24,7 +24,12 @@ from app.services.db_book_store import DatabaseBookStore
 from app.services.image_providers.base import GeneratedImage, ImageRequest
 from app.services.pipeline import GenerationPipeline
 from app.services.storage import GenerationStore
-from tests.helpers import RecordingProvider, make_photo_bytes
+from app.services.template_store import TemplateStore
+from tests.helpers import RecordingProvider, edition_in, jack, make_photo_bytes
+
+#: Jack's tale exactly as a new book is made from it (its seed's edition).
+JACK = jack()
+BOOK_PAGES = JACK.pages
 
 
 class _BlockingProvider(RecordingProvider):
@@ -46,6 +51,7 @@ class _BlockingProvider(RecordingProvider):
 def _persisted_draft(store: GenerationStore) -> str:
     """A real draft on disk: the runner refuses to start without one."""
     draft = GenerationPipeline(RecordingProvider(), store).cartoonify(
+        story=JACK,
         photo_data=make_photo_bytes(),
         photo_media_type="image/png",
         settings=CartoonSettings(),
@@ -69,6 +75,7 @@ def test_titles_are_rendered_per_page_not_per_status_write(
         provider=RecordingProvider(),
         store=store,
         book_store=book_store,
+        templates=TemplateStore(engine),
         gate=ConcurrencyGate(2),
         page_timeout_seconds=60,
     )
@@ -77,8 +84,11 @@ def test_titles_are_rendered_per_page_not_per_status_write(
         about=AboutMe(prompt_name="Jack", about_name="Jack"),
         generation_id=generation_id,
         created_at="",
+        story_key=JACK.key,
+        title="Jack and the Beanstalk",
     )
     book_store.save_record(
+        edition=edition_in(book_store),
         book_id=record.book_id,
         user_id=None,
         about=record.about,
@@ -88,7 +98,7 @@ def test_titles_are_rendered_per_page_not_per_status_write(
     rendered: list[str] = []
     real = book_runner_module.render_book_page
 
-    def counting(page, settings, *, prompt_name=None):
+    def counting(page, settings, *, prompt_name):
         rendered.append(page.key)
         return real(page, settings, prompt_name=prompt_name)
 
@@ -124,6 +134,7 @@ def test_a_cancelled_page_leaves_its_slot_to_the_running_worker(
         provider=provider,
         store=store,
         book_store=book_store,
+        templates=TemplateStore(engine),
         gate=gate,
         page_timeout_seconds=30,
     )
@@ -132,8 +143,11 @@ def test_a_cancelled_page_leaves_its_slot_to_the_running_worker(
         about=AboutMe(prompt_name="Jack", about_name="Jack"),
         generation_id=generation_id,
         created_at="",
+        story_key=JACK.key,
+        title="Jack and the Beanstalk",
     )
     book_store.save_record(
+        edition=edition_in(book_store),
         book_id=record.book_id,
         user_id=None,
         about=record.about,
@@ -176,6 +190,7 @@ def test_a_cancelled_render_is_recorded_as_failed(tmp_path: Path, engine: Engine
         provider=provider,
         store=store,
         book_store=book_store,
+        templates=TemplateStore(engine),
         gate=ConcurrencyGate(2),
         page_timeout_seconds=10,
     )
@@ -184,8 +199,11 @@ def test_a_cancelled_render_is_recorded_as_failed(tmp_path: Path, engine: Engine
         about=AboutMe(prompt_name="Jack", about_name="Jack"),
         generation_id=generation_id,
         created_at="",
+        story_key=JACK.key,
+        title="Jack and the Beanstalk",
     )
     book_store.save_record(
+        edition=edition_in(book_store),
         book_id=record.book_id,
         user_id=None,
         about=record.about,
@@ -225,6 +243,7 @@ def test_the_book_counts_its_cover_and_reports_the_pdf_phase(
         provider=RecordingProvider(),
         store=store,
         book_store=book_store,
+        templates=TemplateStore(engine),
         gate=ConcurrencyGate(2),
         page_timeout_seconds=60,
     )
@@ -233,8 +252,11 @@ def test_the_book_counts_its_cover_and_reports_the_pdf_phase(
         about=AboutMe(prompt_name="Jack", about_name="Jack"),
         generation_id=generation_id,
         created_at="",
+        story_key=JACK.key,
+        title="Jack and the Beanstalk",
     )
     book_store.save_record(
+        edition=edition_in(book_store),
         book_id=record.book_id,
         user_id=None,
         about=record.about,

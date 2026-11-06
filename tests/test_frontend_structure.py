@@ -19,10 +19,13 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from markupsafe import escape
 
 from app.models import CartoonSettings, RejectionReason
-from app.services.prompts import photoable_cast
-from tests.helpers import make_photo_bytes, multipart
+from app.stories import NOT_READY
+from tests.helpers import jack, make_photo_bytes, multipart
+
+JACK = jack()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC = PROJECT_ROOT / "app" / "static"
@@ -66,12 +69,17 @@ def _rendered_ids(html: str) -> set[str]:
 def _book(client: TestClient, **fields: object) -> str:
     response = client.post(
         "/api/cartoonify",
-        **multipart({"photo": ("me.png", make_photo_bytes(), "image/png")}),
+        **multipart(
+            {
+                "story": "jack_and_the_beanstalk",
+                "photo": ("me.png", make_photo_bytes(), "image/png"),
+            }
+        ),
     )
     assert response.status_code == 201, response.text
     data = {"generation_id": response.json()["generation_id"], "child_name": "Mia"}
     data.update(fields)
-    started = client.post("/api/book/start", data=data)
+    started = client.post("/api/book/start", data={"story": "jack_and_the_beanstalk", **data})
     assert started.status_code == 201, started.text
     return str(started.json()["book_id"])
 
@@ -205,18 +213,49 @@ def test_each_screen_loads_its_module_and_has_every_id_it_reads(
 # --- the shelf ----------------------------------------------------------------------
 
 
-def test_the_shelf_offers_jack_and_shows_red_coming_soon(shelf_html: str) -> None:
+def test_the_shelf_offers_both_stories(shelf_html: str) -> None:
     assert "Make a picture book starring someone you love." in shelf_html
     assert "One photo. Twenty-one pictures. A story they keep." in shelf_html
     assert f'href="{STUDIO}"' in shelf_html
-    assert "Start this book" in shelf_html
     red = re.search(
         r'<article[^>]*data-story="little_red_riding_hood".*?</article>', shelf_html, re.S
     )
     assert red is not None
-    assert "Coming soon" in red.group(0)
-    assert "<a " not in red.group(0), "a story with no catalogue cannot be started"
+    assert 'href="/stories/little_red_riding_hood/studio"' in red.group(0)
+    assert "Start this book" in red.group(0)
+    assert "Coming soon" not in red.group(0)
     assert "Their face goes where the circle is." in shelf_html
+
+
+def test_a_story_held_by_the_start_gate_says_so_and_has_no_way_in(
+    client: TestClient,
+) -> None:
+    """T6.5: with the gate on and no approved plates, the card is "not ready yet"."""
+    client.app.state.container.templates.set_requires_template("little_red_riding_hood", True)
+    shelf = client.get("/").text
+    red = re.search(
+        r'<article[^>]*data-story="little_red_riding_hood".*?</article>', shelf, re.S
+    )
+    assert red is not None
+    assert "Not ready yet" in red.group(0)
+    assert str(escape(NOT_READY)) in red.group(0)
+    assert "<a " not in red.group(0)
+    # Jack's card is untouched: the gate is per story.
+    assert f'href="{STUDIO}"' in shelf
+    for screen in ("studio", "about"):
+        response = client.get(f"/stories/little_red_riding_hood/{screen}")
+        assert response.status_code == 409
+        assert NOT_READY in response.json()["detail"]
+
+
+def test_reds_studio_offers_her_own_cast_and_no_outfit(client: TestClient) -> None:
+    html = client.get("/stories/little_red_riding_hood/studio").text
+    keys = re.findall(r'<section class="character[^"]*"[^>]*data-section="([a-z_]+)"', html)
+    assert keys == ["star", "mother", "grandmother", "woodcutter"]
+    assert 'data-section="wolf"' not in html
+    # Red wears the story's red hood, so there is no outfit to pick.
+    assert 'name="outfit"' not in html
+    assert 'name="outfit"' in client.get(STUDIO).text
 
 
 def test_the_covers_are_served(client: TestClient) -> None:
@@ -226,10 +265,9 @@ def test_the_covers_are_served(client: TestClient) -> None:
         assert "<svg" in response.text
 
 
-def test_a_story_without_a_catalogue_has_no_studio(client: TestClient) -> None:
-    for key in ("little_red_riding_hood", "no_such_story"):
-        assert client.get(f"/stories/{key}/studio").status_code == 404
-        assert client.get(f"/stories/{key}/about").status_code == 404
+def test_an_unknown_story_has_no_studio(client: TestClient) -> None:
+    assert client.get("/stories/no_such_story/studio").status_code == 404
+    assert client.get("/stories/no_such_story/about").status_code == 404
 
 
 def test_one_header_on_every_screen(
@@ -248,16 +286,21 @@ def test_the_studio_has_one_section_per_character_star_first(studio_html: str) -
     keys = re.findall(
         r'<section class="character[^"]*"[^>]*data-section="([a-z_]+)"', studio_html
     )
-    assert keys == ["star", *(key for key, _ in photoable_cast())]
+    assert keys == [
+        "star",
+        *(key for key, _ in [(member.key, member.label) for member in JACK.photoable_cast]),
+    ]
     star = re.search(r'data-section="star"[^>]*data-required="([a-z]+)"', studio_html)
     assert star is not None and star.group(1) == "true"
-    for key, _ in photoable_cast():
+    for key, _ in [(member.key, member.label) for member in JACK.photoable_cast]:
         assert re.search(rf'data-section="{key}"[^>]*data-required="false"', studio_html)
 
 
 def test_every_section_offers_camera_upload_and_a_comic(studio_html: str) -> None:
     sections = re.findall(r'<section class="character.*?</section>', studio_html, flags=re.S)
-    assert len(sections) == 1 + len(photoable_cast())
+    assert len(sections) == 1 + len(
+        [(member.key, member.label) for member in JACK.photoable_cast]
+    )
     for section in sections:
         assert 'data-action="camera"' in section
         assert 'type="file"' in section and "required" not in re.search(
@@ -458,7 +501,7 @@ def test_the_generation_response_does_not_name_the_backend(
     response = client.post(
         "/api/cartoonify",
         files={"photo": ("me.png", photo, "image/png")},
-        data={"aspect_ratio": "4:3"},
+        data={"story": "jack_and_the_beanstalk", "aspect_ratio": "4:3"},
     )
     assert response.status_code == 201
     assert "provider" not in response.json()
@@ -471,3 +514,21 @@ def test_static_files_are_revalidated_so_a_deploy_is_never_stale(client: TestCli
         assert response.status_code == 200, path
         assert response.headers["cache-control"] == "no-cache"
         assert "etag" in response.headers
+
+
+def test_every_request_that_spends_for_a_book_names_its_story() -> None:
+    """The studio, the About screen and the face edit all say which story.
+
+    The API refuses a portrait or a start without one, so a script that forgot
+    it would fail for every visitor; this keeps the three callers honest.
+    """
+    static = Path(__file__).resolve().parent.parent / "app" / "static"
+    assert 'body.append("story", story);' in (static / "studio.js").read_text()
+    assert 'body.append("story", story);' in (static / "about.js").read_text()
+    live = (static / "book-live.js").read_text()
+    assert "const bookStory = body.dataset.bookStory;" in live
+    assert 'portraitForm.append("story", bookStory);' in live
+
+
+def test_the_book_page_tells_its_script_which_story_it_is(book_html: str) -> None:
+    assert 'data-book-story="jack_and_the_beanstalk"' in book_html

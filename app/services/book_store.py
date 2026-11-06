@@ -34,6 +34,7 @@ from datetime import datetime
 
 from app.models.book import AboutMe
 from app.models.settings import CartoonSettings
+from app.models.story import StoryEdition
 
 __all__ = [
     "BookRecord",
@@ -75,6 +76,7 @@ class BookSummary:
     """One card in the library: enough to list and link, no blobs."""
 
     book_id: str
+    story_key: str
     title: str
     status: str
     created_at: str
@@ -93,6 +95,10 @@ class BookRecord:
     about: AboutMe
     generation_id: str
     created_at: str
+    #: Which story the book is; its pinned edition is read by book id.
+    story_key: str
+    #: The resolved cover title ("Noa and the Wolf").
+    title: str
     #: The Google `sub` of the person it belongs to, or None for an unowned
     #: book (local development, password-only deployments).
     user_id: str | None = None
@@ -125,14 +131,20 @@ class BookStore:
         user_id: str | None,
         about: AboutMe,
         generation_id: str,
+        edition: StoryEdition,
         fingerprint: str | None = None,
         settings: CartoonSettings | None = None,
     ) -> None:
-        """Persist the book's request. Written once, before rendering starts."""
+        """Persist the book's request and pin the edition it is made from.
+
+        Written once, before rendering starts, in one transaction: the book
+        row, its title, its template version (when the edition has one) and
+        the exact page and bible revisions. A book never exists unpinned.
+        """
         raise NotImplementedError
 
-    def update_about(self, book_id: str, about: AboutMe) -> None:
-        """Replace the About fields (the cheap edit: PDF text only)."""
+    def update_about(self, book_id: str, about: AboutMe, *, title: str) -> None:
+        """Replace the About fields and the title they name (PDF text only)."""
         raise NotImplementedError
 
     def list_for_owner(self, user_id: str, *, limit: int = 50) -> list[BookSummary]:

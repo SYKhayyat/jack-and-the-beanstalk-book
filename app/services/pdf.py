@@ -203,6 +203,7 @@ def title_band_report(
 
 
 def build_book_pdf(
+    title: str,
     about: AboutMe,
     pages: Sequence[PageArt],
     cover: bytes | None = None,
@@ -236,7 +237,7 @@ def build_book_pdf(
         logger.info("pdf.text_shaping=off reason=uharfbuzz_not_importable")
 
     if cover is not None:
-        draw_cover_page(pdf, about, cover)
+        draw_cover_page(pdf, title, about, cover)
 
     for number, entry in enumerate(pages, start=1):
         _draw_page(pdf, entry, layout, number)
@@ -272,7 +273,7 @@ def book_template(
         size = max(_MIN_STORY_FONT, size - 0.5)
 
 
-def draw_cover_page(pdf: FPDF, about: AboutMe, cover: bytes) -> None:
+def draw_cover_page(pdf: FPDF, title: str, about: AboutMe, cover: bytes) -> None:
     """The front cover: full-bleed art with a designed title lockup.
 
     The art covers the whole page (cropped at the sides when the page is
@@ -301,7 +302,6 @@ def draw_cover_page(pdf: FPDF, about: AboutMe, cover: bytes) -> None:
         with pdf.local_context(fill_opacity=0.50 * (1 - step / steps) ** 1.6):
             pdf.rect(0, step * band, width, band + 0.5, style="F")
 
-    title = about.book_title
     usable = width * (1 - 2 * _SIDE_MARGIN)
     title_size = width * 0.085
     while title_size > 22.0 and _text_width(_FAMILY, "B", title_size, title) > usable:

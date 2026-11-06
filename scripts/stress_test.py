@@ -81,6 +81,7 @@ async def one_request(
 ) -> None:
     photo = make_photo(seed)
     form = {
+        "story": "jack_and_the_beanstalk",
         "cartoon_intensity": str(intensity),
         "cartoon_style": "western_cartoon",
         "likeness_strength": "strict",

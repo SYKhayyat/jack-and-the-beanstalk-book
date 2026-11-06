@@ -79,7 +79,7 @@ def test_a_plate_prompt_names_nobody_and_carries_no_prose(story: StorySeed) -> N
     for page in story.pages:
         prompt = build_plate_prompt(story, page.scene)
         assert page.story not in prompt
-        assert story.cast[story.star][:60] not in prompt
+        assert story.cast[story.star].look[:60] not in prompt
 
 
 def test_all_the_plates_share_one_palette_and_one_style() -> None:

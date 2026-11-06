@@ -15,6 +15,11 @@ book_title = "{name} and the Wolf"
 star = "red"
 available = true
 
+# The name a blank name field resolves to, by the photo-gender answer.
+[story.names]
+boy = "Red"
+girl = "Red"
+
 # The cover is full-bleed art under a title lockup. The top band is kept calm so
 # real text can sit there; T1's check refuses a busy plate at approval time.
 [cover]
@@ -30,26 +35,41 @@ must_avoid = ["lettering, a title, a logo or a caption of any kind", "the wolf c
 
 # The character bible. The star's face comes from the upload; the red cloak is
 # the story's costume, fixed on every page.
-[cast]
-red = "The child in the red hood: the starred child's own face, hair, skin and age on every page, exactly as in the approved portrait and photograph. The costume, identical on every page: a bright red hooded cloak with the hood up and tied at the throat with a small bow, over a plain cream woollen dress, a white linen apron, brown leather shoes, and a woven brown basket on one arm. The red cloak is the story's dress, never a new face."
-mother = "The mother (no reference photo, so this is her one look on every page): a woman in her mid-thirties, clearly taller than the child, with an oval face, warm hazel eyes, straight dark brows and dark brown hair tucked under a plain cream linen kerchief. Her outfit, identical on every page: a long plain dark-brown wool dress with sleeves to the wrist, a light linen apron tied at the waist, and brown leather shoes. Her face is entirely unlike the child's."
-grandmother = "Grandmother (no reference photo, so this is her one look on every page): a small, gentle woman in her seventies, with a soft round face, warm brown eyes, white hair in a neat bun, small round spectacles, a white lace cap, a soft lavender shawl over a plain grey dress, and dark soft shoes. She is warm and quick to smile, never frail or frightening, and her face is entirely unlike the child's and the mother's."
-woodcutter = "The woodcutter (no reference photo, so this is his one look on every page): a tall, broad man in his forties with a kind weathered face, warm brown eyes, a short brown beard and sawdust on his sleeves. His outfit, identical on every page: a green woollen shirt, brown trousers, a leather apron and heavy brown boots. He carries no weapon on any page; his axe stays in the wood, out of frame. His face is entirely unlike the child's."
-wolf = "The wolf (no reference photo, so this is his one look on every page): a tall grey wolf who walks on two legs and talks. He wears a smart dark-green coat, a cream waistcoat, a brown neckerchief and black boots. His fur is grey with a pale muzzle, his eyes are amber, and his tail is long and bushy. He is sly and greedy, never a monster: he never bites, scratches or harms anyone on the page, and no page shows blood, a wound or a weapon."
+# Each entry: its label, whether a photograph may be attached, the look a page
+# uses without one, the look it uses with one, and the brief the portrait pass
+# draws a photographed character from. The wolf can never have a photograph.
 
-[cast_photoable]
-red = true
-mother = true
-grandmother = true
-woodcutter = true
-wolf = false
+[cast.red]
+label = "The child"
+photoable = true
+look = "The child in the red hood: the starred child's own face, hair, skin and age on every page, exactly as in the approved portrait and photograph. What the child wears is the costume below, and only that."
+costume = "The costume, identical on every page: a bright red hooded cloak with the hood up and tied at the throat with a small bow, over a plain cream woollen tunic that reaches the knee, brown leggings and brown leather shoes, with a woven brown basket on one arm whenever the page gives it to {object}. The red cloak is the story's costume, never a new face, and it replaces any clothes in the portrait or the photograph."
 
-[cast_labels]
-red = "The child"
-mother = "Mother"
-grandmother = "Grandmother"
-woodcutter = "Woodcutter"
-wolf = "The wolf"
+[cast.mother]
+label = "Mother"
+photoable = true
+look = "The mother (no reference photo, so this is her one look on every page): a woman in her mid-thirties, clearly taller than the child, with an oval face, warm hazel eyes, straight dark brows and dark brown hair tucked under a plain cream linen kerchief. Her outfit, identical on every page: a long plain dark-brown wool dress with sleeves to the wrist, a light linen apron tied at the waist, and brown leather shoes. Her face is entirely unlike the child's."
+look_with_photo = "The mother (she has reference images, named below): the woman in her reference images, older and clearly taller than the child. Her face, bone structure, eye colour, smile, skin tone and hair come exactly from her cartoon portrait — never a generic storybook mother — and she stays the same age on every page. Any head covering or glasses in her portrait are worn on every page exactly as there. Her outfit, identical on every page: a long plain dark-brown wool dress with sleeves to the wrist, a light linen apron tied at the waist, and brown leather shoes. Her face is never the child's."
+portrait = "THE CHARACTER: the woman in the photograph, as the mother in this picture book. Her face, bone structure, eye colour, smile, skin tone, hair and apparent age exactly as in the photograph — never a generic storybook mother. Any head covering or glasses she wears in the photograph stay, with the same shape, colour and pattern, worn the same way. She wears her costume from the book: a long plain dark-brown wool dress and a light linen apron."
+
+[cast.grandmother]
+label = "Grandmother"
+photoable = true
+look = "Grandmother (no reference photo, so this is her one look on every page): a small, gentle woman in her seventies, with a soft round face, warm brown eyes, white hair in a neat bun, small round spectacles, a white lace cap, a soft lavender shawl over a plain grey dress, and dark soft shoes. She is warm and quick to smile, never frail or frightening, and her face is entirely unlike the child's and the mother's."
+look_with_photo = "Grandmother (she has reference images, named below): the woman in her reference images, as the child's warm, gentle grandmother. Her face, bone structure, eye colour, smile, skin tone and hair come exactly from her cartoon portrait — never a generic storybook granny — and she stays the same age on every page. Glasses in her portrait stay on; if she has none, she wears none. Her outfit, identical on every page: a white lace cap, a soft lavender shawl over a plain grey dress, and dark soft shoes. She is never frail or frightening, and her face is never the child's or the mother's."
+portrait = "THE CHARACTER: the woman in the photograph, as the grandmother in this picture book. Her face, bone structure, eye colour, smile, skin tone, hair and apparent age exactly as in the photograph, warm and quick to smile. Any glasses or head covering she wears in the photograph stay, worn the same way. She wears her costume from the book: a white lace cap and a soft lavender shawl over a plain grey dress."
+
+[cast.woodcutter]
+label = "Woodcutter"
+photoable = true
+look = "The woodcutter (no reference photo, so this is his one look on every page): a tall, broad man in his forties with a kind weathered face, warm brown eyes, a short brown beard and sawdust on his sleeves. His outfit, identical on every page: a green woollen shirt, brown trousers, a leather apron and heavy brown boots. He carries no weapon on any page; his axe stays in the wood, out of frame. His face is entirely unlike the child's."
+look_with_photo = "The woodcutter (he has reference images, named below): the man in his reference images, as a tall, broad, kindly woodcutter. His face, eyes, skin tone, hair and any beard come exactly from his cartoon portrait, with a kind, steady expression. Glasses in his portrait stay on. His outfit, identical on every page: a green woollen shirt, brown trousers, a leather apron and heavy brown boots, with sawdust on his sleeves. He carries no weapon on any page; his axe stays in the wood, out of frame. His face is never the child's."
+portrait = "THE CHARACTER: the man in the photograph, as the kind woodcutter in this picture book. His face, eyes, skin tone, hair, any beard and his apparent age exactly as in the photograph, with a kind, steady expression. Glasses stay. He wears his costume from the book: a green woollen shirt and a leather apron, and he holds nothing — no axe and no tool."
+
+[cast.wolf]
+label = "The wolf"
+photoable = false
+look = "The wolf (no reference photo, so this is his one look on every page): a tall grey wolf who walks on two legs and talks. He wears a smart dark-green coat, a cream waistcoat, a brown neckerchief and black boots. His fur is grey with a pale muzzle, his eyes are amber, and his tail is long and bushy. He is sly and greedy, never a monster: he never bites, scratches or harms anyone on the page, and no page shows blood, a wound or a weapon."
 
 # Story words this tale needs beyond the shared simple vocabulary. Proper nouns
 # are allowed here; anything else should be a word a six-year-old knows.

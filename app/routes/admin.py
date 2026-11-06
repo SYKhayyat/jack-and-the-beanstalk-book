@@ -6,6 +6,11 @@ Three screens, one gate:
     /admin/plates/{story}                       the contact sheet — all 21 plates
     /admin/plates/{story}/{page}                one page's candidates, to approve
 
+and one switch per story, the start gate (T6.5): `POST /admin/plates/{story}/gate`
+decides whether a book of that story may start before its plates are all
+approved. Off, books are drawn from the words and looks alone; on, a story with
+no complete template version is "not ready yet" on the shelf and refuses a start.
+
 The gate is an identity, not a role: `OPERATOR_SUB` names one Google account,
 and every route answers 404 to anybody else — the same answer an unknown URL
 gives, so `/admin` neither confirms that it exists nor hints at what it holds.
@@ -76,8 +81,8 @@ def _paint_lock(story_key: str) -> threading.Lock:
 
 
 def get_templates(container: ContainerDep) -> TemplateStore:
-    """The store the admin screens read and write, over the app's one engine."""
-    return TemplateStore(container.engine)
+    """The store the admin screens read and write: the app's own."""
+    return container.templates
 
 
 TemplateDep = Annotated[TemplateStore, Depends(get_templates)]
@@ -321,6 +326,29 @@ def page_review(
 # --- the actions --------------------------------------------------------------
 
 
+@router.post("/plates/{story_key}/gate")
+def set_start_gate(
+    story_key: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+    required: Annotated[str, Form()] = "",
+) -> RedirectResponse:
+    """Turn the story's start gate on or off.
+
+    `required=on` (the checkbox ticked) means a book of this story can start
+    only on a complete template version; anything else turns the gate off.
+    Books already started are untouched either way: the gate only decides
+    whether the next one may begin.
+    """
+    operator = _operator(container, session)
+    _seed_or_404(story_key)
+    on = required == "on"
+    store.set_requires_template(story_key, on)
+    logger.info("admin.start_gate story=%s required=%s operator=%s", story_key, on, operator)
+    return RedirectResponse("/admin/plates", status_code=303)
+
+
 @router.post("/plates/{story_key}/{page_number}/{plate_id}/approve")
 def approve(
     story_key: str,
@@ -507,15 +535,19 @@ def _story_progress(seed: StorySeed, store: TemplateStore) -> dict[str, Any]:
             "approved": 0,
             "drafts": 0,
             "version": None,
+            "requires_template": False,
+            "can_start": False,
         }
-    version = store.current_version(seed.key)
+    state = store.story_state(seed.key)
     return {
         "key": seed.key,
         "title": seed.title,
         "seeded": bool(pages),
         "approved": sum(1 for p in plates if p.status == PlateStatus.APPROVED),
         "drafts": sum(1 for p in plates if p.status == PlateStatus.DRAFT),
-        "version": version.number if version else None,
+        "version": state.version_number,
+        "requires_template": state.requires_template,
+        "can_start": state.can_start,
     }
 
 

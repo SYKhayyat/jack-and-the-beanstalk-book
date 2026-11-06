@@ -1,12 +1,12 @@
 {% extends "_layout.html" %}
-{% block title %}{{ about.book_title }}{% endblock %}
-{% block body_attrs %}data-page="book" data-book-id="{{ book.book_id }}" data-book-status="{{ status }}" data-book-title="{{ about.book_title }}" data-max-upload-mb="{{ max_upload_mb }}"{% endblock %}
-{% block header_title %}<span class="header-title">{{ about.book_title }}</span>{% endblock %}
+{% block title %}{{ title }}{% endblock %}
+{% block body_attrs %}data-page="book" data-book-id="{{ book.book_id }}" data-book-status="{{ status }}" data-book-title="{{ title }}" data-book-story="{{ book.story_key }}" data-max-upload-mb="{{ max_upload_mb }}"{% endblock %}
+{% block header_title %}<span class="header-title">{{ title }}</span>{% endblock %}
 {% block main_class %}page book-screen{% endblock %}
 {% block content %}
   <section class="stage" aria-label="The book">
     <button type="button" class="turn turn-back" id="turn-back" aria-label="Previous page"><span aria-hidden="true">←</span><span class="turn-label">back</span></button>
-    <div class="book-slot" id="book-slot" tabindex="0" aria-roledescription="book" aria-label="{{ about.book_title }} — use the arrow keys to turn the pages">
+    <div class="book-slot" id="book-slot" tabindex="0" aria-roledescription="book" aria-label="{{ title }} — use the arrow keys to turn the pages">
       {% for tile in tiles %}
       <figure class="spread{% if tile.number == 0 %} is-cover{% endif %}" id="spread-{{ loop.index0 }}" data-spread="{{ loop.index0 }}" data-number="{{ tile.number }}" data-status="{{ tile.status }}" hidden>
         <span class="spread-art">

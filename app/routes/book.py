@@ -6,6 +6,10 @@ The flow is three endpoints around one background job:
     GET  /api/book/{id}   -> poll: status + page list, updated as each lands
     GET  /api/books       -> the signed-in person's library
 
+and two read-only story endpoints, `/api/stories/{key}/pages` and
+`/api/stories/{key}/characters`, describing what a new book of that story
+will contain.
+
 The portrait itself is made with the existing `/api/cartoonify` endpoint and
 reviewed through the existing approve flow — the book reuses the same pass-1
 call and settings machinery, so the portrait the uploader saw is exactly the
@@ -29,7 +33,6 @@ import logging
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
-from functools import lru_cache
 
 from fastapi import APIRouter, Form, Request, Response, status
 from pydantic import ValidationError
@@ -43,7 +46,6 @@ from app.errors import (
     UnknownBook,
 )
 from app.models import (
-    BOOK_PAGES,
     AboutMe,
     AboutPhotoChoice,
     AspectRatio,
@@ -51,28 +53,27 @@ from app.models import (
     CartoonSettings,
     RejectionFeedback,
     RejectionReason,
+    StoryEdition,
 )
 from app.routes.auth import CurrentSessionDep
+from app.routes.book_access import book_edition as _book_edition
 from app.routes.book_access import ensure_book as _ensure_book
+from app.routes.book_access import new_book_edition
 from app.routes.book_access import user_id as _user_id
 from app.services.book_runner import CharacterReference
 from app.services.book_store import BookRecord, BookStatus, BookSummary
 from app.services.pipeline import UnknownGeneration
-from app.services.prompts import (
-    book_name_for,
-    cast_photoable,
-    photoable_cast,
-    render_book_page,
-)
+from app.services.prompts import book_name_for, render_book_page
 from app.services.storage import Draft
 from app.services.wallet import format_cents
 
-__all__ = ["books_router", "router"]
+__all__ = ["books_router", "router", "stories_router"]
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/book", tags=["book"])
 books_router = APIRouter(prefix="/api/books", tags=["books"])
+stories_router = APIRouter(prefix="/api/stories", tags=["stories"])
 
 #: How long an identical `start` request reuses the book it already started.
 #: Long enough to cover a double-submit, a second tab and a client retrying a
@@ -89,45 +90,48 @@ _START_REUSE_SECONDS = 10 * 60
 _start_lock = threading.Lock()
 
 
-@lru_cache(maxsize=1)
-def _default_rendered_pages() -> tuple[dict[str, object], ...]:
-    """The catalogue rendered with default settings, computed once.
+@stories_router.get("/{story_key}/pages")
+def list_pages(story_key: str, container: ContainerDep) -> dict[str, object]:
+    """What a new book of this story contains, page by page.
 
-    The rendered titles are request-invariant (defaults only vary please talk
-    with children's names, and the catalogue is name-free), so re-formatting
-    per request was pure waste.
+    Rendered with the story's default star name, so the words read as the
+    book would print them for a visitor who leaves the name blank.
     """
+    edition = new_book_edition(container, story_key)
     defaults = CartoonSettings()
-    rendered = [render_book_page(page, defaults) for page in BOOK_PAGES]
-    return tuple(
-        {
-            "number": page.number,
-            "key": page.key,
-            "title": page.scene.title,
-            "story": page.story,
-        }
-        for page in rendered
-    )
-
-
-@router.get("/pages")
-def list_pages() -> dict[str, object]:
-    """The book's page catalogue, so the UI can say what the book contains."""
-    return {"pages": list(_default_rendered_pages())}
-
-
-@router.get("/characters")
-def list_characters() -> dict[str, object]:
-    """The character slots the uploader may fill with a photo.
-
-    Only the book's photoable cast appears here. Milky-White is cast in the
-    prose and appears in no catalogue, endpoint or form: there is no upload
-    path for her anywhere, by construction (`photoable = false` in the data).
-    """
+    name = book_name_for(defaults, edition)
     return {
+        "story": edition.key,
+        "pages": [
+            {
+                "number": page.number,
+                "key": page.key,
+                "title": page.scene.title,
+                "story": page.story,
+            }
+            for page in (
+                render_book_page(page, defaults, prompt_name=name) for page in edition.pages
+            )
+        ],
+    }
+
+
+@stories_router.get("/{story_key}/characters")
+def list_characters(story_key: str, container: ContainerDep) -> dict[str, object]:
+    """The character slots the uploader may fill with a photo, for this story.
+
+    Only the story's photoable supporting cast appears here. A character the
+    bible says can never be photographed (Milky-White is not even cast; the
+    wolf is cast but never photographed) appears in no catalogue, endpoint or
+    form: there is no upload path for them anywhere, by construction.
+    """
+    edition = new_book_edition(container, story_key)
+    return {
+        "story": edition.key,
         "characters": [
-            {"key": key, "label": label, "photoable": True} for key, label in photoable_cast()
-        ]
+            {"key": member.key, "label": member.label, "photoable": True}
+            for member in edition.photoable_cast
+        ],
     }
 
 
@@ -166,6 +170,7 @@ async def start_book(
     response: Response,
     container: ContainerDep,
     session: CurrentSessionDep,
+    story: str = Form(..., description="The story's key, e.g. `little_red_riding_hood`."),
     generation_id: str = Form(
         ..., description="Id of the approved portrait, returned by /api/cartoonify."
     ),
@@ -189,18 +194,24 @@ async def start_book(
         default=[],
         description=(
             "Repeated `cast_key:generation_id` pairs. Each names a photoable "
-            "cast member and the approved portrait made for them with "
-            "/api/cartoonify; pages that cast the character send those images "
-            "as references. Milky-White is refused: she is prose-pinned."
+            "cast member of the story and the approved portrait made for them "
+            "with /api/cartoonify; pages that cast the character send those "
+            "images as references. A character who cannot be photographed is "
+            "refused."
         ),
     ),
 ) -> dict[str, object]:
     """Start rendering the book from an already-approved cartoon portrait.
 
-    Both names are optional: a blank resolves to Jack or Jane, following the
-    photo-gender answer the portrait was made with. They are separate on
-    purpose — the name the story uses and the name the About page shows may
-    differ.
+    Both names are optional: a blank resolves to the story's default star
+    name (Jack or Jane, Red), following the photo-gender answer the portrait
+    was made with. They are separate on purpose — the name the story uses and
+    the name the About page shows may differ.
+
+    The book is pinned to the edition of the story it starts on: the
+    template version when there is one, otherwise the latest words and looks.
+    With the operator's start gate on, a story whose plates are not approved
+    yet is refused with 409 and one plain sentence.
 
     One book costs one provider call per page. This endpoint charges one
     admission for the job and then one page token as each page actually
@@ -222,9 +233,15 @@ async def start_book(
     # Every store call here is blocking: file reads for the drafts, and in
     # database mode a network round trip for the record and the portrait blob.
     # None of it may run on the event loop that is also serving the polls.
+    edition = await asyncio.to_thread(new_book_edition, container, story)
     draft = await asyncio.to_thread(container.store.load_draft, generation_id)
     if draft is None:
         raise UnknownGeneration(generation_id)
+    if draft.story_key != edition.key:
+        raise InvalidSettings(
+            "That portrait was made for a different book. Make the star's portrait "
+            "in this book's studio."
+        )
     if draft.cast_key:
         # The book's identity anchor is the child. A portrait made for a cast
         # member would put, say, the mother's face on every page as Jack.
@@ -234,9 +251,9 @@ async def start_book(
         )
     settings = _with_page_shape(draft.settings, aspect_ratio)
     about = _about_from_form(
-        child_name, about_name, about_age, about_title, details, settings, about_photo
+        edition, child_name, about_name, about_age, about_title, details, settings, about_photo
     )
-    characters = await asyncio.to_thread(_character_references, character, container)
+    characters = await asyncio.to_thread(_character_references, character, container, edition)
     # The person the book belongs to. In Google mode every request here has a
     # session (the guard guarantees it); a password or open deployment has no
     # identity to file under, and the book stays unowned.
@@ -251,6 +268,7 @@ async def start_book(
         about,
         character,
         settings,
+        edition,
     )
     book_id = record.book_id
     if reused:
@@ -280,13 +298,16 @@ async def start_book(
         await asyncio.to_thread(container.book_store.delete, book_id)
         raise
     logger.info(
-        "book.started user=%s book=%s draft=%s provider=%s characters=%s pages=%d",
+        "book.started user=%s book=%s story=%s version=%s draft=%s provider=%s "
+        "characters=%s pages=%d",
         user_id or "-",
         book_id,
+        edition.key,
+        edition.template_version_id or "-",
         generation_id,
         container.provider.name,
         ",".join(characters) or "-",
-        len(BOOK_PAGES),
+        len(edition.pages),
     )
     return {
         "book_id": book_id,
@@ -305,6 +326,7 @@ def _start_or_reuse(
     about: AboutMe,
     character: list[str],
     settings: CartoonSettings,
+    edition: StoryEdition,
 ) -> tuple[BookRecord, bool]:
     """The book this request already started, or a newly recorded one.
 
@@ -322,6 +344,7 @@ def _start_or_reuse(
     """
     fingerprint = _request_fingerprint(
         user_id=user_id,
+        story_key=edition.key,
         generation_id=generation_id,
         about=about,
         character=character,
@@ -344,6 +367,7 @@ def _start_or_reuse(
             user_id=user_id,
             about=about,
             generation_id=generation_id,
+            edition=edition,
             fingerprint=fingerprint,
             settings=settings,
         )
@@ -354,6 +378,8 @@ def _start_or_reuse(
             about=about,
             generation_id=generation_id,
             created_at="",
+            story_key=edition.key,
+            title=edition.title_for(about.prompt_name),
             fingerprint=fingerprint,
             settings=settings,
         ),
@@ -364,6 +390,7 @@ def _start_or_reuse(
 def _request_fingerprint(
     *,
     user_id: str | None,
+    story_key: str,
     generation_id: str,
     about: AboutMe,
     character: list[str],
@@ -373,6 +400,7 @@ def _request_fingerprint(
     material = json.dumps(
         {
             "user": user_id or "",
+            "story": story_key,
             "generation": generation_id,
             "aspect_ratio": aspect_ratio,
             "about": about.model_dump(mode="json"),
@@ -427,9 +455,11 @@ async def edit_book(
     record = await asyncio.to_thread(container.book_store.load_record, book_id)
     if record is None:
         raise UnknownBook("No book with that id. It may have expired — start a new one.")
+    edition = await asyncio.to_thread(_book_edition, container, book_id)
 
     if action == "about":
         about = _about_from_form(
+            edition,
             child_name or record.about.prompt_name,
             about_name or record.about.about_name,
             about_age,
@@ -438,7 +468,11 @@ async def edit_book(
             record.settings,
             about_photo or record.about.about_photo,
         )
-        await asyncio.to_thread(container.book_store.update_about, book_id, about)
+        await asyncio.to_thread(
+            lambda: container.book_store.update_about(
+                book_id, about, title=edition.title_for(about.prompt_name)
+            )
+        )
         status_payload = (
             await asyncio.to_thread(container.book_store.load_status, book_id) or {}
         )
@@ -474,7 +508,7 @@ async def edit_book(
         return _edit_started(book_id, "retry")
 
     if action == "page":
-        page = _page_to_edit(page_number)
+        page = _page_to_edit(edition, page_number)
         corrections = {page.number: _correction_text(reason)}
         await container.book_runner.start_edit(
             book_id,
@@ -486,14 +520,14 @@ async def edit_book(
         return _edit_started(book_id, "page")
 
     if action == "character":
-        if character_key != "star" and not cast_photoable(character_key):
+        if character_key != "star" and not edition.can_photograph(character_key):
             raise InvalidSettings(
                 f"There is no character slot for {character_key!r} — "
                 "it cannot be given a photo."
             )
         expected = "" if character_key == "star" else character_key
         reference = await asyncio.to_thread(
-            _character_reference, generation_id, container, expected
+            _character_reference, generation_id, container, expected, edition.key
         )
         if character_key == "star":
             await asyncio.to_thread(
@@ -512,9 +546,9 @@ async def edit_book(
             return _edit_started(book_id, "character")
 
         # Validate before storing: a character that is photoable in the
-        # catalogue but absent from this book's pages is a 422, and a 422 must
+        # bible but absent from this book's pages is a 422, and a 422 must
         # not leave a face filed under the book.
-        affected = {page.number for page in BOOK_PAGES if character_key in page.cast}
+        affected = edition.pages_casting(character_key)
         if not affected:
             raise InvalidSettings(f"{character_key} does not appear in this book.")
         await asyncio.to_thread(
@@ -540,13 +574,13 @@ def _edit_started(book_id: str, action: str) -> dict[str, object]:
     }
 
 
-def _page_to_edit(page_number: int | None) -> BookPage:
+def _page_to_edit(edition: StoryEdition, page_number: int | None) -> BookPage:
     if page_number is None:
         raise InvalidSettings("Choose a page to redraw.")
-    for page in BOOK_PAGES:
-        if page.number == page_number:
-            return page
-    raise InvalidSettings("That page does not exist in this book.")
+    page = edition.page(page_number)
+    if page is None:
+        raise InvalidSettings("That page does not exist in this book.")
+    return page
 
 
 def _correction_text(reasons: list[str]) -> str:
@@ -561,14 +595,14 @@ def _correction_text(reasons: list[str]) -> str:
 
 
 def _character_reference(
-    generation_id: str, container: ContainerDep, expected_cast_key: str
+    generation_id: str, container: ContainerDep, expected_cast_key: str, story_key: str
 ) -> CharacterReference:
     if not generation_id:
         raise InvalidSettings("Choose the replacement photo first.")
     draft = container.store.load_draft(generation_id)
     if draft is None:
         raise UnknownGeneration(generation_id)
-    if draft.cast_key != expected_cast_key:
+    if draft.cast_key != expected_cast_key or draft.story_key != story_key:
         raise InvalidSettings(
             "That portrait was made for a different character — make the "
             "cartoon from this slot's own photo."
@@ -646,6 +680,7 @@ def _check_rate(client_key: str, container: Container, tokens: int = 1) -> None:
 
 
 def _about_from_form(
+    edition: StoryEdition,
     child_name: str,
     about_name: str,
     about_age: int | None,
@@ -656,16 +691,16 @@ def _about_from_form(
 ) -> AboutMe:
     """Resolve blank names and validate the uploader's words.
 
-    A blank prompt name or About name becomes Jack or Jane — decided by the
-    photo-gender answer the settings carry — rather than praying to a required
-    field. Exactly one resolver lives here: the model receives an object whose
-    names are always set.
+    A blank prompt name or About name becomes the story's default star name
+    — decided by the photo-gender answer the settings carry — rather than
+    praying to a required field. Exactly one resolver lives here: the model
+    receives an object whose names are always set.
 
     The text itself is free — it is drawn on the PDF, never sent to a model —
     but a malformed value fails here with a 422 naming the field rather than
     surfacing as a blank About page later.
     """
-    resolved = book_name_for(settings)
+    resolved = book_name_for(settings, edition)
     resolved_prompt_name = child_name.strip() or resolved
     resolved_about_name = about_name.strip() or resolved
 
@@ -704,7 +739,7 @@ def _with_page_shape(settings: CartoonSettings, aspect_ratio: str) -> CartoonSet
 
 
 def _character_references(
-    character: list[str], container: ContainerDep
+    character: list[str], container: ContainerDep, edition: StoryEdition
 ) -> dict[str, CharacterReference]:
     """Resolve the repeated `character=key:generation_id` form parts.
 
@@ -716,14 +751,14 @@ def _character_references(
 
     Refused outright:
 
-    * a key that is not photoable — Milky-White above all: the cow is pinned
-      in prose, and there is no route, form or endpoint that can attach a face
-      to her;
+    * a key that is not a photoable supporting character of this story — the
+      wolf above all: he is pinned in prose, and there is no route, form or
+      endpoint that can attach a face to him;
     * the same key twice — two photos of one character is ambiguous, and the
       later one would silently win;
-    * a portrait made for a different slot (or for the star) — the portrait's
-      draft records the cast key it was made for, so the mother's face cannot
-      be filed as the giant's;
+    * a portrait made for a different slot, the star, or another story — the
+      draft records the cast key and story it was made for, so the mother's
+      face cannot be filed as the giant's, nor Jack's mother as Red's;
     * a malformed pair, or a draft that has expired.
 
     The returned map is keyed by cast key and handed whole to the runner; the
@@ -736,9 +771,9 @@ def _character_references(
         generation_id = generation_id.strip()
         if not key or not generation_id:
             raise InvalidSettings("Each character entry must be `key:generation_id`.")
-        if not cast_photoable(key):
+        if not edition.can_photograph(key):
             # Covers both an unknown key and a real character that is not
-            # photoable (the cow): neither has an upload path.
+            # photoable (the wolf): neither has an upload path.
             raise InvalidSettings(
                 f"There is no character slot for {key!r} — it cannot be given a photo."
             )
@@ -747,7 +782,7 @@ def _character_references(
         draft: Draft | None = container.store.load_draft(generation_id)
         if draft is None:
             raise UnknownGeneration(generation_id)
-        if draft.cast_key != key:
+        if draft.cast_key != key or draft.story_key != edition.key:
             raise InvalidSettings(
                 f"That portrait was not made for {key} — make the cartoon from "
                 f"{key}'s own photo, with the character slot selected."

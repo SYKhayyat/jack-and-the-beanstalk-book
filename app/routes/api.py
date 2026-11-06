@@ -33,11 +33,11 @@ from app.models import (
     SkinTone,
 )
 from app.models.labels import choices_for
+from app.routes.book_access import new_book_edition
 from app.routes.settings_form import cartoon_settings_from_form
 from app.services.concurrency import GateTimeout
 from app.services.images import InvalidImage, decode_upload
 from app.services.pipeline import UnknownGeneration
-from app.services.prompts import cast_photoable
 from app.services.storage import Draft, candidate_url, draft_urls
 
 SettingsDep = Annotated[CartoonSettings, Depends(cartoon_settings_from_form)]
@@ -82,12 +82,16 @@ async def cartoonify(
     container: ContainerDep,
     settings: SettingsDep,
     photo: UploadFile = File(..., description="A photo of a person. JPEG, PNG or WEBP."),
+    story: str = Form(
+        ..., description="The story the portrait is for, e.g. `jack_and_the_beanstalk`."
+    ),
     character: str = Form(
         "",
         description=(
-            "Optional photoable cast key (mother, old_man, giant) when this "
-            "photo is a book character rather than the star. The portrait is "
-            "then drawn as that character. Milky-White is refused."
+            "Optional photoable cast key of the story (mother, old_man, giant; "
+            "mother, grandmother, woodcutter) when this photo is a book "
+            "character rather than the star. The portrait is then drawn as "
+            "that character. A character who cannot be photographed is refused."
         ),
     ),
     # Wire name is the singular "reason" because that is what each chip checkbox
@@ -104,10 +108,13 @@ async def cartoonify(
     closed-set feedback as prompt corrections — no free text ever arrives
     here, so nothing the visitor writes can reach a prompt.
     """
-    # A character slot that cannot have a face is refused before the upload is
-    # even read, so a cow photo can never be billed. Empty means the star.
+    # The story, and a character slot that cannot have a face, are refused
+    # before the upload is even read, so a wolf photo can never be billed — nor
+    # a portrait for a story the operator has not opened yet. Empty means the
+    # star.
+    edition = await asyncio.to_thread(new_book_edition, container, story)
     cast_key = character.strip()
-    if cast_key and not cast_photoable(cast_key):
+    if cast_key and not edition.can_photograph(cast_key):
         raise InvalidSettings(
             f"There is no character slot for {cast_key!r} — it cannot be given a photo."
         )
@@ -125,6 +132,7 @@ async def cartoonify(
             photo_data=decoded.data,
             photo_media_type=decoded.media_type,
             settings=settings,
+            story=edition,
             rejection=feedback,
             character=cast_key or None,
         )

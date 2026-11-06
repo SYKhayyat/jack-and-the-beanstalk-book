@@ -139,15 +139,25 @@ def approve_all(store: TemplateStore, seed: StorySeed = RED) -> dict[int, str]:
 
 
 def new_book(engine: Engine, books: DatabaseBookStore, book_id: str = "book-1") -> str:
+    """Start a Red book the way the start route does: pinned to what it starts on."""
     books.save_record(
+        edition=TemplateStore(engine).edition_for_new_book(RED.key),
         book_id=book_id,
         user_id="reader",
         about=AboutMe.model_validate({"prompt_name": "Ada", "about_name": "Ada"}),
         generation_id=f"gen-{book_id}",
     )
-    with engine.begin() as conn:
-        conn.execute(update(BookRow).where(BookRow.id == book_id).values(story_key=RED.key))
     return book_id
+
+
+def pinned(engine: Engine, book_id: str) -> str:
+    """The template version a saved book records."""
+    with engine.connect() as conn:
+        value = conn.execute(
+            select(BookRow.template_version_id).where(BookRow.id == book_id)
+        ).scalar_one()
+    assert value is not None, "the book was not pinned to a version"
+    return str(value)
 
 
 def count(engine: Engine, table: Any) -> int:
@@ -178,18 +188,32 @@ class TestPinning:
         assert [page.page_number for page in version.pages] == list(PAGE_NUMBERS)
         assert set(version.characters) == set(RED.cast)
 
-    def test_a_book_cannot_start_before_a_version_exists(
+    def test_with_the_gate_on_a_book_cannot_start_before_a_version_exists(
+        self, templates: TemplateStore
+    ) -> None:
+        templates.set_requires_template(RED.key, True)
+        with pytest.raises(NoTemplateVersion, match="can't be started yet"):
+            templates.edition_for_new_book(RED.key)
+
+    def test_with_the_gate_off_a_book_starts_on_the_latest_words_without_a_version(
         self, engine: Engine, templates: TemplateStore, books: DatabaseBookStore
     ) -> None:
-        with pytest.raises(NoTemplateVersion, match="can't be started yet"):
-            templates.pin_book(new_book(engine, books))
+        book_id = new_book(engine, books)
+        with engine.connect() as conn:
+            version = conn.execute(
+                select(BookRow.template_version_id).where(BookRow.id == book_id)
+            ).scalar_one()
+        assert version is None
+        edition = templates.book_edition(book_id)
+        assert edition.template_version_id is None
+        assert [page.story for page in edition.pages] == [page.story for page in RED.pages]
 
     def test_a_newer_plate_makes_a_new_version_and_the_book_keeps_the_old(
         self, engine: Engine, templates: TemplateStore, books: DatabaseBookStore
     ) -> None:
         plates = approve_all(templates)
         book_id = new_book(engine, books)
-        first = templates.pin_book(book_id)
+        first = pinned(engine, book_id)
         before = templates.load_version(first)
 
         replacement = add_plate(templates, 5)
@@ -197,7 +221,7 @@ class TestPinning:
 
         assert second != first
         assert templates.load_version(second or "").page(5).plate_id == replacement
-        assert templates.pin_book(book_id) == first
+        assert pinned(engine, book_id) == first
         assert templates.load_version(first) == before
         assert templates.load_version(first).page(5).plate_id == plates[5]
         assert templates.plate_image(plates[5])[0] == b"plate 5"
@@ -206,7 +230,7 @@ class TestPinning:
         self, engine: Engine, templates: TemplateStore, books: DatabaseBookStore
     ) -> None:
         approve_all(templates)
-        first = templates.pin_book(new_book(engine, books))
+        first = pinned(engine, new_book(engine, books))
 
         second = templates.revise_character(RED.key, "wolf", look="A friendly grey wolf.")
 
@@ -214,13 +238,13 @@ class TestPinning:
         assert (
             templates.load_version(second).characters["wolf"].look == "A friendly grey wolf."
         )
-        assert templates.load_version(first).characters["wolf"].look == RED.cast["wolf"]
+        assert templates.load_version(first).characters["wolf"].look == RED.cast["wolf"].look
 
     def test_a_changed_seed_makes_a_new_version_and_old_books_keep_the_old_words(
         self, engine: Engine, templates: TemplateStore, books: DatabaseBookStore
     ) -> None:
         approve_all(templates)
-        first = templates.pin_book(new_book(engine, books))
+        first = pinned(engine, new_book(engine, books))
         new_prose = RED.pages[2].story + " The path was quiet."
 
         report = templates.seed([with_page_prose(RED, 3, new_prose)])
@@ -235,10 +259,14 @@ class TestPinning:
     ) -> None:
         approve_all(templates)
         book_id = new_book(engine, books)
-        first = templates.pin_book(book_id)
+        first = pinned(engine, book_id)
+        words = templates.book_edition(book_id)
         templates.approve_plate(add_plate(templates, 1), operator=OPERATOR)
-        assert templates.pin_book(book_id) == first
-        assert templates.current_version(RED.key).number == 2  # type: ignore[union-attr]
+        templates.seed([with_page_prose(RED, 3, RED.pages[2].story + " The path was quiet.")])
+        assert pinned(engine, book_id) == first
+        assert templates.book_edition(book_id) == words
+        # One version for the new plate, one for the changed words.
+        assert templates.current_version(RED.key).number == 3  # type: ignore[union-attr]
 
 
 # --- T4.2: in use means retire, never delete ------------------------------------------
@@ -249,7 +277,7 @@ class TestDeletion:
         self, engine: Engine, templates: TemplateStore, books: DatabaseBookStore
     ) -> None:
         approve_all(templates)
-        version_id = templates.pin_book(new_book(engine, books))
+        version_id = pinned(engine, new_book(engine, books))
 
         with pytest.raises(TemplateInUse, match="1 book"):
             templates.delete_version(version_id)
@@ -278,7 +306,7 @@ class TestDeletion:
         self, engine: Engine, templates: TemplateStore, books: DatabaseBookStore
     ) -> None:
         approve_all(templates)
-        first = templates.pin_book(new_book(engine, books))
+        first = pinned(engine, new_book(engine, books))
         second = templates.approve_plate(add_plate(templates, 2), operator=OPERATOR)
         draft = add_plate(templates, 7)
 
@@ -316,7 +344,7 @@ class TestOneSourceOfLooks:
 
         path = next(p for p in seed_paths() if p.stem == RED.key)
         data = tomllib.loads(path.read_text(encoding="utf-8"))
-        wolf_sentence = data["cast"]["wolf"].split(". ")[1]
+        wolf_sentence = data["cast"]["wolf"]["look"].split(". ")[1]
         data["pages"][3]["environment"] += ". " + wolf_sentence
 
         from app.books import seed_from_mapping
@@ -395,7 +423,7 @@ class TestReviews:
     ) -> str:
         approve_all(templates)
         book_id = new_book(engine, books)
-        templates.pin_book(book_id)
+        pinned(engine, book_id)
         books.save_cover(book_id, b"cover art")
         for number in (1, 2):
             books.save_page(book_id, number, f"page {number}".encode())
@@ -466,8 +494,9 @@ class TestReviews:
             )
 
     def test_a_book_from_before_templates_still_completes_without_reviews(
-        self, engine: Engine, books: DatabaseBookStore
+        self, engine: Engine, templates: TemplateStore, books: DatabaseBookStore
     ) -> None:
+        # No plates are approved, so the book is pinned to words, not a version.
         book_id = new_book(engine, books, "legacy")
         books.save_page(book_id, 1, b"old art")
         books.save_status(book_id, BookStatus.COMPLETE, [])

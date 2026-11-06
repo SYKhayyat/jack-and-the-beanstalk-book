@@ -9,8 +9,19 @@ import pytest
 from PIL import Image
 from pypdf import PdfReader
 
-from app.models.book import BOOK_PAGES, AboutMe, get_book_page
+from app.models.book import AboutMe
 from app.services.pdf import PageArt, build_book_pdf
+from tests.helpers import jack
+
+#: Jack's tale exactly as a new book is made from it (its seed's edition).
+JACK = jack()
+BOOK_PAGES = JACK.pages
+
+
+def get_book_page(key: str):
+    """One of Jack's pages by key."""
+    return next((page for page in BOOK_PAGES if page.key == key), None)
+
 
 try:
     import uharfbuzz  # noqa: F401
@@ -60,12 +71,12 @@ def pages(story: bool = True) -> list[PageArt]:
 # module instead of once per test.
 @pytest.fixture(scope="module")
 def book_bytes() -> bytes:
-    return build_book_pdf(about(), pages())
+    return build_book_pdf("Jack and the Beanstalk", about(), pages())
 
 
 @pytest.fixture(scope="module")
 def book_with_cover() -> bytes:
-    return build_book_pdf(about(), pages(), art_bytes())
+    return build_book_pdf("Jack and the Beanstalk", about(), pages(), art_bytes())
 
 
 class TestAssembly:
@@ -133,6 +144,7 @@ class TestAssembly:
 
     def test_about_me_carries_the_typed_words(self) -> None:
         data = build_book_pdf(
+            "Jack and the Beanstalk",
             about(about_name="Noa", details="Loves the sea\nTells jokes"),
             pages(),
         )
@@ -146,6 +158,7 @@ class TestAssembly:
     @pytest.mark.skipif(not HAS_SHAPING, reason="RTL text shaping needs uharfbuzz")
     def test_hebrew_details_render_glyphs(self) -> None:
         data = build_book_pdf(
+            "Jack and the Beanstalk",
             about(about_name="Noa", details="אוהבת דינוזאורים"),
             pages(),
         )
@@ -191,7 +204,9 @@ class TestAssembly:
         assert b"ComicNeue" not in book_bytes
 
     def test_the_about_page_frames_the_portrait_and_ends_the_story(self) -> None:
-        data = build_book_pdf(about(), pages(), portrait=art_bytes(512, 512))
+        data = build_book_pdf(
+            "Jack and the Beanstalk", about(), pages(), portrait=art_bytes(512, 512)
+        )
         last = PdfReader(io.BytesIO(data)).pages[-1]
         text = (last.extract_text() or "").replace("\n", " ")
         assert "This book stars Shai." in text
@@ -201,12 +216,12 @@ class TestAssembly:
 
     def test_empty_pages_rejected(self) -> None:
         with pytest.raises(ValueError, match="at least one page"):
-            build_book_pdf(about(), [])
+            build_book_pdf("Jack and the Beanstalk", about(), [])
 
     def test_unreadable_art_rejected(self) -> None:
         bad = [PageArt(image=b"not an image", page=get_book_page("the-trade"))]
         with pytest.raises(ValueError, match="unreadable"):
-            build_book_pdf(about(), bad)
+            build_book_pdf("Jack and the Beanstalk", about(), bad)
 
     def test_the_art_is_shrunk_before_it_is_embedded(self) -> None:
         """A 42 MB PDF OOM-killed the 512 MB instance that built it.
@@ -229,7 +244,7 @@ class TestAssembly:
             PageArt(image=image, page=get_book_page("the-trade")),
             PageArt(image=image, page=get_book_page("beans-out-the-window")),
         ]
-        pdf = build_book_pdf(about(), book)
+        pdf = build_book_pdf("Jack and the Beanstalk", about(), book)
 
         assert len(pdf) < len(image), "the PDF grew instead of shrinking the art"
         assert len(PdfReader(io.BytesIO(pdf)).pages) == 3

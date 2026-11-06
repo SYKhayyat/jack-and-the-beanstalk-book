@@ -1,37 +1,37 @@
 """Load the reviewed story seeds (`app/books/*.toml`) into the database.
 
-    DATABASE_URL=postgres://... python -m app.scripts.seed_stories
+    python -m app.scripts.seed_stories          # the database the app would use
+
+The app does this itself at every boot, so this is for preparing a database
+ahead of a deploy (or checking what a changed seed would write). It uses the
+same database the app would — `DATABASE_URL`, or the local SQLite file when
+that is empty — and migrates it first.
 
 Idempotent: a second run with unchanged seeds writes nothing. A changed seed
 adds new revisions (and a new template version once a story's plates are
-approved); nothing a book already pinned is rewritten. Run it after
-`make migrate`.
+approved); nothing a book already pinned is rewritten.
 """
 
 from __future__ import annotations
 
-import os
-import sys
-
 from app.books import SEEDS
-from app.db import build_engine
+from app.config import get_settings
+from app.db import build_engine, prepare_database
 from app.services.template_store import TemplateStore
 
 
 def main() -> int:
-    url = os.environ.get("DATABASE_URL", "")
-    if not url:
-        print("DATABASE_URL is not set; export it and run again.", file=sys.stderr)
-        return 2
-    engine = build_engine(url)
+    engine = prepare_database(build_engine(get_settings().effective_database_url))
     try:
-        report = TemplateStore(engine).seed(SEEDS)
+        store = TemplateStore(engine)
+        report = store.seed(SEEDS)
+        pinned = store.pin_unpinned_books()
     finally:
         engine.dispose()
     print(
         f"stories added: {report.stories}, page revisions: {report.page_revisions}, "
         f"character revisions: {report.character_revisions}, "
-        f"new template versions: {len(report.versions)}"
+        f"new template versions: {len(report.versions)}, older books pinned: {pinned}"
     )
     return 0
 

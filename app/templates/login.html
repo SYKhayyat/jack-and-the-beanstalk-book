@@ -42,8 +42,8 @@
 
   <section class="shelf-cards" aria-label="The books">
     {% set signed_out = true %}
-    {% for story in stories %}
-      {% set card = {"story": story, "state": "fresh" if story.available else "soon", "href": none, "cover_url": none} %}
+    {% for story in shelf_stories() %}
+      {% set card = {"story": story, "state": "fresh" if story.can_start else ("waiting" if story.available else "soon"), "href": none, "cover_url": none} %}
       {% include "_story_card.html" %}
     {% endfor %}
   </section>

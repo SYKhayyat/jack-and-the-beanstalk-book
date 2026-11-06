@@ -49,6 +49,8 @@ __all__ = [
     "BookCharacterRow",
     "BookPageRow",
     "BookRow",
+    "BookStoryCharacterRow",
+    "BookStoryPageRow",
     "StoryCharacterRow",
     "StoryPageRow",
     "StoryRow",
@@ -126,6 +128,9 @@ class BookRow(Base):
     #: data have no `stories` row to point at, and the pin below is the strong
     #: link for every book made on a template.
     story_key: Mapped[str] = mapped_column(String(64), default=DEFAULT_STORY_KEY)
+    #: The resolved cover title ("Noa and the Wolf"): the story's title with the
+    #: star's name in it, rewritten when the About edit changes the name.
+    title: Mapped[str] = mapped_column(String(255), default="")
     #: The template version this book started on, never changed afterwards.
     #: Null for books made before templates existed. RESTRICT: a version a book
     #: uses cannot be deleted, only retired.
@@ -197,6 +202,11 @@ class StoryRow(Base):
     #: The cast key the uploaded child plays; on every page whether listed or not.
     star: Mapped[str] = mapped_column(String(64))
     available: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: The star's default name per photo-gender answer, {"boy": .., "girl": ..}.
+    names: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
+    #: The operator's start gate (T6.5): when true, a book of this story cannot
+    #: start until the story has a complete template version. Never seeded.
+    requires_template: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
@@ -253,7 +263,16 @@ class StoryCharacterRow(Base):
     cast_key: Mapped[str] = mapped_column(String(64))
     revision: Mapped[int] = mapped_column(Integer)
     display_name: Mapped[str] = mapped_column(String(255))
+    #: How a page draws the character with no photograph.
     look: Mapped[str] = mapped_column(Text)
+    #: How a page draws them when the uploader gave them a face (photoable only).
+    look_with_photo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The portrait pass's brief for a photographed supporting character.
+    portrait: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The star's story costume, replacing the visitor's outfit (the red hood).
+    costume: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The order the studio offers the cast in: the seed's order.
+    position: Mapped[int] = mapped_column(Integer, default=0)
     photoable: Mapped[bool] = mapped_column(Boolean)
     reference_image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     reference_media_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -331,6 +350,38 @@ class TemplateVersionCharacterRow(Base):
 
     template_version_id: Mapped[str] = mapped_column(
         ForeignKey("template_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    cast_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    character_id: Mapped[int] = mapped_column(
+        ForeignKey("story_characters.id", ondelete="RESTRICT")
+    )
+
+
+class BookStoryPageRow(Base):
+    """Page N of one book: the revision of the words and scene it is made from.
+
+    Written once at start, never changed, so a re-seeded page or a new
+    template version cannot change a book already made.
+    """
+
+    __tablename__ = "book_story_pages"
+
+    book_id: Mapped[str] = mapped_column(
+        ForeignKey("books.id", ondelete="CASCADE"), primary_key=True
+    )
+    page_number: Mapped[int] = mapped_column(Integer, primary_key=True)
+    story_page_id: Mapped[int] = mapped_column(
+        ForeignKey("story_pages.id", ondelete="RESTRICT")
+    )
+
+
+class BookStoryCharacterRow(Base):
+    """A cast member of one book: the bible revision its looks are read from."""
+
+    __tablename__ = "book_story_characters"
+
+    book_id: Mapped[str] = mapped_column(
+        ForeignKey("books.id", ondelete="CASCADE"), primary_key=True
     )
     cast_key: Mapped[str] = mapped_column(String(64), primary_key=True)
     character_id: Mapped[int] = mapped_column(

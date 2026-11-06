@@ -17,7 +17,7 @@ import pytest
 from PIL import Image
 from pypdf import PdfReader
 
-from app.models.book import AboutMe, BookPage, get_book_page
+from app.models.book import AboutMe, BookPage
 from app.services.pdf import (
     COVER_TITLE_BAND_FRACTION,
     PAPER_RGB,
@@ -28,6 +28,17 @@ from app.services.pdf import (
     build_book_pdf,
     title_band_report,
 )
+from tests.helpers import jack
+
+#: Jack's tale exactly as a new book is made from it (its seed's edition).
+JACK = jack()
+BOOK_PAGES = JACK.pages
+
+
+def get_book_page(key: str):
+    """One of Jack's pages by key."""
+    return next((page for page in BOOK_PAGES if page.key == key), None)
+
 
 ART_WIDTH, ART_HEIGHT = 1152, 864  # 4:3, the shape the book is drawn in
 PAGE_WIDTH = 720.0
@@ -69,7 +80,7 @@ class TestStoryPageGeometry:
         """Twenty pages, one of them deliberately overlong: none may reach the art."""
         pages = twenty("A short line of story.")
         pages[7] = story_page("A very long tale indeed. " * 40)
-        reader = PdfReader(io.BytesIO(build_book_pdf(ABOUT, pages)))
+        reader = PdfReader(io.BytesIO(build_book_pdf("Jack and the Beanstalk", ABOUT, pages)))
 
         for index, page in enumerate(reader.pages[:-1], start=1):
             ys = drawn_text_y(page)
@@ -79,7 +90,7 @@ class TestStoryPageGeometry:
     def test_every_story_page_shares_one_band_and_one_font_size(self) -> None:
         pages = twenty("A short line of story.")
         pages[3] = story_page("A much longer page. " * 25)
-        data = build_book_pdf(ABOUT, pages)
+        data = build_book_pdf("Jack and the Beanstalk", ABOUT, pages)
         reader = PdfReader(io.BytesIO(data))
         geometry = book_template(
             PAGE_WIDTH, ART_BOX_HEIGHT, [entry.page.story for entry in pages]
@@ -114,7 +125,9 @@ class TestStoryPageGeometry:
         assert geometry.text_band_height > ART_BOX_HEIGHT * 0.5
 
         # Two pages prove the rendering; the geometry above proves the band.
-        data = build_book_pdf(ABOUT, [story_page(long_story), story_page(long_story)])
+        data = build_book_pdf(
+            "Jack and the Beanstalk", ABOUT, [story_page(long_story), story_page(long_story)]
+        )
         reader = PdfReader(io.BytesIO(data))
         for page in reader.pages[:-1]:
             text = (page.extract_text() or "").replace("\n", " ")
@@ -122,7 +135,9 @@ class TestStoryPageGeometry:
 
     def test_the_drawn_page_is_filled_with_cream(self) -> None:
         """The paper is the template's, and it is what the page actually paints."""
-        data = build_book_pdf(ABOUT, twenty("A short line of story."))
+        data = build_book_pdf(
+            "Jack and the Beanstalk", ABOUT, twenty("A short line of story.")
+        )
         page = PdfReader(io.BytesIO(data)).pages[1]
         content = page.get_contents().get_data().decode("latin-1")
         expected = " ".join(f"{channel / 255:.4f}" for channel in PAPER_RGB)

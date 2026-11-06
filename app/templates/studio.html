@@ -110,7 +110,7 @@
         {{ select("skin_tone", "Skin tone", skin_tones, defaults.skin_tone) }}
         {{ select("hair_style", "Hair", hair_styles, defaults.hair_style) }}
         {{ select("hair_color", "Hair colour", hair_colours, defaults.hair_color) }}
-        {{ select("outfit", "Outfit", outfits, defaults.outfit) }}
+        {% if not star_costume %}{{ select("outfit", "Outfit", outfits, defaults.outfit) }}{% endif %}
         {{ select("expression", "Expression", expressions, defaults.expression) }}
         {{ select("likeness_strength", "Likeness", likeness_levels, defaults.likeness_strength) }}
         {{ select("portrait_background", "Background", backgrounds, defaults.portrait_background) }}

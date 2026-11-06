@@ -38,8 +38,9 @@ from time import monotonic
 from typing import Any, TypeVar, cast
 
 from app.errors import BookBusy
-from app.models.book import BOOK_PAGES, BookPage
+from app.models.book import BookPage
 from app.models.settings import CartoonSettings
+from app.models.story import StoryEdition
 from app.services.book_document import COVER_KEY, COVER_NUMBER, BookDocument
 from app.services.book_store import (
     BookRecord,
@@ -54,6 +55,7 @@ from app.services.pdf import PageArt
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import build_book_page_prompt, build_cover_prompt, render_book_page
 from app.services.storage import GenerationStore
+from app.services.template_store import TemplateStore
 from app.services.wallet import Wallet
 
 __all__ = ["BookRunner", "CharacterReference"]
@@ -99,6 +101,7 @@ class BookRunner:
         provider: ImageProvider,
         store: GenerationStore,
         book_store: BookStore,
+        templates: TemplateStore,
         gate: ConcurrencyGate,
         page_timeout_seconds: int,
         wallet: Wallet | None = None,
@@ -106,6 +109,9 @@ class BookRunner:
         self._provider = provider
         self._store = store
         self._book_store = book_store
+        # Every job reads the book's own pinned edition: its pages, its words,
+        # its bible. Nothing here knows which story it is drawing.
+        self._templates = templates
         self._gate = gate
         self._page_timeout = page_timeout_seconds
         # None when payments are off: the book is still rendered, and nothing
@@ -211,18 +217,18 @@ class BookRunner:
         record = self._book_store.load_record(book_id)
         if record is None:
             return
-        rendered_pages = tuple(
-            render_book_page(page, record.settings, prompt_name=record.about.prompt_name)
-            for page in BOOK_PAGES
-        )
+        edition = self._templates.book_edition(book_id)
+        rendered_pages = _rendered(edition, record)
         existing = self._document.stored_progress(book_id)
         progress = {
             page.number: "done" if existing.get(page.number) == "done" else "pending"
-            for page in BOOK_PAGES
+            for page in edition.pages
         }
         progress[COVER_NUMBER] = "done" if existing.get(COVER_NUMBER) == "done" else "pending"
         target = (
-            {page.number for page in BOOK_PAGES} if page_numbers is None else set(page_numbers)
+            {page.number for page in edition.pages}
+            if page_numbers is None
+            else set(page_numbers)
         )
         if only_missing:
             target = {number for number in target if progress[number] != "done"}
@@ -232,7 +238,7 @@ class BookRunner:
             book_id,
             BookStatus.RENDERING,
             self._document.page_view(book_id, progress, rendered_pages),
-            title=record.about.book_title,
+            title=record.title,
             extra={"phase": _PHASE_PAGES, "total_pages": len(rendered_pages) + 1},
         )
 
@@ -300,10 +306,7 @@ class BookRunner:
         record = self._book_store.load_record(book_id)
         if record is None:
             return
-        rendered_pages = tuple(
-            render_book_page(page, record.settings, prompt_name=record.about.prompt_name)
-            for page in BOOK_PAGES
-        )
+        rendered_pages = _rendered(self._templates.book_edition(book_id), record)
         self._document.assemble(
             record, rendered_pages, self._document.stored_progress(book_id)
         )
@@ -328,7 +331,8 @@ class BookRunner:
         started = monotonic()
         try:
             artwork = await asyncio.to_thread(self._artwork, record)
-            pages = list(BOOK_PAGES)
+            edition = await asyncio.to_thread(self._templates.book_edition, book_id)
+            pages = list(edition.pages)
             total = len(pages)
             prompt_name = record.about.prompt_name
             rendered_pages = tuple(
@@ -363,7 +367,7 @@ class BookRunner:
                         BookStatus.RENDERING,
                         self._document.page_view(book_id, progress, rendered_pages),
                         None,
-                        title=record.about.book_title,
+                        title=record.title,
                         extra={"phase": phase, "total_pages": total + 1},
                     )
 
@@ -376,8 +380,7 @@ class BookRunner:
                 prompt = build_book_page_prompt(
                     page,
                     artwork.settings,
-                    page_number=page.number,
-                    total_pages=total,
+                    story=edition,
                     prompt_name=prompt_name,
                     supplied_characters=tuple(artwork.characters),
                     character_photos=page_photos,
@@ -442,7 +445,7 @@ class BookRunner:
 
             await paint()
             if draw_cover:
-                await self._render_cover(record, artwork, page_charge, mark)
+                await self._render_cover(record, edition, artwork, page_charge, mark)
             to_render = [page for page in pages if page.number in target]
             rendered: dict[int, PageArt] = {}
             if to_render:
@@ -517,12 +520,15 @@ class BookRunner:
     async def _render_cover(
         self,
         record: BookRecord,
+        edition: StoryEdition,
         artwork: _Artwork,
         page_charge: Callable[[], bool] | None,
         mark: Callable[[int, str], Awaitable[None]],
     ) -> bytes:
         """Draw and persist the cover: one billable call, before the pages."""
-        prompt = build_cover_prompt(artwork.settings, prompt_name=record.about.prompt_name)
+        prompt = build_cover_prompt(
+            artwork.settings, story=edition, prompt_name=record.about.prompt_name
+        )
         await _await_page_charge(page_charge)
         await mark(COVER_NUMBER, "making")
         image = await self._on_worker_thread_with_slot(
@@ -638,7 +644,7 @@ class BookRunner:
             BookStatus.FAILED,
             pages,
             error=message,
-            title=record.about.book_title,
+            title=record.title,
         )
         done = sum(1 for entry in pages if entry.get("status") == "done")
         logger.error(
@@ -649,6 +655,14 @@ class BookRunner:
             elapsed_ms,
             message,
         )
+
+
+def _rendered(edition: StoryEdition, record: BookRecord) -> tuple[BookPage, ...]:
+    """The book's story pages with the star's name and pronouns filled in."""
+    return tuple(
+        render_book_page(page, record.settings, prompt_name=record.about.prompt_name)
+        for page in edition.pages
+    )
 
 
 async def _await_page_charge(charge: Callable[[], bool] | None) -> None:

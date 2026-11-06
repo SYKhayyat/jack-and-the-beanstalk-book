@@ -20,7 +20,7 @@ from app.container import build_container
 from app.db import BookPageRow, BookRow, build_engine
 from app.main import create_app
 from app.models import REJECTION_CLAUSES, RejectionReason
-from app.models.book import BOOK_PAGES, AboutMe
+from app.models.book import AboutMe
 from app.routes import book as book_routes
 from app.services.book_runner import BookRunner
 from app.services.book_store import BookStore
@@ -32,7 +32,12 @@ from app.services.image_providers.base import (
     ProviderError,
 )
 from app.services.rate_limit import GenerationRateLimiter
-from tests.helpers import RecordingProvider, make_photo_bytes, multipart
+from tests.helpers import RecordingProvider, edition_in, jack, make_photo_bytes, multipart
+
+#: Jack's tale exactly as a new book is made from it (its seed's edition).
+JACK = jack()
+BOOK_PAGES = JACK.pages
+
 
 # Step 7: the hand-in book is the full tale — every active story page plus the
 # About page. Read the count from the catalogue so adding a page cannot silently
@@ -100,6 +105,7 @@ class TestReferenceMediaTypes:
             start = jpeg_client.post(
                 "/api/book/start",
                 data={
+                    "story": "jack_and_the_beanstalk",
                     "generation_id": child["generation_id"],
                     "character": f"mother:{mother['generation_id']}",
                 },
@@ -120,7 +126,7 @@ class TestReferenceMediaTypes:
 
 
 def make_portrait(client: TestClient, **overrides: object) -> dict[str, object]:
-    form: dict[str, object] = {"photo": photo_file()}
+    form: dict[str, object] = {"story": "jack_and_the_beanstalk", "photo": photo_file()}
     form.update(overrides)
     response = client.post("/api/cartoonify", **multipart(form))
     assert response.status_code == 201, response.text
@@ -156,7 +162,7 @@ class TestCatalogue:
         catalogue now runs the whole story arc. Assert against the model, not a
         hand-copied list, so the catalogue and the API cannot drift.
         """
-        response = client.get("/api/book/pages")
+        response = client.get("/api/stories/jack_and_the_beanstalk/pages")
         assert response.status_code == 200
         body = response.json()
         assert [page["key"] for page in body["pages"]] == [page.key for page in BOOK_PAGES]
@@ -180,7 +186,8 @@ class TestPortraitFeedback:
         contract (repeated scalar parts plus a file) is what matters here.
         """
         _, photo, media = photo_file()
-        fields = [("reason", reason) for reason in (reasons or [])]
+        fields = [("story", "jack_and_the_beanstalk")]
+        fields += [("reason", reason) for reason in (reasons or [])]
         return client.post(
             "/api/cartoonify",
             content=_multipart_body(fields, photo, media),
@@ -258,6 +265,7 @@ class TestBookEndToEnd:
         start = client.post(
             "/api/book/start",
             data={
+                "story": "jack_and_the_beanstalk",
                 "generation_id": portrait["generation_id"],
                 "child_name": "Shai",
                 "child_age": "7",
@@ -297,7 +305,11 @@ class TestBookEndToEnd:
         portrait = make_portrait(client)
         start = client.post(
             "/api/book/start",
-            data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+                "child_name": "Shai",
+            },
         )
         assert start.status_code == 201
         book_id = start.json()["book_id"]
@@ -312,7 +324,11 @@ class TestBookEndToEnd:
         portrait = make_portrait(client)
         start = client.post(
             "/api/book/start",
-            data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+                "child_name": "Shai",
+            },
         )
         assert start.status_code == 201
         book_id = start.json()["book_id"]
@@ -379,7 +395,11 @@ class TestBookErrors:
             portrait = make_portrait(failing_client)
             start = failing_client.post(
                 "/api/book/start",
-                data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+                data={
+                    "story": "jack_and_the_beanstalk",
+                    "generation_id": portrait["generation_id"],
+                    "child_name": "Shai",
+                },
             )
             assert start.status_code == 201
             book_id = start.json()["book_id"]
@@ -429,7 +449,11 @@ class TestBookErrors:
             portrait = make_portrait(slow_client)
             start = slow_client.post(
                 "/api/book/start",
-                data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+                data={
+                    "story": "jack_and_the_beanstalk",
+                    "generation_id": portrait["generation_id"],
+                    "child_name": "Shai",
+                },
             )
             book_id = start.json()["book_id"]
             # A book starts as "pending" and flips to "rendering" once the
@@ -450,7 +474,11 @@ class TestBookErrors:
         portrait = make_portrait(client)
         start = client.post(
             "/api/book/start",
-            data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+                "child_name": "Shai",
+            },
         )
         book_id = start.json()["book_id"]
         response = client.get(f"/book-media/{book_id}/pages/99")
@@ -459,7 +487,11 @@ class TestBookErrors:
     def test_start_without_a_live_draft_404(self, client: TestClient) -> None:
         response = client.post(
             "/api/book/start",
-            data={"generation_id": "does-not-exist", "child_name": "Shai"},
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": "does-not-exist",
+                "child_name": "Shai",
+            },
         )
         assert response.status_code == 404
         assert response.json()["error"] == "unknown_draft"
@@ -467,7 +499,11 @@ class TestBookErrors:
     def test_blank_names_resolve_to_jack_or_jane(self, client: TestClient) -> None:
         portrait = make_portrait(client, photo_gender="girl")
         start = client.post(
-            "/api/book/start", data={"generation_id": portrait["generation_id"]}
+            "/api/book/start",
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+            },
         )
         assert start.status_code == 201
 
@@ -484,7 +520,11 @@ class TestBookErrors:
         portrait = make_portrait(client)
         start = client.post(
             "/api/book/start",
-            data={"generation_id": portrait["generation_id"], "child_name": "Shai"}
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+                "child_name": "Shai",
+            }
             | {"details": marker},
         )
         book_id = start.json()["book_id"]
@@ -547,7 +587,11 @@ class TestPerPageProgress:
             portrait = make_portrait(blocking_client)
             start = blocking_client.post(
                 "/api/book/start",
-                data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+                data={
+                    "story": "jack_and_the_beanstalk",
+                    "generation_id": portrait["generation_id"],
+                    "child_name": "Shai",
+                },
             )
             assert start.status_code == 201
             book_id = start.json()["book_id"]
@@ -582,7 +626,11 @@ class TestPerPageProgress:
         portrait = make_portrait(client)
         start = client.post(
             "/api/book/start",
-            data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+                "child_name": "Shai",
+            },
         )
         book_id = start.json()["book_id"]
         final = wait_for_book(client, book_id)
@@ -600,7 +648,9 @@ class TestRestartRecovery:
         self, settings, provider: RecordingProvider
     ) -> None:
         about = AboutMe(prompt_name="Jack", about_name="Jack")
-        build_container(settings, provider=provider).book_store.save_record(
+        store = build_container(settings, provider=provider).book_store
+        store.save_record(
+            edition=edition_in(store),
             book_id="orphaned-book",
             user_id=None,
             about=about,
@@ -653,6 +703,7 @@ def test_book_start_moves_its_blocking_store_calls_off_the_loop(
             provider=provider,
             store=base.store,
             book_store=store,
+            templates=base.templates,
             gate=base.gate,
             page_timeout_seconds=settings.generation_timeout_seconds,
         ),
@@ -677,7 +728,11 @@ def test_book_start_moves_its_blocking_store_calls_off_the_loop(
     with TestClient(app) as client:
         portrait = make_portrait(client)
         start = client.post(
-            "/api/book/start", data={"generation_id": portrait["generation_id"]}
+            "/api/book/start",
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+            },
         )
         assert start.status_code == 201, start.text
         wait_for_book(client, start.json()["book_id"])
@@ -731,6 +786,7 @@ def test_a_poll_reads_the_book_once(
             provider=provider,
             store=base.store,
             book_store=counting,  # type: ignore[arg-type]
+            templates=base.templates,
             gate=base.gate,
             page_timeout_seconds=settings.generation_timeout_seconds,
         ),
@@ -745,7 +801,11 @@ def test_a_poll_reads_the_book_once(
     with TestClient(app) as client:
         portrait = make_portrait(client)
         start = client.post(
-            "/api/book/start", data={"generation_id": portrait["generation_id"]}
+            "/api/book/start",
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+            },
         )
         book_id = start.json()["book_id"]
         assert wait_for_book(client, book_id)["status"] == "complete"
@@ -768,7 +828,7 @@ class TestStartIdempotency:
     def _start(self, client: TestClient, generation_id: object, **fields: str):
         return client.post(
             "/api/book/start",
-            data={"generation_id": generation_id, **fields},
+            data={"story": "jack_and_the_beanstalk", "generation_id": generation_id, **fields},
         )
 
     def test_an_identical_second_start_returns_the_same_book(
@@ -857,6 +917,7 @@ class TestBookRateBudget:
             start = client.post(
                 "/api/book/start",
                 data={
+                    "story": "jack_and_the_beanstalk",
                     "generation_id": portrait["generation_id"],
                     "child_name": "Shai",
                 },
@@ -887,10 +948,14 @@ class TestQuotaAccounting:
             bad = client.post(
                 "/api/cartoonify",
                 files={"photo": ("bad.png", b"not an image", "image/png")},
+                data={"story": "jack_and_the_beanstalk"},
             )
             assert bad.status_code == 400
 
-            good = client.post("/api/cartoonify", **multipart({"photo": photo_file()}))
+            good = client.post(
+                "/api/cartoonify",
+                **multipart({"story": "jack_and_the_beanstalk", "photo": photo_file()}),
+            )
             assert good.status_code == 201, good.text
 
     def test_a_candidate_shortfall_only_spends_what_was_produced(
@@ -917,7 +982,11 @@ class TestOneStoragePath:
         assert settings.database_url == "", "the fixture must exercise the default"
         portrait = make_portrait(client)
         start = client.post(
-            "/api/book/start", data={"generation_id": portrait["generation_id"]}
+            "/api/book/start",
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+            },
         )
         assert start.status_code == 201, start.text
         book_id = start.json()["book_id"]

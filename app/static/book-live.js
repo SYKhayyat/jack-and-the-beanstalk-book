@@ -16,6 +16,7 @@ const RESTING_AFTER_POLLS = 8; // ~12s without a new picture reads as "frozen"
 const body = document.body;
 const bookId = body.dataset.bookId;
 const bookTitle = body.dataset.bookTitle || "this book";
+const bookStory = body.dataset.bookStory;
 const MAX_UPLOAD = Number(body.dataset.maxUploadMb || 10) * 1024 * 1024;
 const api = createBookClient(bookId);
 
@@ -425,6 +426,7 @@ async function replaceFace(key, photo) {
     const prepared = await preparePhoto(photo, { maxBytes: MAX_UPLOAD });
     const portraitForm = new FormData();
     portraitForm.append("photo", prepared.blob, "face.jpg");
+    portraitForm.append("story", bookStory);
     // The comic must be drawn for the chosen slot, or the edit refuses it.
     if (key !== "star") portraitForm.append("character", key);
     const portrait = await api.cartoonify(portraitForm);

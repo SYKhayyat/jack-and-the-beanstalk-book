@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.auth import AuthGate
-from app.books import PAGE_COUNT, SEEDS
+from app.books import SEEDS
 from app.config import Settings, get_settings
 from app.container import Container, build_container
 from app.db import database_secrets
@@ -32,7 +32,6 @@ from app.logging_context import (
     reset_request_id,
     set_request_id,
 )
-from app.models.book import BOOK_PAGES
 from app.redaction import install_secret_redaction
 from app.routes import admin, api, auth, book, book_media, media, wallet, web
 from app.routes.auth import install_auth_gate
@@ -40,7 +39,7 @@ from app.services.google_oauth import GoogleOAuthClient
 from app.services.image_providers.base import ImageProvider
 from app.services.payments import PaymentProvider
 from app.sessions import SessionCodec
-from app.stories import STORIES
+from app.stories import NOT_READY, shelf
 
 __all__ = ["create_app"]
 
@@ -163,12 +162,6 @@ def create_app(
         # ``app.books`` validates every seed it finds at import, so reaching
         # here with none means the story data is missing, not merely unread.
         raise RuntimeError("No story seeds found in app/books")
-    # Jack still comes from prompts.toml until the seed move (T7); its length is
-    # checked here so both available stories hold the same twenty pages.
-    if len(BOOK_PAGES) != PAGE_COUNT:
-        raise RuntimeError(
-            f"Jack's catalogue has {len(BOOK_PAGES)} pages, the template holds {PAGE_COUNT}"
-        )
     resolved = settings or get_settings()
     _configure_logging(resolved)
 
@@ -186,9 +179,12 @@ def create_app(
     app.state.settings = resolved
     app.state.container = build_container(resolved, provider=provider, payments=payments)
     app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
-    # Every page shows the shelf's stories (the signed-out login page too) and
-    # the footer's retention line, so both are template globals.
-    app.state.templates.env.globals["stories"] = STORIES
+    # Every page can show the shelf's stories (the signed-out login page too)
+    # and the footer's retention line, so both are template globals. The shelf
+    # is read per render: the operator's start gate can change it at any time.
+    container = app.state.container
+    app.state.templates.env.globals["shelf_stories"] = lambda: shelf(container.templates)
+    app.state.templates.env.globals["not_ready"] = NOT_READY
     app.state.templates.env.globals["book_retention_days"] = resolved.book_retention_days
     app.state.templates.env.filters["short_date"] = _short_date
     app.state.gate = AuthGate(
@@ -235,6 +231,7 @@ def create_app(
     app.include_router(api.router)
     app.include_router(book.router)
     app.include_router(book.books_router)
+    app.include_router(book.stories_router)
     app.include_router(book_media.router)
     app.include_router(media.router)
     app.include_router(wallet.router)

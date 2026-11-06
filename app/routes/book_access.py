@@ -13,10 +13,37 @@ from __future__ import annotations
 from fastapi import Response
 
 from app.dependencies import ContainerDep
-from app.errors import UnknownBook
+from app.errors import StoryNotReady, UnknownBook, UnknownStory
+from app.models.story import StoryEdition
 from app.routes.auth import CurrentSessionDep
+from app.services.template_store import NoTemplateVersion, UnknownTemplate
 
-__all__ = ["ensure_book", "no_store", "user_id"]
+__all__ = ["book_edition", "ensure_book", "new_book_edition", "no_store", "user_id"]
+
+
+def new_book_edition(container: ContainerDep, story_key: str) -> StoryEdition:
+    """The edition a book of `story_key` starting now would be made from.
+
+    Everything that spends money towards a new book — a portrait, the start
+    itself — asks here first, so the start gate and an unknown story are
+    refused before anything is billed.
+    """
+    try:
+        return container.templates.edition_for_new_book(story_key)
+    except NoTemplateVersion as exc:
+        raise StoryNotReady(str(exc)) from exc
+    except UnknownTemplate as exc:
+        raise UnknownStory("There is no book by that name yet.") from exc
+
+
+def book_edition(container: ContainerDep, book_id: str) -> StoryEdition:
+    """The edition a saved book is pinned to."""
+    try:
+        return container.templates.book_edition(book_id)
+    except UnknownTemplate as exc:
+        raise UnknownBook(
+            "No book with that id. It may have expired — start a new one."
+        ) from exc
 
 
 def user_id(session: CurrentSessionDep) -> str | None:

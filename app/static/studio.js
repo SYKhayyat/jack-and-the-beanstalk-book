@@ -355,6 +355,8 @@ async function makeComic(key, reasons = []) {
     if (!photo) throw new Error("Add a photo first.");
     const body = settingsBody(key);
     body.append("photo", photo, `${key}.jpg`);
+    // A portrait belongs to one story: its cast slot and the star's costume.
+    body.append("story", story);
     if (key !== "star") body.append("character", key);
     for (const reason of reasons) body.append("reason", reason);
     const payload = await api.cartoonify(body);

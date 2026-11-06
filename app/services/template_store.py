@@ -9,8 +9,10 @@ This is the T4 contract (`docs/book-template-plan.md`). Four rules hold it up:
   page revision for the cover and every story page, and one bible revision for
   every cast member those pages use (the star included). It is never changed
   after it is written; the current version is the highest number.
-* **A book pins once.** `pin_book` records the current version on a book that
-  has none and never moves an already-pinned book.
+* **A book pins once.** A book is saved with the edition it starts from
+  (`edition_for_new_book`): the exact page and bible revisions, and the
+  template version when there is one. Nothing moves a book afterwards;
+  `book_edition` reads it back.
 * **In use means undeletable.** A version a book pins, and a plate any version
   names, can be retired but not deleted. Both the store and the foreign keys
   say so; the store says it first, with a clear error.
@@ -23,7 +25,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 import uuid
+from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -35,6 +39,8 @@ from sqlalchemy.engine import Engine
 from app.books import PAGE_COUNT, SeedScene, StorySeed
 from app.db import (
     BookRow,
+    BookStoryCharacterRow,
+    BookStoryPageRow,
     StoryCharacterRow,
     StoryPageRow,
     StoryRow,
@@ -43,10 +49,12 @@ from app.db import (
     TemplateVersionPlateRow,
     TemplateVersionRow,
 )
+from app.models.story import StoryEdition, edition_from_content
 
 __all__ = [
     "COVER_PAGE",
     "FACINGS",
+    "NOT_READY",
     "PAGE_NUMBERS",
     "NoTemplateVersion",
     "PageSummary",
@@ -55,6 +63,7 @@ __all__ = [
     "PlateSummary",
     "SeedReport",
     "Slot",
+    "StoryState",
     "TemplateError",
     "TemplateInUse",
     "TemplateStore",
@@ -62,6 +71,8 @@ __all__ = [
     "UnknownTemplate",
     "VersionCharacter",
     "VersionPage",
+    "seed_edition",
+    "write_pins",
 ]
 
 logger = logging.getLogger(__name__)
@@ -96,7 +107,14 @@ class PlateNotApprovable(TemplateError):
 
 
 class NoTemplateVersion(TemplateError):
-    """The story has no complete template version, so no book can start on it."""
+    """The story requires a template and has no complete version, so no book can start.
+
+    The message is the one plain sentence the shelf and the start endpoint show.
+    """
+
+
+#: What a visitor is told when the start gate is on and the plates aren't ready.
+NOT_READY = "This story's pictures are still being prepared, so a book can't be started yet."
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +192,9 @@ class VersionCharacter:
     photoable: bool
     has_reference_image: bool
     revision: int
+    look_with_photo: str = ""
+    portrait: str = ""
+    costume: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +248,27 @@ class PlateSummary:
     approved_at: datetime | None
 
 
+@dataclass(frozen=True, slots=True)
+class StoryState:
+    """One story as the shelf and the admin screen see it."""
+
+    key: str
+    title: str
+    blurb: str
+    available: bool
+    #: The operator's start gate (T6.5).
+    requires_template: bool
+    #: The current template version's number, or None when there is none.
+    version_number: int | None
+
+    @property
+    def can_start(self) -> bool:
+        """Whether a book of this story may start right now."""
+        return self.available and (
+            not self.requires_template or self.version_number is not None
+        )
+
+
 @dataclass(slots=True)
 class SeedReport:
     """What one seeding run changed. All zeros means the run was a no-op."""
@@ -246,6 +288,10 @@ class TemplateStore:
 
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
+        # A book's edition never changes once it is saved, so it is read from
+        # the database once per process and kept (bounded) after that.
+        self._book_editions: OrderedDict[str, StoryEdition] = OrderedDict()
+        self._book_editions_lock = threading.Lock()
 
     # --- seeding ---------------------------------------------------------------
 
@@ -283,6 +329,7 @@ class TemplateStore:
             "book_title": seed.book_title,
             "star": seed.star,
             "available": seed.available,
+            "names": dict(seed.names),
         }
         existing = conn.execute(select(StoryRow).where(StoryRow.key == seed.key)).one_or_none()
         if existing is None:
@@ -357,6 +404,9 @@ class TemplateStore:
         cast_key: str,
         *,
         look: str | None = None,
+        look_with_photo: str | None = None,
+        portrait: str | None = None,
+        costume: str | None = None,
         display_name: str | None = None,
         reference_image: bytes | None = None,
         reference_media_type: str | None = None,
@@ -383,6 +433,10 @@ class TemplateStore:
                 raise TemplateError(f"{cast_key!r} cannot have a reference image")
             if look is not None and not look.strip():
                 raise TemplateError("a look cannot be blank")
+            if (look_with_photo or portrait) and not latest.photoable:
+                raise TemplateError(
+                    f"{cast_key!r} cannot be photographed, so has no photo look"
+                )
             conn.execute(
                 insert(StoryCharacterRow).values(
                     story_key=story_key,
@@ -390,6 +444,10 @@ class TemplateStore:
                     revision=latest.revision + 1,
                     display_name=display_name or latest.display_name,
                     look=look.strip() if look is not None else latest.look,
+                    look_with_photo=_revised(look_with_photo, latest.look_with_photo),
+                    portrait=_revised(portrait, latest.portrait),
+                    costume=_revised(costume, latest.costume),
+                    position=latest.position,
                     photoable=latest.photoable,
                     reference_image=(
                         reference_image
@@ -655,37 +713,180 @@ class TemplateStore:
 
     # --- books -----------------------------------------------------------------
 
-    def pin_book(self, book_id: str) -> str:
-        """Pin a book to its story's current version, once. Returns the pinned id.
+    def edition_for_new_book(self, story_key: str) -> StoryEdition:
+        """The edition a book starting now is made from.
 
-        A book that is already pinned keeps its version, whatever has been
-        approved since — that is the whole promise of T4.1.
+        The story's current template version when it has one — the words and
+        looks its plates were approved against — and otherwise the latest
+        revisions. With the operator's start gate on, a story without a
+        version refuses instead.
+
+        Raises:
+            UnknownTemplate: no such story, or it is not on the shelf.
+            NoTemplateVersion: the gate is on and there is no version yet.
         """
-        with self._engine.begin() as conn:
-            row = conn.execute(
+        with self._engine.connect() as conn:
+            story = conn.execute(
+                select(StoryRow).where(StoryRow.key == story_key)
+            ).one_or_none()
+            if story is None or not story.available:
+                raise UnknownTemplate(f"no story {story_key!r}")
+            version_id = _current_version_id(conn, story_key)
+            if version_id is None and story.requires_template:
+                raise NoTemplateVersion(NOT_READY)
+            if version_id is not None:
+                page_ids = dict(
+                    conn.execute(
+                        select(
+                            TemplateVersionPlateRow.page_number,
+                            TemplateVersionPlateRow.story_page_id,
+                        ).where(TemplateVersionPlateRow.template_version_id == version_id)
+                    ).all()
+                )
+                character_ids = dict(
+                    conn.execute(
+                        select(
+                            TemplateVersionCharacterRow.cast_key,
+                            TemplateVersionCharacterRow.character_id,
+                        ).where(TemplateVersionCharacterRow.template_version_id == version_id)
+                    ).all()
+                )
+            else:
+                page_ids, character_ids = _latest_ids(conn, story_key)
+            return _edition(conn, story, page_ids, character_ids, version_id)
+
+    def latest_edition(self, story_key: str) -> StoryEdition:
+        """The story as it is written now, whatever the gate or the plates say.
+
+        What the studio and About screens describe before a book exists.
+        """
+        with self._engine.connect() as conn:
+            story = conn.execute(
+                select(StoryRow).where(StoryRow.key == story_key)
+            ).one_or_none()
+            if story is None:
+                raise UnknownTemplate(f"no story {story_key!r}")
+            page_ids, character_ids = _latest_ids(conn, story_key)
+            return _edition(conn, story, page_ids, character_ids, None)
+
+    def book_edition(self, book_id: str) -> StoryEdition:
+        """The edition a saved book was made from, exactly as it was pinned.
+
+        Raises:
+            UnknownTemplate: the book is gone, or has no pins.
+        """
+        with self._book_editions_lock:
+            cached = self._book_editions.get(book_id)
+            if cached is not None:
+                self._book_editions.move_to_end(book_id)
+                return cached
+        with self._engine.connect() as conn:
+            book = conn.execute(
                 select(BookRow.story_key, BookRow.template_version_id).where(
                     BookRow.id == book_id
                 )
             ).one_or_none()
-            if row is None:
+            if book is None:
                 raise UnknownTemplate("no such book")
-            if row.template_version_id is not None:
-                return str(row.template_version_id)
-            version_id = _current_version_id(conn, row.story_key)
-            if version_id is None:
-                raise NoTemplateVersion(
-                    "This story's pictures are still being prepared, so a book "
-                    "can't be started yet."
-                )
-            conn.execute(
-                update(BookRow)
-                .where(BookRow.id == book_id, BookRow.template_version_id.is_(None))
-                .values(template_version_id=version_id)
+            page_ids = dict(
+                conn.execute(
+                    select(BookStoryPageRow.page_number, BookStoryPageRow.story_page_id).where(
+                        BookStoryPageRow.book_id == book_id
+                    )
+                ).all()
             )
-            pinned = conn.execute(
-                select(BookRow.template_version_id).where(BookRow.id == book_id)
-            ).scalar_one()
-            return str(pinned)
+            character_ids = dict(
+                conn.execute(
+                    select(
+                        BookStoryCharacterRow.cast_key, BookStoryCharacterRow.character_id
+                    ).where(BookStoryCharacterRow.book_id == book_id)
+                ).all()
+            )
+            if not page_ids:
+                raise UnknownTemplate(f"book {book_id} has no story pinned")
+            story = conn.execute(select(StoryRow).where(StoryRow.key == book.story_key)).one()
+            edition = _edition(conn, story, page_ids, character_ids, book.template_version_id)
+        with self._book_editions_lock:
+            self._book_editions[book_id] = edition
+            while len(self._book_editions) > _BOOK_EDITION_CACHE:
+                self._book_editions.popitem(last=False)
+        return edition
+
+    def pin_unpinned_books(self) -> int:
+        """Pin every book saved before books pinned their story. Returns how many.
+
+        Those books were all drawn from the story as it was then; the closest
+        honest pin is the latest revision of their story at the first boot
+        that runs this, after which they never move. Idempotent and cheap: a
+        boot with nothing to do runs one query.
+        """
+        with self._engine.begin() as conn:
+            unpinned = conn.execute(
+                select(BookRow.id, BookRow.story_key).where(
+                    ~select(BookStoryPageRow.book_id)
+                    .where(BookStoryPageRow.book_id == BookRow.id)
+                    .exists()
+                )
+            ).all()
+            latest: dict[str, tuple[dict[int, int], dict[str, int]]] = {}
+            pinned = 0
+            for book_id, story_key in unpinned:
+                if story_key not in latest:
+                    if _story_exists(conn, story_key):
+                        latest[story_key] = _latest_ids(conn, story_key)
+                    else:
+                        latest[story_key] = ({}, {})
+                page_ids, character_ids = latest[story_key]
+                if not page_ids:
+                    logger.warning("templates.unpinnable book=%s story=%s", book_id, story_key)
+                    continue
+                write_pins(conn, book_id, page_ids, character_ids)
+                pinned += 1
+        if pinned:
+            logger.info("templates.pinned_legacy_books count=%d", pinned)
+        return pinned
+
+    # --- the shelf and the start gate -----------------------------------------
+
+    def stories(self) -> list[StoryState]:
+        """Every seeded story, in seed order, with its gate and version state."""
+        with self._engine.connect() as conn:
+            rows = conn.execute(select(StoryRow).order_by(StoryRow.created_at, StoryRow.key))
+            states: list[StoryState] = []
+            for row in rows.all():
+                number = conn.execute(
+                    select(func.max(TemplateVersionRow.number)).where(
+                        TemplateVersionRow.story_key == row.key
+                    )
+                ).scalar_one()
+                states.append(
+                    StoryState(
+                        key=row.key,
+                        title=row.title,
+                        blurb=row.blurb,
+                        available=row.available,
+                        requires_template=row.requires_template,
+                        version_number=int(number) if number is not None else None,
+                    )
+                )
+        return states
+
+    def story_state(self, story_key: str) -> StoryState:
+        for state in self.stories():
+            if state.key == story_key:
+                return state
+        raise UnknownTemplate(f"no story {story_key!r}")
+
+    def set_requires_template(self, story_key: str, required: bool) -> None:
+        """The operator's start gate. Seeding never touches it."""
+        with self._engine.begin() as conn:
+            _require_story(conn, story_key)
+            conn.execute(
+                update(StoryRow)
+                .where(StoryRow.key == story_key)
+                .values(requires_template=required, updated_at=_now())
+            )
+        logger.info("templates.start_gate story=%s required=%s", story_key, required)
 
     # --- internals -------------------------------------------------------------
 
@@ -805,8 +1006,19 @@ def _hash(content: Any) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+#: How many saved books' editions one process keeps in memory.
+_BOOK_EDITION_CACHE = 256
+
+
+def _revised(new: str | None, old: str | None) -> str | None:
+    """An operator's optional field edit: None keeps it, blank clears it."""
+    if new is None:
+        return old
+    return new.strip() or None
+
+
 def _scene_json(scene: SeedScene) -> dict[str, Any]:
-    return {
+    content: dict[str, Any] = {
         "caption": scene.caption,
         "subject_action": scene.subject_action,
         "environment": scene.environment,
@@ -815,6 +1027,9 @@ def _scene_json(scene: SeedScene) -> dict[str, Any]:
         "must_include": list(scene.must_include),
         "must_avoid": list(scene.must_avoid),
     }
+    if scene.compose:
+        content["compose"] = dict(scene.compose)
+    return content
 
 
 def _seed_pages(seed: StorySeed) -> list[tuple[int, dict[str, Any]]]:
@@ -858,13 +1073,134 @@ def _seed_characters(seed: StorySeed) -> list[tuple[str, dict[str, Any]]]:
         (
             cast_key,
             {
-                "display_name": seed.labels[cast_key],
-                "look": look,
-                "photoable": seed.photoable[cast_key],
+                "display_name": character.label,
+                "look": character.look,
+                "look_with_photo": character.look_with_photo or None,
+                "portrait": character.portrait or None,
+                "costume": character.costume or None,
+                "photoable": character.photoable,
+                "position": position,
             },
         )
-        for cast_key, look in seed.cast.items()
+        for position, (cast_key, character) in enumerate(seed.cast.items())
     ]
+
+
+def seed_edition(seed: StorySeed) -> StoryEdition:
+    """The edition a seed describes, built without a database.
+
+    The same constructor and the same column values the database path uses,
+    so a test or a tool reading a seed sees exactly what a book would.
+    """
+    return edition_from_content(
+        story={
+            "key": seed.key,
+            "title": seed.title,
+            "book_title": seed.book_title,
+            "star": seed.star,
+            "names": seed.names,
+        },
+        pages=_seed_pages(seed),
+        characters=_seed_characters(seed),
+    )
+
+
+def write_pins(
+    conn: Connection,
+    book_id: str,
+    page_ids: Mapping[int, int],
+    character_ids: Mapping[str, int],
+) -> None:
+    """Record the revisions one book is made from. Once per book, never rewritten."""
+    conn.execute(
+        insert(BookStoryPageRow),
+        [
+            {"book_id": book_id, "page_number": number, "story_page_id": row_id}
+            for number, row_id in sorted(page_ids.items())
+        ],
+    )
+    if character_ids:
+        conn.execute(
+            insert(BookStoryCharacterRow),
+            [
+                {"book_id": book_id, "cast_key": key, "character_id": row_id}
+                for key, row_id in sorted(character_ids.items())
+            ],
+        )
+
+
+def _story_exists(conn: Connection, story_key: str) -> bool:
+    return (
+        conn.execute(
+            select(StoryRow.key).where(StoryRow.key == story_key)
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
+def _latest_ids(conn: Connection, story_key: str) -> tuple[dict[int, int], dict[str, int]]:
+    """The newest revision id of every page (cover included) and every cast member."""
+    page_ids: dict[int, int] = {}
+    for number, row_id in conn.execute(
+        select(StoryPageRow.page_number, StoryPageRow.id)
+        .where(StoryPageRow.story_key == story_key)
+        .order_by(StoryPageRow.page_number, StoryPageRow.revision)
+    ).all():
+        page_ids[int(number)] = int(row_id)
+    character_ids: dict[str, int] = {}
+    for cast_key, row_id in conn.execute(
+        select(StoryCharacterRow.cast_key, StoryCharacterRow.id)
+        .where(StoryCharacterRow.story_key == story_key)
+        .order_by(StoryCharacterRow.cast_key, StoryCharacterRow.revision)
+    ).all():
+        character_ids[str(cast_key)] = int(row_id)
+    return page_ids, character_ids
+
+
+def _edition(
+    conn: Connection,
+    story: Any,
+    page_ids: Mapping[int, int],
+    character_ids: Mapping[str, int],
+    version_id: str | None,
+) -> StoryEdition:
+    """Read the named revisions and assemble them into one edition."""
+    page_rows = conn.execute(
+        select(StoryPageRow).where(StoryPageRow.id.in_(list(page_ids.values())))
+    ).all()
+    character_rows = conn.execute(
+        select(StoryCharacterRow)
+        .where(StoryCharacterRow.id.in_(list(character_ids.values())))
+        .order_by(StoryCharacterRow.position, StoryCharacterRow.cast_key)
+    ).all()
+    return edition_from_content(
+        story={
+            "key": story.key,
+            "title": story.title,
+            "book_title": story.book_title,
+            "star": story.star,
+            "names": story.names or {},
+        },
+        pages=[(int(row.page_number), _page_content(row)) for row in page_rows],
+        characters=[(row.cast_key, _character_content(row)) for row in character_rows],
+        template_version_id=version_id,
+        page_ids=page_ids,
+        character_ids=character_ids,
+    )
+
+
+def _character_content(row: Any) -> dict[str, Any]:
+    return {
+        name: getattr(row, name)
+        for name in (
+            "display_name",
+            "look",
+            "look_with_photo",
+            "portrait",
+            "costume",
+            "photoable",
+        )
+    }
 
 
 def _page_content(page: Any) -> dict[str, Any]:
@@ -889,6 +1225,9 @@ def _character_hash(character: Any) -> str:
         {
             "display_name": character.display_name,
             "look": character.look,
+            "look_with_photo": character.look_with_photo,
+            "portrait": character.portrait,
+            "costume": character.costume,
             "photoable": character.photoable,
             "reference_image": hashlib.sha256(image).hexdigest() if image else None,
         }
@@ -1059,6 +1398,9 @@ def _load_version(conn: Connection, version_id: str) -> TemplateVersion:
             photoable=row.photoable,
             has_reference_image=row.reference_image is not None,
             revision=row.revision,
+            look_with_photo=row.look_with_photo or "",
+            portrait=row.portrait or "",
+            costume=row.costume or "",
         )
         for row in character_rows
     }

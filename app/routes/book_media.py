@@ -17,9 +17,9 @@ from fastapi import APIRouter, Response
 
 from app.dependencies import ContainerDep
 from app.errors import BookNotReady, UnknownBook
-from app.models import BOOK_PAGES
+from app.models import StoryEdition
 from app.routes.auth import CurrentSessionDep
-from app.routes.book_access import ensure_book, no_store, user_id
+from app.routes.book_access import book_edition, ensure_book, no_store, user_id
 from app.services.book_store import BookStore
 from app.services.media import extension_for, media_type_for
 
@@ -160,7 +160,8 @@ async def book_sources(
     the 24-hour drafts, so the archive is complete for the book's whole life.
     """
     ensure_book(book_id, user_id(session), container)
-    data = await asyncio.to_thread(_sources_archive, container.book_store, book_id)
+    edition = await asyncio.to_thread(book_edition, container, book_id)
+    data = await asyncio.to_thread(_sources_archive, container.book_store, book_id, edition)
     logger.info(
         "book.sources user=%s book=%s bytes=%d", user_id(session) or "-", book_id, len(data)
     )
@@ -172,7 +173,7 @@ async def book_sources(
     )
 
 
-def _sources_archive(store: BookStore, book_id: str) -> bytes:
+def _sources_archive(store: BookStore, book_id: str, edition: StoryEdition) -> bytes:
     """Build the archive in memory; every member is optional but the README."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -188,7 +189,7 @@ def _sources_archive(store: BookStore, book_id: str) -> bytes:
             add(f"{key}/photo", reference.photo)
             add(f"{key}/comic", reference.portrait)
         add("cover", store.read_cover(book_id))
-        for page in BOOK_PAGES:
+        for page in edition.pages:
             add(f"pages/page-{page.number:02d}", store.read_page(book_id, page.number))
         record = store.load_record(book_id)
         if record is not None:

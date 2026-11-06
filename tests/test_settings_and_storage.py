@@ -25,7 +25,7 @@ from app.models.settings import CartoonStyle, LikenessStrength
 from app.services.book_store import BookStatus, BookStore
 from app.services.db_book_store import DatabaseBookStore
 from app.services.storage import Draft, GenerationStore
-from tests.helpers import RecordingProvider, tiny_png_bytes
+from tests.helpers import RecordingProvider, edition_in, tiny_png_bytes
 
 ABOUT = AboutMe.model_validate({"prompt_name": "Jack", "about_name": "Jack"})
 HOUR = 3600.0
@@ -277,7 +277,13 @@ class TestBookRetention:
     """#10: finished books are megabytes of a child's photographs."""
 
     def _book(self, store: BookStore, book_id: str, status: str) -> None:
-        store.save_record(book_id=book_id, user_id=None, about=ABOUT, generation_id="gen-1")
+        store.save_record(
+            edition=edition_in(store),
+            book_id=book_id,
+            user_id=None,
+            about=ABOUT,
+            generation_id="gen-1",
+        )
         store.save_status(book_id, status, [])
 
     def test_an_old_finished_book_is_deleted(self, engine: Engine) -> None:
@@ -343,7 +349,11 @@ class TestTheSweep:
         draft = container.store.save_draft(make_draft("old-draft"))
         _age_files(draft.directory, 25 * HOUR)
         container.book_store.save_record(
-            book_id="old-book", user_id=None, about=ABOUT, generation_id="old-draft"
+            edition=edition_in(container.book_store),
+            book_id="old-book",
+            user_id=None,
+            about=ABOUT,
+            generation_id="old-draft",
         )
         container.book_store.save_status("old-book", BookStatus.COMPLETE, [])
         _age_book(container.engine, "old-book", 8 * DAY)
@@ -357,7 +367,11 @@ class TestTheSweep:
         container = build_container(settings, provider=RecordingProvider())
         container.store.save_draft(make_draft("fresh-draft"))
         container.book_store.save_record(
-            book_id="fresh-book", user_id=None, about=ABOUT, generation_id="fresh-draft"
+            edition=edition_in(container.book_store),
+            book_id="fresh-book",
+            user_id=None,
+            about=ABOUT,
+            generation_id="fresh-draft",
         )
         container.book_store.save_status("fresh-book", BookStatus.COMPLETE, [])
 

@@ -488,10 +488,17 @@ a.story-card-link,
 .story-action {
   align-self: flex-start;
 }
-.story-card.state-soon {
+.story-note {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin-bottom: 12px;
+}
+.story-card.state-soon,
+.story-card.state-waiting {
   opacity: 0.6;
 }
-.story-card.state-soon .story-action {
+.story-card.state-soon .story-action,
+.story-card.state-waiting .story-action {
   background: var(--paper);
   border-color: var(--line);
   color: var(--ink-soft);

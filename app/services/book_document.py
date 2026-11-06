@@ -13,6 +13,7 @@ import logging
 from collections.abc import Mapping, Sequence
 
 from app.models.book import AboutPhotoChoice, BookPage
+from app.models.story import COVER_NUMBER
 from app.services.book_store import BookRecord, BookStatus, BookStore
 from app.services.pdf import PageArt, build_book_pdf
 from app.services.wallet import Wallet
@@ -23,10 +24,6 @@ logger = logging.getLogger(__name__)
 
 #: The prompt record uses one pseudo-page for the cover.
 COVER_KEY = "cover"
-
-#: The cover is page zero of the book. It is counted with the story pages —
-#: a book is the cover plus nineteen story pages — and it is drawn first.
-COVER_NUMBER = 0
 
 #: The phase the poll document reports while the PDF is being assembled.
 _PHASE_COMPLETE = "complete"
@@ -73,7 +70,9 @@ class BookDocument:
             if record.about.about_photo != AboutPhotoChoice.CARTOON
             else None
         )
-        pdf_bytes = build_book_pdf(record.about, arts, cover, portrait=portrait, photo=photo)
+        pdf_bytes = build_book_pdf(
+            record.title, record.about, arts, cover, portrait=portrait, photo=photo
+        )
         self._book_store.save_pdf(record.book_id, pdf_bytes)
         # The document exists now, so this is the moment its fee belongs to.
         # Charging is idempotent per book id: an edit that rebuilds the PDF
@@ -83,7 +82,7 @@ class BookDocument:
             record.book_id,
             BookStatus.COMPLETE,
             self.page_view(record.book_id, progress, rendered_pages),
-            title=record.about.book_title,
+            title=record.title,
             extra={"phase": _PHASE_COMPLETE, "total_pages": len(rendered_pages) + 1},
         )
         return len(pdf_bytes)
@@ -111,7 +110,7 @@ class BookDocument:
         """The full page list for status, in story order, from live progress.
 
         The cover comes first and is counted like any other page: the book is
-        the cover plus nineteen story pages, and the reader should see that.
+        the cover plus its story pages, and the reader should see that.
         Each entry carries its own story text, so the browser can show the
         book page by page without a second request.
         """
@@ -158,7 +157,7 @@ class BookDocument:
             self._wallet.charge_document(
                 record.user_id,
                 book_id=record.book_id,
-                title=record.about.book_title,
+                title=record.title,
                 require_funds=False,
             )
         except Exception:

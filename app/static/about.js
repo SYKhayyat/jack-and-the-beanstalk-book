@@ -100,6 +100,7 @@ async function startBook() {
   button.disabled = true;
   say("Starting your book…");
   const body = new FormData();
+  body.append("story", story);
   body.append("generation_id", starId);
   const name = field("about_name").value.trim();
   // One name on this screen: the story and the About page both use it.

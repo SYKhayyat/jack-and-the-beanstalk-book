@@ -398,7 +398,8 @@ def test_a_stale_state_still_returns_the_visitor_where_they_were(
 def test_the_full_google_round_trip_signs_the_visitor_in(google_client: TestClient) -> None:
     """Redirect away, come back with a code, and end up signed in."""
     start = google_client.get(
-        "/auth/google/login?next=/api/book/pages", follow_redirects=False
+        "/auth/google/login?next=/api/stories/jack_and_the_beanstalk/pages",
+        follow_redirects=False,
     )
     assert start.status_code == 303
 
@@ -410,7 +411,7 @@ def test_the_full_google_round_trip_signs_the_visitor_in(google_client: TestClie
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/api/book/pages"
+    assert response.headers["location"] == "/api/stories/jack_and_the_beanstalk/pages"
     # The session is a person's, and it is the person Google described.
     token = google_client.cookies.get(SESSION_COOKIE)
     assert token

@@ -17,11 +17,13 @@ lever on "does this look like the person".
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import cast
 
+from app.books import SEEDS
 from app.models import CartoonSettings, CartoonStyle, RejectionFeedback, Scene
-from app.models.book import BOOK_PAGES, BookPage
+from app.models.book import BookPage
 from app.models.settings import (
     ApparentAge,
     AspectRatio,
@@ -35,6 +37,7 @@ from app.models.settings import (
     PortraitBackground,
     SkinTone,
 )
+from app.models.story import StoryEdition
 from app.prompt_data import prompt_text
 
 __all__ = [
@@ -46,8 +49,6 @@ __all__ = [
     "build_cartoon_prompt",
     "build_cast_portrait_prompt",
     "build_cover_prompt",
-    "cast_photoable",
-    "photoable_cast",
     "render_book_page",
 ]
 
@@ -83,10 +84,6 @@ _AGE_DESCRIPTIONS: dict[ApparentAge, str] = {
 
 _GENDER_DESCRIPTIONS: dict[CharacterGender, str] = {
     gender: _DATA["genders"][gender.value] for gender in CharacterGender
-}
-
-_NAMES: dict[PhotoGender, str] = {
-    gender: _DATA["names"][gender.value] for gender in PhotoGender
 }
 
 _PRONOUNS: dict[PhotoGender, dict[str, str]] = {
@@ -143,92 +140,68 @@ _BOOK_INTENSITY_DESCRIPTIONS: dict[int, str] = {
 
 _PHOTOREAL: dict[str, str] = _DATA["photoreal"]
 
-# The book's one fixed style sentence. `[book].style` holds the *key* of the
-# shared [styles] entry (the app default), so portrait and book pages read the
-# identical wording from one place — the sentence exists exactly once in the
-# data file. A book must never change style mid-story.
-_BOOK_STYLE_KEY = str(cast("dict[str, object]", _BOOK)["style"])
-_BOOK_STYLE: str = _STYLE_DESCRIPTIONS[CartoonStyle(_BOOK_STYLE_KEY)]
 
-# The minor characters' pinned looks, keyed by the `cast` name a page lists.
-_BOOK_CAST: dict[str, str] = {
-    name: str(text) for name, text in cast("dict[str, object]", _BOOK["cast"]).items()
-}
+@dataclass(frozen=True, slots=True)
+class _StoryWording:
+    """A story's own prompt text: its style, its props and places, its rules."""
 
-# Which cast members may ever be given a face by the uploader. Milky-White is
-# false: the cow is prose-pinned, permanently (see prompts.toml).
-_CAST_PHOTOABLE: dict[str, bool] = {
-    name: bool(flag)
-    for name, flag in cast("dict[str, object]", _BOOK.get("cast_photoable", {})).items()
-}
-_CAST_LABELS: dict[str, str] = {
-    name: str(label)
-    for name, label in cast("dict[str, object]", _BOOK.get("cast_labels", {})).items()
-}
-
-# The same bible for a cast member who has a reference photo: face, colouring
-# and signature accessories defer to the photo; the costume stays fixed.
-_BOOK_CAST_WITH_PHOTO: dict[str, str] = {
-    name: str(text)
-    for name, text in cast("dict[str, object]", _BOOK.get("cast_with_photo", {})).items()
-}
-for _name, _photoable in _CAST_PHOTOABLE.items():
-    if _photoable and _name not in _BOOK_CAST_WITH_PHOTO:
-        raise KeyError(f"photoable cast member {_name!r} has no [book.cast_with_photo] look")
-
-# The prop and set bible, pasted whole into every page of a book.
-_BOOK_WORLD: str = str(cast("dict[str, object]", _BOOK["world"])["sheet"])
-
-# The portrait pass's wording for a photographed cast member, keyed by cast
-# key. Kept apart from _BOOK_CAST: a page with no reference photo must say so,
-# while this pass has exactly one photograph and must never deny it.
-_BOOK_CAST_PORTRAIT: dict[str, str] = {
-    name: str(text)
-    for name, text in cast("dict[str, object]", _BOOK.get("cast_portrait", {})).items()
-}
+    style: str
+    page_world: str
+    page_rules: tuple[str, ...]
 
 
-def photoable_cast() -> tuple[tuple[str, str], ...]:
-    """The cast members a photo may be attached to, in catalogue order.
-
-    Returns (key, display label) pairs. Anyone not in here is prose-pinned:
-    the cow can never be given a face by the uploader, by construction.
-    """
-    return tuple(
-        (name, _CAST_LABELS.get(name, name.replace("_", " ").capitalize()))
-        for name in _BOOK_CAST
-        if _CAST_PHOTOABLE.get(name, False)
+def _story_wording(key: str, section: Mapping[str, object]) -> _StoryWording:
+    rules = section.get("page_rules", [])
+    if not isinstance(rules, list) or not all(isinstance(rule, str) for rule in rules):
+        raise KeyError(f"[stories.{key}].page_rules must be a list of sentences")
+    return _StoryWording(
+        # The story's one fixed style sentence: `style` holds the *key* of a
+        # shared [styles] entry, so portrait and pages read the identical
+        # wording from one place. A book never changes style mid-story.
+        style=_STYLE_DESCRIPTIONS[CartoonStyle(str(section["style"]))],
+        page_world=str(section["page_world"]),
+        page_rules=tuple(rules),
     )
 
 
-def cast_photoable(name: str) -> bool:
-    """Whether `name` may be given a photo. Unknown names are never photoable."""
-    return name in _BOOK_CAST and _CAST_PHOTOABLE.get(name, False)
+# Every story the app can make has its wording, or the import fails: a story
+# whose pages would be prompted with another tale's props must fail at boot.
+_STORIES: dict[str, _StoryWording] = {
+    seed.key: _story_wording(seed.key, _DATA["stories"][seed.key]) for seed in SEEDS
+}
+
+# The portrait pass's wording for a photographed cast member, keyed by cast
+# key, comes from the story's bible (`CastMember.portrait`): a page with no
+# reference photo must say so, while that pass has exactly one photograph and
+# must never deny it.
 
 
-def book_cast_sheet(supplied: Iterable[str] = ()) -> str:
+def book_cast_sheet(story: StoryEdition, supplied: Iterable[str] = ()) -> str:
     """The character bible: identical text on every page of the same book.
 
-    Heading, every pinned look in catalogue order, then one book-level note
-    naming who has a reference photo. `supplied` is the set of cast keys the
-    uploader attached a photo to; the same book always builds the same string.
+    Heading, every supporting character's pinned look in bible order, then one
+    book-level note naming who has a reference photo. `supplied` is the set of
+    cast keys the uploader attached a photo to; the same book always builds
+    the same string. The star is not listed: the identity block and the
+    reference images are who the star is.
     """
     assembly = cast("dict[str, str]", _BOOK["assembly"])
-    supplied_keys = [name for name in _BOOK_CAST if name in set(supplied)]
-    if supplied_keys:
+    chosen = set(supplied)
+    supplied_members = [member for member in story.photoable_cast if member.key in chosen]
+    if supplied_members:
         photo_note = assembly["cast_photos"].format(
-            names=", ".join(_CAST_LABELS.get(name, name) for name in supplied_keys)
+            names=", ".join(member.label for member in supplied_members)
         )
     else:
         photo_note = assembly["cast_photos_none"]
     looks = "\n".join(
-        _BOOK_CAST_WITH_PHOTO[name] if name in supplied_keys else _BOOK_CAST[name]
-        for name in _BOOK_CAST
+        member.look_with_photo if member in supplied_members else member.look
+        for member in story.supporting_cast
     )
     return assembly["cast_sheet"].format(cast_looks=looks, photo_note=photo_note)
 
 
-def _reference_map(character_photos: Iterable[str]) -> str:
+def _reference_map(story: StoryEdition, character_photos: Iterable[str]) -> str:
     """The per-page reference order, matching the images sent with this call."""
     entries = [
         "1) the child's cartoon portrait",
@@ -236,7 +209,7 @@ def _reference_map(character_photos: Iterable[str]) -> str:
     ]
     position = 3
     for name in character_photos:
-        label = _CAST_LABELS.get(name, name)
+        label = story.cast[name].label
         entries.append(f"{position}) {label}'s cartoon portrait")
         entries.append(f"{position + 1}) {label}'s photograph")
         position += 2
@@ -281,35 +254,42 @@ def _accessory_directives(settings: CartoonSettings) -> list[str]:
     return [glasses, facial_hair]
 
 
-def book_name_for(settings: CartoonSettings) -> str:
-    """The default character name: Jack or Jane, from the photo's gender answer.
+def book_name_for(settings: CartoonSettings, story: StoryEdition) -> str:
+    """The default star name for this story and the photo's gender answer.
 
-    This is what a blank name resolves to, everywhere a name is shown.
+    This is what a blank name resolves to, everywhere a name is shown: Jack or
+    Jane in Jack's tale, Red in Red's.
     """
-    return _NAMES[settings.effective_gender]
+    return story.default_name(settings.effective_gender)
 
 
-def _substitutions(
-    settings: CartoonSettings, prompt_name: str | None = None
-) -> dict[str, str]:
-    """The name and pronouns the prose is written with.
-
-    `prompt_name`, when given (star name), overrides the gender default.
-    """
-    gender = settings.effective_gender
-    pronouns = _PRONOUNS[gender]
+def _substitutions(settings: CartoonSettings, name: str) -> dict[str, str]:
+    """The name and pronouns the prose is written with."""
+    pronouns = _PRONOUNS[settings.effective_gender]
     capitalised = {key.capitalize(): value.capitalize() for key, value in pronouns.items()}
-    return {"name": prompt_name or _NAMES[gender], **pronouns, **capitalised}
+    return {"name": name, **pronouns, **capitalised}
 
 
 def render_book_page(
-    page: BookPage, settings: CartoonSettings, *, prompt_name: str | None = None
+    page: BookPage, settings: CartoonSettings, *, prompt_name: str
 ) -> BookPage:
     """Fill a book page's name/pronoun placeholders for the chosen child."""
     return page.formatted(_substitutions(settings, prompt_name))
 
 
-def _story_lines(settings: CartoonSettings, prompt_name: str | None) -> str:
+def _star_outfit(story: StoryEdition, settings: CartoonSettings, name: str) -> str:
+    """What the star wears: the story's costume when it has one, else the pick.
+
+    Jack's tale dresses the child in the visitor's own outfit; Red's dresses
+    them in the red hood, whatever the outfit picker said.
+    """
+    costume = story.star_member.costume
+    if costume:
+        return costume.format(**_substitutions(settings, name))
+    return _OUTFIT_DESCRIPTIONS[settings.outfit]
+
+
+def _story_lines(story: StoryEdition, settings: CartoonSettings, prompt_name: str) -> str:
     """The whole book's story, one labelled line per page.
 
     The lines come from the pages' own `beat` text — the one-line summary of
@@ -324,7 +304,7 @@ def _story_lines(settings: CartoonSettings, prompt_name: str | None) -> str:
     would otherwise carry nineteen paragraphs it does not need.
     """
     lines = []
-    for page in BOOK_PAGES:
+    for page in story.pages:
         rendered = render_book_page(page, settings, prompt_name=prompt_name)
         summary = rendered.beat or rendered.story
         lines.append(f"Page {page.number}: {summary}")
@@ -335,9 +315,8 @@ def build_book_page_prompt(
     page: BookPage,
     settings: CartoonSettings,
     *,
-    page_number: int,
-    total_pages: int,
-    prompt_name: str | None = None,
+    story: StoryEdition,
+    prompt_name: str,
     supplied_characters: Iterable[str] = (),
     character_photos: Iterable[str] = (),
     correction: str = "",
@@ -370,10 +349,9 @@ def build_book_page_prompt(
         page: The resolved page (callers pass the raw catalogue entry; the
             name/pronoun placeholders are filled here).
         settings: The character settings.
-        page_number: This page's one-based position in story order.
-        total_pages: The book's page count, for the "you are page N of M" framing.
-        prompt_name: The star name; None falls back to the gender default
-            (Jack/Jane).
+        story: The edition the book is made from: its pages (for the page
+            count and the whole-story context), its bible and its wording.
+        prompt_name: The star's name.
         supplied_characters: Cast keys that have a reference photo somewhere in
             this book. Book-level, so the cast-sheet block stays byte-identical
             across the book's pages.
@@ -382,6 +360,9 @@ def build_book_page_prompt(
             images are.
     """
     task_book = cast("dict[str, str]", _BOOK["assembly"])
+    wording = _STORIES[story.key]
+    page_number = page.number
+    total_pages = len(story.pages)
     page = render_book_page(page, settings, prompt_name=prompt_name)
     subs = _substitutions(settings, prompt_name)
     # Order is deliberate, and it is two blocks rather than one list.
@@ -409,12 +390,11 @@ def build_book_page_prompt(
         str(_BOOK["same_clothes"]),
         str(_BOOK["signature_features"]),
         str(_BOOK["same_characters"]),
-        str(_BOOK["same_cow"]),
         str(_BOOK["one_art_style"]),
-        # The fixed book style, injected verbatim — the same wording on every
-        # page of the book by construction, and the same sentence the portrait
-        # default resolves to (both read the shared [styles] entry).
-        _ASSEMBLY["art_style"].format(style=_BOOK_STYLE),
+        # The story's fixed style, injected verbatim — the same wording on
+        # every page of the book by construction, and the same sentence the
+        # portrait resolves to (both read the shared [styles] entry).
+        _ASSEMBLY["art_style"].format(style=wording.style),
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
         task_book["stylisation"].format(
             intensity=_book_intensity_text(settings.cartoon_intensity)
@@ -422,17 +402,24 @@ def build_book_page_prompt(
         # The expression picker is left out on purpose: a page's face follows
         # its EMOTIONAL BEAT, and "a warm, happy expression" on every page
         # fought the fear and wonder beats.
-        _common_character_block(settings, include_expression=False),
+        _common_character_block(
+            settings,
+            subs,
+            _star_outfit(story, settings, prompt_name),
+            include_expression=False,
+        ),
         # The character bible: the same block, byte for byte, on every page of
         # this book — so no character's look is restated (and allowed to drift)
         # per page. It names every cast member; the page-scope clause below and
         # the negative tail are what keep the page to its own cast.
-        book_cast_sheet(supplied_characters),
+        book_cast_sheet(story, supplied_characters),
         # The prop and set bible: every recurring object and place designed
         # once, so no page re-describes the cottage or the harp its own way.
-        _BOOK_WORLD.format(**subs),
+        wording.page_world.format(**subs),
         str(_BOOK["physics"]),
         str(_BOOK["mood_and_light"]),
+        # The tale's own rules (Milky-White's coat, the giant's face).
+        *(rule.format(**subs) for rule in wording.page_rules),
         # The book's own negative tail: the single-scene tail's "only the one
         # person described above" contradicts the pages that require the
         # mother, which is how the child's face got onto her.
@@ -445,51 +432,62 @@ def build_book_page_prompt(
         task_book["task"].format(
             page_number=page_number,
             total_pages=total_pages,
-            book_title=str(_BOOK["book_title"]),
+            book_title=story.title_for(subs["name"]),
             name=subs["name"],
         ),
         # The whole story, labelled by page, so the model knows which line it
         # is illustrating and what the others are for. This is also how page 3
         # learns that the beans it throws are the five of page 2.
         task_book["story_context"].format(
-            story_lines=_story_lines(settings, prompt_name),
+            story_lines=_story_lines(story, settings, prompt_name),
             page_number=page_number,
             total_pages=total_pages,
         ),
         # The exact order of the reference images sent with this call, so the
         # model can tell the child's two anchors from a character's portrait
         # and photograph. Page-level because the references are.
-        _reference_map(character_photos),
+        _reference_map(story, character_photos),
         task_book["full_frame"],
-        _ASSEMBLY["scene_to_draw"].format(caption=page.scene.caption),
-        _ASSEMBLY["character_doing"].format(action=page.scene.subject_action),
-        task_book["emotion"].format(emotion=page.emotion) if page.emotion else "",
-        _ASSEMBLY["where"].format(environment=page.scene.environment),
-        _ASSEMBLY["lighting"].format(time_of_day=page.scene.time_of_day),
-        _ASSEMBLY["camera"].format(camera=page.scene.camera),
-        page.scene.checklist,
-        _avoid_clause(page.scene),
+        *_scene_block(page.scene, page.emotion),
         correction,
         STANDING_NEGATIVE,
     ]
     return _join_sections([*shared, *this_page])
 
 
-def build_cover_prompt(settings: CartoonSettings, *, prompt_name: str | None = None) -> str:
+def _scene_block(scene: Scene, emotion: str) -> list[str]:
+    """One scene, as the page and the cover both state it."""
+    task_book = cast("dict[str, str]", _BOOK["assembly"])
+    return [
+        _ASSEMBLY["scene_to_draw"].format(caption=scene.caption),
+        _ASSEMBLY["character_doing"].format(action=scene.subject_action),
+        task_book["emotion"].format(emotion=emotion) if emotion else "",
+        _ASSEMBLY["where"].format(environment=scene.environment),
+        _ASSEMBLY["lighting"].format(time_of_day=scene.time_of_day),
+        _ASSEMBLY["camera"].format(camera=scene.camera),
+        scene.checklist,
+        _avoid_clause(scene),
+    ]
+
+
+def build_cover_prompt(
+    settings: CartoonSettings, *, story: StoryEdition, prompt_name: str
+) -> str:
     """Prompt for the book's one cover call.
 
     The cover shares the book's fixed style, identity anchor and consistency
-    rules so it belongs to the same book as the pages. It deliberately names
-    only the child: the cover is one hero image of the star beside the
-    beanstalk, not a group shot. The title is drawn by the PDF layer, never by
-    the model, so the upper third is asked to stay calm for it.
+    rules so it belongs to the same book as the pages, and draws the story's
+    own cover scene. Only the child has reference images on the cover; anyone
+    else the scene names is drawn from the bible. The title is drawn by the
+    PDF layer, never by the model, so the upper third is asked to stay calm.
     """
     task_book = cast("dict[str, str]", _BOOK["assembly"])
+    wording = _STORIES[story.key]
     subs = _substitutions(settings, prompt_name)
     name = subs["name"]
-    title = f"{name} and the Beanstalk"
+    cover = story.cover.formatted(subs)
     sections = [
-        task_book["cover_task"].format(book_title=title, name=name),
+        task_book["cover_task"].format(book_title=story.title_for(name), name=name),
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
         str(_BOOK["likeness_not_size"]),
@@ -498,40 +496,57 @@ def build_cover_prompt(settings: CartoonSettings, *, prompt_name: str | None = N
         str(_BOOK["same_clothes"]),
         str(_BOOK["signature_features"]),
         str(_BOOK["one_art_style"]),
-        _ASSEMBLY["art_style"].format(style=_BOOK_STYLE),
+        _ASSEMBLY["art_style"].format(style=wording.style),
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
         task_book["stylisation"].format(
             intensity=_book_intensity_text(settings.cartoon_intensity)
         ),
-        _common_character_block(settings),
-        # The cottage and the beanstalk on the cover are the book's own.
-        _BOOK_WORLD.format(**subs),
+        _common_character_block(settings, subs, _star_outfit(story, settings, name)),
+        *_cover_cast(story, cover.cast),
+        # The places and props on the cover are the book's own.
+        wording.page_world.format(**subs),
         str(_BOOK["physics"]),
+        *(rule.format(**subs) for rule in wording.page_rules),
         str(_BOOK["negative"]),
         str(_BOOK["no_text"]),
-        task_book["cover_scene"].format(name=name),
+        *_scene_block(cover.scene, cover.emotion),
+        task_book["cover_band"],
         STANDING_NEGATIVE,
     ]
     return _join_sections(sections)
 
 
+def _cover_cast(story: StoryEdition, cast_keys: Sequence[str]) -> list[str]:
+    """The bible looks of anyone besides the star the cover scene names.
+
+    The cover sends only the child's references, so everyone else on it is
+    drawn from their plain look.
+    """
+    return [story.cast[key].look for key in cast_keys if key != story.star]
+
+
 def _common_character_block(
-    settings: CartoonSettings, *, include_expression: bool = True
+    settings: CartoonSettings,
+    substitutions: Mapping[str, str],
+    outfit: str,
+    *,
+    include_expression: bool = True,
 ) -> str:
     """The lines describing *who the character is*, shared by both passes.
 
-    Book pages pass ``include_expression=False``: their faces follow each
-    page's emotional beat, not the portrait's expression pick.
+    `outfit` is the star's clothing line: the visitor's pick, or the story's
+    costume. Book pages pass ``include_expression=False``: their faces follow
+    each page's emotional beat, not the portrait's expression pick.
     """
     return " ".join(
         [
             _AGE_DESCRIPTIONS[settings.apparent_age],
             _GENDER_DESCRIPTIONS[settings.character_gender],
-            _ASSEMBLY["character_name"].format(**_substitutions(settings)),
+            _ASSEMBLY["character_name"].format(**substitutions),
             _SKIN_DESCRIPTIONS[settings.skin_tone],
             _HAIR_STYLE_DESCRIPTIONS[settings.hair_style],
             _HAIR_COLOUR_DESCRIPTIONS[settings.hair_color],
-            _OUTFIT_DESCRIPTIONS[settings.outfit],
+            outfit,
             *([_EXPRESSION_DESCRIPTIONS[settings.expression]] if include_expression else []),
             *_accessory_directives(settings),
         ]
@@ -539,7 +554,10 @@ def _common_character_block(
 
 
 def build_cartoon_prompt(
-    settings: CartoonSettings, *, rejection: RejectionFeedback | None = None
+    settings: CartoonSettings,
+    *,
+    story: StoryEdition,
+    rejection: RejectionFeedback | None = None,
 ) -> str:
     """Prompt for pass 1: stylise the uploaded photo into a cartoon portrait.
 
@@ -548,14 +566,19 @@ def build_cartoon_prompt(
     faults rather than move away from them. `rejection` carries the user's
     ticked faults as closed-set corrections; omitting it (or passing an empty
     one) yields a first-attempt prompt, byte for byte.
+
+    The portrait is the star of `story`: it is named with the story's default
+    name, and dressed in the story's costume when the tale has one.
     """
     style_text = _STYLE_DESCRIPTIONS[settings.cartoon_style]
+    name = book_name_for(settings, story)
+    subs = _substitutions(settings, name)
     retry_clauses = rejection.prompt_block() if rejection else ""
     sections = [
         _ASSEMBLY["task_cartoon"],
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
-        _common_character_block(settings),
+        _common_character_block(settings, subs, _star_outfit(story, settings, name)),
         _ASSEMBLY["stylisation"].format(intensity=_intensity_text(settings.cartoon_intensity)),
         _photoreal_keywords(settings.cartoon_intensity),
         _ASSEMBLY["art_style"].format(style=style_text),
@@ -570,7 +593,11 @@ def build_cartoon_prompt(
 
 
 def build_cast_portrait_prompt(
-    cast_key: str, settings: CartoonSettings, *, rejection: RejectionFeedback | None = None
+    story: StoryEdition,
+    cast_key: str,
+    settings: CartoonSettings,
+    *,
+    rejection: RejectionFeedback | None = None,
 ) -> str:
     """Prompt for a photographed cast member's portrait pass.
 
@@ -589,15 +616,18 @@ def build_cast_portrait_prompt(
     strength and the glasses / facial-hair switches apply as chosen.
 
     Raises:
-        KeyError: if `cast_key` has no portrait wording — a data bug. The
-            route refuses non-photoable keys before this point.
+        KeyError: if `cast_key` is not a photographable supporting character
+            of `story`. The route refuses those before this point.
     """
+    if not story.can_photograph(cast_key):
+        raise KeyError(f"{story.key} has no photographable character {cast_key!r}")
+    wording = _STORIES[story.key]
     retry_clauses = rejection.prompt_block() if rejection else ""
     sections = [
         _ASSEMBLY["task_cast_portrait"],
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
-        _BOOK_CAST_PORTRAIT[cast_key],
+        story.cast[cast_key].portrait,
         # The slot's own glasses / facial-hair pickers (issue #34: they were
         # sent by the browser and then ignored).
         *_accessory_directives(settings),
@@ -605,7 +635,7 @@ def build_cast_portrait_prompt(
             intensity=_book_intensity_text(settings.cartoon_intensity)
         ),
         _photoreal_keywords(settings.cartoon_intensity),
-        _ASSEMBLY["art_style"].format(style=_BOOK_STYLE),
+        _ASSEMBLY["art_style"].format(style=wording.style),
         _ASSEMBLY["framing"],
         _PORTRAIT_BACKGROUNDS[settings.portrait_background],
         _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),

@@ -179,6 +179,8 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
     engine = prepare_database(build_engine(resolved.effective_database_url))
     try:
         store = TemplateStore(engine)
+        # The app seeds at boot; a terminal run may come first, so it seeds too.
+        store.seed(SEEDS)
         try:
             written = run(
                 story=story,
@@ -188,7 +190,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
                 contact_sheet=args.contact_sheet,
             )
         except TemplateError as exc:
-            print(f"stopped: {exc}\nRun `make seed` with the same database first.")
+            print(f"stopped: {exc}")
             return 1
     finally:
         engine.dispose()

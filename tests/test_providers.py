@@ -17,6 +17,7 @@ from app.services.image_providers.base import (
     ProviderUnavailable,
 )
 from app.services.image_providers.registry import KNOWN_PROVIDERS
+from tests.helpers import jack
 
 
 def make_settings(**overrides: object) -> Settings:
@@ -148,6 +149,7 @@ class TestPipelineThroughMockProvider:
         decoded = decode_upload(make_photo_bytes())
 
         draft = pipeline.cartoonify(
+            story=jack(),
             photo_data=decoded.data,
             photo_media_type=decoded.media_type,
             settings=CartoonSettings(),

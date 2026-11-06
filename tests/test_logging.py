@@ -21,14 +21,18 @@ import time
 
 from fastapi.testclient import TestClient
 
-from app.models.book import BOOK_PAGES
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
     ImageRequest,
     ProviderError,
 )
-from tests.helpers import make_photo_bytes, multipart
+from tests.helpers import jack, make_photo_bytes, multipart
+
+#: Jack's tale exactly as a new book is made from it (its seed's edition).
+JACK = jack()
+BOOK_PAGES = JACK.pages
+
 
 _REQUEST_LINE = re.compile(r"request=([0-9a-f]{12})\b")
 
@@ -36,7 +40,12 @@ _REQUEST_LINE = re.compile(r"request=([0-9a-f]{12})\b")
 def _make_portrait(client: TestClient) -> dict[str, object]:
     response = client.post(
         "/api/cartoonify",
-        **multipart({"photo": ("me.png", make_photo_bytes(), "image/png")}),
+        **multipart(
+            {
+                "story": "jack_and_the_beanstalk",
+                "photo": ("me.png", make_photo_bytes(), "image/png"),
+            }
+        ),
     )
     assert response.status_code == 201, response.text
     return dict(response.json())
@@ -45,7 +54,11 @@ def _make_portrait(client: TestClient) -> dict[str, object]:
 def _start_book(client: TestClient, portrait: dict[str, object]) -> str:
     response = client.post(
         "/api/book/start",
-        data={"generation_id": portrait["generation_id"], "child_name": "Shai"},
+        data={
+            "story": "jack_and_the_beanstalk",
+            "generation_id": portrait["generation_id"],
+            "child_name": "Shai",
+        },
     )
     assert response.status_code == 201, response.text
     return str(response.json()["book_id"])

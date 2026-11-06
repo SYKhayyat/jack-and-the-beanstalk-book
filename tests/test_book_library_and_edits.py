@@ -15,7 +15,6 @@ from pypdf import PdfReader
 
 from app.config import Settings
 from app.main import create_app
-from app.models.book import BOOK_PAGES
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
@@ -24,7 +23,12 @@ from app.services.image_providers.base import (
 )
 from app.services.user_store import User
 from app.sessions import SESSION_COOKIE
-from tests.helpers import RecordingProvider, make_photo_bytes, multipart
+from tests.helpers import RecordingProvider, jack, make_photo_bytes, multipart
+
+#: Jack's tale exactly as a new book is made from it (its seed's edition).
+JACK = jack()
+BOOK_PAGES = JACK.pages
+
 
 STUDIO = "/stories/jack_and_the_beanstalk/studio"
 ABOUT = "/stories/jack_and_the_beanstalk/about"
@@ -33,7 +37,10 @@ PAGE_COUNT = len(BOOK_PAGES)
 
 
 def _portrait(client: TestClient, character: str = "") -> dict[str, object]:
-    form: dict[str, object] = {"photo": ("me.png", make_photo_bytes(), "image/png")}
+    form: dict[str, object] = {
+        "story": "jack_and_the_beanstalk",
+        "photo": ("me.png", make_photo_bytes(), "image/png"),
+    }
     if character:
         form["character"] = character
     response = client.post("/api/cartoonify", **multipart(form))
@@ -45,7 +52,7 @@ def _start(client: TestClient, **fields: object) -> str:
     portrait = _portrait(client)
     data = {"generation_id": portrait["generation_id"], "child_name": "Shai"}
     data.update(fields)
-    response = client.post("/api/book/start", data=data)
+    response = client.post("/api/book/start", data={"story": "jack_and_the_beanstalk", **data})
     assert response.status_code == 201, response.text
     return str(response.json()["book_id"])
 
@@ -191,6 +198,7 @@ class TestEditing:
             start = client.post(
                 "/api/book/start",
                 data={
+                    "story": "jack_and_the_beanstalk",
                     "generation_id": child["generation_id"],
                     "child_name": "Shai",
                     "character": f"mother:{mother['generation_id']}",
@@ -238,7 +246,9 @@ class TestEditing:
             book_id = _start(client)
             _wait(client, book_id)
             replacement = _portrait(client, character="mother")
-            monkeypatch.setattr("app.routes.book.BOOK_PAGES", ())
+            monkeypatch.setattr(
+                "app.models.story.StoryEdition.pages_casting", lambda _self, _key: set()
+            )
 
             response = client.post(
                 f"/api/book/{book_id}/edit",

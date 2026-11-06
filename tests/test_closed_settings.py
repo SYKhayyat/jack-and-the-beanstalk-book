@@ -33,6 +33,11 @@ from app.models.settings import (
     SkinTone,
 )
 from app.services.prompts import build_cartoon_prompt
+from tests.helpers import jack
+
+#: Jack's tale exactly as a new book is made from it (its seed's edition).
+JACK = jack()
+
 
 ALL_ENUMS = [
     CartoonStyle,
@@ -93,7 +98,7 @@ class TestOutfitChoices:
         assert CartoonSettings().outfit is Outfit.STORYBOOK_TUNIC
 
     def test_reaches_the_prompt(self) -> None:
-        prompt = build_cartoon_prompt(CartoonSettings(outfit=Outfit.HOODED_CLOAK))
+        prompt = build_cartoon_prompt(CartoonSettings(outfit=Outfit.HOODED_CLOAK), story=JACK)
         assert "hooded travelling cloak" in prompt
 
     def test_keep_outfit_is_instructed_explicitly(self) -> None:

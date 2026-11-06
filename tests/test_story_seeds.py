@@ -22,8 +22,12 @@ from app.books import (
     StorySeed,
     seed_from_mapping,
 )
-from app.models.book import BOOK_PAGES
 from app.prompt_data import prompt_text
+from tests.helpers import jack
+
+#: Jack's pages exactly as a new book is made from them (the seed's edition).
+BOOK_PAGES = jack().pages
+
 
 RED_PATH = SEED_DIR / "little_red_riding_hood.toml"
 RED: StorySeed = next(seed for seed in SEEDS if seed.key == "little_red_riding_hood")
@@ -71,15 +75,18 @@ class TestTheSeedContract:
         assert RED.star in RED.cast
 
     def test_no_page_references_more_characters_than_the_provider_takes(self) -> None:
-        photoable = {name for name, flag in RED.photoable.items() if flag}
+        photoable = {name for name, member in RED.cast.items() if member.photoable}
         for page in RED.pages:
             referenced = ({RED.star, *page.scene.cast}) & photoable
             assert len(referenced) <= MAX_REFERENCE_CAST, page.key
 
     def test_the_wolf_can_never_be_given_a_photo(self) -> None:
-        assert RED.photoable["wolf"] is False
-        assert RED.photoable["red"] is True
-        assert RED.photoable["woodcutter"] is True
+        assert RED.cast["wolf"].photoable is False
+        assert RED.cast["red"].photoable is True
+        assert RED.cast["woodcutter"].photoable is True
+        # A character who can never be photographed has no photo look at all.
+        assert not RED.cast["wolf"].look_with_photo
+        assert not RED.cast["wolf"].portrait
 
     def test_the_prose_is_never_reused_as_a_prompt(self) -> None:
         for page in RED.pages:
@@ -186,8 +193,32 @@ class TestTheValidatorRefusesBadSeeds:
 
     def test_a_missing_photographable_flag_is_refused(self) -> None:
         broken = data()
-        del broken["cast_photoable"]["wolf"]  # type: ignore[index]
-        with pytest.raises(SeedError, match=r"\[cast_photoable\] is missing"):
+        del broken["cast"]["wolf"]["photoable"]  # type: ignore[index]
+        with pytest.raises(SeedError, match="photoable must be true or false"):
+            seed_from_mapping(broken)
+
+    def test_a_photoable_character_without_a_photo_look_is_refused(self) -> None:
+        broken = data()
+        del broken["cast"]["grandmother"]["look_with_photo"]  # type: ignore[index]
+        with pytest.raises(SeedError, match="needs look_with_photo and portrait"):
+            seed_from_mapping(broken)
+
+    def test_only_the_star_wears_a_costume(self) -> None:
+        broken = data()
+        broken["cast"]["mother"]["costume"] = "A red cloak."  # type: ignore[index]
+        with pytest.raises(SeedError, match="only the star wears a story costume"):
+            seed_from_mapping(broken)
+
+    def test_a_title_without_the_stars_name_is_refused(self) -> None:
+        broken = data()
+        broken["story"]["book_title"] = "Little Red Riding Hood"  # type: ignore[index]
+        with pytest.raises(SeedError, match="book_title"):
+            seed_from_mapping(broken)
+
+    def test_compose_may_only_reword_the_framing(self) -> None:
+        broken = data()
+        broken["pages"][0]["compose"] = {"caption": "Something else."}  # type: ignore[index]
+        with pytest.raises(SeedError, match="compose may only reword"):
             seed_from_mapping(broken)
 
 
@@ -204,9 +235,9 @@ class TestJacksCatalogue:
         assert 45 <= len(words(page.story)) <= 90
 
     def test_every_jack_page_keeps_the_reference_cap(self) -> None:
-        photoable = set(prompt_text()["book"]["cast_photoable"])
+        photoable = {name for name, member in JACK.cast.items() if member.photoable}
         for page in BOOK_PAGES:
-            referenced = {"child", *page.cast} & photoable
+            referenced = {JACK.star, *page.cast} & photoable
             assert len(referenced) <= MAX_REFERENCE_CAST, page.key
 
     def test_jack_prose_stays_between_45_and_90_words(self) -> None:
@@ -228,12 +259,27 @@ class TestJacksSeed:
         assert JACK.cover.cast == ("jack",)
         assert JACK.title_band == "calm"
 
-    def test_the_seed_prints_the_words_the_catalogue_prints(self) -> None:
-        """Two copies exist only until T7's other half lands. They must not drift."""
+    def test_the_seed_is_the_only_copy_of_the_pages(self) -> None:
+        """T7: the page prompts read the seed, so prompts.toml holds no page.
+
+        The catalogue that used to repeat the twenty pages is gone; the book
+        a visitor starts prints exactly the seed's words.
+        """
+        assert "book_pages" not in prompt_text()
+        assert "cast" not in prompt_text()["book"]
         assert [page.key for page in JACK.pages] == [page.key for page in BOOK_PAGES]
-        for page, catalogue in zip(JACK.pages, BOOK_PAGES, strict=True):
-            assert page.beat == catalogue.beat, page.key
-            assert page.story == catalogue.story, page.key
+        for page, printed in zip(JACK.pages, BOOK_PAGES, strict=True):
+            assert page.beat == printed.beat, page.key
+            assert page.story == printed.story, page.key
+
+    def test_a_finished_page_frames_the_child_where_the_plate_frames_the_stage(
+        self,
+    ) -> None:
+        """The plate reads the seed's own framing; the page reads `compose`."""
+        seed_page, page = JACK.pages[2], BOOK_PAGES[2]
+        assert "{name}" not in seed_page.scene.camera
+        assert seed_page.scene.compose["camera"] == page.scene.camera
+        assert page.scene.camera != seed_page.scene.camera
 
     def test_the_cow_is_never_a_cast_member(self) -> None:
         """No photograph can be given to a cow, so she is painted into the plate."""

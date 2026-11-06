@@ -124,6 +124,24 @@ class BookNotReady(AppError):
     error_code = "book_not_ready"
 
 
+class UnknownStory(AppError):
+    """No story by that key is on the shelf."""
+
+    status_code = 404
+    error_code = "unknown_story"
+
+
+class StoryNotReady(AppError):
+    """The operator's start gate is on and the story's pictures aren't approved yet.
+
+    409: the story exists and the request is fine; it is a matter of time. The
+    message is the shelf's one plain sentence.
+    """
+
+    status_code = 409
+    error_code = "story_not_ready"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Attach the app's error contract to a FastAPI instance."""
 

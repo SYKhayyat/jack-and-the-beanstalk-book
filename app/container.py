@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.engine import Engine
 
+from app.books import SEEDS
 from app.config import Settings
 from app.db import build_engine, persistence_mode, prepare_database
 from app.services.book_runner import BookRunner
@@ -26,6 +27,7 @@ from app.services.payments import PaymentProvider, StripePaymentProvider
 from app.services.pipeline import GenerationPipeline
 from app.services.rate_limit import GenerationRateLimiter
 from app.services.storage import GenerationStore
+from app.services.template_store import TemplateStore
 from app.services.user_store import DatabaseUserStore, UserStore
 from app.services.wallet import Wallet, WalletStore
 
@@ -46,6 +48,9 @@ class Container:
     #: templates. Handed to the admin screens so they write through the same
     #: engine the routes read from.
     engine: Engine
+    #: The stories: words, the character bible, plates, versions, the start
+    #: gate, and the edition every book is pinned to.
+    templates: TemplateStore
     # Everyone who has signed in, so a book can be filed under a person and
     # nobody else can read it.
     user_store: UserStore
@@ -101,6 +106,13 @@ def build_container(
     # before the first request rather than failing on a missing table.
     engine = build_engine(settings.effective_database_url)
     prepare_database(engine)
+    # The stories are data the code reads at runtime, so they are loaded
+    # before the first request: seeding is idempotent (a boot with unchanged
+    # seeds writes nothing), and books saved before books pinned their story
+    # are pinned to it once, here.
+    templates = TemplateStore(engine)
+    templates.seed(SEEDS)
+    templates.pin_unpinned_books()
     user_store = DatabaseUserStore(engine)
     book_store = DatabaseBookStore(engine)
     wallet_store = DatabaseWalletStore(engine)
@@ -119,12 +131,14 @@ def build_container(
         store=store,
         pipeline=GenerationPipeline(resolved, store),
         engine=engine,
+        templates=templates,
         user_store=user_store,
         book_store=book_store,
         book_runner=BookRunner(
             provider=resolved,
             store=store,
             book_store=book_store,
+            templates=templates,
             gate=gate,
             page_timeout_seconds=settings.generation_timeout_seconds,
             wallet=wallet if resolved_payments is not None else None,

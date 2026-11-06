@@ -3,9 +3,9 @@
 A story is data. Before a story can be rendered it must satisfy the same
 contract as the other: exactly twenty story pages, one cover, one About page,
 a cast every page draws from, and prose simple enough to read aloud. The seed
-file is the reviewed source; the database is what the running app reads (T4).
-Until that migration lands, the seeds are validated at boot, so a broken story
-fails at start-up rather than on a child's book.
+file is the reviewed source; the database is what the running app reads (T4),
+loaded from these seeds at every boot. The seeds are validated when this module
+is imported, so a broken story fails at start-up rather than on a child's book.
 
 The checks here are the acceptance constraints from
 ``docs/book-template-plan.md`` T2, in code:
@@ -14,7 +14,8 @@ The checks here are the acceptance constraints from
 * 45-90 words of prose per page, no sentence over 22 words, no word outside the
   shared simple vocabulary plus the story's own allow-list;
 * one or two syllables where the story can manage it, never more than three;
-* every cast key a page names exists in that story's character bible;
+* every cast key a page names exists in that story's character bible, and
+  every bible entry has the looks its photo rule needs;
 * no page references more characters than the image provider can take;
 * the prose is never reused as an image prompt;
 * no scene restates a character's look — the bible is its only source (T4.3).
@@ -25,16 +26,18 @@ from __future__ import annotations
 import re
 import tomllib
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 __all__ = [
+    "COMPOSE_FIELDS",
     "MAX_REFERENCE_CAST",
     "PAGE_COUNT",
     "SEEDS",
     "SEED_DIR",
+    "SeedCharacter",
     "SeedError",
     "SeedPage",
     "SeedScene",
@@ -57,6 +60,14 @@ MAX_WORDS = 90
 MAX_SENTENCE_WORDS = 22
 MAX_SYLLABLES = 4
 MAX_AVERAGE_WORD_LENGTH = 5.0
+
+#: The scene lines a page may reword for the finished picture. The plate is an
+#: empty stage; a finished page has the child in it, so its framing and light
+#: can need saying differently. Everything else in a scene is shared.
+COMPOSE_FIELDS = ("environment", "time_of_day", "camera")
+
+#: The photo-gender answers a story names its default star for.
+_NAME_KEYS = frozenset({"boy", "girl"})
 
 #: How many image-referenced characters a page may cast, the star included.
 #: The edit pass sends the plate plus one approved portrait per referenced
@@ -81,6 +92,29 @@ class SeedScene:
     must_include: tuple[str, ...]
     must_avoid: tuple[str, ...]
     cast: tuple[str, ...]
+    #: The finished picture's own wording for any of `COMPOSE_FIELDS`.
+    compose: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class SeedCharacter:
+    """One entry of the character bible: the only place a look is written.
+
+    `look` is how a page draws the character with no photograph. A photoable
+    supporting character also has `look_with_photo` (face and colouring defer
+    to the uploaded portrait, the costume stays fixed) and `portrait`, the brief
+    the portrait pass draws them from. Only the star may have a `costume`: a
+    tale whose hero wears the story's clothes (the red hood) instead of the
+    visitor's own outfit.
+    """
+
+    key: str
+    label: str
+    photoable: bool
+    look: str
+    look_with_photo: str = ""
+    portrait: str = ""
+    costume: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,14 +137,16 @@ class StorySeed:
     key: str
     title: str
     blurb: str
+    #: The cover's title, with `{name}` where the star's name goes.
     book_title: str
     star: str
     available: bool
+    #: The name a blank name field becomes, keyed by photo-gender answer.
+    names: Mapping[str, str]
     cover: SeedScene
     title_band: str
-    cast: Mapping[str, str]
-    photoable: Mapping[str, bool]
-    labels: Mapping[str, str]
+    #: The character bible, in the order the studio offers its slots.
+    cast: Mapping[str, SeedCharacter]
     pages: tuple[SeedPage, ...]
 
     @property
@@ -149,12 +185,12 @@ def seed_from_mapping(data: Mapping[str, Any], source: str = "<seed>") -> StoryS
     """Validate an already-parsed seed. The one validator, used by boot and tests."""
     story = _table(data, "story", source)
     key = _text(story, "key", source)
-    cast = _cast(data, source)
-    photoable = _photoable(data, cast, source)
-    labels = _labels(data, cast, source)
     star = _text(story, "star", source)
-    if star not in cast:
-        raise SeedError(f"{source}: star {star!r} is not in [cast]")
+    cast = _cast(data, star, source)
+    book_title = _text(story, "book_title", source)
+    if "{name}" not in book_title:
+        raise SeedError(f"{source}: book_title must say where the star's {{name}} goes")
+    names = _names(story, source)
 
     cover_table = _table(data, "cover", source)
     cover = _scene(cover_table, source, "cover")
@@ -168,6 +204,7 @@ def seed_from_mapping(data: Mapping[str, Any], source: str = "<seed>") -> StoryS
             f"{source}: a story has exactly {PAGE_COUNT} pages, this has {len(raw_pages)}"
         )
 
+    photoable = {name for name, character in cast.items() if character.photoable}
     allowed = _vocabulary(data, source)
     pages: list[SeedPage] = []
     seen: set[str] = set()
@@ -188,9 +225,7 @@ def seed_from_mapping(data: Mapping[str, Any], source: str = "<seed>") -> StoryS
         story_text = _text(raw, "story", f"{source} page {page_key}")
         _check_prose(story_text, source, page_key, allowed)
         _check_prose_is_not_a_prompt(story_text, raw, source, page_key)
-        if len({star, *scene.cast} & {name for name, flag in photoable.items() if flag}) > (
-            MAX_REFERENCE_CAST
-        ):
+        if len({star, *scene.cast} & photoable) > MAX_REFERENCE_CAST:
             raise SeedError(
                 f"{source} page {page_key!r}: casts more than "
                 f"{MAX_REFERENCE_CAST} image-referenced characters"
@@ -211,14 +246,13 @@ def seed_from_mapping(data: Mapping[str, Any], source: str = "<seed>") -> StoryS
         key=key,
         title=_text(story, "title", source),
         blurb=_text(story, "blurb", source),
-        book_title=_text(story, "book_title", source),
+        book_title=book_title,
         star=star,
         available=bool(story.get("available", True)),
+        names=names,
         cover=cover,
         title_band=str(cover_table.get("title_band", "calm")),
         cast=cast,
-        photoable=photoable,
-        labels=labels,
         pages=tuple(pages),
     )
 
@@ -237,36 +271,75 @@ def _text(spec: Mapping[str, Any], field: str, where: str) -> str:
     return value.strip()
 
 
-def _cast(data: Mapping[str, Any], where: str) -> dict[str, str]:
+_CAST_FIELDS = frozenset(
+    {"label", "photoable", "look", "look_with_photo", "portrait", "costume"}
+)
+
+
+def _cast(data: Mapping[str, Any], star: str, where: str) -> dict[str, SeedCharacter]:
+    """The character bible, validated entry by entry.
+
+    The rules are what keep a look in one place and a face where it belongs:
+    the star is photoable and drawn from the visitor's portrait, so it has no
+    photo variant and no portrait brief; a photoable supporting character has
+    both; a character who can never be photographed has neither; and only the
+    star wears a story costume.
+    """
     table = _table(data, "cast", where)
-    cast = {str(name): str(look).strip() for name, look in table.items()}
-    if not cast:
-        raise SeedError(f"{where}: [cast] is empty")
-    for name, look in cast.items():
-        if not look:
-            raise SeedError(f"{where}: cast member {name!r} has no look")
+    if star not in table:
+        raise SeedError(f"{where}: star {star!r} is not in [cast]")
+    cast: dict[str, SeedCharacter] = {}
+    for name, raw in table.items():
+        at = f"{where} [cast.{name}]"
+        if not isinstance(raw, Mapping):
+            raise SeedError(f"{at}: must be a table with a label, photoable and look")
+        unknown = set(raw) - _CAST_FIELDS
+        if unknown:
+            raise SeedError(f"{at}: unknown fields {sorted(unknown)}")
+        photoable = raw.get("photoable")
+        if not isinstance(photoable, bool):
+            raise SeedError(f"{at}: photoable must be true or false")
+        character = SeedCharacter(
+            key=str(name),
+            label=_text(raw, "label", at),
+            photoable=photoable,
+            look=_text(raw, "look", at),
+            look_with_photo=_optional_text(raw, "look_with_photo", at),
+            portrait=_optional_text(raw, "portrait", at),
+            costume=_optional_text(raw, "costume", at),
+        )
+        if name == star:
+            if not photoable:
+                raise SeedError(f"{at}: the star is the visitor's child and is photoable")
+            if character.look_with_photo or character.portrait:
+                raise SeedError(
+                    f"{at}: the star is drawn from the visitor's own portrait; "
+                    "it has no look_with_photo or portrait brief"
+                )
+        else:
+            if character.costume:
+                raise SeedError(f"{at}: only the star wears a story costume")
+            if photoable and not (character.look_with_photo and character.portrait):
+                raise SeedError(
+                    f"{at}: a photoable character needs look_with_photo and portrait"
+                )
+            if not photoable and (character.look_with_photo or character.portrait):
+                raise SeedError(f"{at}: a character with no photograph has no photo look")
+        cast[str(name)] = character
     return cast
 
 
-def _photoable(
-    data: Mapping[str, Any], cast: Mapping[str, str], where: str
-) -> dict[str, bool]:
-    table = _table(data, "cast_photoable", where)
-    unknown = set(table) - set(cast)
-    if unknown:
-        raise SeedError(f"{where}: [cast_photoable] names unknown cast {sorted(unknown)}")
-    missing = set(cast) - set(table)
-    if missing:
-        raise SeedError(f"{where}: [cast_photoable] is missing {sorted(missing)}")
-    return {str(name): bool(flag) for name, flag in table.items()}
+def _optional_text(spec: Mapping[str, Any], field_name: str, where: str) -> str:
+    if field_name not in spec:
+        return ""
+    return _text(spec, field_name, where)
 
 
-def _labels(data: Mapping[str, Any], cast: Mapping[str, str], where: str) -> dict[str, str]:
-    table = _table(data, "cast_labels", where)
-    missing = set(cast) - set(table)
-    if missing:
-        raise SeedError(f"{where}: [cast_labels] is missing {sorted(missing)}")
-    return {str(name): str(label) for name, label in table.items()}
+def _names(story: Mapping[str, Any], where: str) -> dict[str, str]:
+    table = story.get("names")
+    if not isinstance(table, Mapping) or set(table) != _NAME_KEYS:
+        raise SeedError(f"{where}: [story.names] must name the star for {sorted(_NAME_KEYS)}")
+    return {str(key): _text(table, str(key), f"{where} [story.names]") for key in table}
 
 
 def _scene(spec: Mapping[str, Any], where: str, name: str) -> SeedScene:
@@ -284,7 +357,25 @@ def _scene(spec: Mapping[str, Any], where: str, name: str) -> SeedScene:
         must_include=_strings(spec, "must_include", where, name),
         must_avoid=_strings(spec, "must_avoid", where, name),
         cast=tuple(cast_value),
+        compose=_compose(spec, where, name),
     )
+
+
+def _compose(spec: Mapping[str, Any], where: str, name: str) -> dict[str, str]:
+    table = spec.get("compose", {})
+    if not isinstance(table, Mapping):
+        raise SeedError(f"{where} {name!r}: compose must be a table")
+    unknown = set(table) - set(COMPOSE_FIELDS)
+    if unknown:
+        raise SeedError(
+            f"{where} {name!r}: compose may only reword {list(COMPOSE_FIELDS)}, "
+            f"not {sorted(unknown)}"
+        )
+    return {
+        key: _text(table, key, f"{where} {name!r} compose")
+        for key in COMPOSE_FIELDS
+        if key in table
+    }
 
 
 def _strings(spec: Mapping[str, Any], field: str, where: str, name: str) -> tuple[str, ...]:
@@ -384,10 +475,10 @@ def _check_prose_is_not_a_prompt(
     cheap structural check, not a wording check.
     """
     needle = _PLACEHOLDER.sub("", story_text).strip()
-    for field in ("caption", "subject_action", "environment", "camera", "beat"):
-        value = spec.get(field)
+    for name in ("caption", "subject_action", "environment", "camera", "beat"):
+        value = spec.get(name)
         if isinstance(value, str) and needle and needle in _PLACEHOLDER.sub("", value):
-            raise SeedError(f"{where} page {key!r}: {field} contains the story prose")
+            raise SeedError(f"{where} page {key!r}: {name} contains the story prose")
 
 
 #: A look sentence this long, copied into a scene, is a restated description.
@@ -395,7 +486,7 @@ _RESTATED_WORDS = 8
 
 
 def _check_no_look_restated(
-    scene: SeedScene, cast: Mapping[str, str], where: str, key: str
+    scene: SeedScene, cast: Mapping[str, SeedCharacter], where: str, key: str
 ) -> None:
     """A page names its cast by key; only `[cast]` describes them.
 
@@ -411,10 +502,14 @@ def _check_no_look_restated(
         scene.camera,
         *scene.must_include,
         *scene.must_avoid,
+        *scene.compose.values(),
     ]
-    haystack = " ".join(" ".join(_normalise(field.split())) for field in fields)
-    for name, look in cast.items():
-        for sentence in re.split(r"(?<=[.!?])\s+", look):
+    haystack = " ".join(" ".join(_normalise(text.split())) for text in fields)
+    for name, character in cast.items():
+        looks = " ".join(
+            (character.look, character.look_with_photo, character.portrait, character.costume)
+        )
+        for sentence in re.split(r"(?<=[.!?])\s+", looks):
             words = _normalise(sentence.split())
             if len(words) >= _RESTATED_WORDS and " ".join(words) in haystack:
                 raise SeedError(

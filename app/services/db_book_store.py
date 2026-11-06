@@ -32,9 +32,16 @@ from sqlalchemy import Connection, delete, null, select, update
 from sqlalchemy import insert as sa_insert
 from sqlalchemy.engine import Engine
 
-from app.db import BookCharacterRow, BookPageRow, BookRow
+from app.db import (
+    BookCharacterRow,
+    BookPageRow,
+    BookRow,
+    BookStoryCharacterRow,
+    BookStoryPageRow,
+)
 from app.models.book import AboutMe
 from app.models.settings import CartoonSettings
+from app.models.story import StoryEdition
 from app.services.book_store import (
     BookRecord,
     BookStatus,
@@ -44,6 +51,7 @@ from app.services.book_store import (
     page_totals,
 )
 from app.services.media import media_type_for
+from app.services.template_store import write_pins
 
 __all__ = ["COVER_PAGE", "DatabaseBookStore", "UnreviewedImages", "unreviewed_images"]
 
@@ -86,9 +94,13 @@ class DatabaseBookStore(BookStore):
         user_id: str | None,
         about: AboutMe,
         generation_id: str,
+        edition: StoryEdition,
         fingerprint: str | None = None,
         settings: CartoonSettings | None = None,
     ) -> None:
+        if not edition.page_ids:
+            raise ValueError("a book is pinned to stored revisions; this edition has none")
+        title = edition.title_for(about.prompt_name)
         with self._engine.begin() as conn:
             conn.execute(
                 sa_insert(BookRow).values(
@@ -99,17 +111,23 @@ class DatabaseBookStore(BookStore):
                     request_fingerprint=fingerprint,
                     about=about.model_dump(mode="json"),
                     settings=(settings or CartoonSettings()).model_dump(mode="json"),
+                    story_key=edition.key,
+                    title=title,
+                    template_version_id=edition.template_version_id,
                     # The file store has always written the pending document
                     # with the record; do the same here, or a poll landing
                     # before the runner's first status write reads NULL and
                     # answers "unknown book" for a book that already exists.
                     status_payload=self._status_payload(
-                        book_id, BookStatus.PENDING, [], None, title=about.book_title
+                        book_id, BookStatus.PENDING, [], None, title=title
                     ),
                     created_at=_now(),
                     updated_at=_now(),
                 )
             )
+            # The pins are the template store's rule, written in this same
+            # transaction so a book never exists without its edition.
+            write_pins(conn, book_id, edition.page_ids, edition.character_ids)
 
     def load_record(self, book_id: str) -> BookRecord | None:
         with self._engine.connect() as conn:
@@ -122,12 +140,14 @@ class DatabaseBookStore(BookStore):
             about=about,
             generation_id=row.generation_id,
             created_at=row.created_at.isoformat() if row.created_at else "",
+            story_key=row.story_key,
+            title=row.title,
             user_id=row.user_id,
             fingerprint=row.request_fingerprint,
             settings=CartoonSettings.model_validate(row.settings or {}),
         )
 
-    def update_about(self, book_id: str, about: AboutMe) -> None:
+    def update_about(self, book_id: str, about: AboutMe, *, title: str) -> None:
         with self._engine.begin() as conn:
             row = conn.execute(
                 select(BookRow.status, BookRow.status_payload, BookRow.error).where(
@@ -141,12 +161,13 @@ class DatabaseBookStore(BookStore):
                 if row.status_payload is not None
                 else self._status_payload(book_id, row.status, [], row.error)
             )
-            payload["title"] = about.book_title
+            payload["title"] = title
             conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id)
                 .values(
                     about=about.model_dump(mode="json"),
+                    title=title,
                     status_payload=payload,
                     updated_at=_now(),
                 )
@@ -160,7 +181,8 @@ class DatabaseBookStore(BookStore):
             rows = conn.execute(
                 select(
                     BookRow.id,
-                    BookRow.about,
+                    BookRow.story_key,
+                    BookRow.title,
                     BookRow.status,
                     BookRow.status_payload,
                     BookRow.created_at,
@@ -173,7 +195,6 @@ class DatabaseBookStore(BookStore):
             ).all()
         summaries: list[BookSummary] = []
         for row in rows:
-            about = AboutMe.model_validate(row.about)
             payload = dict(row.status_payload) if row.status_payload is not None else {}
             pages = payload.get("pages", [])
             raw_pages = pages if isinstance(pages, list) else []
@@ -183,7 +204,8 @@ class DatabaseBookStore(BookStore):
             summaries.append(
                 BookSummary(
                     book_id=row.id,
-                    title=about.book_title,
+                    story_key=row.story_key,
+                    title=row.title,
                     status=row.status,
                     created_at=row.created_at.isoformat() if row.created_at else "",
                     updated_at=row.updated_at.isoformat() if row.updated_at else "",
@@ -572,9 +594,7 @@ class DatabaseBookStore(BookStore):
 
     def delete(self, book_id: str) -> None:
         with self._engine.begin() as conn:
-            conn.execute(delete(BookCharacterRow).where(BookCharacterRow.book_id == book_id))
-            conn.execute(delete(BookPageRow).where(BookPageRow.book_id == book_id))
-            conn.execute(delete(BookRow).where(BookRow.id == book_id))
+            _delete_book(conn, book_id)
 
     def reap_incomplete(self) -> int:
         """Mark books still pending or rendering as failed (a restart orphaned them).
@@ -656,13 +676,18 @@ class DatabaseBookStore(BookStore):
                 .all()
             )
             for book_id in stale:
-                conn.execute(
-                    delete(BookCharacterRow).where(BookCharacterRow.book_id == book_id)
-                )
-                conn.execute(delete(BookPageRow).where(BookPageRow.book_id == book_id))
-                conn.execute(delete(BookRow).where(BookRow.id == book_id))
+                _delete_book(conn, book_id)
                 logger.info("book.expired id=%s", book_id)
         return len(stale)
+
+
+def _delete_book(conn: Connection, book_id: str) -> None:
+    """A book and everything that is only its own. The story revisions stay."""
+    conn.execute(delete(BookCharacterRow).where(BookCharacterRow.book_id == book_id))
+    conn.execute(delete(BookPageRow).where(BookPageRow.book_id == book_id))
+    conn.execute(delete(BookStoryPageRow).where(BookStoryPageRow.book_id == book_id))
+    conn.execute(delete(BookStoryCharacterRow).where(BookStoryCharacterRow.book_id == book_id))
+    conn.execute(delete(BookRow).where(BookRow.id == book_id))
 
 
 def _unreviewed(conn: Connection, book_id: str) -> list[int]:

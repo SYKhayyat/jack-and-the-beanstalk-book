@@ -23,11 +23,13 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.engine import Engine
 
+from app.books import SEEDS
 from app.config import Settings
 from app.container import Container, build_container
 from app.db import build_engine, prepare_database
 from app.main import create_app
 from app.services.image_providers.base import ImageProvider
+from app.services.template_store import TemplateStore
 from tests.helpers import RecordingProvider, make_photo_bytes
 
 # `Settings` reads `.env` by default. A developer's real `.env` (Google
@@ -55,6 +57,23 @@ def schema_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return path
 
 
+@pytest.fixture(scope="session")
+def seeded_template(tmp_path_factory: pytest.TempPathFactory, schema_template: Path) -> Path:
+    """The same database with the story seeds loaded, as the app's boot leaves it.
+
+    Booting seeds the stories; starting from a seeded copy makes that boot step
+    the no-op it is on every restart after the first.
+    """
+    path = tmp_path_factory.mktemp("seeded") / "app.sqlite3"
+    shutil.copyfile(schema_template, path)
+    engine = build_engine(f"sqlite:///{path}")
+    try:
+        TemplateStore(engine).seed(SEEDS)
+    finally:
+        engine.dispose()
+    return path
+
+
 @pytest.fixture
 def engine(tmp_path: Path, schema_template: Path) -> Iterator[Engine]:
     """A throwaway SQLite database at head, for store-level tests."""
@@ -68,7 +87,7 @@ def engine(tmp_path: Path, schema_template: Path) -> Iterator[Engine]:
 
 
 @pytest.fixture
-def settings(tmp_path: Path, schema_template: Path) -> Settings:
+def settings(tmp_path: Path, seeded_template: Path) -> Settings:
     """Isolated settings: a throwaway storage dir and its own empty database.
 
     `DATABASE_URL` stays empty on purpose — that is local development's real
@@ -76,7 +95,7 @@ def settings(tmp_path: Path, schema_template: Path) -> Settings:
     """
     storage = tmp_path / "storage"
     storage.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(schema_template, storage / "app.sqlite3")
+    shutil.copyfile(seeded_template, storage / "app.sqlite3")
     return Settings(
         image_provider="mock",  # type: ignore[arg-type]
         gemini_api_key="",
@@ -125,7 +144,10 @@ def photo() -> bytes:
 
 
 def generate_form(**overrides: object) -> dict[str, object]:
-    """Build a valid /api/cartoonify form payload, with optional overrides."""
-    form: dict[str, object] = {"photo": ("me.png", make_photo_bytes(), "image/png")}
+    """Build a valid /api/cartoonify form payload (a Jack portrait), with overrides."""
+    form: dict[str, object] = {
+        "photo": ("me.png", make_photo_bytes(), "image/png"),
+        "story": "jack_and_the_beanstalk",
+    }
     form.update(overrides)
     return form

@@ -1,9 +1,9 @@
 """The scene data contract.
 
 A `Scene` is pure data: the prose specification sent to the image model, plus
-the fields the page prompts reuse. The prose lives in ``app/prompts.toml``;
-adding a page to the book means adding one ``[[book_pages]]`` entry there — no
-code changes anywhere else in the app.
+the fields the page prompts reuse. Scenes are written in each story's seed
+(``app/books/<key>.toml``) and reach a book through its pinned story edition
+(``app/models/story.py``) — no code changes anywhere to add or reword a page.
 """
 
 from __future__ import annotations
