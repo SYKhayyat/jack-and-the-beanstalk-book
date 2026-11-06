@@ -653,7 +653,7 @@ def test_book_start_moves_its_blocking_store_calls_off_the_loop(
         ),
     )
 
-    def build(_settings, provider=None):
+    def build(_settings, provider=None, payments=None):
         return container
 
     monkeypatch.setattr("app.main.build_container", build)
@@ -731,7 +731,7 @@ def test_a_poll_reads_the_book_once(
         ),
     )
 
-    def build(_settings, provider=None):
+    def build(_settings, provider=None, payments=None):
         return container
 
     monkeypatch.setattr("app.main.build_container", build)
@@ -837,7 +837,7 @@ class TestBookRateBudget:
     ) -> None:
         fast_limiter = GenerationRateLimiter(2, window_seconds=0.2)
 
-        def build(settings, provider=None):
+        def build(settings, provider=None, payments=None):
             return replace(
                 build_container(settings, provider=provider), rate_limiter=fast_limiter
             )
@@ -868,7 +868,7 @@ class TestQuotaAccounting:
     def _app_with_limiter(self, settings, provider, monkeypatch, limit: int):
         limiter = GenerationRateLimiter(limit, window_seconds=60.0)
 
-        def build(settings, provider=None):
+        def build(settings, provider=None, payments=None):
             return replace(build_container(settings, provider=provider), rate_limiter=limiter)
 
         monkeypatch.setattr("app.main.build_container", build)

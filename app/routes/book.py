@@ -40,6 +40,7 @@ from app.errors import (
     BookNotReady,
     GenerationRateLimited,
     InvalidSettings,
+    PaymentRequired,
     UnknownBook,
 )
 from app.models import (
@@ -62,6 +63,7 @@ from app.services.prompts import (
     render_book_page,
 )
 from app.services.storage import Draft
+from app.services.wallet import format_cents
 
 __all__ = ["books_router", "media_router", "router"]
 
@@ -317,6 +319,7 @@ def _start_or_reuse(
             record = container.book_store.load_record(existing)
             if record is not None:
                 return record, True
+        _require_funds(container, user_id)
         _check_rate(client_key, container)
         book_id = uuid.uuid4().hex
         container.book_store.save_record(
@@ -723,6 +726,26 @@ def _ensure_book(
 def _client_key(request: Request) -> str:
     """The rate-limit key for a request: its client address, or a stand-in."""
     return request.client.host if request.client else "unknown"
+
+
+def _require_funds(container: Container, user_id: str | None) -> None:
+    """Refuse to start a book this account cannot pay for.
+
+    Only when money is on and there is somebody to charge: a password/open
+    deployment, and a deployment without a Stripe key, keep making free books.
+    The check lives here, after the reuse lookup, so polling or re-submitting
+    an already-started book is never refused for money.
+    """
+    if container.payments is None or not user_id:
+        return
+    balance = container.wallet.balance_cents(user_id)
+    price = container.wallet.price_cents
+    if balance >= price:
+        return
+    raise PaymentRequired(
+        f"One picture book costs {format_cents(price)} and your wallet has "
+        f"{format_cents(balance)}. Top it up on your wallet page, then start the book again."
+    )
 
 
 def _check_rate(client_key: str, container: Container, tokens: int = 1) -> None:

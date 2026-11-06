@@ -777,3 +777,18 @@ pre {
 @media (max-width: 640px) {
   .book-detail .book-head { grid-template-columns: 1fr; }
 }
+
+/* --- the wallet ---------------------------------------------------------- */
+
+.wallet { max-width: 880px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+.wallet-balance { font-size: 2.4rem; font-weight: 700; margin: .2rem 0 .5rem; }
+.wallet-topup-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: .9rem; }
+.wallet-topup-actions form { margin: 0; }
+.wallet-table { width: 100%; border-collapse: collapse; margin-top: .75rem; font-size: .92rem; }
+.wallet-table th,
+.wallet-table td { text-align: left; padding: .5rem .4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.wallet-table th { color: var(--ink-soft); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+.wallet-when { white-space: nowrap; color: var(--ink-soft); }
+.wallet-amount { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.wallet-amount.credit { color: var(--accent-dark); }
+.wallet-link { margin-right: .5rem; }

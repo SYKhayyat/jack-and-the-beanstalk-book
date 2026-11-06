@@ -27,6 +27,7 @@ from app.models.labels import choices_for, intensity_label
 from app.prompt_data import prompt_text
 from app.routes.auth import CurrentSessionDep
 from app.services.prompts import photoable_cast, render_book_page
+from app.services.wallet import format_cents
 
 __all__ = ["router"]
 
@@ -84,6 +85,7 @@ def index(
             if session and session.user_id
             else [],
             "library_enabled": bool(session and session.user_id),
+            **_wallet_context(container, session),
         },
     )
 
@@ -128,6 +130,7 @@ def book_page(
             "max_upload_mb": container.settings.max_upload_mb,
             "books": container.book_store.list_for_owner(owner) if owner else [],
             "library_enabled": bool(owner),
+            **_wallet_context(container, session),
         },
     )
 
@@ -151,6 +154,22 @@ def healthz(container: ContainerDep) -> dict[str, object]:
             "using_real_api": status_payload["using_real_api"],
             "max_concurrent_generations": status_payload["max_concurrent_generations"],
         },
+    }
+
+
+def _wallet_context(container: ContainerDep, session: CurrentSessionDep) -> dict[str, object]:
+    """Enough for the masthead link: whether a wallet exists, and its balance.
+
+    A wallet needs both money being on and an account to own it. The password
+    fallback has no identity, so it has no wallet and no link.
+    """
+    owner = (session.user_id if session else None) or ""
+    enabled = container.payments is not None and bool(owner)
+    return {
+        "wallet_enabled": enabled,
+        "wallet_balance": format_cents(container.wallet.balance_cents(owner))
+        if enabled
+        else "",
     }
 
 

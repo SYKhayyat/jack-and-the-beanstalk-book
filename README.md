@@ -772,8 +772,8 @@ book.failure   user=… book=… pages_done=11 ms=… outcome=failed message=…
 
 Sign-in has its own lines (`auth.google_login_ok sub=… email=s***@…`). A
 logging filter scrubs secrets before any handler formats a record: provider
-keys, the Google client secret, `SESSION_SECRET`, the whole `DATABASE_URL` and
-its password fragment. Image bytes are never written — only their length — and
+keys, the Google client secret, `SESSION_SECRET`, the Stripe secret key, the
+whole `DATABASE_URL` and its password fragment. Image bytes are never written — only their length — and
 the visitor's About free text never reaches a logger.
 
 **Persistence is a switch, not a rewrite.** Without `DATABASE_URL` the app
@@ -785,6 +785,36 @@ Postgres instead: a completed book survives a restart or redeploy, and it
 stays answerable to the account that made it. The schema is applied once with `make migrate` (see `to-do.md` for the
 first-deploy runbook). Local development needs none of this — with the
 variable empty, nothing ever touches a database.
+
+## Paying for a book (optional)
+
+Set `STRIPE_SECRET_KEY` to a **sandbox** key (`sk_test_...`) and every
+signed-in account gets a wallet at `/wallet`. Leave it empty and books are free
+and the wallet page does not exist — the rest of the app is unchanged.
+
+- **Top up** in whole dollars ($5, $10 or $20 — a closed set; no free-text
+  amount ever reaches Stripe). The visitor pays on Stripe's hosted Checkout
+  page, so card details never touch this app. On return, the session id is read
+  back from Stripe with the secret key; only a **paid** session in that closed
+  set is credited, once, keyed by session id.
+- **One picture book costs 99¢.** The start endpoint refuses a book the wallet
+  cannot cover (HTTP 402 with the price and the balance); the fee is actually
+  taken when the finished PDF is written, so a book that never finishes is
+  never charged. The charge is idempotent per book id, so edits that rebuild
+  the PDF do not charge twice.
+- **Refunds go back to the card.** Everything refundable is requested at once:
+  the amount leaves the wallet immediately (so it cannot be requested twice),
+  and is then sent through Stripe against the funding payments oldest first. A
+  failed Stripe refund puts the money back in the wallet.
+- A ledger, not a stored balance: the balance is the sum of signed
+  transactions, so the history and the balance cannot disagree. In database
+  mode the ledger lives in `wallet_transactions` / `wallet_refunds`
+  (migration `0004_wallet`); otherwise it is one JSON file per account under
+  `<STORAGE_DIR>/wallets`.
+
+Stripe's own error text goes to the operator's log; the page only ever shows a
+sentence this app wrote. The secret key is armed with the same log redaction as
+the provider and OAuth keys.
 
 ## Configuration reference
 
@@ -816,6 +846,7 @@ variable empty, nothing ever touches a database.
 | `DRAFT_RETENTION_HOURS` | `24` | How long an uploaded photo and the portraits made from it are kept. Swept on boot and hourly. |
 | `BOOK_RETENTION_DAYS` | `7` | How long a finished (or failed) book is kept after it started; then its portrait, pages and PDF are deleted. |
 | `DATABASE_URL` | *(empty)* | Postgres URL (Neon pooled endpoint). Set = books/people persist in the database and survive restarts; empty = everything on disk. Apply the schema once with `make migrate`. |
+| `STRIPE_SECRET_KEY` | *(empty)* | Stripe **sandbox** secret key (`sk_test_...`). Set = wallets, top-ups, a 99¢ per-book fee and card refunds; empty = free books, no wallet page. |
 
 `MAX_UPLOAD_MB` and `STORAGE_DIR` map to `MAX_UPLOAD_MB` and `STORAGE_DIR`.
 

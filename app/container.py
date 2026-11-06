@@ -17,12 +17,15 @@ from app.services.book_runner import BookRunner
 from app.services.book_store import BookStore, FileBookStore
 from app.services.concurrency import ConcurrencyGate
 from app.services.db_book_store import DatabaseBookStore
+from app.services.db_wallet_store import DatabaseWalletStore
 from app.services.image_providers.base import ImageProvider
 from app.services.image_providers.registry import build_provider
+from app.services.payments import PaymentProvider, StripePaymentProvider
 from app.services.pipeline import GenerationPipeline
 from app.services.rate_limit import GenerationRateLimiter
 from app.services.storage import GenerationStore
 from app.services.user_store import DatabaseUserStore, FileUserStore, UserStore
+from app.services.wallet import FileWalletStore, Wallet, WalletStore
 
 __all__ = ["Container", "build_container"]
 
@@ -45,6 +48,11 @@ class Container:
     # single-scene generations bound the same billable-call budget.
     book_store: BookStore
     book_runner: BookRunner
+    #: The ledger every account's balance is summed from, and the payment
+    #: provider money moves through. `payments` is None when no Stripe key is
+    #: configured: the app then runs without top-ups, refunds or a book fee.
+    wallet: Wallet
+    payments: PaymentProvider | None
     # Bounds concurrent generations per process. Image models are slow and
     # rate-limited, so without a ceiling a burst of traffic becomes a burst of
     # billable requests and 429s.
@@ -67,9 +75,17 @@ class Container:
         }
 
 
-def build_container(settings: Settings, provider: ImageProvider | None = None) -> Container:
-    """Construct the graph. Pass `provider` to override it (tests do)."""
+def build_container(
+    settings: Settings,
+    provider: ImageProvider | None = None,
+    payments: PaymentProvider | None = None,
+) -> Container:
+    """Construct the graph. Pass `provider`/`payments` to override (tests do)."""
     resolved = provider or build_provider(settings)
+    resolved_payments: PaymentProvider | None = payments
+    if resolved_payments is None and settings.payments_enabled:
+        resolved_payments = StripePaymentProvider(settings.stripe_secret_key)
+    wallet_store: WalletStore
     store = GenerationStore(settings.storage_dir)
     user_store: UserStore
     book_store: BookStore
@@ -80,6 +96,7 @@ def build_container(settings: Settings, provider: ImageProvider | None = None) -
         engine = build_engine(settings.database_url)
         user_store = DatabaseUserStore(engine)
         book_store = DatabaseBookStore(engine)
+        wallet_store = DatabaseWalletStore(engine)
         logger.info(
             "container.built provider=%s env=%s persistence=database (%s)",
             resolved.name,
@@ -91,12 +108,14 @@ def build_container(settings: Settings, provider: ImageProvider | None = None) -
         # a deployment that has not been given a database yet.
         book_store = FileBookStore(settings.storage_dir / "books")
         user_store = FileUserStore(settings.storage_dir / "users")
+        wallet_store = FileWalletStore(settings.storage_dir / "wallets")
         logger.info(
             "container.built provider=%s env=%s persistence=filesystem",
             resolved.name,
             settings.app_env,
         )
     gate = ConcurrencyGate(settings.max_concurrent_generations)
+    wallet = Wallet(wallet_store)
     return Container(
         settings=settings,
         provider=resolved,
@@ -110,7 +129,10 @@ def build_container(settings: Settings, provider: ImageProvider | None = None) -
             book_store=book_store,
             gate=gate,
             page_timeout_seconds=settings.generation_timeout_seconds,
+            wallet=wallet if resolved_payments is not None else None,
         ),
+        wallet=wallet,
+        payments=resolved_payments,
         gate=gate,
         rate_limiter=GenerationRateLimiter(settings.max_generations_per_minute),
     )

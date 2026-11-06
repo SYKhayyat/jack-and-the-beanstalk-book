@@ -31,10 +31,11 @@ from app.logging_context import (
     set_request_id,
 )
 from app.redaction import install_secret_redaction
-from app.routes import api, auth, book, media, web
+from app.routes import api, auth, book, media, wallet, web
 from app.routes.auth import install_auth_gate
 from app.services.google_oauth import GoogleOAuthClient
 from app.services.image_providers.base import ImageProvider
+from app.services.payments import PaymentProvider
 from app.sessions import SessionCodec
 
 __all__ = ["create_app"]
@@ -135,12 +136,14 @@ def create_app(
     settings: Settings | None = None,
     *,
     provider: ImageProvider | None = None,
+    payments: PaymentProvider | None = None,
 ) -> FastAPI:
     """Build a configured application.
 
     Args:
         settings: Overrides the environment-derived defaults. Tests pass one.
         provider: Overrides provider construction. Tests pass a fake.
+        payments: Overrides Stripe construction. Tests pass a fake.
     """
     resolved = settings or get_settings()
     _configure_logging(resolved)
@@ -157,7 +160,7 @@ def create_app(
     )
 
     app.state.settings = resolved
-    app.state.container = build_container(resolved, provider=provider)
+    app.state.container = build_container(resolved, provider=provider, payments=payments)
     app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
     app.state.gate = AuthGate(
         password=resolved.app_password,
@@ -205,6 +208,7 @@ def create_app(
     app.include_router(book.books_router)
     app.include_router(book.media_router)
     app.include_router(media.router)
+    app.include_router(wallet.router)
     app.include_router(auth.router)
     app.mount("/static", RevalidatedStaticFiles(directory=STATIC_DIR), name="static")
 
@@ -268,11 +272,12 @@ def create_app(
     logger.info("app.provider_health ready=%s %s", ready, reason)
 
     logger.info(
-        "app.ready provider=%s model=%s env=%s auth=%s",
+        "app.ready provider=%s model=%s env=%s auth=%s payments=%s",
         app.state.container.provider.name,
         resolved.active_model,
         resolved.app_env,
         _auth_mode(resolved),
+        "stripe" if app.state.container.payments else "off",
     )
     return app
 
@@ -312,6 +317,9 @@ def _configure_logging(settings: Settings) -> None:
             # session in the deployment. Neither may appear in a log line.
             settings.google_client_secret,
             settings.session_secret,
+            # A Stripe key is a bearer credential: whoever holds it can move
+            # money on the account. It is armed like every other secret.
+            settings.stripe_secret_key,
             # A database URL is pasted whole and embeds its password; a raw
             # URL in a log line is a leak of the whole credential. The password
             # fragment is armed separately because a URL can be logged in

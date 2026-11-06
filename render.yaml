@@ -90,6 +90,14 @@ services:
       - key: STORAGE_DIR
         value: /tmp/jack-and-the-beanstalk-book-storage
 
+      # Stripe sandbox secret key (sk_test_...). Set it and wallets turn on:
+      # top-ups through Stripe's hosted checkout, 99¢ per finished book, and
+      # refunds back to the card. Leave it unset and books are free. It is a
+      # bearer credential, so it is pasted into the dashboard and never
+      # committed.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+
       # Optional: a Postgres URL (Neon's pooled connection string). Set it and
       # books and signed-in people survive restarts; leave it unset and the
       # app runs on the ephemeral disk exactly as before. It embeds the

@@ -23,6 +23,7 @@ __all__ = [
     "BookNotReady",
     "GenerationRateLimited",
     "InvalidSettings",
+    "PaymentRequired",
     "UnknownBook",
     "register_exception_handlers",
 ]
@@ -85,6 +86,19 @@ class UnknownBook(AppError):
 
     status_code = 404
     error_code = "unknown_book"
+
+
+class PaymentRequired(AppError):
+    """The account cannot cover one picture book.
+
+    402 rather than 403: the request is valid and the person is allowed to make
+    a book — they simply have not put money in the wallet yet. The message is
+    the one the browser shows, so it names the price and the balance and where
+    to top up.
+    """
+
+    status_code = status.HTTP_402_PAYMENT_REQUIRED
+    error_code = "payment_required"
 
 
 class BookBusy(AppError):

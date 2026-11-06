@@ -13,6 +13,9 @@
     {% if not provider.using_real_api %}
       <p class="demo-note">Demo mode — the pictures are placeholders, not real drawings yet.</p>
     {% endif %}
+    {% if wallet_enabled %}
+      <a class="button secondary wallet-link" href="/wallet">Wallet — {{ wallet_balance }}</a>
+    {% endif %}
     {% if auth_enabled %}
       <form class="logout-form" method="post" action="/logout">
         {% if signed_in and user_name %}<span class="who">{{ user_name }}</span>{% endif %}

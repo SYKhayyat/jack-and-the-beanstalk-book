@@ -210,6 +210,19 @@ class Settings(BaseSettings):
         ),
     )
 
+    stripe_secret_key: str = Field(
+        default="",
+        # A sandbox key (sk_test_...), which moves no real money. It is a
+        # credential exactly like the others: pasted into `.env` or the Render
+        # dashboard, never committed, never logged. Empty means money is off:
+        # no top-ups, no refunds and no per-book fee, and the app behaves
+        # exactly as it did before accounts existed.
+        description=(
+            "Stripe sandbox secret key for top-ups and refunds. Empty disables "
+            "payments and the document fee."
+        ),
+    )
+
     database_url: str = Field(
         default="",
         # Pasted whole (e.g. a Neon pooled connection string); it embeds the
@@ -232,6 +245,11 @@ class Settings(BaseSettings):
     def database_mode(self) -> bool:
         """Whether books and people persist in Postgres rather than on disk."""
         return bool(self.database_url)
+
+    @property
+    def payments_enabled(self) -> bool:
+        """Whether money is on: a Stripe key is configured."""
+        return bool(self.stripe_secret_key)
 
     @property
     def is_production(self) -> bool:

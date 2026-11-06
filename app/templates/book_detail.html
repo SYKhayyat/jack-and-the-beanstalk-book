@@ -13,6 +13,9 @@
     {% if signed_in %}
     <nav class="masthead-actions">
       <a class="button secondary" href="/">Make a new book</a>
+      {% if wallet_enabled %}
+      <a class="button secondary" href="/wallet">Wallet — {{ wallet_balance }}</a>
+      {% endif %}
       <form class="logout-form" method="post" action="/logout">
         {% if user_name %}<span class="who">{{ user_name }}</span>{% endif %}
         <button type="submit">Log out</button>

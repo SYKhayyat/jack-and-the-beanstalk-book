@@ -25,7 +25,17 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, LargeBinary, String, Text, create_engine
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+)
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -35,6 +45,8 @@ __all__ = [
     "BookPageRow",
     "BookRow",
     "UserRow",
+    "WalletRefundRow",
+    "WalletTransactionRow",
     "build_engine",
     "database_secrets",
     "persistence_mode",
@@ -44,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
-    """One metadata for all three tables."""
+    """One metadata for every table."""
 
 
 class UserRow(Base):
@@ -126,6 +138,49 @@ class BookCharacterRow(Base):
     portrait_media_type: Mapped[str] = mapped_column(String(50))
     photo: Mapped[bytes] = mapped_column(LargeBinary)
     photo_media_type: Mapped[str] = mapped_column(String(50))
+
+
+class WalletTransactionRow(Base):
+    """One signed movement in an account's ledger.
+
+    The balance is the sum of these rows, never a column of its own: that is
+    what keeps the balance and the transaction history from disagreeing. A
+    `(user, kind, reference)` triple is unique, so a re-delivered Stripe
+    session or a retried book charge cannot be applied twice.
+    """
+
+    __tablename__ = "wallet_transactions"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "kind", "reference", name="uq_wallet_transaction_reference"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(24))
+    description: Mapped[str] = mapped_column(Text)
+    reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: The Stripe PaymentIntent behind a funding credit, so a refund knows
+    #: which payment to send money back against.
+    payment_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class WalletRefundRow(Base):
+    """A requested refund: how much, where it got to, and why it stopped."""
+
+    __tablename__ = "wallet_refunds"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16))
+    provider_refund_ids: Mapped[list[str]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 def normalise_database_url(database_url: str) -> str:

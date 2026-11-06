@@ -213,6 +213,27 @@ class TestLogsCarryNoSecrets:
         assert url not in caplog.text
         assert caplog.text.count("***REDACTED***") >= 2
 
+    def test_a_stripe_secret_key_is_redacted(self, caplog, tmp_path) -> None:
+        """A key that can move money is a secret like any other."""
+        from app.config import Settings
+        from app.main import create_app
+
+        key = "not-a-real-stripe-credential-for-log-tests"
+        settings = Settings(
+            image_provider="mock",  # type: ignore[arg-type]
+            gemini_api_key="",
+            app_env="test",
+            storage_dir=tmp_path / "storage",
+            stripe_secret_key=key,
+        )
+        create_app(settings)
+
+        with caplog.at_level(logging.WARNING, logger="app.main"):
+            logging.getLogger("app.main").warning("stripe key=%s", key)
+
+        assert key not in caplog.text
+        assert "***REDACTED***" in caplog.text
+
     def test_a_deployment_with_no_database_arms_no_extra_fragment(self) -> None:
         from app.db import database_secrets
 

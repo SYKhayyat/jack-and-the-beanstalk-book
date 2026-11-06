@@ -53,6 +53,7 @@ from app.services.pdf import PageArt, build_book_pdf
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import build_book_page_prompt, build_cover_prompt, render_book_page
 from app.services.storage import GenerationStore
+from app.services.wallet import Wallet
 
 __all__ = ["BookRunner", "CharacterReference"]
 
@@ -107,12 +108,16 @@ class BookRunner:
         book_store: BookStore,
         gate: ConcurrencyGate,
         page_timeout_seconds: int,
+        wallet: Wallet | None = None,
     ) -> None:
         self._provider = provider
         self._store = store
         self._book_store = book_store
         self._gate = gate
         self._page_timeout = page_timeout_seconds
+        # None when payments are off: the book is still rendered, and nothing
+        # is charged. An owned book made in that mode is simply free.
+        self._wallet = wallet
         self._tasks: set[asyncio.Task[None]] = set()
         self._active: dict[str, asyncio.Task[None]] = {}
 
@@ -544,6 +549,10 @@ class BookRunner:
         portrait = self._book_store.read_portrait(record.book_id)
         pdf_bytes = build_book_pdf(record.about, arts, cover, portrait=portrait)
         self._book_store.save_pdf(record.book_id, pdf_bytes)
+        # The document exists now, so this is the moment its fee belongs to.
+        # Charging is idempotent per book id: an edit that rebuilds the PDF
+        # does not charge for the same document twice.
+        self._charge_document(record)
         self._book_store.save_status(
             record.book_id,
             BookStatus.COMPLETE,
@@ -552,6 +561,31 @@ class BookRunner:
             extra={"phase": _PHASE_COMPLETE, "total_pages": len(rendered_pages) + 1},
         )
         return len(pdf_bytes)
+
+    def _charge_document(self, record: BookRecord) -> None:
+        """Take the one document fee, now that the PDF is on disk.
+
+        `require_funds=False`: the start endpoint already refused a book this
+        account could not afford, so a balance that moved mid-render must not
+        throw away a finished document. A ledger failure is logged, never
+        allowed to turn a finished book into a failed one.
+        """
+        if self._wallet is None or not record.user_id:
+            return
+        try:
+            self._wallet.charge_document(
+                record.user_id,
+                book_id=record.book_id,
+                title=record.about.book_title,
+                require_funds=False,
+            )
+        except Exception:
+            logger.warning(
+                "book.charge_failed user=%s book=%s",
+                record.user_id,
+                record.book_id,
+                exc_info=True,
+            )
 
     async def _render_cover(
         self,

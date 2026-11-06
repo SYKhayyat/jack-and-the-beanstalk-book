@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your wallet — Jack and the Beanstalk</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-page="wallet">
+  <header class="masthead">
+    <h1><a class="title-link" href="/">Jack and the Beanstalk</a></h1>
+    <p class="tagline">Your wallet</p>
+    {% if signed_in %}
+    <nav class="masthead-actions">
+      <a class="button secondary" href="/">Make a new book</a>
+      <form class="logout-form" method="post" action="/logout">
+        {% if user_name %}<span class="who">{{ user_name }}</span>{% endif %}
+        <button type="submit">Log out</button>
+      </form>
+    </nav>
+    {% endif %}
+  </header>
+
+  <main class="wallet">
+    {% if message %}
+    <p class="inline-message" role="status" aria-live="polite">{{ message }}</p>
+    {% endif %}
+
+    <section class="panel wallet-balance-panel">
+      <h2>Balance</h2>
+      <p class="wallet-balance">{{ balance_label }}</p>
+      <p class="field-help">
+        One picture book — the cover, every story page, the About page and the PDF —
+        costs {{ price_label }}. The fee is taken when the finished PDF is written,
+        so a book that never finishes is never charged.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Add money</h2>
+      {% if payments_enabled %}
+      <p class="field-help">
+        You will pay on Stripe's own page. This app never sees or stores your card
+        details. This deployment uses Stripe's test mode, so no real money moves.
+      </p>
+      <div class="wallet-topup-actions">
+        {% for cents, label in amounts %}
+        <form method="post" action="/wallet/topup">
+          <input type="hidden" name="amount_cents" value="{{ cents }}">
+          <button type="submit" class="button primary">Add {{ label }}</button>
+        </form>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="field-help">
+        Payments are not configured on this deployment, so books are made without a
+        fee and this wallet cannot be funded.
+      </p>
+      {% endif %}
+    </section>
+
+    {% if payments_enabled %}
+    <section class="panel">
+      <h2>Send money back</h2>
+      <p class="field-help">
+        Up to {{ refundable_label }} can go back to the card right now — that is what
+        is left in the wallet after any books already paid for, and what Stripe has
+        not already refunded. The refund is sent to the card that paid, oldest
+        top-up first.
+      </p>
+      <form method="post" action="/wallet/refund">
+        <button type="submit" class="button secondary" {% if refundable_cents <= 0 %}disabled{% endif %}>
+          Refund {{ refundable_label }}
+        </button>
+      </form>
+    </section>
+    {% endif %}
+
+    <section class="panel">
+      <h2>Every movement</h2>
+      {% if history %}
+      <table class="wallet-table">
+        <thead>
+          <tr><th scope="col">When</th><th scope="col">What</th><th scope="col">Amount</th></tr>
+        </thead>
+        <tbody>
+          {% for entry in history %}
+          <tr>
+            <td class="wallet-when">{{ entry.created_at[:16].replace("T", " ") }}</td>
+            <td>{{ entry.description }}</td>
+            <td class="wallet-amount{% if entry.credit %} credit{% endif %}">{{ entry.amount_label }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="field-help">Nothing has moved yet. A top-up, a book and a refund all appear here.</p>
+      {% endif %}
+    </section>
+
+    {% if refunds %}
+    <section class="panel">
+      <h2>Refund requests</h2>
+      <table class="wallet-table">
+        <thead>
+          <tr><th scope="col">When</th><th scope="col">Amount</th><th scope="col">Status</th></tr>
+        </thead>
+        <tbody>
+          {% for item in refunds %}
+          <tr>
+            <td class="wallet-when">{{ item.created_at[:16].replace("T", " ") }}</td>
+            <td class="wallet-amount">{{ item.amount_label }}</td>
+            <td>{{ item.status }}{% if item.note %} — {{ item.note }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>
