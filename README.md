@@ -1,7 +1,7 @@
 # Jack and the Beanstalk
 
 Upload one photo. The app cartoonifies it with settings you control, then
-renders a **picture book**: an AI cover, the whole tale in 19 story pages —
+renders a **picture book**: an AI cover, the whole tale in 20 story pages —
 from the empty cupboard and the magic-beans trade to the giant's castle, the hen
 that lays golden eggs and the toppling beanstalk — plus an About page, all
 delivered as one downloadable PDF. Signed-in visitors get a library sidebar of
@@ -93,9 +93,9 @@ Prices move; re-check before you rely on them.
 
 ### What actually costs money
 
-**Read this bit first: one finished book costs twenty-one API calls.** The
+**Read this bit first: one finished book costs twenty-two API calls.** The
 pipeline cartoonifies the photo (call 1), draws the cover (call 2), then renders
-the nineteen story pages (calls 3–21). So 200 finished books is **4,200 billed
+the twenty story pages (calls 3–22). So 200 finished books is **4,400 billed
 image generations**. Every figure below is per *call*.
 
 | Provider | Per call (1K image) | 200 books (4,200 calls) | Free tier? |
@@ -156,7 +156,7 @@ What the free tier costs you is **speed, not money**:
 | 2K output | 5 |
 | 3K / 4K output | 1 |
 
-One finished book is twenty-one calls, so at the free tier's 1K ceiling of ten
+One finished book is twenty-two calls, so at the free tier's 1K ceiling of ten
 requests a minute a book takes about two minutes — fine for a classroom or a
 family, not for a queue of strangers. `1K`
 is therefore the default and `AGNES_SIZE` is the dial if you upgrade. The 1K
@@ -211,8 +211,8 @@ Two corrections worth stating plainly, because the obvious assumptions are wrong
   the Lite model, and a test fails if the default ever reverts to the retired
   one.
 
-At roughly $0.034 per image and twenty-one calls per finished book, one book costs
-about **68 cents**. Twenty test books across several photos is roughly $13.60.
+At roughly $0.034 per image and twenty-two calls per finished book, one book costs
+about **74 cents**. Twenty test books across several photos is roughly $14.80.
 (That is the star's portrait plus one call per story page; each optional
 character photo adds one more portrait call before the pages start.)
 
@@ -402,12 +402,12 @@ the per-call reference set stays small.
 
 ## The picture book
 
-`/` turns one approved portrait into a **21-page picture book PDF**: a cover,
-nineteen story pages and an About page. You star
+`/` turns one approved portrait into a **22-page picture book PDF**: a cover,
+twenty story pages and an About page. You star
 on every page of the whole tale — the empty cupboard, the magic-beans trade, the
 beans flying out the window, the beanstalk at dawn, the climb into the clouds,
 the giant's kitchen and the bag of gold, the hen that lays golden eggs and the
-singing harp, "Fee-fi-fo-fum!", the chase and the toppling beanstalk — nineteen
+singing harp, "Fee-fi-fo-fum!", the chase and the toppling beanstalk — twenty
 story pages followed by an **About** page. The cover is one extra AI image of
 the star beside the beanstalk; the title is drawn by the PDF as real text, not
 by the model. The story
@@ -482,7 +482,7 @@ required.
 | `GET` | `/book-media/{id}/photo` | The original photograph the book was drawn from (`?download=1` saves it as a file) |
 | `GET` | `/book-media/{id}/cover` | The AI cover illustration |
 | `GET` | `/book-media/{id}/pages/{n}` | One story page's art, once it exists |
-| `GET` | `/book-media/{id}/pdf` | The finished 21-page PDF (409 until complete) |
+| `GET` | `/book-media/{id}/pdf` | The finished 22-page PDF (409 until complete) |
 | `GET` | `/book-media/{id}/prompts.json` | The exact prompt sent for every page |
 
 `POST /api/cartoonify` returns image *URLs* rather than inline bytes, so the
@@ -501,8 +501,8 @@ file books under, and one shared pile of children's photographs would be the
 wrong answer.
 
 The finished book can be read without the PDF at all: `/books/{id}` shows the
-pictures and their story lines in the page, and the PDF (cover + 19 story pages
-+ About = 21 pages) is one click away. The PDF embeds its pictures as
+pictures and their story lines in the page, and the PDF (cover + 20 story pages
++ About = 22 pages) is one click away. The PDF embeds its pictures as
 print-sized JPEGs, so a finished book is a few megabytes rather than the ~42 MB
 it used to be — small enough to assemble, download and view on a 512 MB
 instance.
@@ -541,7 +541,7 @@ ID=$(curl -s -X POST http://localhost:8000/api/cartoonify \
   -F photo=@me.jpg -F cartoon_intensity=9 -F cartoon_style=manga \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_id"])')
 
-# Calls 3–21 — the nineteen story pages, rendered in the background. The
+# Calls 3–22 — the twenty story pages, rendered in the background. The
 # About page costs no call: the PDF draws it locally.
 BOOK=$(curl -s -X POST http://localhost:8000/api/book/start \
   -F generation_id="$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["book_id"])')
@@ -573,7 +573,7 @@ lines apply and how they are joined.
 
 ## Two steps, so you only pay for what you keep
 
-The book is twenty-one calls, and the interface keeps the portrait apart on purpose:
+The book is twenty-two calls, and the interface keeps the portrait apart on purpose:
 
 ```
   upload + settings
@@ -585,22 +585,22 @@ The book is twenty-one calls, and the interface keeps the portrait apart on purp
         ^                    +---------------+--------------+
         |  tweak settings, retry             | approve
         +-------------------------------------+
-                                             | 19 calls
+                                             | 20 calls
                                              v
                                +-------------------------------+
                                | /api/book/start               |
-                               | portrait -> cover -> 19 pages |
+                               | portrait -> cover -> 20 pages |
                                +-------------------------------+
 ```
 
 Three things fall out of that split, and all three are cost or quality wins:
 
-- **A likeness you dislike costs one call, not twenty-one.** Change the intensity,
+- **A likeness you dislike costs one call, not twenty-two.** Change the intensity,
   the style, the hair, the likeness strength, and retry — the settings panel
   stays live while you look at the portrait. Only an approved portrait is worth
-  the nineteen story pages.
+  the twenty story pages.
 - **Every page is built from the portrait you approved.** Not one you hoped
-  would look better by page nineteen.
+  would look better by page twenty.
 - **The judgement happens where it is cheap.** Deciding whether the face
   survived is a question about the portrait, and the portrait is the cheap
   phase. Settling it after paying for the book is backwards.
@@ -866,7 +866,7 @@ the provider and OAuth keys.
 **Retention.** Nothing is kept forever. An uploaded photograph and the cartoon
 portraits made from it are deleted after `DRAFT_RETENTION_HOURS` (a day by
 default — the review flow only needs minutes); a finished book, with its
-portrait, nineteen pages and PDF, is deleted `BOOK_RETENTION_DAYS` after it
+portrait, twenty pages and PDF, is deleted `BOOK_RETENTION_DAYS` after it
 started (a week by default). A book still pending or rendering is never expired.
 The sweep runs once at boot and then hourly, and works the same in both
 storage modes, so a deployment's disk and a Neon database both stay bounded.

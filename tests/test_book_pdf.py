@@ -57,8 +57,9 @@ def pages(story: bool = True) -> list[PageArt]:
 class TestAssembly:
     def test_one_page_per_story_page_plus_about_me(self) -> None:
         reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages())))
-        # About page + every active story page = the hand-in 20-page book.
-        assert len(reader.pages) == len(BOOK_PAGES) + 1 == 20
+        # About page + every active story page = 21 sheets. The cover is the
+        # 22nd, added when the book has one.
+        assert len(reader.pages) == len(BOOK_PAGES) + 1 == 21
 
     def test_the_unretired_beanstalk_page_is_in_the_pdf(self) -> None:
         """Step 7 changed the constraint: page 4 is story, not retired data.

@@ -18,7 +18,7 @@
     <span class="story-card-body">
       <span class="story-title">{{ story.title }}</span>
       <span class="story-blurb">{{ story.blurb }}</span>
-      <span class="story-meta">20 pictures · about 5 minutes</span>
+      <span class="story-meta">21 pictures · about 5 minutes</span>
       {% if not signed_out %}
       <span class="button primary story-action" data-card-action>{{ labels[card.state] }}{% if card.state in ("fresh", "finished") %} <span aria-hidden="true">▸</span>{% endif %}</span>
       {% elif card.state == "soon" %}

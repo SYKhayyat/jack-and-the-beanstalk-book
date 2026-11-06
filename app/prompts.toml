@@ -578,10 +578,25 @@ must_include = ["{name} pouring gold coins from the purse onto the table", "{pos
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "coins sliding off or balanced on the table's edge", "the giant", "Milky-White the cow", "an open book or letter with visible letters", "extra people in the kitchen"]
 
 [[book_pages]]
+key = "the-second-climb"
+title = "The last coin"
+cast = ["mother"]
+story = "But gold does not last forever. One by one the coins were spent, until the purse was empty and the shelves were bare again. {Possessive} mother looked at the empty cupboard and sighed. {name} looked at the beanstalk rising into the clouds. That night {subject} made up {possessive} mind: {subject} would climb it once more."
+beat = "{name} spends the last coin, sees the empty cupboard, and decides to climb again."
+emotion = "quiet resolve: the mother worried, {name} looking up at the beanstalk with a set jaw"
+caption = "In the cottage kitchen at dusk, {name} holds the empty leather purse upside down over the worn oak table, one last gold coin lying beside it. {Possessive} mother stands by the open cupboard with one hand on the door, worried. Through the window, the great green beanstalk rises into the evening clouds. {name}'s face is set with quiet resolve."
+subject_action = "holding the empty purse upside down over the table, looking past it through the window at the beanstalk, jaw set"
+environment = "the cottage kitchen as fixed in the props and places, at dusk: the worn oak table with the empty purse and one last coin, the open cupboard with bare shelves, the window on the right wall framing the beanstalk rising into the clouds, the hearth"
+time_of_day = "dusk of the same day, the last orange light through the window, a low fire"
+camera = "eye-level medium shot across the kitchen, {name} and the empty purse in the foreground, the mother and the cupboard on the left, the beanstalk through the window on the right"
+must_include = ["{name} holding the empty leather purse upside down", "one last gold coin on the table", "the open cupboard with bare shelves", "the beanstalk rising into the clouds through the window", "the same mother and the same kitchen as the earlier pages", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "a full purse or a heap of coins", "the giant", "Milky-White the cow", "an open book or letter with visible letters", "extra people in the kitchen"]
+
+[[book_pages]]
 key = "the-hen"
 title = "The hen that laid golden eggs"
 cast = ["giant"]
-story = "But gold does not last forever, and one day the last coin was spent. So {name} climbed the beanstalk once more. In the giant’s kitchen, on a wooden perch, sat a plump brown hen, and beneath her in the straw lay an egg of solid gold. While the giant slept with his head upon the table, {name} lifted the hen very gently and tucked her under one arm."
+story = "In the giant's kitchen, on a wooden perch, sat a plump brown hen, and beneath her in the straw lay an egg of solid gold. While the giant slept with his head upon the table, {name} lifted the hen very gently and tucked her under one arm."
 beat = "Back in the giant's kitchen, {name} finds a hen that lays golden eggs."
 emotion = "hushed, careful tenderness: {name} gentle and quiet, eyes shining at the golden egg"
 caption = "Back up the beanstalk, {name} found a hen that laid golden eggs. In the right-hand corner of the giant's kitchen, {name} crouches by the wooden perch and gently lifts a plump brown hen with a bright red comb. One gleaming golden egg rests in the straw beneath her. Far across the room, the giant sleeps with his head resting on his folded arms on the great tabletop."

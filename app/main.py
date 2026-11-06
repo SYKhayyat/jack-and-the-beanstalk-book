@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.auth import AuthGate
+from app.books import PAGE_COUNT, SEEDS
 from app.config import Settings, get_settings
 from app.container import Container, build_container
 from app.db import database_secrets
@@ -31,6 +32,7 @@ from app.logging_context import (
     reset_request_id,
     set_request_id,
 )
+from app.models.book import BOOK_PAGES
 from app.redaction import install_secret_redaction
 from app.routes import api, auth, book, book_media, media, wallet, web
 from app.routes.auth import install_auth_gate
@@ -157,6 +159,16 @@ def create_app(
         provider: Overrides provider construction. Tests pass a fake.
         payments: Overrides Stripe construction. Tests pass a fake.
     """
+    if not SEEDS:
+        # ``app.books`` validates every seed it finds at import, so reaching
+        # here with none means the story data is missing, not merely unread.
+        raise RuntimeError("No story seeds found in app/books")
+    # Jack still comes from prompts.toml until the seed move (T7); its length is
+    # checked here so both available stories hold the same twenty pages.
+    if len(BOOK_PAGES) != PAGE_COUNT:
+        raise RuntimeError(
+            f"Jack's catalogue has {len(BOOK_PAGES)} pages, the template holds {PAGE_COUNT}"
+        )
     resolved = settings or get_settings()
     _configure_logging(resolved)
 

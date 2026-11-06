@@ -84,11 +84,11 @@ small and the cow safely a cow.
 
 ## 7. The book is now the whole tale, and a long book can't be turned away
 
-The book is 19 story pages plus an About page — the 20-page book the assignment
-asks for. It follows the classic tale from the empty cupboard to the toppled
-beanstalk, including the hen that lays golden eggs and the singing harp. Those
-two are props described in the story, not characters, so they can never be given
-a face.
+The book is 20 story pages plus an About page — 21 sheets, or 22 with the cover.
+It follows the classic tale from the empty cupboard, through the second climb
+after the gold runs out, to the toppled beanstalk, including the hen that lays
+golden eggs and the singing harp. Those two are props described in the story, not
+characters, so they can never be given a face.
 
 Starting a book costs one unit of the per-minute allowance; each page costs one
 more as it is actually drawn. A full minute now makes a book take longer, never
@@ -138,6 +138,43 @@ details, is in [`ui-redesign-plan.md`](ui-redesign-plan.md).
 **Why:** the old page read as a form, and the thing people came for appeared
 underneath the thing they were filling in. Each screen now has one job, and the
 book is the biggest thing on the screen that shows it.
+
+## 11. One template, cream paper, words never on the picture
+
+The page template is now explicit data rather than a value recomputed per page:
+one art box, one text band beneath it, one font size for the whole book, on
+cream paper. Every story page is the picture on top and its prose underneath; a
+short page keeps the book's band, and a page too long for it grows the band
+rather than losing the end of the story.
+
+The cover is the only sheet whose title sits over art, so a plate's top band is
+measured automatically. A busy band cannot be approved: the admin screen
+disables Approve and shows the measured spread and the reason, while a flat sky
+or a gentle gradient passes.
+
+**Why:** "no text over a face" is a layout problem, not something to hope a model
+gets right. Making the geometry data and refusing a busy cover band turns the
+rule into something a test and an approval screen can enforce.
+
+## 12. The stories are data, and both hold twenty pages
+
+Jack grew its twentieth page — the last coin, the empty cupboard, and the
+decision to climb again — so the arc between the gold and the hen is on the page
+instead of implied. *Little Red Riding Hood* now exists as a full twenty-page
+tale: the basket, the warning, the wood, the wolf's shortcut, Grandmother's
+cupboard, the "what big ears" exchange, the Woodcutter's shout, and home. The
+wolf is sly and never gory; nobody is bitten and no page needs a weapon.
+
+Each story lives in a reviewed seed file (`app/books/<key>.toml`): its pages,
+the scene each page draws, the cover, and the character bible. The seed is
+validated at boot against the same contract for every story — twenty pages and a
+cover, 45–90 words of prose per page, short sentences, a simple vocabulary, a
+cast that resolves, and no page referencing more characters than the image
+provider can take. A broken story now fails at start-up, not on a child's book.
+
+**Why:** one template only holds quality steady if both stories are measured by
+the same rules. Making the rules executable is what stops the second story from
+drifting into a different product.
 
 ## What is left for you (not done in code)
 

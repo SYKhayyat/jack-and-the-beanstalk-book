@@ -37,6 +37,9 @@ def settings(tmp_path: Path) -> Settings:
         gemini_api_key="",
         app_env="test",
         storage_dir=tmp_path / "storage",
+        # A 20-page book plus a portrait, a cover and an edit is more than the
+        # production brake's 30 calls a minute; tests must not wait for it.
+        max_generations_per_minute=1000,
     )
 
 

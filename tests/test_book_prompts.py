@@ -530,9 +530,9 @@ def test_pages_do_not_borrow_each_other_scenes() -> None:
 
 
 def test_the_book_is_the_full_twenty_pages() -> None:
-    """19 story pages plus the About page is the hand-in 20-page book."""
-    assert len(BOOK_PAGES) == 19
-    assert len(BOOK_PAGES) + 1 == 20
+    """Twenty story pages plus the About page is the 21-sheet book."""
+    assert len(BOOK_PAGES) == 20
+    assert len(BOOK_PAGES) + 1 == 21
     assert [page.key for page in BOOK_PAGES] == [
         "empty-cupboard",
         "the-trade",
@@ -543,6 +543,7 @@ def test_the_book_is_the_full_twenty_pages() -> None:
         "the-giant's-kitchen",
         "the-bag-of-gold",
         "home-with-gold",
+        "the-second-climb",
         "the-hen",
         "the-singing-harp",
         "fee-fi-fo-fum",
@@ -628,13 +629,13 @@ def test_the_classic_beats_each_have_a_page() -> None:
 def test_the_giant_is_cast_exactly_where_he_appears() -> None:
     """No giant before the castle, none after he falls, and never in the finale."""
     giant_pages = {page.number for page in BOOK_PAGES if "giant" in page.cast}
-    assert giant_pages == {7, 8, 10, 11, 12, 13, 14, 16}
+    assert giant_pages == {7, 8, 11, 12, 13, 14, 15, 17}
 
 
 def test_the_mother_never_appears_in_the_clouds() -> None:
-    """She is at home on pages 1, 3, 9 and the closing three; never up the stalk."""
+    """She is at home on the first pages, the second climb and the closing three."""
     mother_pages = {page.number for page in BOOK_PAGES if "mother" in page.cast}
-    assert mother_pages == {1, 3, 9, 17, 18, 19}
+    assert mother_pages == {1, 3, 9, 10, 18, 19, 20}
 
 
 # --- the AI assessment's generalised rules -----------------------------------

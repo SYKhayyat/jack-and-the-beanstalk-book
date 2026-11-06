@@ -266,7 +266,7 @@ def test_the_book_counts_its_cover_and_reports_the_pdf_phase(
     # Every story page is finished, and the document says the PDF is not.
     assert all(page["status"] == "done" for page in mid["pages"])
     assert mid["phase"] == "assembling"
-    assert mid["total_pages"] == len(BOOK_PAGES) + 1 == 20
+    assert mid["total_pages"] == len(BOOK_PAGES) + 1 == 21
 
     assert final["status"] == BookStatus.COMPLETE
     assert final["phase"] == "complete"

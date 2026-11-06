@@ -281,7 +281,7 @@ def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
 
 
 def _tiles(raw: object, rendered: list[BookPage]) -> list[dict[str, Any]]:
-    """The 20 drawn pictures in book order — cover first — with their state.
+    """The 21 drawn pictures in book order — cover first — with their state.
 
     The status document may be empty (a book that has just started) or
     partial; every picture the book will have gets a tile regardless, so the

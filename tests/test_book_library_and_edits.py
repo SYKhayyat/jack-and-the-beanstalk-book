@@ -418,8 +418,8 @@ class TestLibrary:
                 assert 'class="drawer-row"' in page.text
                 assert 'class="drawer-delete"' in page.text
                 assert f'data-delete-book="{book_id}"' in page.text
-            # The count the reader sees: twenty drawn pictures (cover + 19).
-            assert "20 pictures" in page.text
+            # The count the reader sees: twenty-one drawn pictures (cover + 20).
+            assert "21 pictures" in page.text
 
     def test_the_downloads_are_private_to_the_book_owner(self, tmp_path: Path) -> None:
         """Another signed-in person must not fetch someone's photo or cartoon."""
@@ -447,8 +447,8 @@ class TestLibrary:
             assert 'id="turn-next"' in page.text
             # The story line travels with the picture, not only in the PDF.
             assert "spread-story" in page.text
-            # Cover + nineteen story pages + the About page.
-            assert len(re.findall(r'class="spread[ "]', page.text)) == 21
+            # Cover + twenty story pages + the About page.
+            assert len(re.findall(r'class="spread[ "]', page.text)) == 22
 
     def test_password_mode_has_no_library(self, client: TestClient) -> None:
         book_id = _start(client)

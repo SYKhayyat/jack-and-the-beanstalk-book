@@ -1,0 +1,359 @@
+# Little Red Riding Hood — the story seed.
+#
+# The child is the star: {name} wears the red hood and carries the basket. The
+# words are the PDF's; the scene fields are the image model's; they live side by
+# side so a page cannot contradict itself. Twenty pages, one cover.
+#
+# The wolf is sly, never gory. Nobody is bitten, cut or killed: Grandmother is
+# shut in the cupboard, the rescue is a shout, and the wolf runs away.
+
+[story]
+key = "little_red_riding_hood"
+title = "Little Red Riding Hood"
+blurb = "A basket for Grandmother, a path through the wood, and a wolf."
+book_title = "{name} and the Wolf"
+star = "red"
+available = true
+
+# The cover is full-bleed art under a title lockup. The top band is kept calm so
+# real text can sit there; T1's check refuses a busy plate at approval time.
+[cover]
+title_band = "calm"
+cast = ["red", "wolf"]
+caption = "The cover of a picture book: the child in the red hood stands on a winding path at the edge of a tall green wood, holding a covered basket, looking back over one shoulder. Far behind the trees, a grey wolf in a dark green coat watches from the shadows. Beyond the trees, a small cottage with a blue door sends a curl of smoke into a calm sky."
+subject_action = "standing on the path with the basket on one arm, turning to look back at the trees, calm and curious"
+environment = "the edge of the wood: a winding dirt path, tall trees with deep green leaves, a small stone cottage with a blue door and a curl of smoke in the distance, open sky above"
+time_of_day = "early morning, soft golden light from the left, a pale blue sky"
+camera = "wide storybook shot, the child small and clear in the lower right, the wood rising behind, the upper third open sky"
+must_include = ["{name} in the red hood with the covered basket", "the winding path into the tall wood", "the small cottage with the blue door and its curl of smoke", "the grey wolf in the green coat, far away between the trees", "the upper third calm and uncluttered"]
+must_avoid = ["lettering, a title, a logo or a caption of any kind", "the wolf close to the child or showing teeth", "any other person", "a face in the title band", "a weapon", "blood"]
+
+# The character bible. The star's face comes from the upload; the red cloak is
+# the story's costume, fixed on every page.
+[cast]
+red = "The child in the red hood: the starred child's own face, hair, skin and age on every page, exactly as in the approved portrait and photograph. The costume, identical on every page: a bright red hooded cloak with the hood up and tied at the throat with a small bow, over a plain cream woollen dress, a white linen apron, brown leather shoes, and a woven brown basket on one arm. The red cloak is the story's dress, never a new face."
+mother = "The mother (no reference photo, so this is her one look on every page): a woman in her mid-thirties, clearly taller than the child, with an oval face, warm hazel eyes, straight dark brows and dark brown hair tucked under a plain cream linen kerchief. Her outfit, identical on every page: a long plain dark-brown wool dress with sleeves to the wrist, a light linen apron tied at the waist, and brown leather shoes. Her face is entirely unlike the child's."
+grandmother = "Grandmother (no reference photo, so this is her one look on every page): a small, gentle woman in her seventies, with a soft round face, warm brown eyes, white hair in a neat bun, small round spectacles, a white lace cap, a soft lavender shawl over a plain grey dress, and dark soft shoes. She is warm and quick to smile, never frail or frightening, and her face is entirely unlike the child's and the mother's."
+woodcutter = "The woodcutter (no reference photo, so this is his one look on every page): a tall, broad man in his forties with a kind weathered face, warm brown eyes, a short brown beard and sawdust on his sleeves. His outfit, identical on every page: a green woollen shirt, brown trousers, a leather apron and heavy brown boots. He carries no weapon on any page; his axe stays in the wood, out of frame. His face is entirely unlike the child's."
+wolf = "The wolf (no reference photo, so this is his one look on every page): a tall grey wolf who walks on two legs and talks. He wears a smart dark-green coat, a cream waistcoat, a brown neckerchief and black boots. His fur is grey with a pale muzzle, his eyes are amber, and his tail is long and bushy. He is sly and greedy, never a monster: he never bites, scratches or harms anyone on the page, and no page shows blood, a wound or a weapon."
+
+[cast_photoable]
+red = true
+mother = true
+grandmother = true
+woodcutter = true
+wolf = false
+
+[cast_labels]
+red = "The child"
+mother = "Mother"
+grandmother = "Grandmother"
+woodcutter = "Woodcutter"
+wolf = "The wolf"
+
+# Story words this tale needs beyond the shared simple vocabulary. Proper nouns
+# are allowed here; anything else should be a word a six-year-old knows.
+[vocabulary]
+allow = ["grandmother", "woodcutter", "wolf", "red", "honey", "lane", "lantern", "shawl", "cupboard", "wilted"]
+
+# --- twenty pages -----------------------------------------------------------
+
+[[pages]]
+key = "the-basket"
+title = "The basket"
+cast = ["mother"]
+story = "The morning was bright when {name} set out. {Possessive} mother packed a basket with bread, honey and a little cake. They were for Grandmother, who lived on the other side of the wood. {name} put on {possessive} red hood and took the basket by the handle. 'Go straight there,' said {possessive} mother. 'Do not stop to talk to anyone.'"
+beat = "{name}'s mother packs a basket for Grandmother and warns {object} to go straight there."
+emotion = "warm care: the mother serious and loving, {name} listening with the basket in both hands"
+caption = "In a warm cottage kitchen in the morning, {name}'s mother ties the red hood at {possessive} throat and sets a covered basket in {possessive} hands: bread, a jar of honey and a little cake for Grandmother. The mother leans down, one hand on {name}'s shoulder, her face loving and serious. The same cottage kitchen as the rest of the book: stone hearth on the left, worn oak table in the middle, shelves and cupboard behind."
+subject_action = "standing by the table holding the basket with both hands while {possessive} mother ties the red hood, looking up at her"
+environment = "the cottage kitchen: a stone hearth with copper pots on the left wall, a worn oak table with two stools in the middle, open shelves and a cupboard on the back wall, a window on the right wall, morning light"
+time_of_day = "early morning, clear soft daylight through the window, a low fire in the hearth"
+camera = "eye-level medium shot across the kitchen, both faces clear, the basket and the red hood prominent"
+must_include = ["{name} in the red hood with the covered basket", "the mother tying the hood or resting a hand on {name}'s shoulder", "the covered basket with bread, a honey jar and a little cake visible", "the same cottage kitchen on every page", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "lettering or writing anywhere", "an extra person", "the wolf", "a weapon"]
+
+[[pages]]
+key = "the-path"
+title = "Into the wood"
+cast = []
+story = "At the edge of the wood, the path was soft with old leaves. Birds sang in the tall trees, and the sun made small gold coins on the ground. {name} held the basket with both hands and walked along the path, humming a little tune. Far away, Grandmother's chimney smoke rose above the trees."
+beat = "{name} walks along the leaf-soft path into the wood, humming."
+emotion = "easy happiness: {name} walking with a small smile, eyes on the path and the birds"
+caption = "{name} walks along a winding leaf-covered path into a tall green wood, the red hood bright against the browns and greens, the covered basket on one arm. Sunlight falls in small gold patches through the leaves. Birds perch on branches above. Far beyond the trees, a thin curl of smoke rises from a cottage chimney."
+subject_action = "walking along the path, one hand on the basket handle, head slightly up towards the birds, mid-step"
+environment = "the wood path: tall trees on both sides, old leaves on the ground, ferns and small flowers, a winding dirt track, distant treetops with a curl of chimney smoke beyond"
+time_of_day = "mid-morning, warm sunlight in shafts through the leaves"
+camera = "wide storybook shot from just behind and beside {name}, the path leading the eye into the wood"
+must_include = ["{name} in the red hood with the covered basket", "the winding leaf-covered path", "sunlight in gold patches through tall trees", "birds in the branches", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "lettering or writing anywhere", "the wolf", "an extra person", "a dark or frightening wood"]
+
+[[pages]]
+key = "the-wolf"
+title = "The wolf"
+cast = ["wolf"]
+story = "All at once a grey wolf stepped out from behind a tree. He was tall and thin, with a long brush tail and a smart green coat. 'Good morning, little friend,' he said, very politely. 'What a pretty red hood. And where are you going so early?' {name} remembered {possessive} mother's words, but the wolf smiled so kindly."
+beat = "A polite grey wolf in a green coat steps onto the path and greets {name}."
+emotion = "uncertain politeness: {name} holding the basket close, a wary half-smile; the wolf smoothly charming"
+caption = "A tall grey wolf in a smart dark-green coat, cream waistcoat and brown neckerchief steps out from behind a tree onto the path, one paw raised in a polite greeting. His amber eyes are friendly and his long bushy tail is low. {name} in the red hood stands a few steps away, the basket held close with both hands, uncertain but not afraid."
+subject_action = "the wolf bowing slightly with one paw raised; {name} standing still, holding the basket close and looking up at him"
+environment = "the wood path: tall trees, old leaves, ferns, a winding track, soft morning light through the leaves"
+time_of_day = "mid-morning, dappled sunlight"
+camera = "two-shot at {name}'s eye level, both figures full length and clear, the path between them"
+must_include = ["the grey wolf in the green coat, waistcoat and neckerchief, standing on two legs", "the wolf's long bushy tail and amber eyes", "{name} in the red hood holding the basket close", "the wood path and tall trees", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf showing teeth, snarling or looming over the child", "lettering or writing anywhere", "an extra person", "a weapon or blood"]
+
+[[pages]]
+key = "the-answer"
+title = "The answer"
+cast = ["wolf"]
+story = "'I am going to Grandmother's house,' said {name}. 'She is not well, and I am taking her bread and honey.' The wolf nodded and licked his lips, but he kept his voice soft. 'How kind you are,' he said. 'And does your grandmother live far away?' {name} pointed down the path, past the tall trees, to the little cottage with the blue door."
+beat = "{name} tells the wolf where Grandmother lives, and points down the path."
+emotion = "open trust: {name} pointing helpfully; the wolf politely pleased, a greedy glint in his eye"
+caption = "{name} in the red hood points along the path towards a small cottage with a blue door, visible far between the trees. The grey wolf in the green coat stands beside {object}, leaning in with polite interest, one paw at his chest, a small greedy glint in his amber eyes. The basket hangs from {name}'s arm."
+subject_action = "pointing down the path with one hand, the basket on the other arm; the wolf leaning in to listen"
+environment = "the wood path opening towards a distant cottage with a blue door and a curl of smoke, tall trees on both sides, ferns and leaves"
+time_of_day = "late morning, clear warm light"
+camera = "medium-wide two-shot from the side, {name}'s pointing arm leading towards the distant cottage, both faces readable"
+must_include = ["{name} pointing towards the distant blue-doored cottage", "the grey wolf in the green coat leaning in to listen", "the covered basket on {name}'s arm", "the winding path and tall trees", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf touching or blocking the child", "the wolf showing teeth", "lettering or writing anywhere", "an extra person"]
+
+[[pages]]
+key = "the-shortcut"
+title = "The shortcut"
+cast = ["wolf"]
+story = "'What a long way that is,' said the wolf. 'I know a short path through the wood. You could pick some flowers for her, too. Grandmothers love flowers.' {name} looked at the sunny path and then at the flowers growing under the trees. They were so pretty. 'Perhaps just a few,' {subject} said, and stepped off the path."
+beat = "The wolf suggests a shortcut and flowers, and {name} steps off the path."
+emotion = "temptation: {name} glancing between the path and the flowers, the wolf gesturing smoothly"
+caption = "The grey wolf in the green coat gestures with one paw towards a narrow side track, while a drift of red, yellow and blue wild flowers grows under the trees beside it. {name} in the red hood stands at the fork, the basket on one arm, looking at the flowers with a tempted little smile. The wide sunny path continues ahead."
+subject_action = "{name} half-turned towards the flowers, one foot just leaving the main path; the wolf gesturing towards the side track"
+environment = "a fork in the wood path: the wide sunny path continuing ahead, a narrow side track to the right, drifts of small wild flowers under the tall trees"
+time_of_day = "late morning, warm sunlight on the main path, cool shade under the trees"
+camera = "wide shot from behind {name}'s shoulder, the fork, the flowers and the wolf all clear, both faces readable"
+must_include = ["the fork in the path with a narrow side track", "drifts of red, yellow and blue wild flowers", "the grey wolf in the green coat gesturing", "{name} in the red hood with the basket, stepping towards the flowers", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf touching the child", "the wolf showing teeth", "lettering or writing anywhere", "an extra person"]
+
+[[pages]]
+key = "the-flowers"
+title = "The flowers"
+cast = []
+story = "{name} picked one flower, then another, then a whole armful. The flowers were red and yellow and blue. {Subject} did not see the wolf slip away between the trees. {Subject} did not hear his soft feet on the leaves. {Subject} only hummed and picked, and the morning grew warmer and warmer."
+beat = "{name} picks a whole armful of flowers while the wolf slips away unseen."
+emotion = "carefree delight: {name} absorbed in the flowers, a happy hum, the basket set down beside {object}"
+caption = "{name} in the red hood kneels among drifts of red, yellow and blue wild flowers, a whole armful already gathered against {possessive} chest, the covered basket set on the path beside {object}. In the far background, the grey shape of the wolf in the green coat slips away between the tall trees, half hidden by leaves. {name} is looking only at the flowers."
+subject_action = "kneeling among the flowers, gathering an armful, smiling down at them; the wolf small and distant, leaving"
+environment = "a flower-filled clearing beside the wood path: drifts of small wild flowers, tall trees, soft leaves, the basket on the path"
+time_of_day = "late morning turning towards noon, warm golden light"
+camera = "medium shot from a little above, {name} and the flowers filling the frame, the wolf small and far between the trees"
+must_include = ["{name} in the red hood gathering a large armful of red, yellow and blue flowers", "the covered basket set on the path", "the grey wolf in the green coat, distant and half hidden, slipping away", "the flower-filled clearing and tall trees", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf close or large", "the wolf showing teeth", "lettering or writing anywhere", "an extra person"]
+
+[[pages]]
+key = "the-wolf-runs"
+title = "The wolf runs ahead"
+cast = ["wolf"]
+story = "The wolf ran through the wood as fast as he could. He ran past the tall trees and over the stream and up the little hill. He reached Grandmother's cottage long before {name}. He knocked on the blue door, once, twice, three times, and made his voice small and sweet."
+beat = "The wolf races through the wood and knocks at Grandmother's blue door."
+emotion = "eager scheming: the wolf running hard, a sly smile, his coat flying"
+caption = "The grey wolf in the green coat runs on two legs through the wood, coat and bushy tail flying behind him, a sly smile on his face. He passes tall trees and a small stream, heading towards a cottage with a blue door on a low hill. In the foreground the cottage door is seen from the path, closed, with a flat stone step."
+subject_action = "running hard towards the cottage, one paw reaching forward, coat and tail streaming; the blue door ahead"
+environment = "the wood and the hill up to Grandmother's cottage: tall trees, a small stream, a low green hill, a small stone cottage with a blue door, a curl of smoke"
+time_of_day = "late morning, bright sun and long shadows"
+camera = "dynamic wide shot from the side, the wolf crossing the frame towards the cottage, motion clear, no blur on his face"
+must_include = ["the grey wolf in the green coat running on two legs", "the small cottage with the blue door ahead", "the stream and tall trees he is passing", "the wolf's sly smile", "the wolf's long bushy tail"]
+must_avoid = ["the child in this picture", "the wolf showing teeth or snarling", "lettering or writing anywhere", "an extra person", "a weapon or blood"]
+
+[[pages]]
+key = "the-cottage-door"
+title = "At the cottage door"
+cast = ["grandmother"]
+story = "'Who is there?' called Grandmother from her bed. 'It is me, your little {name},' said the wolf, in a voice like a child's. 'I have brought you bread and honey.' Grandmother was old and her ears were not sharp. 'Lift the latch and come in, dear,' she said. The wolf lifted the latch and went inside."
+beat = "The wolf pretends to be {name} at the door, and Grandmother lets him in."
+emotion = "quiet mischief: the wolf at the door with a sweet fake smile; Grandmother warm and unsuspecting in bed"
+caption = "Inside Grandmother's cottage, an old woman with white hair, small round spectacles and a white lace cap sits up in a wooden bed under a patchwork quilt, calling towards the blue door. The door is ajar, and through it the grey wolf in the green coat leans in, one paw on the latch, his voice sweet and his smile sly. A small table with a jug and a candle stands beside the bed."
+subject_action = "the wolf leaning through the half-open blue door with one paw on the latch; Grandmother sitting up in bed, one hand to her ear"
+environment = "Grandmother's one-room cottage: a wooden bed with a patchwork quilt, a small table with a jug and a candle, a stone hearth, a tall wooden cupboard, a window with curtains half drawn, the blue door open"
+time_of_day = "late morning, soft light through half-drawn curtains, a low fire"
+camera = "interior wide shot from the foot of the bed, Grandmother in the middle, the door and the wolf at the edge, both faces readable"
+must_include = ["Grandmother in bed with white hair, spectacles and a white lace cap", "the grey wolf in the green coat at the half-open blue door", "the tall wooden cupboard in the room", "the small table with a jug and a candle", "the wolf's sly smile"]
+must_avoid = ["the child in this picture", "the wolf showing teeth or snarling", "Grandmother frightened or in pain", "lettering or writing anywhere", "a weapon or blood"]
+
+[[pages]]
+key = "the-cupboard"
+title = "The cupboard"
+cast = ["grandmother", "wolf"]
+story = "Grandmother sat up in bed and saw the wolf's grey face. She opened her mouth to call out, but the wolf raised one paw. 'Not a sound,' he said, 'and no one will be hurt.' He took her hand and helped her into the tall wooden cupboard, and shut the door. Then he put on her cap and her shawl and climbed into her bed."
+beat = "The wolf hides Grandmother in the cupboard and takes her place in the bed."
+emotion = "careful fear: Grandmother wide-eyed but steady; the wolf calm and commanding, one paw raised"
+caption = "In Grandmother's cottage, the grey wolf in the green coat stands beside the tall wooden cupboard with one paw raised. Grandmother, in her white lace cap and lavender shawl, steps inside the cupboard, one hand on the door, looking back with wide but steady eyes. The patchwork-quilted bed and the small table with the jug are behind them. The wolf's face is calm, not cruel."
+subject_action = "Grandmother stepping into the tall cupboard; the wolf holding the door with one paw and raising the other for quiet"
+environment = "Grandmother's one-room cottage: the tall wooden cupboard open, the bed with the patchwork quilt, the small table with a jug and candle, the stone hearth, the window with half-drawn curtains"
+time_of_day = "late morning, soft curtained light, a low fire"
+camera = "interior medium-wide shot, both figures full length, the cupboard and the bed both in frame"
+must_include = ["Grandmother in her lace cap and lavender shawl stepping into the tall cupboard", "the grey wolf in the green coat holding the cupboard door", "the bed with the patchwork quilt behind them", "the wolf's calm face and raised paw", "no one being hurt"]
+must_avoid = ["the child in this picture", "the wolf biting, scratching or grabbing Grandmother", "Grandmother in pain or on the floor", "lettering or writing anywhere", "a weapon or blood"]
+
+[[pages]]
+key = "the-disguise"
+title = "The disguise"
+cast = ["wolf"]
+story = "The wolf pulled the white cap down over his ears and wrapped the shawl around his shoulders. He pulled the blanket up to his chin. In the warm, dark room, with the curtains half closed, he looked almost like Grandmother. He waited, and his yellow eyes shone in the dim light."
+beat = "The wolf puts on Grandmother's cap and shawl and waits in her bed."
+emotion = "sly patience: the wolf tucked up in bed, a small pleased smile, eyes bright in the dim room"
+caption = "The grey wolf in the green coat sits up in Grandmother's wooden bed under the patchwork quilt, wearing her white lace cap pulled down over his ears and her lavender shawl around his shoulders. The blanket is up to his chin. His amber eyes shine in the dim, warm room. The tall cupboard is closed in the background, and the curtains are half drawn."
+subject_action = "sitting up in bed with the blanket to his chin, paws on the quilt, wearing the cap and shawl, waiting"
+environment = "Grandmother's one-room cottage, dim and warm: the bed and patchwork quilt, the closed tall cupboard, the small table with a jug and candle, the hearth, the window with half-drawn curtains"
+time_of_day = "late morning, dim curtained light, a low fire"
+camera = "medium shot from the foot of the bed, the wolf centred, the cap, shawl and quilt clear"
+must_include = ["the grey wolf in Grandmother's white lace cap and lavender shawl", "the patchwork quilt up to his chin", "the closed tall wooden cupboard behind", "the wolf's amber eyes bright in the dim room", "the wolf's sly, pleased smile"]
+must_avoid = ["the child in this picture", "Grandmother in this picture", "the wolf showing teeth or snarling", "lettering or writing anywhere", "a weapon or blood"]
+
+[[pages]]
+key = "red-arrives"
+title = "The strange Grandmother"
+cast = ["wolf"]
+story = "{name} came up the garden path with the basket and the flowers. The blue door stood open, just a little. 'Grandmother?' {subject} called. There was no answer. {Subject} went inside. The room was warm and quiet, and someone was lying in the bed with a white cap on."
+beat = "{name} arrives at the cottage, finds the door ajar and a figure in the bed."
+emotion = "uneasy wonder: {name} stepping in with the basket and flowers, puzzled, a little unsure"
+caption = "{name} in the red hood steps through the half-open blue door of Grandmother's cottage, the covered basket on one arm and an armful of red, yellow and blue flowers in the other. The room is warm and dim. Across it, a figure lies in the wooden bed under the patchwork quilt wearing a white lace cap, the face half turned away. The tall cupboard is closed behind the door."
+subject_action = "stepping in through the door, holding the basket and flowers, head tilted towards the bed, uncertain"
+environment = "Grandmother's one-room cottage seen from the door: the bed with the patchwork quilt, the closed tall cupboard, the small table with a jug and candle, the hearth, the window with half-drawn curtains"
+time_of_day = "late morning, dim warm light from the curtains and the low fire"
+camera = "wide interior shot from just inside the door, {name} in the foreground and the bed across the room, the figure small under the quilt"
+must_include = ["{name} in the red hood with the basket and the flowers", "the half-open blue door", "the figure in the bed under the patchwork quilt with a white cap", "the closed tall cupboard", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf clearly visible or showing teeth", "lettering or writing anywhere", "Grandmother outside the cupboard", "a weapon or blood"]
+
+[[pages]]
+key = "big-ears"
+title = "What big ears"
+cast = ["wolf"]
+story = "'Grandmother, what big ears you have,' said {name}. 'All the better to hear you with, my dear,' said the wolf. 'And Grandmother, what big eyes you have.' 'All the better to see you with,' said the wolf. His voice was not quite like Grandmother's voice. It was deeper, and it made {name} take one small step back."
+beat = "{name} notices the wolf's big ears and big eyes, and his voice sounds wrong."
+emotion = "dawning worry: {name} leaning in, then drawing back; the wolf smoothly pleased under the cap"
+caption = "Beside the bed, {name} in the red hood leans in towards the figure under the patchwork quilt, the basket and flowers set on the small table. The grey wolf in the white lace cap and lavender shawl looks back over the quilt, his amber eyes bright and his smile wide. {name}'s hands are drawn up near {possessive} chest, one small step back already taken."
+subject_action = "{name} leaning in, then drawing back a little; the wolf propped on one elbow under the quilt, speaking smoothly"
+environment = "Grandmother's one-room cottage: the bed with the patchwork quilt, the small table with the basket, flowers, jug and candle, the closed tall cupboard, the hearth and curtained window"
+time_of_day = "late morning, dim warm light"
+camera = "close two-shot at the bedside, both faces readable, the bed and the small table in frame"
+must_include = ["{name} in the red hood at the bedside, drawing back", "the wolf in the white lace cap and lavender shawl under the quilt", "the wolf's large ears and bright amber eyes", "the basket and flowers on the small table", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf showing teeth or snarling", "lettering or writing anywhere", "an extra person", "a weapon or blood"]
+
+[[pages]]
+key = "big-teeth"
+title = "What big teeth"
+cast = ["wolf"]
+story = "'And Grandmother, what big teeth you have!' said {name}. The wolf threw off the blanket and sat up tall in the bed. 'All the better to gobble you up!' he growled. {name} cried out and ran for the door, but the wolf was already out of the bed and coming after {object}."
+beat = "The wolf leaps up, and {name} runs for the door."
+emotion = "alarm: {name} turning to run, mouth open in a shout; the wolf gleeful and quick"
+caption = "The grey wolf throws off the patchwork quilt and springs up in Grandmother's bed, still wearing the white lace cap and lavender shawl, his mouth open in a gleeful growl and one paw raised. {name} in the red hood is already turning towards the open blue door, the basket knocked over on the small table, flowers scattering. The room is bright with the open door."
+subject_action = "the wolf springing up out of the bed; {name} mid-turn, running towards the door, one arm out"
+environment = "Grandmother's one-room cottage: the bed with the quilt thrown back, the small table with the fallen basket and scattered flowers, the open blue door, the closed tall cupboard"
+time_of_day = "late morning, brighter light through the open door"
+camera = "wide interior shot from the corner, both figures full length, the open door and the running child clear"
+must_include = ["the wolf springing up in the white lace cap and lavender shawl", "the patchwork quilt thrown back", "{name} running towards the open blue door", "the fallen basket and scattered flowers", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf biting, touching or catching the child", "the wolf with blood or a weapon", "lettering or writing anywhere", "Grandmother outside the cupboard"]
+
+[[pages]]
+key = "the-shout"
+title = "The shout"
+cast = []
+story = "{name} ran out of the cottage and along the garden path. 'Help!' {subject} shouted as loud as {subject} could. 'Help! The wolf is in Grandmother's house!' The wood was quiet for one moment. Then, from the trees, came the sound of an axe set down and quick boots on the leaves."
+beat = "{name} runs outside and shouts for help; someone comes running from the wood."
+emotion = "fear turning to hope: {name} shouting with both hands cupped, eyes wide; the wood listening"
+caption = "{name} in the red hood runs down the cottage garden path, both hands cupped around {possessive} mouth, shouting towards the tall trees. The blue door stands open behind {object}. The garden is small and bright, with a low fence and flowers. Between the trees at the edge of the wood, a tall figure in green has just started running, boots on the leaves, an axe left standing in a stump out of the way."
+subject_action = "running and shouting with both hands cupped at {possessive} mouth; the woodcutter small and distant between the trees, starting to run"
+environment = "the cottage garden and the edge of the wood: a narrow path, a low fence, small flowers, tall trees, an axe standing in a stump at the wood's edge"
+time_of_day = "late morning, bright sun"
+camera = "wide shot from the garden, {name} running towards the viewer, the cottage behind and the woodcutter small between the trees"
+must_include = ["{name} in the red hood shouting with both hands cupped", "the open blue door behind", "the cottage garden path and low fence", "the woodcutter small between the trees, starting to run", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf", "a weapon held by anyone", "lettering or writing anywhere", "blood"]
+
+[[pages]]
+key = "the-woodcutter"
+title = "The woodcutter"
+cast = ["woodcutter"]
+story = "The woodcutter came running. He was tall and strong, with a kind, weathered face and sawdust on his sleeves. 'What is wrong, little one?' he asked. {name} pointed at the cottage and told him everything, all in a rush. The woodcutter listened, and his face grew serious."
+beat = "The woodcutter reaches {name} and listens to the whole story."
+emotion = "urgent kindness: the woodcutter kneeling to listen, {name} talking fast and pointing; both determined"
+caption = "In the cottage garden, a tall, broad woodcutter in a green woollen shirt, leather apron and brown boots kneels on one knee to listen to {name} in the red hood. Sawdust marks his sleeves. {name} is talking fast, one hand pointing back at the open blue door of the cottage. The woodcutter's weathered face is kind and serious. The garden fence and the tall trees are behind them."
+subject_action = "the woodcutter kneeling on one knee, listening; {name} standing close, pointing back at the cottage and speaking quickly"
+environment = "the cottage garden: the open blue door, a low fence, small flowers, the path to the wood, tall trees behind, bright morning"
+time_of_day = "late morning, bright sun"
+camera = "eye-level medium two-shot in the garden, both faces clear, the cottage door behind"
+must_include = ["the woodcutter kneeling, in a green shirt and leather apron", "sawdust on the woodcutter's sleeves", "{name} in the red hood pointing at the cottage", "the open blue door behind them", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "a weapon in anyone's hand", "the wolf", "lettering or writing anywhere", "blood"]
+
+[[pages]]
+key = "the-rescue"
+title = "Out with you, wolf"
+cast = ["woodcutter", "wolf"]
+story = "The woodcutter strode to the cottage door and threw it open. 'Out with you, wolf!' he shouted. 'Go back to the wood and do not come back!' The wolf took one look at him, jumped off the bed, and ran out through the door. He ran past the garden and over the hill, and nobody in the village saw him again."
+beat = "The woodcutter shouts, and the wolf runs away for good."
+emotion = "fierce courage and relief: the woodcutter tall in the doorway; the wolf startled and already running"
+caption = "The woodcutter stands tall and broad in the open blue doorway of the cottage, one arm out, shouting. Inside, the grey wolf in the white lace cap and lavender shawl leaps off the bed and runs for the door, coat and tail flying, his face startled. {name} in the red hood stands safe behind the woodcutter in the garden, watching. The patchwork quilt is in a heap on the bed."
+subject_action = "the woodcutter pointing firmly out of the door; the wolf running past him, low and quick; {name} behind the woodcutter"
+environment = "Grandmother's cottage door and small garden: the open blue door, the bed with the rumpled quilt inside, the garden path, the low fence and the wood beyond"
+time_of_day = "late morning, bright sun through the open door"
+camera = "wide shot from the garden, the doorway framing the woodcutter and the fleeing wolf, {name} small at the edge"
+must_include = ["the woodcutter standing tall in the doorway with one arm out", "the wolf running away, still wearing the lace cap and shawl", "the open blue door and the rumpled bed inside", "{name} in the red hood safe behind the woodcutter", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "anyone hitting, kicking or hurting the wolf", "the wolf biting or snarling", "a weapon in anyone's hand", "blood"]
+
+[[pages]]
+key = "grandmother-out"
+title = "Grandmother is safe"
+cast = ["grandmother"]
+story = "The woodcutter opened the tall cupboard, and Grandmother stepped out, safe and sound. She was a little shaky, but she was smiling. {name} ran to her and hugged her tight. 'You are safe,' said Grandmother. 'And so are you,' said {name}. The little cottage felt warm and bright again."
+beat = "Grandmother steps out of the cupboard, and {name} hugs her."
+emotion = "tearful relief: Grandmother smiling and shaky, {name} hugging her tight, eyes closed"
+caption = "In Grandmother's cottage, the tall wooden cupboard stands open and Grandmother, in her white lace cap and lavender shawl, steps out with one hand on the door. {name} in the red hood runs into her arms, the basket and flowers on the small table behind them. Grandmother is smiling with tears in her eyes. The bed with the rumpled patchwork quilt and the open blue door are in the background."
+subject_action = "Grandmother stepping out of the cupboard; {name} hugging her around the waist, face pressed to her shawl"
+environment = "Grandmother's one-room cottage: the open tall cupboard, the bed with the rumpled quilt, the small table with the basket, flowers, jug and candle, the open blue door"
+time_of_day = "late morning, warm light through the open door"
+camera = "eye-level medium shot by the cupboard, both faces readable, the cottage around them"
+must_include = ["Grandmother in her lace cap and lavender shawl stepping out of the cupboard", "{name} in the red hood hugging her", "the basket and flowers on the small table", "the rumpled patchwork quilt behind", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf", "Grandmother hurt or frightened", "lettering or writing anywhere", "a weapon or blood"]
+
+[[pages]]
+key = "the-supper"
+title = "Bread and honey"
+cast = ["grandmother"]
+story = "They sat down together at the little table. {name} opened the basket and set out the bread, the honey and the cake. Grandmother poured warm milk into two cups. They talked quietly while they ate, and the little cottage filled with the smell of bread. Outside, the sun moved slowly over the trees, and the blue door stayed open to the warm air."
+beat = "{name} and Grandmother share the basket at the little table."
+emotion = "calm contentment: both smiling softly over the food, the room warm and safe"
+caption = "Grandmother and {name} sit together at the small wooden table in the cottage, the covered basket open between them. Bread, a jar of honey and a little cake are set out on a cloth, and two cups of warm milk steam gently. Grandmother, in her lace cap and lavender shawl, smiles across the table at {name} in the red hood. The blue door stands open to the garden, and the low fire glows."
+subject_action = "sitting across from each other at the little table, {name} setting out the bread and honey, Grandmother pouring milk"
+environment = "Grandmother's one-room cottage: the small table with a cloth, bread, honey, cake and two cups, the wooden bed with the patchwork quilt, the closed tall cupboard, the hearth, the open blue door"
+time_of_day = "afternoon, warm soft light through the open door"
+camera = "eye-level medium shot across the table, both faces readable, the food and the open door in frame"
+must_include = ["{name} and Grandmother sitting at the little table", "bread, a jar of honey and a little cake on a cloth", "two cups of warm milk", "the open blue door and the warm cottage", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf", "an extra person", "lettering or writing anywhere", "a weapon or blood"]
+
+[[pages]]
+key = "home-in-the-dusk"
+title = "Home through the wood"
+cast = ["woodcutter"]
+story = "When the sky turned pink and grey, the woodcutter walked {name} home through the wood. He carried a lantern, and its light made a small warm circle on the path. 'Stay on the path,' he said, 'and do not talk to strange wolves.' {name} promised. At the edge of the wood, {possessive} mother was waiting."
+beat = "The woodcutter walks {name} home by lantern light, and Mother is waiting."
+emotion = "safe tiredness: {name} walking close to the woodcutter, the lantern warm; Mother waiting with open arms"
+caption = "At dusk, the woodcutter walks beside {name} along the wood path, holding a lantern that makes a small warm circle of light on the leaves. {name} in the red hood carries the empty basket, the red cloak dim in the blue evening. Ahead, at the edge of the wood, the mother stands by the cottage gate with her arms open. The tall trees are dark against a pink and grey sky."
+subject_action = "walking side by side along the path, the woodcutter holding the lantern high, {name} carrying the basket; the mother waiting ahead"
+environment = "the wood path at dusk: tall dark trees, old leaves, a lantern's warm circle, the edge of the wood ahead with a cottage gate and the mother"
+time_of_day = "dusk, pink and grey sky, the lantern's warm light"
+camera = "wide shot from behind {name} and the woodcutter, the lantern glowing, the mother small ahead at the wood's edge"
+must_include = ["the woodcutter walking beside {name} with a lantern", "the warm circle of lantern light on the path", "{name} in the red hood carrying the basket", "the mother waiting at the cottage gate ahead", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf", "a weapon in anyone's hand", "lettering or writing anywhere", "a dark or frightening wood"]
+
+[[pages]]
+key = "ever-after"
+title = "Ever after"
+cast = ["mother"]
+story = "{name} ran into {possessive} mother's arms and told her the whole tale. The basket was empty, the flowers were wilted, and the red hood was a little dirty. But {name} was home. Mother hugged {object} close and did not scold. And from that day on, {name} always stayed on the path, and always knocked before going in."
+beat = "{name} is home, and promises to stay on the path from now on."
+emotion = "warm safety: Mother hugging {name} tightly, both smiling, the cottage lamp glowing"
+caption = "At the cottage gate in the evening, {name}'s mother kneels and hugs {object} tight, the empty basket on the ground beside them and the wilted flowers in {name}'s hand. {name} in the red hood is smiling over her shoulder. The little cottage with its warm lit window and blue-green door is behind them, and the first stars are out above the trees."
+subject_action = "Mother kneeling with her arms around {name}; {name} hugging her back, the basket at their feet"
+environment = "the cottage gate at evening: the little stone cottage with a warm lit window, the blue-green door, a low fence, the wood dark behind, the first stars"
+time_of_day = "evening, deep blue sky with the first stars, warm lamplight from the window"
+camera = "eye-level medium shot at the gate, both faces readable, the cottage and the dark wood behind"
+must_include = ["{name} hugged by {possessive} mother at the cottage gate", "the empty basket on the ground", "the wilted flowers in {name}'s hand", "the cottage with a warm lit window", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf", "an extra person", "lettering or writing anywhere", "a weapon or blood"]

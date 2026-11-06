@@ -6,7 +6,7 @@ depends on — every id a script reaches for exists on the page it runs on, ever
 page loads its one module, `fetch` lives in one module — and the shape the
 plan promises (``docs/ui-redesign-plan.md``): the star first and required, every
 setting behind "Adjust the look", the page shape and photo choice on the About
-screen, and a book stage that shows all twenty pictures.
+screen, and a book stage that shows every picture and the About page.
 """
 
 from __future__ import annotations
@@ -207,7 +207,7 @@ def test_each_screen_loads_its_module_and_has_every_id_it_reads(
 
 def test_the_shelf_offers_jack_and_shows_red_coming_soon(shelf_html: str) -> None:
     assert "Make a picture book starring someone you love." in shelf_html
-    assert "One photo. Twenty pictures. A story they keep." in shelf_html
+    assert "One photo. Twenty-one pictures. A story they keep." in shelf_html
     assert f'href="{STUDIO}"' in shelf_html
     assert "Start this book" in shelf_html
     red = re.search(
@@ -388,10 +388,10 @@ def test_no_fee_line_without_money(about_html: str) -> None:
 # --- the book ----------------------------------------------------------------------------
 
 
-def test_the_book_stage_shows_all_twenty_pictures_and_the_about_page(book_html: str) -> None:
+def test_the_book_stage_shows_every_picture_and_the_about_page(book_html: str) -> None:
     tiles = re.findall(r'class="map-tile ([a-z]+)', book_html)
-    assert len(tiles) == 20, "cover + nineteen story pages"
-    assert len(re.findall(r'class="spread[ "]', book_html)) == 21
+    assert len(tiles) == 21, "cover + twenty story pages"
+    assert len(re.findall(r'class="spread[ "]', book_html)) == 22
     assert 'data-number="about"' in book_html
     assert "The End" in book_html
 
