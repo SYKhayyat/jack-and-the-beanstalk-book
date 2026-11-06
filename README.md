@@ -388,17 +388,21 @@ anywhere in the image — the story words are painted by the PDF layer, not by t
 model, which is what keeps the picture honest against its page.
 
 **The other characters stay themselves too.** Beyond the starring child, the
-cast is book data (`[book.cast]` in `app/prompts.toml`): Jack, the mother, the
-old man, the giant, and Milky-White. Every page prompt carries the same cast
-sheet — one block of pinned looks, byte-identical across the book — so no
-character's description is restated (and allowed to drift) page by page. A
-visitor may optionally attach a photo to any cast member marked photoable
-(`mother`, `old_man`, `giant`); that character then gets the same cheap portrait
-pass the star does, and only the pages that cast them send those references.
-Milky-White is the cow: she is pinned in prose and has `photoable = false`, so
-there is no UI field, catalogue entry or API path that can give her a face. A
-page always sends only its own cast's references — never the whole book's — so
-the per-call reference set stays small.
+cast is story data: each story's seed (`app/books/<story>.toml`) holds its
+character bible under `[cast.<key>]` — the look a page draws with no photo, the
+look it draws when the visitor supplied one, and the brief the portrait pass
+draws them from. Jack's cast is the mother, the old man and the giant; Red's is
+the mother, Grandmother, the Woodcutter and the wolf. Every page prompt carries
+the same cast sheet — one block of pinned looks, byte-identical across the
+book — so no character's description is restated (and allowed to drift) page
+by page. A visitor may optionally attach a photo to any supporting character
+marked `photoable`; that character then gets the same cheap portrait pass the
+star does, and only the pages that cast them send those references. The wolf
+has `photoable = false`, and Milky-White is not cast at all (she is a prop of
+the places, painted into the plate), so there is no UI field, catalogue entry
+or API path that can give either of them a face. A page always sends only its
+own cast's references — never the whole book's — so the per-call reference set
+stays small.
 
 ## The picture book
 
@@ -431,18 +435,22 @@ prompt — that is enforced by a test.
 - `POST /api/cartoonify/{generation_id}/choose` — `index`: keep one of a
   draft's alternative takes. Saves it as a new draft and returns it in the
   `cartoonify` shape; draws nothing and spends no rate token.
-- `GET /api/book/characters` — the cast slots a photo may be attached to
-  (`mother`, `old_man`, `giant`). Milky-White is cast in prose and is absent:
-  she has no upload path anywhere.
-- `POST /api/book/start` — multipart: `generation_id` (+ optional `child_name`,
+- `GET /api/stories/{story}/characters` — the cast slots a photo may be
+  attached to in that story (`mother`, `old_man`, `giant`; `mother`,
+  `grandmother`, `woodcutter`). The wolf and the cow have no upload path
+  anywhere.
+- `POST /api/book/start` — multipart: `story`, `generation_id` (+ optional `child_name`,
   `about_name`, `about_age`, `about_title`, `details`, `about_photo` =
   `cartoon | photo | both`, `aspect_ratio` for the whole book, and repeated
   `character=cast_key:generation_id`) → renders in the background. A blank
-  name resolves to Jack or Jane, following the photo's gender answer; the two
-  names exist so the About page can show a pseudonym. Each `character` pair
-  names a photoable cast member and the portrait made for them with
-  `/api/cartoonify`; pages that cast that character send their images as
-  references, and only those pages do.
+  name resolves to the story's default star name (Jack or Jane; Red), following
+  the photo's gender answer; the two names exist so the About page can show a
+  pseudonym. Each `character` pair names a photoable cast member and the
+  portrait made for them with `/api/cartoonify` (for the same story); pages
+  that cast that character send their images as references, and only those
+  pages do. The book is pinned to the story as it is when it starts — its
+  template version when there is one, otherwise the latest words and looks —
+  so a later seed change or look revision never reaches it.
 - `GET /api/book/{id}` — poll: `rendering | complete | failed`, plus one entry
   per page (`pending | making | done`) and a url once a page is done
 - `GET /book-media/{id}/portrait`, `GET /book-media/{id}/photo`,
@@ -450,17 +458,17 @@ prompt — that is enforced by a test.
   `GET /book-media/{id}/prompts.json` — the portrait and the original photo can
   also be handed over as files with `?download=1`
 - `GET /book-media/{id}/sources.zip` — every photo and comic behind the book
-  (star and each photographed character), the cover, the 19 page pictures,
+  (star and each photographed character), the cover, the 20 page pictures,
   the About text and `prompts.json`, in one archive to keep
 
 Pages render concurrently on the same concurrency gate as everything else, one
 slot each — so the gate, not the book, bounds how many provider calls are in
 flight at once. Starting a book charges one admission, and each page is charged
 as it renders rather than the whole page count up front, so a book larger than a
-minute's allowance is delayed, never refused. Adding a page is one new
-`[[book_pages]]` block in
-`app/prompts.toml`. Every story wording lives in that single prompts file — as
-required.
+minute's allowance is delayed, never refused. A story's words, scenes and
+cast live in its seed file (`app/books/<story>.toml`), which the app validates
+and loads into the database at every boot; every other word sent to a model
+lives in `app/prompts.toml`.
 
 ## HTTP API
 
@@ -469,10 +477,10 @@ required.
 | `GET` | `/` | The book UI |
 | `GET` | `/healthz` | Liveness, whether the pictures are real, and the per-process generation ceiling (`max_concurrent_generations`). Names neither the provider nor the model, and never includes secrets. |
 | `GET` | `/api/settings-options` | Every enum, the defaults, and the slider limits |
-| `GET` | `/api/book/pages` | The book's page identities (titles, story text) |
-| `GET` | `/api/book/characters` | The photoable cast slots (`mother`, `old_man`, `giant`); the cow is never listed |
-| `POST` | `/api/cartoonify` | multipart: `photo` + settings → the portrait (1 call) |
-| `POST` | `/api/book/start` | multipart: `generation_id` (+ optional star/About fields and repeated `character=key:generation_id`) → background book (1 call/page) |
+| `GET` | `/api/stories/{story}/pages` | A new book's page identities (titles, story text) |
+| `GET` | `/api/stories/{story}/characters` | The story's photoable cast slots; a character who can't be photographed is never listed |
+| `POST` | `/api/cartoonify` | multipart: `story`, `photo` + settings (+ optional `character`) → the portrait (1 call) |
+| `POST` | `/api/book/start` | multipart: `story`, `generation_id` (+ optional star/About fields and repeated `character=key:generation_id`) → background book (1 call/page); `409 story_not_ready` while the start gate holds the story |
 | `GET` | `/api/book/{id}` | Book status: rendering / complete / failed + page grid |
 | `GET` | `/api/books` | The signed-in person's library (empty in password mode) |
 | `POST` | `/api/book/{id}/edit` | multipart `action=page|character|cover|about|retry|delete` — edit an existing book |
@@ -538,13 +546,14 @@ Example:
 ```bash
 # Call 1 — one portrait, all settings applied here.
 ID=$(curl -s -X POST http://localhost:8000/api/cartoonify \
+  -F story=jack_and_the_beanstalk \
   -F photo=@me.jpg -F cartoon_intensity=9 -F cartoon_style=manga \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_id"])')
 
 # Calls 3–22 — the twenty story pages, rendered in the background. The
 # About page costs no call: the PDF draws it locally.
 BOOK=$(curl -s -X POST http://localhost:8000/api/book/start \
-  -F generation_id="$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["book_id"])')
+  -F story=jack_and_the_beanstalk -F generation_id="$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["book_id"])')
 
 # Poll while rendering, then download:
 curl -s http://localhost:8000/api/book/"$BOOK"
@@ -563,8 +572,12 @@ backend is running.
 
 ## Editing the prompts
 
-Every word the app sends to an image model lives in `app/prompts.toml`, not in
-Python. Change the prose there and restart; no code change and no rebuild. The
+Every word the app sends to an image model lives in data, not in Python: a
+story's own words, scenes and cast in its seed (`app/books/<story>.toml`), and
+everything else — the shared rules, each story's props-and-places sheet and its
+own extra rules under `[stories.<story>]` — in `app/prompts.toml`. Change the
+prose there and restart; no code change and no rebuild. A changed seed is
+loaded at boot as new revisions, so books already made keep their words. The
 values are keyed by the enum values in `app/models` (for example
 `cartoon_style = "western_cartoon"` maps to `[styles].western_cartoon`), so a
 setting added without its wording raises `KeyError` at startup rather than
@@ -579,11 +592,11 @@ operator before any book is made. A book's pages are then edit passes that
 paint the cast into those plates, so the plate is also the layout: it declares
 one slot per character on its page.
 
-```bash
-make migrate && make seed                              # words and the character bible
-```
+The app loads the story seeds into the database at every boot (unchanged seeds
+write nothing); `make seed` does the same for a database you are preparing
+ahead of a deploy.
 
-Then, signed in as the operator — set `OPERATOR_SUB` to your Google `sub` —
+Signed in as the operator — set `OPERATOR_SUB` to your Google `sub` —
 open `/admin/plates` and press **Paint missing plates** on a story. It paints
 21 draft plates (cover plus twenty pages), one image call each, and the button
 shows which page it just finished; the same command from a terminal is
@@ -597,8 +610,14 @@ way it is one call per plate, the count is shown before you start, and an
 already approved plate is never repainted.
 
 - `/admin/plates` — every story, how many of its 21 plates are painted and
-  approved, and whether it has a complete template version. A story with no
-  complete version cannot start a book.- `/admin/plates/{story}` — the contact sheet: all 21 plates in page order,
+  approved, whether it has a complete template version, and its **start
+  gate**: tick "Only start books on approved plates" and that story's books
+  cannot start until it has a complete version — the shelf card says "Not
+  ready yet" with one plain sentence, and the studio, the portrait pass and
+  `/api/book/start` refuse it before any image is paid for. Untick it and books
+  start on the latest words and looks. Books already started are untouched
+  either way.
+- `/admin/plates/{story}` — the contact sheet: all 21 plates in page order,
   with a toggle showing each character's slot and the cover's title band. This
   is also where **Paint missing plates** lives: one press, one image call per
   plate, and it stops when every page has a candidate. Each painted tile has
@@ -784,7 +803,7 @@ cannot prove the *pixels* do. That check is yours to run by eye:
      person, no text.
 5. If identity slips, tighten `identity_directive()` and switch
    `likeness_strength` to `strict`. If a page drifts, adjust that page's
-   `must_include` and `must_avoid` in `app/prompts.toml`.
+   `must_include` and `must_avoid` in its story's seed (`app/books/<story>.toml`).
 6. Re-run. `prompts.json` for each book shows the exact prompt behind every
    page, so you can check attempts side by side without confusion.
 

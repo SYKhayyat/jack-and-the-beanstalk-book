@@ -142,8 +142,8 @@ a **shelf** to choose the book, a **studio** where each character gets a photo
 and a comic beside it, an **About** screen for the last page, the picture choice
 (cartoon, photo or both) and the page shape, and the **book** itself, drawn live
 one page at a time and then downloadable as the PDF or as a zip of every photo
-and comic. *Little Red Riding Hood* is on the shelf as "Coming soon"; its story
-is the next piece of work. The full plan, including the review that settled the
+and comic. *Little Red Riding Hood* was on the shelf as "Coming soon" until its
+story landed as data (§ "A book is made from its story's data" below). The full plan, including the review that settled the
 details, is in [`ui-redesign-plan.md`](ui-redesign-plan.md).
 
 **Why:** the old page read as a form, and the thing people came for appeared
@@ -195,7 +195,8 @@ each page's words, and one revision of each character's look. Approving a better
 plate, editing a character's look or changing a story's seed file makes a new
 version for books started afterwards. A book already started never changes, and
 anything a book still uses can be retired but never deleted. Run
-`make migrate && make seed` to load the stories; seeding twice changes nothing.
+`make migrate && make seed` to load the stories (the app now also seeds at every
+boot); seeding twice changes nothing.
 
 A book made on a template can't be marked finished while any of its pictures,
 the cover included, has no quality review on record, and one query
@@ -205,6 +206,34 @@ the cover included, has no quality review on record, and one query
 paid for, not one silently redrawn on newer pictures. And a review that is
 merely expected, rather than required, gets skipped the first time it's
 inconvenient.
+
+## 14. A book is made from its story's data, and you decide when a story opens
+
+Both stories can now be made. Every word, scene and character look a book is
+drawn and printed from comes from its story's seed file, loaded into the
+database at every boot; `prompts.toml` keeps only the wording shared by every
+story, plus each story's props-and-places sheet and its own extra rules. Jack's
+twenty pages are no longer written twice. The seed carries two framings per
+scene where it needs them: the empty stage a plate is painted from, and the
+finished picture with the child in it.
+
+When a book starts it records the exact revision of every page and every look
+it uses (and the template version, when the story has one). A changed seed or a
+revised look reaches the next book, never one already made. A portrait made for
+one story is refused by the other, because the two stories share cast names
+but not looks, and Red's star wears the story's red hood instead of the
+visitor's chosen outfit.
+
+Each story has a start gate on `/admin/plates`. Off (the default), books start
+on the latest words and looks. On, a story without a complete set of approved
+plates shows "Not ready yet" on the shelf, and its studio, portrait pass and
+start all refuse before any picture is paid for. Books already started are not
+affected.
+
+**Why:** one source per page and per look is the only way the plates, the
+prompts and the PDF can agree. The gate is a switch rather than a rule because
+plates only change a finished book once the edit pass (T8) lands; until then,
+holding a story back would stop books without making them better.
 
 ## What is left for you (not done in code)
 

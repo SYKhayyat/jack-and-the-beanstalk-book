@@ -1,35 +1,31 @@
 # The 20-page book template — plan
 
-Status: **T1, T2, T3, T4, T5 and T6 have landed on `main`.** T0 is still
-blocked on a provider key; T7 is half landed (Jack's seed file is written, the
-page prompts do not read it yet); T8–T15 are gated behind T0 and Claude's
-T8/T9 contracts. Read [Where this actually stands](#where-this-actually-stands-2026-11-06)
-first — it says what a visitor and an operator can each do today and which
-three links are still missing — then [Status of this pass](#status-of-this-pass-2026-11-06)
+Status: **T1–T7, including T6.5, have landed on `main`.** T0 is still
+blocked on a provider key; T8–T15 are gated behind T0 and Claude's T8/T9
+contracts. Read [Where this actually stands](#where-this-actually-stands-2026-11-06)
+first — it says what a visitor and an operator can each do today and the one
+link still missing — then [Status of this pass](#status-of-this-pass-2026-11-06)
 for the per-item record. Everything else here is the agreed plan, with
 acceptance constraints that can be checked rather than argued about.
 
 ## Where this actually stands (2026-11-06)
 
-**What a visitor can do today.** Make a Jack book end to end: upload a photo,
-stylise it, give the supporting cast their own portraits, start a 20-page book,
-watch the pages arrive, read it and download the PDF. This pass did not change
-that flow. It still draws every page fresh from the prompt catalogue (Jack's
-pages are `BOOK_PAGES` in `app/models/book.py`, his words and cast are in
-`prompts.toml`), so no approved plate is involved in a book yet. Jack's seed
-file has been written beside that catalogue, but nothing prints from it yet. Everything
-behind it — books, pages, PDFs, people, wallets, retention — runs on the one
-database from T3, and a fresh checkout needs no database server: the app creates
-and migrates the SQLite file on boot.
+**What a visitor can do today.** Make either book end to end — *Jack and the
+Beanstalk* or *Little Red Riding Hood* (titled "{name} and the Wolf"): upload a
+photo, stylise it, give the story's supporting cast their own portraits, start a
+20-page book, watch the pages arrive, read it and download the PDF. Every word,
+scene and look a book is drawn and printed from comes from its story's seed
+(`app/books/<key>.toml`), loaded into the database at boot; the book pins the
+exact page and bible revisions it started on, so a re-seeded page or a revised
+look reaches the next book and never one already made. Pages are still
+composed fresh by the image model (T8 is not built), so no approved plate is
+painted into a book yet. Everything behind it — books, pages, PDFs, people,
+wallets, retention, stories — runs on the one database from T3, and a fresh
+checkout needs no database server: the app creates, migrates and seeds the
+SQLite file on boot.
 
-**What the operator can do today.** Prepare and review plates out of band, with
-no book involved:
-
-```bash
-make migrate && make seed
-```
-
-Then, with Google sign-in configured and `OPERATOR_SUB` set to your Google
+**What the operator can do today.** Prepare and review plates out of band, and
+decide when each story opens. With Google sign-in configured and `OPERATOR_SUB` set to your Google
 `sub`, `/admin/plates` walks story → contact sheet → one page. The story's
 sheet has **Paint missing plates**, which paints every page that has no
 candidate yet (one image call per press, repeated by the page itself until
@@ -41,36 +37,27 @@ template version 1; replacing an approved plate writes version 2 and leaves
 version 1 untouched. A cover whose top 22 % is too busy cannot be approved, and
 the reason is shown in place of the button. Anybody who is not `OPERATOR_SUB`
 gets a plain 404, and a password-mode deployment (no Google client) can never
-reach the screen at all.
+reach the screen at all. Each story on `/admin/plates` has a **start gate**
+(T6.5): ticked, a book of that story can start only on a complete template
+version — the shelf says "Not ready yet" in one plain sentence, and the studio,
+the portrait pass and `/api/book/start` refuse before any image is paid for;
+unticked (the default), books start on the latest words and looks. A book that
+does start on a version is pinned to it.
 
-**What is not connected yet.** Three links are missing between those two
-paragraphs, in dependency order:
+**What is not connected yet.** One link, and it is the payoff of the rest:
 
-1. **T6.5 — there is no start gate.** `/api/book/start` does not carry a
-   `story_key`, so it can neither ask whether the story has a complete template
-   version nor refuse a start. It also does not need to yet: books are still
-   drawn from the code catalogue, so refusing one would only stop a book
-   without making the next one better.
-2. **T7 — the bible is not the prompts' source.** Jack now has a seed file
-   (`app/books/jack_and_the_beanstalk.toml`), but the book the PDF prints still
-   comes from the code catalogue in `prompts.toml`, which repeats the same
-   twenty pages. Red's words are seeded but no book uses them (Red is still
-   "coming soon" on the shelf, because it has no book catalogue). A page prompt
-   still reads module-level look text, so a look the operator revised in the
-   bible, or a page seeded from Red's file, does not reach any prompt.
-3. **T8 — there is no edit pass.** `book_runner` composes each page from
-   scratch with the image model; it does not take the book's pinned plate and
-   paint the cast into its slots. Until it does, plates change nothing about a
-   finished book, which is also why T6.5 and T7 would have no visible effect
-   today.
-
-Until those three land, plates are reviewed, versioned and stored exactly as
-T4–T6 specify — but a book is still made the old way.
+- **T8 — there is no edit pass.** `book_runner` composes each page from scratch
+  with the image model; it does not take the book's pinned plate and paint the
+  cast into its slots. Until it does, an approved plate changes what is stored
+  and what a book is pinned to, not what a finished book looks like — which is
+  why the start gate ships switched off.
 
 **Waiting on someone else.** T0 needs a real provider key and three hand-made
 plates before Claude can make the go/fallback call. T8 and T9 need Claude's
 interfaces and `Verdict` schema before T10 can start. T2's Jack prose has not
-had Claude's review pass (Red's 20 pages were reviewed when they landed).
+had Claude's review pass (Red's 20 pages were reviewed when they landed), and
+T7 added new prompt wording that T15's review must cover: Red's props-and-places
+sheet, page rules, photo looks, portrait briefs and the red-hood costume.
 
 ## Decisions taken
 
@@ -119,7 +106,7 @@ wide parts against it.
 | **T3** — database required, SQLite default, test migration | Wide but mechanical, against Claude's contract tests. |
 | **T5** — plate-generation command | The prompt *language* may be refined by Claude or by the operator; the command is Buffy's. |
 | **T6** — admin review screen | Largest single chunk, but CRUD + auth + templates with no ambiguity. |
-| **T7** — character-bible wiring | Seed file written; wiring the page prompts to it is what remains. Pinned looks approved by the operator. |
+| **T7** — character-bible wiring | Done: the page prompts read the pinned bible. Pinned looks approved by the operator. |
 | **T10** — reviewer adapter, cost logging | Implements Claude's `Verdict` schema from T9. |
 | **T11** — concurrency, measurement harness | Empirical; no benefit from Opus. |
 | **T12** — stage names and thumbnails | |
@@ -133,11 +120,11 @@ wide parts against it.
    Claude's migration and store contract land first; then Buffy rewrites the
    store and tests against them. `db.py`, `db_book_store.py` and the store tests
    are the collision surface, so only one of them is open at any moment.
-2. **The plate pipeline is built; its payoff is T8.** T5 and T6 landed without
-   needing Opus time, and they are no longer the long pole. What remains on the
-   critical path is the edit pass that *uses* a plate (T8, behind T0's numbers
-   and Claude's contract), and the small start gate beside it (T6.5). Until
-   then, approving a plate changes what is stored, not what a book looks like.
+2. **The plate pipeline is built; its payoff is T8.** T5, T6, T6.5 and T7
+   landed without needing Opus time. What remains on the critical path is the
+   edit pass that *uses* a plate (T8, behind T0's numbers and Claude's
+   contract). Until then, approving a plate changes what is stored and pinned,
+   not what a book looks like.
 
 **Standing caveat:** on long multi-file refactors Buffy can drift from the spec.
 The acceptance constraints above are the contract — if T3 or T14 misses a
@@ -477,14 +464,9 @@ one slot reserved per cast member on the page.
 **Goal:** Jack, Red, the mother, the wolf and everyone else are data, with pinned
 looks and optional user photos.
 
-**Status (2026-11-06):** `app/books/jack_and_the_beanstalk.toml` is written —
-twenty pages, a cover, a calm title band, the cast bible (the child, the mother,
-the old man, the giant, all photoable), and plate-ready `environment`,
-`time_of_day` and `camera` lines that name nobody. The cow is deliberately not
-in `[cast]`: she cannot be given a photograph, so pages 1 and 2 carry her in
-their place and the plate paints her. Still open: `prompts.toml` is what the page
-prompts read, so its copy of the twenty pages has to stay in step until the
-wiring lands.
+**Status (2026-11-06): done.** Both seeds hold everything a book is made from,
+and `prompts.toml` holds no page and no look. See "T7 as built" under the
+status of this pass for where it differs from the scope below.
 
 **Scope**
 
@@ -716,36 +698,30 @@ tier-1 suspicion.
 ## Sequencing
 
 Done, in the order it landed: T1 and T2 (template and words), T4 (schema and
-versions, by Claude), T3 (one storage path), T5 (plate generation) and T6 (the
-review screen). What remains, in dependency order:
+versions, by Claude), T3 (one storage path), T5 (plate generation), T6 (the
+review screen), and T7 with T6.5 (books made from their story's data, and the
+start gate). What remains, in dependency order:
 
-1. **T7 — character-bible wiring.** Jack's seed is written; what remains is
-   making the page prompts read `story_characters` instead of `prompts.toml`
-   constants, which also removes the second copy of his twenty pages. Buffy.
-   Needs nothing from Claude and nothing from a provider, and it is the last
-   item that can be finished without either.
-2. **T2 prose pass on Jack** — Claude reviews the 20 Jack pages now that they
-   are seed data, and not only catalogue TOML; best before any plates are
-   approved, since a changed beat can change a plate.
-3. **T0 spike** — edit latency and background preservation on a real provider.
+1. **T2 prose pass on Jack** — Claude reviews the 20 Jack pages now that they
+   are seed data; best before any plates are approved, since a changed beat can
+   change a plate. The same pass should read T7's new Red wording (see T15).
+2. **T0 spike** — edit latency and background preservation on a real provider.
    Needs an operator with a key and three hand-made plates; Claude makes the
    go/fallback call on the numbers.
-4. **T8** — per-book edit pass on the pinned plates. **Claude's contract first**
+3. **T8** — per-book edit pass on the pinned plates. **Claude's contract first**
    (provider `supports_edit`, reference limits, background-preservation
    threshold); Buffy then wires it into `book_runner`.
-5. **T6.5** — the start gate and the shelf's one plain sentence. Small, but it
-   only means something once a book is rendered from a version, so it follows
-   T8 rather than leading it.
-6. **T9** — quality loop and `Verdict` schema (**Claude**), then **T10** — the
+4. **T9** — quality loop and `Verdict` schema (**Claude**), then **T10** — the
    reviewer adapter and cost logging (Buffy).
-7. **T11, T12, T13, T14** — speed, stage names, page-load caching, persistence
+5. **T11, T12, T13, T14** — speed, stage names, page-load caching, persistence
    and second-login tests. Buffy.
-8. **T15** — guardrail pass and the recorded timing/cost numbers. Buffy, then
+6. **T15** — guardrail pass and the recorded timing/cost numbers. Buffy, then
    Claude's required review of the prompts and guardrail tests.
 
 The operator's plate review (T5 → T6) is no longer the long pole: the screen
-exists. What it is waiting for is T8, so that approving a plate changes what a
-book looks like.
+exists, and the gate that turns plates into a requirement is one tick away.
+What it is waiting for is T8, so that approving a plate changes what a book
+looks like.
 
 ## Status of this pass (2026-11-06)
 
@@ -757,19 +733,61 @@ book looks like.
 | **T4** — schema, migration 0005, versioning and pinning | **Done.** Built ahead of T0 because T0's fallback keeps T4–T7 unchanged. Contract in `app/services/template_store.py` (`TemplateStore`), review guard in `app/services/db_book_store.py`, seed command `make seed`. `tests/test_template_store.py` holds each acceptance criterion and `tests/test_migrations.py::TestMigration0005` runs up/down/up; both run on Postgres with `TEST_POSTGRES_URL` set and passed on Postgres 17 locally. See "T4 as built" below. |
 | **T3** — database required, SQLite default | **Done.** `build_engine` turns SQLite foreign keys on, the filesystem book store is gone from the runtime path, `book_store.py` is now the contract alone, and `tests/test_migrations.py` runs the whole chain up and down on SQLite (Postgres with `TEST_POSTGRES_URL`). `README`, `Makefile`, `render.yaml`, `.env.example` and `docs/decisions.md` §4 say one storage path. |
 | **T5** — empty plates per story | **Done.** `app/services/plates.py` makes the 21 plans (deterministic slot layout by cast size, the exact prompt, no prose, no name, no placeholder) and `python -m app.scripts.make_plates --story <key>` writes them as `draft` plates with that prompt and those slots, one call per plate per candidate; `--contact-sheet` writes the set as one PNG. The prompt text is the story's own `[stories.<key>]` block in `prompts.toml`; `tests/test_plates.py` holds T5.1–T5.5. |
-| **T6** — admin review screen | **Done except T6.5.** `/admin/plates` (stories and progress), `/admin/plates/{story}` (the contact sheet, with a no-JS overlay of every stored slot and the cover's title band) and `/admin/plates/{story}/{page}` (candidates: approve, re-roll with an edited prompt, retire; plate bytes at `/admin/plates/{story}/{plate}.png`). Gated on `OPERATOR_SUB`; every route answers a plain 404 to anybody else, and a password session can never be the operator. Approve is idempotent and records operator and time; only approval creates a version. Delete is not wired on purpose — retire is the scope, and `delete_plate` refuses a plate any version names. Reads come from `TemplateStore.pages()` and `.plates()`. `tests/test_admin_plates.py` covers T6.1–T6.4 and T6.6–T6.7. **T6.5 is deferred to the T7/T8 wiring:** the start flow does not carry a `story_key` yet, so it cannot ask "is there a complete version for this story?". See the handoffs below. |
-| **T7** | **Half done.** `app/books/jack_and_the_beanstalk.toml` holds the twenty pages, the cover and the cast bible (mother, the old man and the giant, all photoable); the cow is not cast, because she cannot be photographed, and the pages' places carry her into the plate instead. Still open: the page prompts read `prompts.toml` and not the bible, and the catalogue's prose is a second copy of the seed's until they do. |
+| **T6** — admin review screen | **Done.** `/admin/plates` (stories and progress), `/admin/plates/{story}` (the contact sheet, with a no-JS overlay of every stored slot and the cover's title band) and `/admin/plates/{story}/{page}` (candidates: approve, re-roll with an edited prompt, retire; plate bytes at `/admin/plates/{story}/{plate}.png`). Gated on `OPERATOR_SUB`; every route answers a plain 404 to anybody else, and a password session can never be the operator. Approve is idempotent and records operator and time; only approval creates a version. Delete is not wired on purpose — retire is the scope, and `delete_plate` refuses a plate any version names. Reads come from `TemplateStore.pages()` and `.plates()`. `tests/test_admin_plates.py` covers T6.1–T6.4 and T6.6–T6.7. |
+| **T6.5** — the start gate | **Done, as an operator switch.** `stories.requires_template` (migration 0006), set from `/admin/plates` (`POST /admin/plates/{story}/gate`, operator only, 404 to anybody else) and never touched by seeding. On, with no complete version, `TemplateStore.edition_for_new_book` raises `NoTemplateVersion`; the shelf card is "Not ready yet" with the sentence, the studio and About screens answer 409, and `/api/cartoonify` and `/api/book/start` answer `409 story_not_ready` before anything is billed. Off (the default), books start on the latest revisions. `tests/test_story_editions.py::TestTheStartGate`. |
+| **T7** — the bible is the prompts' source | **Done.** See "T7 as built" below. `tests/test_story_editions.py` makes a Red book end to end, proves a re-seed and a revised look never reach a book already made, refuses the wolf and cross-story portraits, and pins a legacy book at boot; `tests/test_migrations.py::TestMigration0006` runs up/down/up on SQLite and Postgres 17. |
 | **T8–T15** | **Blocked on contracts.** T8 (edit pass) and T9 (quality loop) are Claude's; T10–T15 build on them. |
 
-Two transitional notes for whoever picks this up:
+One transitional note for whoever picks this up:
 
-1. **Jack's catalogue still lives in `prompts.toml`.** The seed is written and
-   `tests/test_story_seeds.py::TestJacksSeed` proves it prints the same words,
-   but the PDF still reads the catalogue. Two copies of twenty pages is a
-   hazard: change one and the other is stale. T7's remaining half removes it.
-2. **The reference cap is a constant for now.** `MAX_REFERENCE_CAST = 2`
+1. **The reference cap is a constant for now.** `MAX_REFERENCE_CAST = 2`
    (star included) stands in for T8's per-provider `max_reference_images`;
    when T8 lands, the seed check should read the configured provider's limit.
+
+### T7 as built — where it differs from the scope above
+
+1. **A book pins its edition, not only a version.** `book_story_pages` and
+   `book_story_characters` (migration 0006) record the exact page and bible
+   revisions every book is made from, written in the same transaction as the
+   book row by `save_record(edition=…)`. That holds with the gate off too, where
+   there is no version to pin; a book on a version pins that version's
+   revisions and its id. `TemplateStore.pin_book` is gone. Books saved before
+   0006 are pinned once at boot (`pin_unpinned_books`) to the latest revisions.
+2. **The edition is the one runtime view of a story.** `StoryEdition`
+   (`app/models/story.py`) carries a story's title template, default names,
+   cover, twenty pages and bible. The prompt builder, the runner, the PDF, the
+   start and edit routes, the media archive and every screen take an edition;
+   `BOOK_PAGES` and every `[book.cast*]` table are gone.
+3. **Two framings per scene.** A seed scene describes the empty plate; where the
+   finished picture needs different framing (the child's size in the frame,
+   light on a face), the page carries `[pages.compose]` with `environment`,
+   `time_of_day` or `camera`. Jack's twenty pages carry the catalogue's tested
+   framing there; Red needs none.
+4. **The bible carries every look.** `[cast.<key>]` holds `label`, `photoable`,
+   `look`, and for a photoable supporting character `look_with_photo` and
+   `portrait` (the portrait-pass brief); only the star may have `costume`, which
+   replaces the visitor's outfit (Red's hood; the studio hides the outfit
+   picker for such a story). The validator enforces each rule at boot.
+5. **Story wording that is not a look stays in `prompts.toml`.**
+   `[stories.<key>]` gains `page_world` (the props-and-places sheet the finished
+   page reads, beside the plate's `world`) and `page_rules` (the tale's own
+   rules: Milky-White's coat, the giant's face, Jack's physics examples; Red's
+   cloak and the wolf's disguise). Jack-only clauses were moved out of the
+   shared `[book]` lines into those rules.
+6. **Names and titles are per story.** `[story.names]` gives the default star
+   name per photo-gender answer, and `book_title` has a `{name}` slot; a book
+   stores its resolved title (`books.title`, backfilled for old books). This
+   also fixed a bug where every page prompt said "The character's name is
+   Jack." whatever name the visitor chose.
+7. **A portrait belongs to one story.** Drafts record `story_key`; a start or an
+   edit refuses a portrait made for another story, because cast keys repeat
+   across tales (both have a mother) but their looks do not.
+8. **The app seeds at boot.** `build_container` runs `seed` (a no-op when the
+   seeds are unchanged) and `pin_unpinned_books`; `make seed` now uses the same
+   database the app would, SQLite included.
+9. **The cover is drawn from the story's cover scene**, with the same scene
+   block as a page and a shared title-band line, instead of one hard-coded
+   beanstalk sentence.
 
 ### T4 as built — where it differs from the table list above
 
@@ -807,13 +825,9 @@ could not:
 
 **Handoffs:**
 
-- **T6 → T7/T8:** T6.5 ("a book cannot start while its story has no complete
-  template version; the shelf says so in one plain sentence") needs the start
-  flow to know its `story_key`, which is the same wiring T7/T8 need. Until
-  then `/admin/plates` shows the version state, and nothing refuses a start
-  that has no version behind it.
-- **T7/T8:** `save_record` does not take a `story_key` yet; the start flow sets
-  it and calls `pin_book` before the first image call. T9 writes verdicts with
+- **T8:** a book's pinned plates are `templates.book_edition(book_id)
+  .template_version_id` → `load_version(...)`; the edition already carries the
+  words and looks the edit prompt needs. T9 writes verdicts with
   `record_page_review` / `record_cover_review`.
 
 ### T6 as built — where it differs from the scope above
@@ -839,8 +853,8 @@ could not:
 4. **Re-roll is synchronous inside the request.** One image call, one new draft,
    then a redirect. There is no job, because the operator is watching and the
    server's wall-clock budget already covers one generation.
-5. **T6.5 is not here.** The start gate needs the `story_key` wiring T7/T8 are
-   doing; see the handoffs.
+5. **T6.5 landed with T7** as a per-story switch on `/admin/plates`; see its row
+   in the status table.
 6. **Delete is not wired.** The scope says retire, and retire is what the store
    needs: `delete_plate` exists and is tested, but it refuses any plate a
    version names, so it belongs beside version cleanup, not on this screen.
