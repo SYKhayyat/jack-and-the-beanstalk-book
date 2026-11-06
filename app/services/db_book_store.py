@@ -19,14 +19,15 @@ Implementation notes:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import Connection, delete, null, select, update
 from sqlalchemy import insert as sa_insert
 from sqlalchemy.engine import Engine
 
@@ -43,7 +44,15 @@ from app.services.book_store import (
 )
 from app.services.media import media_type_for
 
-__all__ = ["DatabaseBookStore"]
+__all__ = ["COVER_PAGE", "DatabaseBookStore", "UnreviewedImages", "unreviewed_images"]
+
+#: The cover's slot in a review report; story pages count from 1.
+COVER_PAGE = 0
+
+
+class UnreviewedImages(RuntimeError):
+    """A book pinned to a template tried to complete with an unreviewed image."""
+
 
 logger = logging.getLogger(__name__)
 
@@ -261,6 +270,12 @@ class DatabaseBookStore(BookStore):
                 title = cast("str | None", previous.get("title"))
             if cover_url is None and row is not None and row.cover is not None:
                 cover_url = self.cover_url(book_id)
+            if status == BookStatus.COMPLETE:
+                missing = _unreviewed(conn, book_id)
+                if missing:
+                    raise UnreviewedImages(
+                        f"book {book_id} cannot complete: no review for page(s) {missing}"
+                    )
             payload = self._status_payload(
                 book_id,
                 status,
@@ -376,8 +391,21 @@ class DatabaseBookStore(BookStore):
             conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id)
-                .values(cover=data, updated_at=_now())
+                .values(cover=data, cover_review=null(), updated_at=_now())
             )
+
+    def record_cover_review(self, book_id: str, review: list[dict[str, Any]]) -> None:
+        """Store the cover's verdicts (T9). A new cover clears them."""
+        if not review:
+            raise ValueError("a review records at least one verdict")
+        with self._engine.begin() as conn:
+            result = conn.execute(
+                update(BookRow)
+                .where(BookRow.id == book_id, BookRow.cover.is_not(None))
+                .values(cover_review=review)
+            )
+            if result.rowcount != 1:
+                raise LookupError(f"book {book_id} has no cover to review")
 
     def read_cover(self, book_id: str) -> bytes | None:
         with self._engine.connect() as conn:
@@ -450,8 +478,42 @@ class DatabaseBookStore(BookStore):
                     page_number=page_number,
                     image=data,
                     media_type=media_type_for(data),
+                    image_sha256=hashlib.sha256(data).hexdigest(),
                 )
             )
+
+    def record_page_review(
+        self,
+        book_id: str,
+        page_number: int,
+        *,
+        review: list[dict[str, Any]],
+        attempt_count: int,
+        chosen_attempt: int,
+        best_effort: bool = False,
+    ) -> None:
+        """Store a page's verdicts and which attempt was kept (T9).
+
+        Re-saving the page's image (`save_page`) clears all of this, so a
+        redrawn page can never ride on its predecessor's verdict.
+        """
+        if not review:
+            raise ValueError("a review records at least one verdict")
+        if not 1 <= chosen_attempt <= attempt_count:
+            raise ValueError("chosen_attempt must be one of the attempts made")
+        with self._engine.begin() as conn:
+            result = conn.execute(
+                update(BookPageRow)
+                .where(BookPageRow.book_id == book_id, BookPageRow.page_number == page_number)
+                .values(
+                    review=review,
+                    attempt_count=attempt_count,
+                    chosen_attempt=chosen_attempt,
+                    best_effort=best_effort,
+                )
+            )
+            if result.rowcount != 1:
+                raise LookupError(f"book {book_id} has no page {page_number} to review")
 
     def read_page(self, book_id: str, page_number: int) -> bytes | None:
         if page_number < 1:
@@ -600,6 +662,59 @@ class DatabaseBookStore(BookStore):
                 conn.execute(delete(BookRow).where(BookRow.id == book_id))
                 logger.info("book.expired id=%s", book_id)
         return len(stale)
+
+
+def _unreviewed(conn: Connection, book_id: str) -> list[int]:
+    """Images of a template-pinned book that have no review; 0 is the cover.
+
+    Books made before templates (no pin) are exempt: their pages predate the
+    quality loop and will never have verdicts.
+    """
+    book = conn.execute(
+        select(
+            BookRow.template_version_id, BookRow.cover.is_not(None), BookRow.cover_review
+        ).where(BookRow.id == book_id)
+    ).one_or_none()
+    if book is None or book[0] is None:
+        return []
+    missing: list[int] = []
+    if book[1] and not book[2]:
+        missing.append(COVER_PAGE)
+    pages = conn.execute(
+        select(BookPageRow.page_number, BookPageRow.review).where(
+            BookPageRow.book_id == book_id
+        )
+    ).all()
+    missing.extend(int(row.page_number) for row in pages if not row.review)
+    return sorted(missing)
+
+
+def unreviewed_images(engine: Engine) -> list[tuple[str, int]]:
+    """Every (book, page) in a completed, pinned book whose image was never reviewed.
+
+    T4.5's proof query: on a consistent database this is empty. Page 0 means
+    the cover. One query per kind, so it stays cheap enough for a health check.
+    """
+    with engine.connect() as conn:
+        pinned_complete = (
+            BookRow.template_version_id.is_not(None),
+            BookRow.status == BookStatus.COMPLETE,
+        )
+        covers = conn.execute(
+            select(BookRow.id).where(
+                *pinned_complete,
+                BookRow.cover.is_not(None),
+                BookRow.cover_review.is_(None),
+            )
+        ).scalars()
+        found = [(str(book_id), COVER_PAGE) for book_id in covers]
+        pages = conn.execute(
+            select(BookPageRow.book_id, BookPageRow.page_number)
+            .join(BookRow, BookRow.id == BookPageRow.book_id)
+            .where(*pinned_complete, BookPageRow.review.is_(None))
+        ).all()
+        found.extend((str(book_id), int(number)) for book_id, number in pages)
+    return sorted(found)
 
 
 def _now() -> datetime:

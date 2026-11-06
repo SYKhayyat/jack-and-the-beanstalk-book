@@ -27,6 +27,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     ForeignKey,
     Integer,
@@ -35,24 +36,37 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    event,
 )
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 __all__ = [
+    "DEFAULT_STORY_KEY",
     "BookCharacterRow",
     "BookPageRow",
     "BookRow",
+    "StoryCharacterRow",
+    "StoryPageRow",
+    "StoryRow",
+    "TemplatePlateRow",
+    "TemplateVersionCharacterRow",
+    "TemplateVersionPlateRow",
+    "TemplateVersionRow",
     "UserRow",
     "WalletRefundRow",
     "WalletTransactionRow",
     "build_engine",
     "database_secrets",
+    "enforce_sqlite_foreign_keys",
     "persistence_mode",
 ]
 
 logger = logging.getLogger(__name__)
+
+#: Every book made before stories were data is a Jack book.
+DEFAULT_STORY_KEY = "jack_and_the_beanstalk"
 
 
 class Base(DeclarativeBase):
@@ -104,6 +118,24 @@ class BookRow(Base):
     source_photo: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     cover: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     pdf: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    #: Which story this is. Not a foreign key: books made before stories were
+    #: data have no `stories` row to point at, and the pin below is the strong
+    #: link for every book made on a template.
+    story_key: Mapped[str] = mapped_column(String(64), default=DEFAULT_STORY_KEY)
+    #: The template version this book started on, never changed afterwards.
+    #: Null for books made before templates existed. RESTRICT: a version a book
+    #: uses cannot be deleted, only retired.
+    template_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey(
+            "template_versions.id",
+            ondelete="RESTRICT",
+            name="fk_books_template_version_id",
+        ),
+        nullable=True,
+        index=True,
+    )
+    #: The cover's quality verdicts (T9). A pinned book cannot complete without it.
+    cover_review: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
@@ -119,6 +151,15 @@ class BookPageRow(Base):
     page_number: Mapped[int] = mapped_column(primary_key=True)
     image: Mapped[bytes] = mapped_column(LargeBinary)
     media_type: Mapped[str] = mapped_column(String(50))
+    #: Billable image calls spent on this page (T9 caps it at three).
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    #: Every attempt's verdict, with its tier. Null until reviewed; re-saving the
+    #: image clears it, so a redrawn page is never carried by an old verdict.
+    review: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    chosen_attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    best_effort: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: Hex SHA-256 of `image`, written with it (T13's ETag).
+    image_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class BookCharacterRow(Base):
@@ -138,6 +179,159 @@ class BookCharacterRow(Base):
     portrait_media_type: Mapped[str] = mapped_column(String(50))
     photo: Mapped[bytes] = mapped_column(LargeBinary)
     photo_media_type: Mapped[str] = mapped_column(String(50))
+
+
+class StoryRow(Base):
+    """One story on the shelf. Mutable metadata; nothing a book pins lives here."""
+
+    __tablename__ = "stories"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    blurb: Mapped[str] = mapped_column(Text)
+    book_title: Mapped[str] = mapped_column(String(255))
+    #: The cast key the uploaded child plays; on every page whether listed or not.
+    star: Mapped[str] = mapped_column(String(64))
+    available: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class StoryPageRow(Base):
+    """One revision of one page's words and scene. Page 0 is the cover.
+
+    Rows are append-only: a changed page is a new revision, so a template
+    version that pinned the old one keeps reading the old words. There is no
+    column for a character's look — that lives in the bible only.
+    """
+
+    __tablename__ = "story_pages"
+    __table_args__ = (
+        UniqueConstraint(
+            "story_key", "page_number", "revision", name="uq_story_page_revision"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    story_key: Mapped[str] = mapped_column(ForeignKey("stories.key", ondelete="RESTRICT"))
+    page_number: Mapped[int] = mapped_column(Integer)
+    revision: Mapped[int] = mapped_column(Integer)
+    page_key: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(255))
+    prose: Mapped[str] = mapped_column(Text)
+    beat: Mapped[str] = mapped_column(Text)
+    emotion: Mapped[str] = mapped_column(Text)
+    scene: Mapped[dict[str, Any]] = mapped_column(JSON)
+    #: Cast keys as the seed lists them; the star is implied on every page.
+    cast_keys: Mapped[list[str]] = mapped_column(JSON)
+    text_band: Mapped[dict[str, Any]] = mapped_column(JSON)
+    #: Hash of the seed content that wrote this revision (null if not seeded).
+    seed_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class StoryCharacterRow(Base):
+    """One revision of one cast member's entry in the character bible.
+
+    The single source of a character's look. Append-only, like the pages: an
+    operator's edit or a changed seed adds a revision and never rewrites one.
+    """
+
+    __tablename__ = "story_characters"
+    __table_args__ = (
+        UniqueConstraint(
+            "story_key", "cast_key", "revision", name="uq_story_character_revision"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    story_key: Mapped[str] = mapped_column(ForeignKey("stories.key", ondelete="RESTRICT"))
+    cast_key: Mapped[str] = mapped_column(String(64))
+    revision: Mapped[int] = mapped_column(Integer)
+    display_name: Mapped[str] = mapped_column(String(255))
+    look: Mapped[str] = mapped_column(Text)
+    photoable: Mapped[bool] = mapped_column(Boolean)
+    reference_image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    reference_media_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    #: "seed" or "operator".
+    provenance: Mapped[str] = mapped_column(String(16))
+    seed_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class TemplatePlateRow(Base):
+    """One empty plate for one page: art with no people and no text.
+
+    `slots` is a JSON list of {cast_key, rect: [x, y, w, h] in 0..1, scale,
+    facing}. Status moves draft -> approved -> retired; image and prompt are
+    never rewritten.
+    """
+
+    __tablename__ = "template_plates"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    story_key: Mapped[str] = mapped_column(
+        ForeignKey("stories.key", ondelete="RESTRICT"), index=True
+    )
+    page_number: Mapped[int] = mapped_column(Integer)
+    image: Mapped[bytes] = mapped_column(LargeBinary)
+    media_type: Mapped[str] = mapped_column(String(50))
+    prompt: Mapped[str] = mapped_column(Text)
+    prompt_hash: Mapped[str] = mapped_column(String(64))
+    slots: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(16))
+    approved_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class TemplateVersionRow(Base):
+    """The one thing a book pins: a complete, immutable set of plates, words and looks."""
+
+    __tablename__ = "template_versions"
+    __table_args__ = (
+        UniqueConstraint("story_key", "number", name="uq_template_version_number"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    story_key: Mapped[str] = mapped_column(ForeignKey("stories.key", ondelete="RESTRICT"))
+    #: 1, 2, 3 per story. The current version is the highest number.
+    number: Mapped[int] = mapped_column(Integer)
+    #: Hash of the words, looks and plate ids this version pins.
+    content_hash: Mapped[str] = mapped_column(String(64))
+    reason: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class TemplateVersionPlateRow(Base):
+    """Page N of a version: which plate and which revision of the words."""
+
+    __tablename__ = "template_version_plates"
+
+    template_version_id: Mapped[str] = mapped_column(
+        ForeignKey("template_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    page_number: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plate_id: Mapped[str] = mapped_column(
+        ForeignKey("template_plates.id", ondelete="RESTRICT"), index=True
+    )
+    story_page_id: Mapped[int] = mapped_column(
+        ForeignKey("story_pages.id", ondelete="RESTRICT")
+    )
+
+
+class TemplateVersionCharacterRow(Base):
+    """A cast member of a version: which revision of the bible entry."""
+
+    __tablename__ = "template_version_characters"
+
+    template_version_id: Mapped[str] = mapped_column(
+        ForeignKey("template_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    cast_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    character_id: Mapped[int] = mapped_column(
+        ForeignKey("story_characters.id", ondelete="RESTRICT")
+    )
 
 
 class WalletTransactionRow(Base):
@@ -241,6 +435,29 @@ def build_engine(database_url: str) -> Engine:
         max_overflow=5,
         connect_args=connect_args,
     )
+
+
+def enforce_sqlite_foreign_keys(engine: Engine) -> Engine:
+    """Make a SQLite engine enforce foreign keys, as Postgres always does.
+
+    Opt-in for now: several store fixtures insert books for users that do not
+    exist, which Postgres would refuse. T3 (SQLite becomes the default database)
+    turns this on inside `build_engine` and fixes those fixtures. Until then the
+    template store also checks every reference itself, so the guarantee does
+    not depend on the pragma. A no-op for any other dialect.
+    """
+    if engine.dialect.name == "sqlite":
+        event.listen(engine, "connect", _sqlite_foreign_keys_on)
+    return engine
+
+
+def _sqlite_foreign_keys_on(dbapi_connection: Any, _record: Any) -> None:
+    """SQLite ignores foreign keys unless asked, per connection."""
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
 
 
 def persistence_mode(engine: Engine) -> str:

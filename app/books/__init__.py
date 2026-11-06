@@ -16,7 +16,8 @@ The checks here are the acceptance constraints from
 * one or two syllables where the story can manage it, never more than three;
 * every cast key a page names exists in that story's character bible;
 * no page references more characters than the image provider can take;
-* the prose is never reused as an image prompt.
+* the prose is never reused as an image prompt;
+* no scene restates a character's look — the bible is its only source (T4.3).
 """
 
 from __future__ import annotations
@@ -156,6 +157,7 @@ def seed_from_mapping(data: Mapping[str, Any], source: str = "<seed>") -> StoryS
 
     cover_table = _table(data, "cover", source)
     cover = _scene(cover_table, source, "cover")
+    _check_no_look_restated(cover, cast, source, "cover")
 
     raw_pages = data.get("pages")
     if not isinstance(raw_pages, list):
@@ -176,6 +178,7 @@ def seed_from_mapping(data: Mapping[str, Any], source: str = "<seed>") -> StoryS
             raise SeedError(f"{source}: duplicate page key {page_key!r}")
         seen.add(page_key)
         scene = _scene(raw, source, page_key)
+        _check_no_look_restated(scene, cast, source, page_key)
         for name in scene.cast:
             if name not in cast:
                 raise SeedError(
@@ -372,6 +375,39 @@ def _check_prose_is_not_a_prompt(
         value = spec.get(field)
         if isinstance(value, str) and needle and needle in _PLACEHOLDER.sub("", value):
             raise SeedError(f"{where} page {key!r}: {field} contains the story prose")
+
+
+#: A look sentence this long, copied into a scene, is a restated description.
+_RESTATED_WORDS = 8
+
+
+def _check_no_look_restated(
+    scene: SeedScene, cast: Mapping[str, str], where: str, key: str
+) -> None:
+    """A page names its cast by key; only `[cast]` describes them.
+
+    If a page copied a look into its scene, editing the bible would leave the
+    page drawing the old look. Any sentence of eight or more words from a look,
+    found verbatim in a scene field, is refused.
+    """
+    fields = [
+        scene.caption,
+        scene.subject_action,
+        scene.environment,
+        scene.time_of_day,
+        scene.camera,
+        *scene.must_include,
+        *scene.must_avoid,
+    ]
+    haystack = " ".join(" ".join(_normalise(field.split())) for field in fields)
+    for name, look in cast.items():
+        for sentence in re.split(r"(?<=[.!?])\s+", look):
+            words = _normalise(sentence.split())
+            if len(words) >= _RESTATED_WORDS and " ".join(words) in haystack:
+                raise SeedError(
+                    f"{where} {key!r}: restates {name!r}'s look; name the cast key and "
+                    "let [cast] describe them"
+                )
 
 
 SEEDS: tuple[StorySeed, ...] = tuple(load_seed(path) for path in seed_paths())

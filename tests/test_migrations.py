@@ -38,8 +38,13 @@ TABLES = sorted(name for name in Base.metadata.tables if name != VERSION_TABLE)
 
 def migrate(database_url: str) -> None:
     """Run `alembic upgrade head` against `database_url`, as `make migrate` does."""
+    alembic(database_url, "upgrade", "head")
+
+
+def alembic(database_url: str, *arguments: str) -> None:
+    """Run one Alembic command against `database_url` in a subprocess."""
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        [sys.executable, "-m", "alembic", *arguments],
         cwd=ROOT,
         env={**os.environ, "DATABASE_URL": database_url},
         capture_output=True,
@@ -49,15 +54,23 @@ def migrate(database_url: str) -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def describe(metadata: MetaData) -> dict[str, dict[str, object]]:
-    """Every table's columns, primary key and foreign keys, ignoring Alembic's own."""
+def describe(metadata: MetaData, *, affinity: bool = False) -> dict[str, dict[str, object]]:
+    """Every table's columns, primary key and foreign keys, ignoring Alembic's own.
+
+    `affinity` compares types by their generic family (BLOB and BYTEA are both
+    binary), which is what a schema built on another engine can be held to.
+    """
     described: dict[str, dict[str, object]] = {}
     for name, table in metadata.tables.items():
         if name == VERSION_TABLE:
             continue
         described[name] = {
             "columns": {
-                column.name: (str(column.type), column.nullable, column.primary_key)
+                column.name: (
+                    column.type._type_affinity.__name__ if affinity else str(column.type),
+                    column.nullable,
+                    column.primary_key,
+                )
                 for column in table.columns
             },
             "primary_key": [column.name for column in table.primary_key],
@@ -149,3 +162,92 @@ class TestTheMigratedSchema:
         finally:
             engine.dispose()
         assert recorded == heads[0]
+
+
+def reflect(database_url: str) -> MetaData:
+    engine = create_engine(database_url)
+    try:
+        metadata = MetaData()
+        metadata.reflect(engine)
+    finally:
+        engine.dispose()
+    return metadata
+
+
+#: Postgres is opt-in: tests never need a server, but a developer (or CI with a
+#: service container) can point this at a throwaway database to run the same
+#: up/down cycle on the production engine. The database is wiped to `base`.
+POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
+
+
+@pytest.fixture(
+    params=[
+        "sqlite",
+        pytest.param(
+            "postgres",
+            marks=pytest.mark.skipif(
+                not POSTGRES_URL, reason="set TEST_POSTGRES_URL to run against Postgres"
+            ),
+        ),
+    ]
+)
+def empty_database(request: pytest.FixtureRequest, tmp_path: Path) -> str:
+    """A database at `base`: a fresh SQLite file, or the opt-in Postgres one."""
+    if request.param == "sqlite":
+        return f"sqlite:///{tmp_path / 'cycle.sqlite'}"
+    alembic(POSTGRES_URL, "downgrade", "base")
+    return POSTGRES_URL
+
+
+class TestMigration0005:
+    """T4.6: the story-template migration runs up and down on both engines."""
+
+    def test_up_down_up_lands_on_the_models_each_time(self, empty_database: str) -> None:
+        models = describe(Base.metadata, affinity=True)
+        alembic(empty_database, "upgrade", "0004")
+        before = describe(reflect(empty_database), affinity=True)
+
+        alembic(empty_database, "upgrade", "head")
+        assert describe(reflect(empty_database), affinity=True) == models
+
+        alembic(empty_database, "downgrade", "0004")
+        assert describe(reflect(empty_database), affinity=True) == before
+
+        alembic(empty_database, "upgrade", "head")
+        assert describe(reflect(empty_database), affinity=True) == models
+
+        alembic(empty_database, "downgrade", "base")
+
+    def test_a_book_made_before_it_becomes_an_unpinned_jack_book(
+        self, empty_database: str
+    ) -> None:
+        """Existing rows survive: the new NOT NULL columns carry server defaults."""
+        alembic(empty_database, "upgrade", "0004")
+        engine = create_engine(empty_database)
+        try:
+            with engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "INSERT INTO books (id, status, generation_id, about, created_at, "
+                    "updated_at) VALUES ('old', 'complete', 'g', '{}', "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+                connection.exec_driver_sql(
+                    "INSERT INTO book_pages (book_id, page_number, image, media_type) "
+                    "VALUES ('old', 1, %s, 'image/png')"
+                    % ("X'00'" if empty_database.startswith("sqlite") else "'\\x00'")
+                )
+            alembic(empty_database, "upgrade", "head")
+            with engine.connect() as connection:
+                book = connection.exec_driver_sql(
+                    "SELECT story_key, template_version_id, cover_review FROM books"
+                ).one()
+                page = connection.exec_driver_sql(
+                    "SELECT attempt_count, review, best_effort FROM book_pages"
+                ).one()
+        finally:
+            engine.dispose()
+        assert tuple(book) == ("jack_and_the_beanstalk", None, None)
+        assert page.attempt_count == 0
+        assert page.review is None
+        assert not page.best_effort
+        alembic(empty_database, "downgrade", "base")

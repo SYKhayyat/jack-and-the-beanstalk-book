@@ -176,6 +176,25 @@ provider can take. A broken story now fails at start-up, not on a child's book.
 the same rules. Making the rules executable is what stops the second story from
 drifting into a different product.
 
+## 13. A book keeps the pictures, words and looks it started with
+
+Every book made on a story template now records the exact template version it
+started on: one approved empty picture (a "plate") per page, one revision of
+each page's words, and one revision of each character's look. Approving a better
+plate, editing a character's look or changing a story's seed file makes a new
+version for books started afterwards. A book already started never changes, and
+anything a book still uses can be retired but never deleted. Run
+`make migrate && make seed` to load the stories; seeding twice changes nothing.
+
+A book made on a template can't be marked finished while any of its pictures,
+the cover included, has no quality review on record, and one query
+(`unreviewed_images`) proves no finished book slipped through.
+
+**Why:** a parent who downloads their book next month must get the book they
+paid for, not one silently redrawn on newer pictures. And a review that is
+merely expected, rather than required, gets skipped the first time it's
+inconvenient.
+
 ## What is left for you (not done in code)
 
 These need your accounts, your money, or your judgement, so they are documented

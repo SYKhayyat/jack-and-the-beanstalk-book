@@ -1,7 +1,7 @@
 # The 20-page book template — plan
 
-Status: **T1 and T2 have landed on `main`; T0 is blocked on a provider key and
-T3–T15 are gated behind T0/T4/T8/T9.** See [Status of this pass](#status-of-this-pass-2026-11-06)
+Status: **T1, T2 and T4 have landed on `main`; T0 is blocked on a provider key
+and T3, T5–T15 are gated behind T0/T8/T9 (T3, T5, T6 and T7 can now start).** See [Status of this pass](#status-of-this-pass-2026-11-06)
 at the end. Everything else here is the agreed plan, with acceptance
 constraints that can be checked rather than argued about.
 
@@ -668,7 +668,9 @@ tier-1 suspicion.
 | **T1** — template freeze, cream page, cover title band | **Done.** `TemplateGeometry` is the one geometry every page uses; `title_band_report()` measures the cover's top 22 % and returns the reason an admin screen will show. `tests/test_page_template.py` covers 20 pages, overlong prose, cream fill, and flat/busy/gradient bands. |
 | **T2** — twenty pages for both stories | **Done for Red and content-complete for Jack.** `app/books/little_red_riding_hood.toml` holds 20 pages, cover, cast and the wolf's non-photoable flag; `app/books/__init__.py` is the boot-time validator. Jack gained `the-second-climb` as page 10, so all counts moved to 21 drawn pictures / 22 sheets. |
 | **T0** — edit latency and plate preservation | **Blocked.** The environment has `IMAGE_PROVIDER=mock` and no OpenAI, Gemini or Agnes key, so there are no real numbers to hand Claude. Needs an operator run with a key and three hand-made plates. |
-| **T3–T15** | **Blocked on contracts, not effort.** T4 (schema), T8 (edit pass) and T9 (quality loop) are Claude's; T3, T5–T7 and T10–T15 build on them. T5/T6 also wait on the operator's plate review. |
+| **T4** — schema, migration 0005, versioning and pinning | **Done.** Built ahead of T0 because T0's fallback keeps T4–T7 unchanged. Contract in `app/services/template_store.py` (`TemplateStore`), review guard in `app/services/db_book_store.py`, seed command `make seed`. `tests/test_template_store.py` holds each acceptance criterion and `tests/test_migrations.py::TestMigration0005` runs up/down/up; both run on Postgres with `TEST_POSTGRES_URL` set and passed on Postgres 17 locally. See "T4 as built" below. |
+| **T3, T5–T7** | **Unblocked by T4.** T5/T6 still wait on the operator's plate review. |
+| **T8–T15** | **Blocked on contracts.** T8 (edit pass) and T9 (quality loop) are Claude's; T10–T15 build on them. |
 
 Two transitional notes for whoever picks this up:
 
@@ -679,6 +681,53 @@ Two transitional notes for whoever picks this up:
 2. **The reference cap is a constant for now.** `MAX_REFERENCE_CAST = 2`
    (star included) stands in for T8's per-provider `max_reference_images`;
    when T8 lands, the seed check should read the configured provider's limit.
+
+### T4 as built — where it differs from the table list above
+
+Each difference keeps T4's acceptance criteria true where the list as written
+could not:
+
+1. **Words and looks are revisions, not rows edited in place.** `story_pages`
+   and `story_characters` are append-only (`revision` per page / cast key), and
+   a version pins row ids through `template_version_plates.story_page_id` and a
+   second child table, `template_version_characters`. A content hash alone
+   (as listed) can detect a change but cannot give an old book back its old
+   words (T4.1, T7.5).
+2. **No `stories.current_template_version_id`.** The current version is the
+   highest `template_versions.number` for the story. A stored pointer would be
+   a circular foreign key for no gain; T6 can add one if it needs rollback.
+3. **`books.story_key` defaults to `jack_and_the_beanstalk`** (the key the code
+   uses, not `jack_and_beanstalk`) and is not a foreign key: books made before
+   stories were data have no `stories` row. `template_version_id` is the
+   enforced link.
+4. **`books.cover_review`** is added beside the page `review`, because the
+   cover is an image too and T4.5 says no book completes with an unreviewed one.
+5. **The cover is page 0** in `story_pages`, `template_plates` and versions.
+6. **The star is on every page.** A plate needs exactly one slot per cast
+   member *plus the star*; seeds list only the supporting cast per page.
+   Approval enforces it; a seed change that alters a page's cast stops new
+   versions until that plate is re-approved.
+7. **Approving a plate retires the page's previous approved plate.** Versions
+   that already use the old one keep it.
+8. **T4.3 is enforced structurally and at boot.** `story_pages` has no look
+   column, and the seed validator refuses a scene that copies an 8-word-plus
+   sentence of a cast look. Making the page *prompts* read the bible is T7.
+9. **`image_sha256` is not backfilled** for old pages; it is written with every
+   new image.
+
+**Handoffs:**
+
+- **T3:** `build_engine` does not yet turn on SQLite foreign keys; the store
+  fixtures insert books for users that don't exist (Postgres would refuse).
+  T3 should call `enforce_sqlite_foreign_keys` inside `build_engine` and fix
+  those fixtures. The template store checks references itself meanwhile, and
+  T4's tests run with enforcement on.
+- **T6:** `approve_plate`, `retire_plate`, `delete_plate`, `add_plate` and
+  `revise_character` are the admin screen's whole write surface. Add the cover
+  title-band check (T1.5) in front of `approve_plate`.
+- **T7/T8:** `save_record` does not take a `story_key` yet; the start flow sets
+  it and calls `pin_book` before the first image call. T9 writes verdicts with
+  `record_page_review` / `record_cover_review`.
 
 ## Open questions (small, can be answered during the work)
 
