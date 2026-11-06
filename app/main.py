@@ -11,6 +11,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
+from datetime import datetime
 from pathlib import Path
 from time import monotonic
 
@@ -37,6 +38,7 @@ from app.services.google_oauth import GoogleOAuthClient
 from app.services.image_providers.base import ImageProvider
 from app.services.payments import PaymentProvider
 from app.sessions import SessionCodec
+from app.stories import STORIES
 
 __all__ = ["create_app"]
 
@@ -45,6 +47,16 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
+FONTS_DIR = BASE_DIR / "assets" / "fonts"
+
+
+def _short_date(stamp: object) -> str:
+    """An ISO timestamp as "2 Nov" for the drawer; anything else as given."""
+    try:
+        moment = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return str(stamp)
+    return f"{moment.day} {moment:%b}"
 
 
 class RevalidatedStaticFiles(StaticFiles):
@@ -162,6 +174,11 @@ def create_app(
     app.state.settings = resolved
     app.state.container = build_container(resolved, provider=provider, payments=payments)
     app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
+    # Every page shows the shelf's stories (the signed-out login page too) and
+    # the footer's retention line, so both are template globals.
+    app.state.templates.env.globals["stories"] = STORIES
+    app.state.templates.env.globals["book_retention_days"] = resolved.book_retention_days
+    app.state.templates.env.filters["short_date"] = _short_date
     app.state.gate = AuthGate(
         password=resolved.app_password,
         session_max_age_seconds=resolved.app_session_max_age_days * 24 * 60 * 60,
@@ -210,6 +227,9 @@ def create_app(
     app.include_router(media.router)
     app.include_router(wallet.router)
     app.include_router(auth.router)
+    # The book face the PDF already bundles, served to the pages too. Mounted
+    # under /static so the login page (which is pre-session) can load it.
+    app.mount("/static/fonts", RevalidatedStaticFiles(directory=FONTS_DIR), name="fonts")
     app.mount("/static", RevalidatedStaticFiles(directory=STATIC_DIR), name="static")
 
     @app.middleware("http")

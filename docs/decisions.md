@@ -1,6 +1,6 @@
 # Decisions — what was built and why
 
-This is the plain-language record of the nine steps in `HANDOFF.md` §4. Every
+This is the plain-language record of the steps in `HANDOFF.md` §4. Every
 step is committed separately, with the tests green before each commit. The
 short version: the picture book is finished and the engineering is done; the
 things that need a live account, a paid picture run, or other people are
@@ -122,6 +122,22 @@ private-window checklist and all deliverable links.
 
 **Why:** these are exactly the failures that are invisible locally and fatal at
 hand-in time. A test is cheaper than discovering them in front of the class.
+
+## 10. Four screens instead of one long form
+
+The app used to be one page with about forty controls, with the portrait review
+and the book stacked underneath the form. It is now four screens, one job each:
+a **shelf** to choose the book, a **studio** where each character gets a photo
+and a comic beside it, an **About** screen for the last page, the picture choice
+(cartoon, photo or both) and the page shape, and the **book** itself, drawn live
+one page at a time and then downloadable as the PDF or as a zip of every photo
+and comic. *Little Red Riding Hood* is on the shelf as "Coming soon"; its story
+is the next piece of work. The full plan, including the review that settled the
+details, is in [`ui-redesign-plan.md`](ui-redesign-plan.md).
+
+**Why:** the old page read as a form, and the thing people came for appeared
+underneath the thing they were filling in. Each screen now has one job, and the
+book is the biggest thing on the screen that shows it.
 
 ## What is left for you (not done in code)
 

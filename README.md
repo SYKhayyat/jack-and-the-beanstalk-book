@@ -343,11 +343,14 @@ app/
 │       ├── gemini.py     #         the fallback backend
 │       └── registry.py   #         name → class
 ├── db.py                 # the database engine and tables (only used with DATABASE_URL)
-├── routes/               # CONTROLLER: book (the UI), api, media, auth, settings_form
-├── templates/            # VIEW: book.html, login.html
+├── stories.py            # the shelf: which books exist and which can be made today
+├── routes/               # CONTROLLER: web (the four screens), book, api, media, auth
+├── templates/            # VIEW: shelf, studio, about_page, book, login (signed-out shelf), wallet
 ├── models/book.py        #     book pages, emotional beats, About
 ├── models/labels.py      #     UI labels for the closed enums
-└── static/               # VIEW: style.css + book.js, book-view.js
+└── static/               # VIEW: style.css, one script per screen (shelf.js, studio.js,
+                          #       about.js, book-live.js), drawer.js, api.js (the only fetch),
+                          #       photo.js, downscale.js, studio-draft.js, covers/
 ```
 
 ### The pipeline: portrait first, book second
@@ -416,13 +419,24 @@ shaping when available). Text never covers the art. The last page frames the
 child's portrait above a few sentences built from the About fields. The About free text you type is PDF-only and never reaches a
 prompt — that is enforced by a test.
 
-- `GET /` — the book UI (photo → who is the star → About → portrait →
-  approve → the book grows page by page → download the PDF)
+- The UI is four screens, one job each (see
+  [`docs/ui-redesign-plan.md`](docs/ui-redesign-plan.md)):
+  `GET /` the shelf (choose a book) → `GET /stories/{story}/studio` (one
+  section per character: photo, comic beside it, alternative takes, "Not quite
+  right?" chips, "Adjust the look") → `GET /stories/{story}/about` (the About
+  page's words, cartoon / photo / both, the page shape, Make the book) →
+  `GET /books/{id}` (the book drawn live, one page at a time, then the two
+  downloads and the edit strip). Signed out, `/login` is the same shelf with a
+  sign-in banner.
+- `POST /api/cartoonify/{generation_id}/choose` — `index`: keep one of a
+  draft's alternative takes. Saves it as a new draft and returns it in the
+  `cartoonify` shape; draws nothing and spends no rate token.
 - `GET /api/book/characters` — the cast slots a photo may be attached to
   (`mother`, `old_man`, `giant`). Milky-White is cast in prose and is absent:
   she has no upload path anywhere.
 - `POST /api/book/start` — multipart: `generation_id` (+ optional `child_name`,
-  `about_name`, `about_age`, `about_title`, `details`, and repeated
+  `about_name`, `about_age`, `about_title`, `details`, `about_photo` =
+  `cartoon | photo | both`, `aspect_ratio` for the whole book, and repeated
   `character=cast_key:generation_id`) → renders in the background. A blank
   name resolves to Jack or Jane, following the photo's gender answer; the two
   names exist so the About page can show a pseudonym. Each `character` pair
@@ -435,6 +449,9 @@ prompt — that is enforced by a test.
   `GET /book-media/{id}/pages/{n}`, `GET /book-media/{id}/pdf`,
   `GET /book-media/{id}/prompts.json` — the portrait and the original photo can
   also be handed over as files with `?download=1`
+- `GET /book-media/{id}/sources.zip` — every photo and comic behind the book
+  (star and each photographed character), the cover, the 19 page pictures,
+  the About text and `prompts.json`, in one archive to keep
 
 Pages render concurrently on the same concurrency gate as everything else, one
 slot each — so the gate, not the book, bounds how many provider calls are in
@@ -474,13 +491,12 @@ at `/docs`.
 
 ### Your books, and editing one
 
-In Google mode the landing page carries a **library sidebar**: every book the
-signed-in person owns, newest first, with its cover thumbnail and status. Each
-card carries a small **×** so a book can be put away without opening it first
-(the current book is opened on purpose, so the page has somewhere to stand).
-Clicking one opens `/books/{id}` — the book itself in a **reader** (the picture
-and its story line, page by page), the download links, every page, and the edit
-controls. Password/open mode deliberately has no library: there is no person to
+In Google mode every screen's header carries **My books**: a drop-down sheet of
+every book the signed-in person owns, newest first, with its cover thumbnail
+and status. Each row carries a small **×** so a book can be put away without
+opening it first. Clicking one opens `/books/{id}` — the book itself, one spread
+at a time (click, swipe or use the arrow keys; `#page-7` in the URL keeps your
+place), a map of all twenty pictures, the two downloads and the edit strip. Password/open mode deliberately has no library: there is no person to
 file books under, and one shared pile of children's photographs would be the
 wrong answer.
 
@@ -491,7 +507,8 @@ print-sized JPEGs, so a finished book is a few megabytes rather than the ~42 MB
 it used to be — small enough to assemble, download and view on a 512 MB
 instance.
 
-The edit surface is priced honestly: redrawing one page is one image call;
+The wallet fee is taken once per book, so edits add no further fee. In image
+calls the edit surface is priced honestly: redrawing one page is one image call;
 replacing the star redraws the whole book and cover; replacing the mother, old
 man or giant redraws only the pages that cast them; rewriting the About text or
 changing the title rebuilds the PDF with no model call. The original photo,
@@ -600,18 +617,14 @@ art anyway.
 
 ### Options to choose from
 
-One API call can return several alternatives, and you pick rather than re-roll.
+One API call can return several alternatives ("Takes" under Adjust the look),
+and you pick rather than re-roll — the studio shows them as a strip under the
+comic, and the one you click is the one the book uses.
 To be clear about the arithmetic: **this is not cheaper per call** — three
 options is three times the cost of one, because you are billed per returned
 image. It is cheaper per *kept* picture only if you would otherwise re-roll
 repeatedly. At $0.00588 a call, three options is $0.018, so it is off by default
 and worth turning on while settling a likeness.
-
-### One-step mode
-
-A checkbox that skips the preview gate and goes straight from upload to the
-rendered book, for when you already know your settings or just want the result.
-The UI calls `/api/cartoonify` and immediately starts the book on it.
 
 ## Stress testing, for free
 

@@ -45,6 +45,8 @@ from app.errors import (
 from app.models import (
     BOOK_PAGES,
     AboutMe,
+    AboutPhotoChoice,
+    AspectRatio,
     BookPage,
     CartoonSettings,
     RejectionFeedback,
@@ -172,6 +174,17 @@ async def start_book(
     about_age: int | None = Form(None, ge=0, le=99),
     about_title: str | None = Form(None, max_length=60),
     details: str = Form("", max_length=1000),
+    about_photo: str = Form(
+        AboutPhotoChoice.CARTOON,
+        description="What the About page frames: `cartoon`, `photo` or `both`.",
+    ),
+    aspect_ratio: str = Form(
+        "",
+        description=(
+            "The book's page shape, chosen on the About screen. Blank keeps the "
+            "shape the star's portrait was made with."
+        ),
+    ),
     character: list[str] = Form(
         default=[],
         description=(
@@ -219,8 +232,9 @@ async def start_book(
             "That portrait was made for a book character, not the book's star. "
             "Make the star's portrait from the child's own photo."
         )
+    settings = _with_page_shape(draft.settings, aspect_ratio)
     about = _about_from_form(
-        child_name, about_name, about_age, about_title, details, draft.settings
+        child_name, about_name, about_age, about_title, details, settings, about_photo
     )
     characters = await asyncio.to_thread(_character_references, character, container)
     # The person the book belongs to. In Google mode every request here has a
@@ -236,7 +250,7 @@ async def start_book(
         generation_id,
         about,
         character,
-        draft.settings,
+        settings,
     )
     book_id = record.book_id
     if reused:
@@ -307,7 +321,11 @@ def _start_or_reuse(
     brake fails before a record exists to clean up.
     """
     fingerprint = _request_fingerprint(
-        user_id=user_id, generation_id=generation_id, about=about, character=character
+        user_id=user_id,
+        generation_id=generation_id,
+        about=about,
+        character=character,
+        aspect_ratio=settings.aspect_ratio,
     )
     with _start_lock:
         existing = container.book_store.find_started(
@@ -344,13 +362,19 @@ def _start_or_reuse(
 
 
 def _request_fingerprint(
-    *, user_id: str | None, generation_id: str, about: AboutMe, character: list[str]
+    *,
+    user_id: str | None,
+    generation_id: str,
+    about: AboutMe,
+    character: list[str],
+    aspect_ratio: str,
 ) -> str:
     """A stable hash of everything that would change the finished book."""
     material = json.dumps(
         {
             "user": user_id or "",
             "generation": generation_id,
+            "aspect_ratio": aspect_ratio,
             "about": about.model_dump(mode="json"),
             # Order is the form's, not the semantics': two requests naming the
             # same photos in a different order ask for the same book.
@@ -377,6 +401,7 @@ async def edit_book(
     about_age: int | None = Form(None, ge=0, le=99),
     about_title: str | None = Form(None, max_length=60),
     details: str = Form("", max_length=1000),
+    about_photo: str = Form(""),
     reason: list[str] = Form(default=[]),
 ) -> dict[str, object]:
     """Edit a finished book without starting a new one.
@@ -411,6 +436,7 @@ async def edit_book(
             about_title,
             details,
             record.settings,
+            about_photo or record.about.about_photo,
         )
         await asyncio.to_thread(container.book_store.update_about, book_id, about)
         status_payload = (
@@ -626,6 +652,7 @@ def _about_from_form(
     about_title: str | None,
     details: str,
     settings: CartoonSettings,
+    about_photo: str = AboutPhotoChoice.CARTOON,
 ) -> AboutMe:
     """Resolve blank names and validate the uploader's words.
 
@@ -650,10 +677,30 @@ def _about_from_form(
                 "about_age": about_age,
                 "title": about_title,
                 "details": details,
+                "about_photo": about_photo,
             }
         )
     except ValidationError as exc:
         raise InvalidSettings(f"The About page details did not validate: {exc}") from exc
+
+
+def _with_page_shape(settings: CartoonSettings, aspect_ratio: str) -> CartoonSettings:
+    """The star's settings with the book-wide page shape substituted.
+
+    The page shape is chosen once for the whole book, on the About screen, so
+    it overrides whatever shape the star's portrait draft was made with. A
+    blank value keeps the draft's own shape (older clients send none).
+    """
+    if not aspect_ratio:
+        return settings
+    try:
+        shape = AspectRatio(aspect_ratio)
+    except ValueError as exc:
+        raise InvalidSettings(
+            f"Unknown page shape {aspect_ratio!r}. "
+            f"Valid values: {', '.join(ratio.value for ratio in AspectRatio)}."
+        ) from exc
+    return settings.model_copy(update={"aspect_ratio": shape})
 
 
 def _character_references(

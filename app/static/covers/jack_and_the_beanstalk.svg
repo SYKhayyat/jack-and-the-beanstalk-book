@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-label="A child at the foot of a beanstalk that climbs into the clouds, with a circle where the face goes">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bfe0f2"/>
+      <stop offset="1" stop-color="#fff4dc"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#sky)"/>
+  <!-- castle in the clouds -->
+  <g fill="#e8ddc9" stroke="#b8a888" stroke-width="2">
+    <rect x="262" y="34" width="70" height="40"/>
+    <rect x="256" y="20" width="16" height="54"/>
+    <rect x="322" y="20" width="16" height="54"/>
+    <rect x="288" y="12" width="18" height="62"/>
+  </g>
+  <path d="M290 74v-16a7 7 0 0 1 14 0v16z" fill="#8a7458"/>
+  <g fill="#fff">
+    <ellipse cx="300" cy="80" rx="80" ry="16"/>
+    <ellipse cx="250" cy="74" rx="34" ry="14"/>
+    <ellipse cx="350" cy="72" rx="36" ry="15"/>
+    <ellipse cx="80" cy="56" rx="42" ry="13"/>
+    <ellipse cx="112" cy="50" rx="26" ry="11"/>
+  </g>
+  <!-- hills -->
+  <path d="M0 238 Q110 196 220 230 T400 222 V300 H0z" fill="#8cc79a"/>
+  <path d="M0 262 Q140 236 260 258 T400 254 V300 H0z" fill="#5fa572"/>
+  <!-- beanstalk -->
+  <path d="M206 296 C186 250 236 220 214 180 C194 142 246 122 230 88 C222 70 252 60 258 50"
+        fill="none" stroke="#3c7a4e" stroke-width="14" stroke-linecap="round"/>
+  <path d="M206 296 C186 250 236 220 214 180 C194 142 246 122 230 88 C222 70 252 60 258 50"
+        fill="none" stroke="#5a9e69" stroke-width="5" stroke-linecap="round"/>
+  <g fill="#4f9a60" stroke="#2a5b39" stroke-width="2">
+    <path d="M214 236 q34 -22 52 -6 q-26 22 -52 6z"/>
+    <path d="M216 196 q-36 -20 -52 -2 q28 20 52 2z"/>
+    <path d="M226 146 q34 -20 50 -4 q-26 20 -50 4z"/>
+    <path d="M232 106 q-32 -18 -46 -2 q24 18 46 2z"/>
+  </g>
+  <!-- the star: a child with a face-shaped hole -->
+  <g transform="translate(112 168)">
+    <path d="M-26 118 L-20 54 Q0 40 20 54 L26 118z" fill="#d97b3f"/>
+    <path d="M-20 54 Q0 66 20 54 L18 70 Q0 80 -18 70z" fill="#a85a2b"/>
+    <rect x="-24" y="112" width="18" height="8" rx="3" fill="#5a3a22"/>
+    <rect x="6" y="112" width="18" height="8" rx="3" fill="#5a3a22"/>
+    <path d="M-20 60 L-40 92" stroke="#d97b3f" stroke-width="10" stroke-linecap="round"/>
+    <path d="M20 60 L44 30" stroke="#d97b3f" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="0" cy="22" r="27" fill="#fff"/>
+    <circle cx="0" cy="22" r="27" fill="none" stroke="#f2a63b" stroke-width="4" stroke-dasharray="7 6"/>
+  </g>
+  <!-- five beans -->
+  <g stroke="#23212c" stroke-width="1">
+    <ellipse cx="66" cy="282" rx="7" ry="4.5" fill="#c4453c"/>
+    <ellipse cx="82" cy="286" rx="7" ry="4.5" fill="#7d8fa3"/>
+    <ellipse cx="98" cy="282" rx="7" ry="4.5" fill="#3d7a46"/>
+    <ellipse cx="114" cy="286" rx="7" ry="4.5" fill="#c99a3e"/>
+    <ellipse cx="130" cy="282" rx="7" ry="4.5" fill="#5d3a78"/>
+  </g>
+</svg>

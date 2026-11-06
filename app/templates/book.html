@@ -1,352 +1,132 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Make a picture book — {{ book_title }}</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body class="{% if library_enabled %}has-library{% endif %}" data-max-upload-mb="{{ max_upload_mb }}" data-page="book">
-  <header class="masthead">
-    <h1>{{ book_title }}</h1>
-    <p class="tagline">Jack and the Beanstalk, starring You!</p>
-    {% if not provider.using_real_api %}
-      <p class="demo-note">Demo mode — the pictures are placeholders, not real drawings yet.</p>
-    {% endif %}
-    {% if wallet_enabled %}
-      <a class="button secondary wallet-link" href="/wallet">Wallet — {{ wallet_balance }}</a>
-    {% endif %}
-    {% if auth_enabled %}
-      <form class="logout-form" method="post" action="/logout">
-        {% if signed_in and user_name %}<span class="who">{{ user_name }}</span>{% endif %}
-        <button type="submit">Log out</button>
-      </form>
-    {% endif %}
-  </header>
-
-  {% include "_library.html" %}
-
-  <main>
-    <form id="book-form" class="panel" enctype="multipart/form-data">
-      <!-- The photo -->
-      <fieldset id="book-photo">
-        <legend>Your photo</legend>
-        <div class="photo-controls">
-          <label class="file-label" for="photo">
-            <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/webp">
-          </label>
-          <button type="button" id="use-camera" class="button secondary">Use camera</button>
+{% extends "_layout.html" %}
+{% block title %}{{ about.book_title }}{% endblock %}
+{% block body_attrs %}data-page="book" data-book-id="{{ book.book_id }}" data-book-status="{{ status }}" data-book-title="{{ about.book_title }}" data-max-upload-mb="{{ max_upload_mb }}"{% endblock %}
+{% block header_title %}<span class="header-title">{{ about.book_title }}</span>{% endblock %}
+{% block main_class %}page book-screen{% endblock %}
+{% block content %}
+  <section class="stage" aria-label="The book">
+    <button type="button" class="turn turn-back" id="turn-back" aria-label="Previous page"><span aria-hidden="true">←</span><span class="turn-label">back</span></button>
+    <div class="book-slot" id="book-slot" tabindex="0" aria-roledescription="book" aria-label="{{ about.book_title }} — use the arrow keys to turn the pages">
+      {% for tile in tiles %}
+      <figure class="spread{% if tile.number == 0 %} is-cover{% endif %}" id="spread-{{ loop.index0 }}" data-spread="{{ loop.index0 }}" data-number="{{ tile.number }}" data-status="{{ tile.status }}" hidden>
+        <span class="spread-art">
+          {% if tile.url %}
+          <img src="{{ tile.url }}" alt="{{ tile.label }}: {{ tile.title }}" loading="{{ 'eager' if loop.first else 'lazy' }}">
+          {% else %}
+          <span class="spread-waiting"><span class="pencil" aria-hidden="true"></span><span data-role="waiting-text">{{ "This one didn't make it." if tile.status == "failed" else "being drawn…" }}</span></span>
+          {% endif %}
+        </span>
+        {% if tile.story %}<figcaption class="spread-story">{{ tile.story }}</figcaption>{% endif %}
+      </figure>
+      {% endfor %}
+      <article class="spread about-spread" id="spread-{{ tiles|length }}" data-spread="{{ tiles|length }}" data-number="about" data-status="{{ 'done' if status == 'complete' else 'pending' }}" hidden>
+        <h2>{{ about_heading }}</h2>
+        <div class="about-frames">
+          {% for image in about_images %}<span class="about-frame"><img src="{{ image.url }}" alt="{{ image.alt }}" loading="lazy"></span>{% endfor %}
         </div>
-        <p class="field-help">Any size photo — we shrink it for you. A clear, front-facing photo works best.</p>
-        <p id="photo-message" class="inline-message hidden" role="status" aria-live="polite"></p>
+        {% for sentence in about_sentences %}<p>{{ sentence }}</p>{% endfor %}
+        <p class="the-end">The End</p>
+      </article>
+    </div>
+    <button type="button" class="turn turn-next" id="turn-next" aria-label="Next page"><span aria-hidden="true">→</span><span class="turn-label">next</span></button>
+  </section>
+  <p class="stage-hint"><span id="page-label">Cover</span> · click or swipe to turn the page</p>
 
-        <div id="camera-pane" class="camera-pane hidden">
-          <video id="camera-video" autoplay playsinline muted></video>
-          <div class="camera-actions">
-            <button type="button" id="camera-shutter" class="primary">Take the picture</button>
-            <button type="button" id="camera-cancel" class="button secondary">Cancel</button>
-          </div>
-        </div>
-        <p id="camera-message" class="inline-message error hidden" role="status" aria-live="polite"></p>
+  <section class="progress-block{% if status == 'complete' %} hidden{% endif %}" id="progress-block" aria-label="Progress">
+    <div class="progress-track" role="progressbar" aria-label="Pictures drawn" aria-valuemin="0" aria-valuemax="{{ tiles|length }}" aria-valuenow="{{ done_count }}" id="progress-track">
+      <div class="progress-fill" id="progress-fill" style="width: {{ (100 * done_count / tiles|length)|round(1) }}%"></div>
+    </div>
+    <p class="progress-caption" id="progress-caption" role="status" aria-live="polite">
+      {% if status == "failed" %}{{ done_count }} of {{ tiles|length }} pictures — this book stopped early.{% else %}Your book is being drawn. {{ done_count }} of {{ tiles|length }} pictures drawn.{% endif %}
+    </p>
+    <ol class="page-map" id="page-map">
+      {% for tile in tiles %}
+      <li><button type="button" class="map-tile {{ tile.status }}" data-goto="{{ loop.index0 }}" aria-label="{{ tile.label }}, {{ tile.status }}">
+        {% if tile.url %}<img src="{{ tile.url }}" alt="" loading="lazy">{% endif %}
+        <span class="map-number">{{ tile.short }}</span>
+      </button></li>
+      {% endfor %}
+    </ol>
+    <div class="failed-row{% if status != 'failed' %} hidden{% endif %}" id="failed-row">
+      <p class="inline-message error" id="failed-message">{{ error or "Some pictures didn't make it." }}</p>
+      <button type="button" class="button primary" id="finish-book">Finish this book</button>
+    </div>
+  </section>
 
-        <div id="preview-wrap" class="preview-wrap hidden">
-          <img id="preview" alt="Preview of your chosen photo">
-        </div>
-      </fieldset>
+  <section class="finished-block{% if status != 'complete' %} hidden{% endif %}" id="finished-block" aria-label="Your book is ready">
+    <p class="finished-title"><span aria-hidden="true">✨</span> Your book is ready.</p>
+    <div class="finished-actions">
+      <a class="button primary big" id="download-pdf" href="/book-media/{{ book.book_id }}/pdf" download>Download the book (PDF)</a>
+      <a class="button big" id="download-sources" href="{{ sources_url }}" download>Keep the photos and comics (zip)</a>
+    </div>
+    <p class="field-help"><a href="/book-media/{{ book.book_id }}/prompts.json" target="_blank" rel="noopener">See exactly what the artist was asked to draw</a></p>
+  </section>
 
-      <!-- Who is the star: the character the story is drawn around -->
-      <fieldset>
-        <legend>Who is the star?</legend>
-        <div class="grid-2">
-          <div class="control">
-            <label for="child-name">Name</label>
-            <input type="text" id="child-name" name="child_name" maxlength="60"
-                   placeholder="Jack">
-            <p class="field-help">Optional — leave it out and the star is simply Jack or Jane, whichever matches the photo.</p>
-          </div>
-          <div class="control">
-            <label for="photo_gender">The photo shows a</label>
-            <select id="photo_gender" name="photo_gender">
-              {% for value, label in photo_genders %}<option value="{{ value }}" {% if value == defaults.photo_gender %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-          </div>
-        </div>
-      </fieldset>
+  <section class="edit-strip{% if status not in ('complete', 'failed') %} hidden{% endif %}" id="edit-strip" aria-labelledby="edit-title">
+    <h2 id="edit-title">Edit this book</h2>
+    <p class="field-help">Changes are included — the book's fee was taken once.</p>
+    <div class="edit-actions">
+      <button type="button" class="button" id="edit-page">Redraw this page</button>
+      <button type="button" class="button" id="edit-cover">Redraw the cover</button>
+      <button type="button" class="button" id="edit-face">Replace a face</button>
+      <button type="button" class="button" id="edit-about">Edit the About page</button>
+      <button type="button" class="button danger" id="delete-book">Delete this book</button>
+    </div>
+    <p class="inline-message hidden" id="edit-message" role="status" aria-live="polite"></p>
+  </section>
 
-      <!-- Optional: give a face to more of the cast. Only the book's
-           photoable characters appear here — Milky-White is pinned in prose
-           and has no upload path anywhere. -->
-      <fieldset id="book-characters">
-        <legend>More characters (optional)</legend>
-        <p class="field-help">
-          Add a photo of anyone else who appears in the story and their cartoon
-          face will show up on the pages they are in — and only on those pages.
-          Leave a slot empty and that character is drawn from the story’s own
-          description.
-        </p>
-        <div class="grid-2">
-          {% for key, label in characters %}
-          <div class="control character-slot" data-slot="{{ key }}">
-            <label for="character-{{ key }}">{{ label }}</label>
-            <div class="photo-controls">
-              <input type="file" id="character-{{ key }}" name="character_photo_{{ key }}"
-                     accept="image/jpeg,image/png,image/webp" data-character="{{ key }}">
-              <button type="button" id="use-camera-{{ key }}" class="button secondary">Use camera</button>
-            </div>
-            <p id="character-message-{{ key }}" class="inline-message hidden" role="status" aria-live="polite"></p>
-            <div id="character-preview-wrap-{{ key }}" class="preview-wrap small hidden">
-              <img id="character-preview-{{ key }}" alt="Preview of the {{ label }} photo">
-            </div>
-            <button type="button" id="make-character-cartoon-{{ key }}" class="button secondary" disabled>
-              Make the cartoon
-            </button>
-            <div id="character-cartoon-wrap-{{ key }}" class="preview-wrap small hidden">
-              <img id="character-cartoon-{{ key }}" alt="Cartoon of the {{ label }}">
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-
-        <div id="character-camera-pane" class="camera-pane hidden">
-          <p id="character-camera-target" class="field-help"></p>
-          <video id="character-camera-video" autoplay playsinline muted></video>
-          <div class="camera-actions">
-            <button type="button" id="character-camera-shutter" class="primary">Take the picture</button>
-            <button type="button" id="character-camera-cancel" class="button secondary">Cancel</button>
-          </div>
-        </div>
-        <p id="character-camera-message" class="inline-message error hidden" role="status" aria-live="polite"></p>
-      </fieldset>
-
-      <!-- The About page: displayed exactly as written -->
-      <fieldset>
-        <legend>About</legend>
-        <div class="grid-2">
-          <div class="control">
-            <label for="about-name">Name</label>
-            <input type="text" id="about-name" name="about_name" maxlength="60"
-                   placeholder="Jack">
-            <p class="field-help">Shown on the About page — it can be different from the star's name.</p>
-          </div>
-          <div class="control">
-            <label for="about-age">Age (optional)</label>
-            <input type="number" id="about-age" name="about_age" min="0" max="99" placeholder="e.g. 7">
-          </div>
-        </div>
-        <div class="control">
-          <label for="about-title">Title</label>
-          <input type="text" id="about-title" name="about_title" maxlength="60" placeholder="e.g. an astronaut">
-        </div>
-        <div class="control">
-          <label for="details">About</label>
-          <textarea id="details" name="details" rows="8"></textarea>
-        </div>
-      </fieldset>
-
-      <div class="submit-block">
-        <button type="submit" id="make-portrait" class="primary">Make the cartoon portrait</button>
-        <p class="submit-help">You approve the portrait before the book pages are made — it is used on every page, so you look like you throughout.</p>
+  <dialog class="modal" id="redraw-dialog" aria-labelledby="redraw-title">
+    <form method="dialog">
+      <div class="modal-head"><h2 id="redraw-title">Redraw <span id="redraw-page-label">this page</span></h2><button type="submit" value="cancel" class="icon-button" aria-label="Close">✕</button></div>
+      <p class="field-help">Tick what went wrong. Every tick is a tested instruction; the rest of the book stays as it is.</p>
+      <div class="chips" id="redraw-chips">
+        {% for reason in rejection_reasons %}
+        <label class="chip"><input type="checkbox" name="reason" value="{{ reason.value }}"><span>{{ reason.label }}</span></label>
+        {% endfor %}
       </div>
-
-      <!-- Advanced options: anything you might want to pick, folded away. -->
-      <details id="book-advanced" class="advanced-options">
-        <summary>Advanced settings</summary>
-
-        <fieldset>
-          <legend>Art style</legend>
-          <div class="grid-2">
-            <div class="control">
-              <label for="cartoon_style">Style</label>
-              <select id="cartoon_style" name="cartoon_style">
-                {% for value, label in styles %}<option value="{{ value }}" {% if value == defaults.cartoon_style %}selected{% endif %}>{{ label }}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="control">
-              <label for="cartoon_intensity">Cartoon intensity</label>
-              <select id="cartoon_intensity" name="cartoon_intensity">
-                {% for level, label in intensities %}<option value="{{ level }}" {% if level == defaults.cartoon_intensity %}selected{% endif %}>{{ label }}</option>{% endfor %}
-              </select>
-            </div>
-          </div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Page shape</legend>
-          <div class="control">
-            <label for="aspect_ratio">Page / picture shape</label>
-            <select id="aspect_ratio" name="aspect_ratio">
-              {% for value, label in aspect_ratios %}<option value="{{ value }}" {% if value == defaults.aspect_ratio %}selected{% endif %}>{{ value }} — {{ label }}</option>{% endfor %}
-            </select>
-          </div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Who the character is</legend>
-          <div class="grid-3">
-            <div class="control">
-              <label for="apparent_age">Age</label>
-              <select id="apparent_age" name="apparent_age">
-                {% for value, label in ages %}<option value="{{ value }}" {% if value == defaults.apparent_age %}selected{% endif %}>{{ label }}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="control">
-              <label for="skin_tone">Skin tone</label>
-              <select id="skin_tone" name="skin_tone">
-                {% for value, label in skin_tones %}<option value="{{ value }}" {% if value == defaults.skin_tone %}selected{% endif %}>{{ label }}</option>{% endfor %}
-              </select>
-            </div>
-          </div>
-        </fieldset>
-
-        <fieldset>
-          <legend>The character's look</legend>
-          <div class="grid-3">
-            <div class="control">
-              <label for="hair_style">Hair</label>
-              <select id="hair_style" name="hair_style">
-                {% for value, label in hair_styles %}<option value="{{ value }}" {% if value == defaults.hair_style %}selected{% endif %}>{{ label }}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="control">
-              <label for="hair_color">Hair colour</label>
-              <select id="hair_color" name="hair_color">
-                {% for value, label in hair_colours %}<option value="{{ value }}" {% if value == defaults.hair_color %}selected{% endif %}>{{ label }}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="control">
-              <label for="outfit">Outfit</label>
-              <select id="outfit" name="outfit">
-                {% for value, label in outfits %}<option value="{{ value }}" {% if value == defaults.outfit %}selected{% endif %}>{{ label }}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="control">
-              <label for="expression">Expression</label>
-              <select id="expression" name="expression">
-                {% for value, label in expressions %}<option value="{{ value }}" {% if value == defaults.expression %}selected{% endif %}>{{ label }}</option>{% endfor %}
-              </select>
-            </div>
-          </div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Fidelity to the photo</legend>
-          <div class="grid-2">
-            <div class="control">
-              <label for="likeness_strength">Likeness to the real you</label>
-              <select id="likeness_strength" name="likeness_strength">
-                {% for value, label in likeness_levels %}<option value="{{ value }}" {% if value == defaults.likeness_strength %}selected{% endif %}>{{ label }}</option>{% endfor %}
-              </select>
-              <p class="field-help">Strict keeps your face most recognisable.</p>
-            </div>
-            <div class="control">
-              <label for="portrait_background">Portrait background</label>
-              <select id="portrait_background" name="portrait_background">
-                {% for value, label in backgrounds %}<option value="{{ value }}" {% if value == defaults.portrait_background %}selected{% endif %}>{{ label }}</option>{% endfor %}
-              </select>
-            </div>
-          </div>
-          <div class="grid-2">
-            <div class="control">
-              <label><input type="checkbox" id="keep_glasses" name="keep_glasses" {% if defaults.keep_glasses %}checked{% endif %}> Keep glasses</label>
-            </div>
-            <div class="control">
-              <label><input type="checkbox" id="keep_facial_hair" name="keep_facial_hair" {% if defaults.keep_facial_hair %}checked{% endif %}> Keep facial hair</label>
-            </div>
-          </div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Portrait alternatives</legend>
-          <div class="control">
-            <label for="candidates">How many alternatives</label>
-            <select id="candidates" name="candidates">
-              {% for count in range(1, 4) %}<option value="{{ count }}" {% if count == defaults.candidates %}selected{% endif %}>{{ count }}</option>{% endfor %}
-            </select>
-            <p class="field-help">All of them are made in one go; three takes three times as long.</p>
-          </div>
-          <div class="control">
-            <label><input type="checkbox" id="one_step" name="one_step" value="true"> Make it in one go</label>
-            <p class="field-help">Skip the portrait preview — the book starts as soon as the cartoon is ready.</p>
-          </div>
-        </fieldset>
-      </details>
+      <div class="modal-actions"><button type="submit" value="cancel" class="button">Cancel</button><button type="submit" value="save" class="button primary">Redraw it</button></div>
     </form>
+  </dialog>
 
-    <!-- Approve the portrait -->
-    <section id="review-stage" class="panel hidden">
-      <h2>Does this portrait look like you?</h2>
-      <div class="compare-grid">
-        <figure>
-          <img id="review-portrait" alt="The cartoon portrait to approve">
-          <figcaption>The cartoon — used on every page</figcaption>
-        </figure>
+  <dialog class="modal" id="face-dialog" aria-labelledby="face-title">
+    <form method="dialog" id="face-form">
+      <div class="modal-head"><h2 id="face-title">Replace a face</h2><button type="submit" value="cancel" class="icon-button" aria-label="Close">✕</button></div>
+      <label class="setting" for="face-character">Whose face?</label>
+      <select id="face-character" name="character_key">
+        <option value="star">The star ({{ about.prompt_name }}) — redraws every picture</option>
+        {% for key, label in characters %}<option value="{{ key }}">{{ label }} — redraws their pages</option>{% endfor %}
+      </select>
+      <div class="photo-actions">
+        <button type="button" class="button" id="face-camera">Take a photo</button>
+        <label class="button file-button">Upload a photo<input type="file" class="visually-hidden" id="face-file" accept="image/jpeg,image/png,image/webp"></label>
       </div>
-      <div class="review-actions">
-        <button type="button" id="approve-portrait" class="primary">Approve — make my book</button>
-        <button type="button" id="reject-portrait" class="button secondary"
-                aria-expanded="false" aria-controls="reject-body">Not right — try again</button>
-      </div>
+      <video id="face-video" class="hidden" autoplay playsinline muted></video>
+      <button type="button" class="button hidden" id="face-shutter">Take the picture</button>
+      <span class="plate-frame small hidden" id="face-preview-frame"><img id="face-preview" alt="The replacement photo"></span>
+      <p class="inline-message hidden" id="face-message" role="status" aria-live="polite"></p>
+      <div class="modal-actions"><button type="submit" value="cancel" class="button">Cancel</button><button type="submit" value="save" class="button primary">Replace this face</button></div>
+    </form>
+  </dialog>
 
-      <!-- Hidden until "Not right": precise feedback to the model, chip by
-           chip. Closed-set options only — no free text can reach a prompt. -->
-      <div id="reject-body" class="reject hidden">
-        <h3>Not right? Tick what went wrong</h3>
-        <p class="field-help">
-          Each tick tells the next attempt exactly what to fix. There is no
-          free-text box on purpose — every option here is a tested
-          instruction.
-        </p>
-        <div id="reject-chips" class="chips">
-          {% for reason in rejection_reasons %}
-          <label class="chip">
-            <input type="checkbox" name="reason" value="{{ reason.value }}">
-            <span>{{ reason.label }}</span>
-          </label>
-          {% endfor %}
-        </div>
-        <div class="review-actions">
-          <button type="button" id="reject-retry" class="button secondary">Try again with these fixes</button>
-        </div>
+  <dialog class="modal" id="about-dialog" aria-labelledby="about-edit-title">
+    <form method="dialog" id="about-edit-form">
+      <div class="modal-head"><h2 id="about-edit-title">The About page</h2><button type="submit" value="cancel" class="icon-button" aria-label="Close">✕</button></div>
+      <div class="about-fields">
+        <div class="field"><label for="edit-about-name">Name</label><input type="text" id="edit-about-name" name="about_name" maxlength="60" value="{{ about.about_name }}"></div>
+        <div class="field narrow"><label for="edit-about-age">Age</label><input type="number" id="edit-about-age" name="about_age" min="0" max="99" value="{{ about.about_age if about.about_age is not none else '' }}"></div>
+        <div class="field"><label for="edit-about-title">What do they want to be?</label><input type="text" id="edit-about-title" name="about_title" maxlength="60" value="{{ about.title or '' }}"></div>
+        <div class="field wide"><label for="edit-details">Anything else?</label><textarea id="edit-details" name="details" rows="4" maxlength="1000">{{ about.details }}</textarea></div>
       </div>
-      <p id="review-message" class="inline-message hidden" role="status" aria-live="polite"></p>
-    </section>
-
-    <!-- The book itself -->
-    <section id="book-stage" class="panel hidden">
-      <h2>Your book</h2>
-      <p id="book-progress" class="inline-message" role="status" aria-live="polite"></p>
-      <div
-        id="book-progress-track"
-        class="progress-track"
-        role="progressbar"
-        aria-label="Pages finished"
-        aria-valuemin="0"
-        aria-valuemax="0"
-        aria-valuenow="0"
-      >
-        <div id="book-progress-bar" class="progress-fill"></div>
-      </div>
-      <div id="page-grid" class="page-grid"></div>
-      <!-- The finished book is the PDF itself, viewed in one big box (UAT: no
-           four little page pictures). It is filled the moment rendering
-           completes; the download link sits below it. -->
-      <div id="book-pdf-panel" class="pdf-panel hidden">
-        <iframe id="book-pdf-frame" class="pdf-frame" title="Your picture book"></iframe>
-      </div>
-      <div class="download-block">
-        <a id="book-pdf-link" class="button primary hidden" download="book.pdf">Download the book (PDF)</a>
-        <a id="book-restart" class="button secondary hidden" href="/">Start a new book</a>
-      </div>
-      <details id="prompt-panel" class="prompt-panel">
-        <summary>Show the prompts that were sent</summary>
-        <p class="field-help">The portrait prompt, exactly as the image model received it:</p>
-        <pre id="prompt-cartoon"></pre>
-        <p><a id="prompt-json-link" target="_blank" rel="noopener" class="hidden">Open this book's page-by-page prompts (prompts.json)</a></p>
-      </details>
-      <p class="field-help">The story text is added by the PDF itself, so it can never come out misspelled.</p>
-    </section>
-  </main>
-
-  <script type="module" src="/static/book.js"></script>
-</body>
-</html>
+      <fieldset class="segmented">
+        <legend>On that page, show</legend>
+        {% for value, label in about_photo_choices %}
+        <label><input type="radio" name="about_photo" value="{{ value }}" {% if value == about.about_photo %}checked{% endif %}> {{ label }}</label>
+        {% endfor %}
+      </fieldset>
+      <input type="hidden" name="child_name" value="{{ about.prompt_name }}">
+      <p class="field-help">This rewrites the PDF; no picture is redrawn.</p>
+      <div class="modal-actions"><button type="submit" value="cancel" class="button">Cancel</button><button type="submit" value="save" class="button primary">Save the About page</button></div>
+    </form>
+  </dialog>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/book-live.js"></script>{% endblock %}

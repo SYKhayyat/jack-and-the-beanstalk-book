@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 import threading
 import time
 from pathlib import Path
@@ -21,6 +22,9 @@ from app.services.image_providers.base import (
 )
 from app.sessions import SESSION_COOKIE
 from tests.helpers import RecordingProvider, make_photo_bytes, multipart
+
+STUDIO = "/stories/jack_and_the_beanstalk/studio"
+ABOUT = "/stories/jack_and_the_beanstalk/about"
 
 PAGE_COUNT = len(BOOK_PAGES)
 
@@ -393,30 +397,29 @@ class TestLibrary:
             assert client.get("/api/books").json()["books"] == []
             assert client.get(f"/books/{book_id}").status_code == 404
 
-    def test_the_landing_page_shows_the_library_sidebar_for_a_signed_in_person(
-        self, tmp_path: Path
-    ) -> None:
+    def test_every_screen_offers_my_books_for_a_signed_in_person(self, tmp_path: Path) -> None:
         with _google_client(tmp_path) as client:
             _sign_in(client, "owner-1")
             book_id = _start(client)
             _wait(client, book_id)
-            page = client.get("/")
-            assert 'class="library"' in page.text
-            assert f"/books/{book_id}" in page.text
+            for path in ("/", STUDIO, ABOUT, f"/books/{book_id}"):
+                page = client.get(path)
+                assert 'id="books-drawer"' in page.text, path
+                assert f'href="/books/{book_id}"' in page.text, path
 
-    def test_every_book_in_the_sidebar_has_its_own_delete_button(self, tmp_path: Path) -> None:
-        """UAT: putting a book away meant opening it first. The cross is in the card."""
+    def test_every_book_in_the_drawer_has_its_own_delete_button(self, tmp_path: Path) -> None:
+        """UAT: putting a book away meant opening it first. The cross is in the row."""
         with _google_client(tmp_path) as client:
             _sign_in(client, "owner-1")
             book_id = _start(client)
             _wait(client, book_id)
             for path in ("/", f"/books/{book_id}"):
                 page = client.get(path)
-                assert 'class="library-item"' in page.text
-                assert 'class="library-delete"' in page.text
+                assert 'class="drawer-row"' in page.text
+                assert 'class="drawer-delete"' in page.text
                 assert f'data-delete-book="{book_id}"' in page.text
-            # The count the reader sees: cover + nineteen story pages + About.
-            assert "21 pages" in page.text
+            # The count the reader sees: twenty drawn pictures (cover + 19).
+            assert "20 pictures" in page.text
 
     def test_the_downloads_are_private_to_the_book_owner(self, tmp_path: Path) -> None:
         """Another signed-in person must not fetch someone's photo or cartoon."""
@@ -439,18 +442,19 @@ class TestLibrary:
             _wait(client, book_id)
             page = client.get(f"/books/{book_id}")
             assert page.status_code == 200
-            assert 'id="book-reader"' in page.text
-            assert 'id="reader-prev"' in page.text
-            assert 'id="reader-next"' in page.text
+            assert 'id="book-slot"' in page.text
+            assert 'id="turn-back"' in page.text
+            assert 'id="turn-next"' in page.text
             # The story line travels with the picture, not only in the PDF.
-            assert "reader-story" in page.text
-            assert page.text.count('class="reader-page') == 20
+            assert "spread-story" in page.text
+            # Cover + nineteen story pages + the About page.
+            assert len(re.findall(r'class="spread[ "]', page.text)) == 21
 
     def test_password_mode_has_no_library(self, client: TestClient) -> None:
         book_id = _start(client)
         _wait(client, book_id)
         assert client.get("/api/books").json() == {"books": []}
-        assert 'class="library"' not in client.get("/").text
+        assert 'id="books-drawer"' not in client.get("/").text
 
 
 class FlakyPageProvider(ImageProvider):
@@ -486,7 +490,9 @@ class TestFinishAFailedBook:
                 if page["status"] == "done"
             }
             assert 2 not in finished
-            assert 'id="finish-book"' in client.get(f"/books/{book_id}").text
+            assert re.search(r'class="failed-row"', client.get(f"/books/{book_id}").text), (
+                "a failed book offers Finish this book"
+            )
 
             provider.healed = True
             before = len(_page_calls(provider))
@@ -499,4 +505,4 @@ class TestFinishAFailedBook:
             assert any("Draw page 2 of" in r.prompt for r in redrawn)
             for number in finished:
                 assert not any(f"Draw page {number} of" in r.prompt for r in redrawn)
-            assert 'id="finish-book"' not in client.get(f"/books/{book_id}").text
+            assert 'class="failed-row hidden"' in client.get(f"/books/{book_id}").text

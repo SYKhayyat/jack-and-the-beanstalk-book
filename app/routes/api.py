@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from enum import StrEnum
 from typing import Annotated, TypeVar
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
 
@@ -34,6 +36,7 @@ from app.models.labels import choices_for
 from app.routes.settings_form import cartoon_settings_from_form
 from app.services.concurrency import GateTimeout
 from app.services.images import InvalidImage, decode_upload
+from app.services.pipeline import UnknownGeneration
 from app.services.prompts import cast_photoable
 from app.services.storage import Draft, candidate_url, draft_urls
 
@@ -141,6 +144,41 @@ async def cartoonify(
     if unused > 0:
         container.rate_limiter.refund(_client_key(request), unused)
     return _cartoon_payload(draft, settings, budget)
+
+
+@router.post("/cartoonify/{generation_id}/choose", status_code=status.HTTP_201_CREATED)
+async def choose_candidate(
+    generation_id: str,
+    container: ContainerDep,
+    index: int = Form(..., ge=0, description="Which alternative to keep; 0 is the default."),
+) -> dict[str, object]:
+    """Keep one of a draft's alternatives as the portrait the book will use.
+
+    The chosen take is saved as a new draft holding that one portrait, so the
+    start endpoint — which always uses a draft's first portrait — draws the
+    book around the take the visitor picked. No image is made, so nothing is
+    billed and no rate token is spent. The original draft is left alone and
+    expires on its own schedule.
+    """
+    store = container.store
+    draft = await asyncio.to_thread(store.load_draft, generation_id)
+    if draft is None:
+        raise UnknownGeneration(generation_id)
+    try:
+        chosen = draft.with_candidate(index)
+    except IndexError as exc:
+        raise InvalidSettings(
+            f"That portrait has {len(draft.candidates)} alternative(s); "
+            f"there is no number {index}."
+        ) from exc
+    chosen = replace(chosen, generation_id=uuid4().hex)
+    await asyncio.to_thread(store.save_draft, chosen)
+    payload = _cartoon_payload(
+        chosen, chosen.settings, container.settings.generation_timeout_seconds
+    )
+    # Choosing draws nothing: say so, rather than echoing the original call.
+    payload.update(stage="chosen", provider_call_count=0, billed_image_count=0)
+    return payload
 
 
 # --- shared helpers ---------------------------------------------------------
@@ -265,6 +303,7 @@ def _cartoon_payload(
             ],
         },
         "candidate_count": len(draft.candidates),
+        "cast_key": draft.cast_key,
         "provider_call_count": 1,
         "billed_image_count": len(draft.candidates),
         "timeout_budget_seconds": budget,

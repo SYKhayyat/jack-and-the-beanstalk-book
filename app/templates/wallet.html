@@ -1,32 +1,15 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Your wallet — Jack and the Beanstalk</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body data-page="wallet">
-  <header class="masthead">
-    <h1><a class="title-link" href="/">Jack and the Beanstalk</a></h1>
-    <p class="tagline">Your wallet</p>
-    {% if signed_in %}
-    <nav class="masthead-actions">
-      <a class="button secondary" href="/">Make a new book</a>
-      <form class="logout-form" method="post" action="/logout">
-        {% if user_name %}<span class="who">{{ user_name }}</span>{% endif %}
-        <button type="submit">Log out</button>
-      </form>
-    </nav>
-    {% endif %}
-  </header>
-
-  <main class="wallet">
+{% extends "_layout.html" %}
+{% block title %}Your wallet — Storybook Studio{% endblock %}
+{% block body_attrs %}data-page="wallet"{% endblock %}
+{% block header_title %}<span class="header-title">Your wallet</span>{% endblock %}
+{% block main_class %}page wallet{% endblock %}
+{% block content %}
+  <nav class="breadcrumb"><a href="/">← Back to the books</a></nav>
     {% if message %}
     <p class="inline-message" role="status" aria-live="polite">{{ message }}</p>
     {% endif %}
 
-    <section class="panel wallet-balance-panel">
+    <section class="card wallet-balance-panel">
       <h2>Balance</h2>
       <p class="wallet-balance">{{ balance_label }}</p>
       <p class="field-help">
@@ -36,7 +19,7 @@
       </p>
     </section>
 
-    <section class="panel">
+    <section class="card">
       <h2>Add money</h2>
       {% if payments_enabled %}
       <p class="field-help">
@@ -60,7 +43,7 @@
     </section>
 
     {% if payments_enabled %}
-    <section class="panel">
+    <section class="card">
       <h2>Send money back</h2>
       <p class="field-help">
         Up to {{ refundable_label }} can go back to the card right now — that is what
@@ -76,7 +59,7 @@
     </section>
     {% endif %}
 
-    <section class="panel">
+    <section class="card">
       <h2>Every movement</h2>
       {% if history %}
       <table class="wallet-table">
@@ -99,7 +82,7 @@
     </section>
 
     {% if refunds %}
-    <section class="panel">
+    <section class="card">
       <h2>Refund requests</h2>
       <table class="wallet-table">
         <thead>
@@ -117,6 +100,4 @@
       </table>
     </section>
     {% endif %}
-  </main>
-</body>
-</html>
+{% endblock %}

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -26,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.models.scenes import Scene
 from app.prompt_data import prompt_text
 
-__all__ = ["BOOK_PAGES", "AboutMe", "BookPage", "get_book_page"]
+__all__ = ["BOOK_PAGES", "AboutMe", "AboutPhotoChoice", "BookPage", "get_book_page"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +137,14 @@ def get_book_page(key: str) -> BookPage | None:
     return _BOOK_PAGES_BY_KEY.get(key)
 
 
+class AboutPhotoChoice(StrEnum):
+    """What the About page frames: the cartoon, the real photo, or both."""
+
+    CARTOON = "cartoon"
+    PHOTO = "photo"
+    BOTH = "both"
+
+
 class AboutMe(BaseModel):
     """Who stars in the book and what the About page prints.
 
@@ -164,6 +173,9 @@ class AboutMe(BaseModel):
         default="",
         description="Free text the uploader wants on the About page.",
     )
+    #: Defaulted, so a record written before the choice existed still
+    #: validates and renders exactly as it did: the cartoon alone.
+    about_photo: AboutPhotoChoice = AboutPhotoChoice.CARTOON
 
     @field_validator("prompt_name")
     @classmethod

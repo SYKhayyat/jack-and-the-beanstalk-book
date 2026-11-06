@@ -1,0 +1,31 @@
+<details class="drawer" id="books-drawer">
+  <summary class="pill drawer-toggle">My books <span aria-hidden="true">▾</span></summary>
+  <div class="drawer-sheet" aria-label="Your books">
+    {% if books %}
+    <ul class="drawer-list">
+      {% for item in books %}
+      <li class="drawer-row">
+        <a class="drawer-item{% if item.book_id == current_id|default('') %} current{% endif %}" href="/books/{{ item.book_id }}">
+          {% if item.cover_url %}
+          <img class="drawer-thumb" src="{{ item.cover_url }}" alt="" loading="lazy">
+          {% else %}
+          <span class="drawer-thumb placeholder" aria-hidden="true"></span>
+          {% endif %}
+          <span class="drawer-text">
+            <strong>{{ item.title or "Untitled book" }}</strong>
+            <span class="drawer-meta">
+              {% if item.status == "complete" %}finished {{ item.updated_at|short_date }} · {{ item.page_count or 20 }} pictures
+              {% elif item.status == "failed" %}stopped · {{ item.pages_done }} of {{ item.page_count or 20 }}
+              {% else %}<span class="dot" aria-hidden="true"></span>being drawn · {{ item.pages_done }} of {{ item.page_count or 20 }}{% endif %}
+            </span>
+          </span>
+        </a>
+        <button type="button" class="drawer-delete" data-delete-book="{{ item.book_id }}" data-delete-title="{{ item.title or 'Untitled book' }}" aria-label="Delete {{ item.title or 'Untitled book' }}" title="Delete this book">&times;</button>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="drawer-empty">Your books will collect here.</p>
+    {% endif %}
+  </div>
+</details>

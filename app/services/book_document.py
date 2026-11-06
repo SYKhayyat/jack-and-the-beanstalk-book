@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 
-from app.models.book import BookPage
+from app.models.book import AboutPhotoChoice, BookPage
 from app.services.book_store import BookRecord, BookStatus, BookStore
 from app.services.pdf import PageArt, build_book_pdf
 from app.services.wallet import Wallet
@@ -67,7 +67,13 @@ class BookDocument:
         cover = self._book_store.read_cover(record.book_id)
         # The child's approved portrait is framed on the About page.
         portrait = self._book_store.read_portrait(record.book_id)
-        pdf_bytes = build_book_pdf(record.about, arts, cover, portrait=portrait)
+        # The original photo is read only when the About page will show it.
+        photo = (
+            self._book_store.read_source_photo(record.book_id)
+            if record.about.about_photo != AboutPhotoChoice.CARTOON
+            else None
+        )
+        pdf_bytes = build_book_pdf(record.about, arts, cover, portrait=portrait, photo=photo)
         self._book_store.save_pdf(record.book_id, pdf_bytes)
         # The document exists now, so this is the moment its fee belongs to.
         # Charging is idempotent per book id: an edit that rebuilds the PDF

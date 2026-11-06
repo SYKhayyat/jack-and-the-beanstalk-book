@@ -102,12 +102,12 @@ class TestCharacterCatalogue:
     def test_the_form_offers_a_slot_per_photoable_character_only(
         self, client: TestClient
     ) -> None:
-        html = client.get("/").text
+        html = client.get("/stories/jack_and_the_beanstalk/studio").text
         for key, _ in photoable_cast():
-            assert f'data-character="{key}"' in html
-        # No upload path for the cow, anywhere in the form.
-        assert 'data-character="milky_white"' not in html
-        assert "character_photo_milky_white" not in html
+            assert f'data-section="{key}"' in html
+        # No upload path for the cow, anywhere in the studio.
+        assert 'data-section="milky_white"' not in html
+        assert "milky_white" not in html
 
 
 class TestCharacterValidation:

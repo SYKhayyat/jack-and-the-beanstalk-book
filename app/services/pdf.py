@@ -34,7 +34,7 @@ from pathlib import Path
 from fpdf import FPDF
 from PIL import Image, UnidentifiedImageError
 
-from app.models.book import AboutMe, BookPage
+from app.models.book import AboutMe, AboutPhotoChoice, BookPage
 from app.prompt_data import prompt_text
 
 __all__ = ["PageArt", "build_book_pdf", "draw_about_page", "draw_cover_page"]
@@ -116,12 +116,14 @@ def build_book_pdf(
     cover: bytes | None = None,
     *,
     portrait: bytes | None = None,
+    photo: bytes | None = None,
 ) -> bytes:
     """Assemble the book: cover, story pages in order, About last.
 
     Every page has the same size: the art's shape plus one story margin, so
-    the book prints and reads as one object. `portrait`, when given, is framed
-    on the About page.
+    the book prints and reads as one object. `portrait` (the cartoon) and
+    `photo` (the original) are framed on the About page as `about.about_photo`
+    asks.
 
     Raises:
         ValueError: if `pages` is empty or any image is unreadable.
@@ -147,7 +149,7 @@ def build_book_pdf(
     for number, entry in enumerate(pages, start=1):
         _draw_page(pdf, entry, layout, number)
 
-    draw_about_page(pdf, about, portrait)
+    draw_about_page(pdf, about, portrait, photo)
 
     output = io.BytesIO()
     pdf.output(output)
@@ -263,8 +265,15 @@ def _draw_page(pdf: FPDF, entry: PageArt, layout: _Layout, number: int) -> None:
     pdf.cell(pdf.w, 14.0, str(number + 1), align="C")
 
 
-def draw_about_page(pdf: FPDF, about: AboutMe, portrait: bytes | None = None) -> None:
-    """The closing page: heading, framed portrait, sentences, "The End"."""
+def draw_about_page(
+    pdf: FPDF, about: AboutMe, portrait: bytes | None = None, photo: bytes | None = None
+) -> None:
+    """The closing page: heading, framed picture(s), sentences, "The End".
+
+    The picture is the cartoon, the real photo, or both side by side, as the
+    About screen chose. A choice whose image is missing falls back to what is
+    there, so the page is never left without the face it can show.
+    """
     width, height = pdf.w, pdf.h
     pdf.add_page()
     pdf.set_fill_color(*_PAPER)
@@ -282,9 +291,17 @@ def draw_about_page(pdf: FPDF, about: AboutMe, portrait: bytes | None = None) ->
     pdf.cell(usable, heading_size * 1.4, heading, align="C")
     top += heading_size * 1.4 + height * 0.03
 
-    if portrait is not None:
-        top = _framed_image(pdf, portrait, top, max_side=min(height * 0.40, width * 0.45))
+    images = _about_images(about.about_photo, portrait, photo)
+    if len(images) == 1:
+        top = _framed_image(pdf, images[0], top, max_side=min(height * 0.40, width * 0.45))
         top += height * 0.035
+    elif len(images) == 2:
+        side = min(height * 0.30, width * 0.30)
+        bottoms = [
+            _framed_image(pdf, image, top, max_side=side, centre_x=width * share)
+            for image, share in zip(images, (0.30, 0.70), strict=True)
+        ]
+        top = max(bottoms) + height * 0.035
 
     closing = str(prompt_text()["book"]["about"]["closing"])
     closing_size = max(16.0, width * 0.035)
@@ -321,8 +338,26 @@ def _centred_lines(pdf: FPDF, lines: Sequence[str], top: float, line_height: flo
         pdf.cell(pdf.w, line_height, line, align="C")
 
 
-def _framed_image(pdf: FPDF, image: bytes, top: float, *, max_side: float) -> float:
-    """Draw `image` centred in a gold frame with a cream mat; return its bottom."""
+def _about_images(
+    choice: AboutPhotoChoice, portrait: bytes | None, photo: bytes | None
+) -> list[bytes]:
+    """The About page's pictures, in left-to-right order: photo, then cartoon."""
+    if choice == AboutPhotoChoice.BOTH:
+        wanted = [photo, portrait]
+    elif choice == AboutPhotoChoice.PHOTO:
+        wanted = [photo or portrait]
+    else:
+        wanted = [portrait or photo]
+    return [image for image in wanted if image is not None]
+
+
+def _framed_image(
+    pdf: FPDF, image: bytes, top: float, *, max_side: float, centre_x: float | None = None
+) -> float:
+    """Draw `image` in a gold frame with a cream mat; return its bottom.
+
+    Centred on the page unless `centre_x` names another horizontal centre.
+    """
     try:
         art_w, art_h = _image_size(image)
     except ValueError:
@@ -331,7 +366,7 @@ def _framed_image(pdf: FPDF, image: bytes, top: float, *, max_side: float) -> fl
     scale = min(max_side / art_w, max_side / art_h)
     w, h = art_w * scale, art_h * scale
     frame, mat = 7.0, 6.0
-    x = (pdf.w - w) / 2
+    x = (pdf.w / 2 if centre_x is None else centre_x) - w / 2
     pdf.set_fill_color(*_GOLD)
     pdf.rect(x - frame - mat, top, w + 2 * (frame + mat), h + 2 * (frame + mat), style="F")
     pdf.set_fill_color(*_CREAM)

@@ -1,0 +1,131 @@
+{% extends "_layout.html" %}
+{% block title %}Who's in the story? — {{ story.title }}{% endblock %}
+{% block body_attrs %}data-page="studio" data-story="{{ story.key }}" data-max-upload-mb="{{ max_upload_mb }}"{% endblock %}
+{% block header_title %}<span class="header-title">{{ story.title }}</span>{% endblock %}
+{% block main_class %}page studio{% endblock %}
+{% block content %}
+  <nav class="breadcrumb"><a href="/">← Choose another book</a></nav>
+
+  <section class="screen-intro">
+    <h1>Who's in the story?</h1>
+    <p>Give a face to whoever you like. The star goes on every page; the rest appear only on the pages they belong to.</p>
+  </section>
+
+  {% for section in sections %}
+  {% set key = section.key %}
+  <section class="character{% if section.required %} is-star{% endif %}" id="section-{{ key }}"
+           data-section="{{ key }}" data-label="{{ section.label }}" data-required="{{ 'true' if section.required else 'false' }}">
+    <h2 class="character-head">
+      <button type="button" class="character-toggle" aria-expanded="{{ 'true' if section.required else 'false' }}" aria-controls="section-body-{{ key }}">
+        <span class="character-thumb" data-role="thumb" aria-hidden="true"></span>
+        <span class="character-name">{% if section.required %}<span aria-hidden="true">★ </span>{% endif %}{{ section.label }}</span>
+        <span class="state-word" data-role="state">{{ "no photo" if section.required else "optional" }}</span>
+        <span class="chevron" aria-hidden="true"></span>
+      </button>
+    </h2>
+    <div class="character-body{% if not section.required %} hidden{% endif %}" id="section-body-{{ key }}" data-role="body">
+      {% if section.required %}
+      <p class="character-lede">This is the face on every page.</p>
+      <fieldset class="segmented" data-role="gender">
+        <legend>This is a</legend>
+        {% for value, label in photo_genders %}
+        <label><input type="radio" name="photo_gender-{{ key }}" value="{{ value }}" {% if value == defaults.photo_gender %}checked{% endif %}> {{ label|lower }}</label>
+        {% endfor %}
+      </fieldset>
+      {% else %}
+      <p class="character-lede" data-role="empty-note">No photo — drawn from the story. Add one to put a real face on {{ section.label|lower }}.</p>
+      {% endif %}
+
+      <div class="photo-actions">
+        <button type="button" class="button big" data-action="camera">Take a photo</button>
+        <label class="button big file-button">
+          <span data-role="upload-label">Upload a photo</span>
+          <input type="file" class="visually-hidden" accept="image/jpeg,image/png,image/webp" data-role="file">
+        </label>
+      </div>
+      <p class="tip">A bright, face-on photo works best.</p>
+
+      <div class="plates hidden" data-role="plates">
+        <figure class="plate">
+          <span class="plate-frame"><img data-role="photo-img" alt="The photo of {{ section.label|lower }}"></span>
+          <figcaption>Photo</figcaption>
+        </figure>
+        <figure class="plate comic">
+          <span class="plate-frame" data-role="comic-frame"><img data-role="comic-img" class="hidden" alt="The comic of {{ section.label|lower }}"><span class="plate-empty" data-role="comic-empty">The comic appears here</span></span>
+          <figcaption>Comic</figcaption>
+        </figure>
+        <div class="comic-actions">
+          <button type="button" class="button primary" data-action="comic" disabled>Make the comic</button>
+          <div class="takes hidden" data-role="takes" role="radiogroup" aria-label="Alternative takes"></div>
+          <div class="review hidden" data-role="review">
+            <p class="review-title">Not quite right?</p>
+            <div class="chips">
+              {% for reason in rejection_reasons %}
+              <label class="chip"><input type="checkbox" name="reason" value="{{ reason.value }}"><span>{{ reason.label }}</span></label>
+              {% endfor %}
+            </div>
+            <button type="button" class="button" data-action="retry">Try again with these fixes</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="adjust"><button type="button" class="link-button" data-action="advanced">Adjust the look</button> <span class="adjust-summary" data-role="summary"></span></p>
+      <p class="inline-message hidden" data-role="message" role="status" aria-live="polite"></p>
+    </div>
+  </section>
+  {% endfor %}
+
+  <div class="next-bar">
+    <p class="next-summary" id="studio-summary" role="status" aria-live="polite">Add the star's photo to begin.</p>
+    <a class="button primary big" id="studio-next" href="/stories/{{ story.key }}/about" aria-disabled="true">Next: about the star <span aria-hidden="true">→</span></a>
+  </div>
+  <p class="start-over"><button type="button" class="link-button" id="studio-start-over">Start over</button></p>
+
+  <dialog class="modal" id="camera-dialog" aria-labelledby="camera-title">
+    <h2 id="camera-title">Take a photo</h2>
+    <video id="camera-video" autoplay playsinline muted></video>
+    <p class="inline-message error hidden" id="camera-message" role="status" aria-live="polite"></p>
+    <div class="modal-actions">
+      <button type="button" class="button" id="camera-cancel">Cancel</button>
+      <button type="button" class="button primary" id="camera-shutter">Take the picture</button>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="advanced-dialog" aria-labelledby="advanced-title">
+    <form method="dialog" id="advanced-form">
+      <div class="modal-head">
+        <h2 id="advanced-title">The look</h2>
+        <button type="submit" value="cancel" class="icon-button" aria-label="Close without saving">✕</button>
+      </div>
+      <div class="settings-grid">
+        {% macro select(name, label, options, current) %}
+        <label class="setting" for="adv-{{ name }}">{{ label }}</label>
+        <select id="adv-{{ name }}" name="{{ name }}">
+          {% for value, text in options %}<option value="{{ value }}" {% if value == current %}selected{% endif %}>{{ text }}</option>{% endfor %}
+        </select>
+        {% endmacro %}
+        {{ select("cartoon_style", "Style", styles, defaults.cartoon_style) }}
+        {{ select("cartoon_intensity", "Intensity", intensities, defaults.cartoon_intensity) }}
+        {{ select("apparent_age", "Age", ages, defaults.apparent_age) }}
+        {{ select("skin_tone", "Skin tone", skin_tones, defaults.skin_tone) }}
+        {{ select("hair_style", "Hair", hair_styles, defaults.hair_style) }}
+        {{ select("hair_color", "Hair colour", hair_colours, defaults.hair_color) }}
+        {{ select("outfit", "Outfit", outfits, defaults.outfit) }}
+        {{ select("expression", "Expression", expressions, defaults.expression) }}
+        {{ select("likeness_strength", "Likeness", likeness_levels, defaults.likeness_strength) }}
+        {{ select("portrait_background", "Background", backgrounds, defaults.portrait_background) }}
+        {{ select("candidates", "Takes", [(1, "1 — one picture"), (2, "2 — pick the best"), (3, "3 — pick the best")], defaults.candidates) }}
+      </div>
+      <div class="setting-checks">
+        <label><input type="checkbox" id="adv-keep_glasses" name="keep_glasses" {% if defaults.keep_glasses %}checked{% endif %}> Keep glasses</label>
+        <label><input type="checkbox" id="adv-keep_facial_hair" name="keep_facial_hair" {% if defaults.keep_facial_hair %}checked{% endif %}> Keep facial hair</label>
+      </div>
+      <p class="field-help">More takes are drawn together, so three take a little longer.</p>
+      <div class="modal-actions">
+        <button type="submit" value="cancel" class="button">Cancel</button>
+        <button type="submit" value="save" class="button primary">Save and close</button>
+      </div>
+    </form>
+  </dialog>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/studio.js"></script>{% endblock %}

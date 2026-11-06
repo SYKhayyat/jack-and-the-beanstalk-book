@@ -1,0 +1,18 @@
+{% extends "_layout.html" %}
+{% block title %}Storybook Studio — make a picture book{% endblock %}
+{% block body_attrs %}data-page="shelf"{% endblock %}
+{% block main_class %}page shelf{% endblock %}
+{% block content %}
+  <section class="shelf-hero">
+    <h1>Make a picture book starring someone you love.</h1>
+    <p class="shelf-sub">One photo. Twenty pictures. A story they keep.</p>
+  </section>
+
+  <section class="shelf-cards" aria-label="Books you can make">
+    {% for card in cards %}
+      {% include "_story_card.html" %}
+    {% endfor %}
+  </section>
+  <p class="face-hint hidden" id="face-hint"><span class="hint-ring" aria-hidden="true"></span> Their face goes where the circle is. <button type="button" class="link-button" id="face-hint-dismiss">Got it</button></p>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/shelf.js"></script>{% endblock %}

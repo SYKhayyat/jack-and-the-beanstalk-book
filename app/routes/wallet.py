@@ -31,6 +31,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.dependencies import ContainerDep
 from app.routes.auth import CurrentSessionDep
+from app.routes.web import page_chrome
 from app.services.payments import PaymentError
 from app.services.wallet import (
     CURRENCY,
@@ -96,8 +97,7 @@ def wallet_page(
         request=request,
         name="wallet.html",
         context={
-            "user_name": session.name if session else "",
-            "signed_in": True,
+            **page_chrome(container, session),
             "balance_cents": balance,
             "balance_label": format_cents(balance),
             "price_label": format_cents(wallet.price_cents),

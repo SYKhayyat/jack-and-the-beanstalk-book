@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Storybook Studio{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body {% block body_attrs %}{% endblock %}>
+  <a class="skip-link" href="#main">Skip to the page</a>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="wordmark" href="/"><span class="wordmark-star" aria-hidden="true">✦</span> Storybook Studio</a>
+      {% block header_title %}{% endblock %}
+      <div class="header-actions">
+        {% if library_enabled %}{% include "_books_drawer.html" %}{% endif %}
+        {% if wallet_enabled %}
+        <a class="pill wallet-pill" href="/wallet" aria-label="Wallet, balance {{ wallet_balance }}"><span class="coin" aria-hidden="true"></span>{{ wallet_balance }}</a>
+        {% endif %}
+        {% if auth_enabled and signed_in %}
+        <form class="signout" method="post" action="/logout">
+          <button type="submit" class="link-button" {% if user_name %}title="Signed in as {{ user_name }}"{% endif %}>Sign out</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% if provider is defined and not provider.using_real_api %}
+    <p class="demo-ribbon">Demo mode — the pictures are placeholders, not real drawings yet.</p>
+    {% endif %}
+  </header>
+
+  <main id="main" class="{% block main_class %}page{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <p>Books are kept for {{ book_retention_days }} days.</p>
+  </footer>
+  {% if library_enabled %}<script type="module" src="/static/drawer.js"></script>{% endif %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

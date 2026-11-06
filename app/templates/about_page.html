@@ -1,0 +1,70 @@
+{% extends "_layout.html" %}
+{% block title %}About the star — {{ story.title }}{% endblock %}
+{% block body_attrs %}data-page="about" data-story="{{ story.key }}"{% endblock %}
+{% block header_title %}<span class="header-title">{{ story.title }}</span>{% endblock %}
+{% block main_class %}page about-screen{% endblock %}
+{% block content %}
+  <nav class="breadcrumb"><a href="/stories/{{ story.key }}/studio">← Back to the faces</a></nav>
+
+  <div class="missing-star hidden" id="about-missing" role="alert">
+    <p>The book needs the star's comic first.</p>
+    <a class="button primary" href="/stories/{{ story.key }}/studio">Go back and add the star's photo</a>
+  </div>
+
+  <form id="about-form" class="about-form card" novalidate>
+    <section class="screen-intro">
+      <h1>The last page is about <span id="about-headline-name">the star</span></h1>
+      <p>This is the page the book closes on. Say anything you like — every field is optional.</p>
+    </section>
+
+    <div class="about-fields">
+      <div class="field">
+        <label for="about-name">Name</label>
+        <input type="text" id="about-name" name="about_name" maxlength="60" autocomplete="off" placeholder="Jack or Jane, if you leave it blank">
+      </div>
+      <div class="field narrow">
+        <label for="about-age">Age</label>
+        <input type="number" id="about-age" name="about_age" min="0" max="99" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label for="about-title">What do they want to be?</label>
+        <input type="text" id="about-title" name="about_title" maxlength="60" placeholder="an astronaut">
+      </div>
+      <div class="field wide">
+        <label for="details">Anything else?</label>
+        <textarea id="details" name="details" rows="4" maxlength="1000" placeholder="What they love, who they love, what makes them laugh."></textarea>
+      </div>
+    </div>
+
+    <fieldset class="choice-cards">
+      <legend>On that page, show</legend>
+      {% for value, label in about_photo_choices %}
+      <label class="choice-card">
+        <input type="radio" name="about_photo" value="{{ value }}" {% if loop.first %}checked{% endif %}>
+        <span class="choice-picture choice-{{ value }}" aria-hidden="true"></span>
+        <span>{{ label }}</span>
+      </label>
+      {% endfor %}
+    </fieldset>
+
+    <fieldset class="segmented shapes">
+      <legend>Page shape</legend>
+      {% for value, label in page_shapes %}
+      <label><input type="radio" name="aspect_ratio" value="{{ value }}" {% if value == default_shape %}checked{% endif %}> <span class="shape-icon shape-{{ value|replace(':', 'x') }}" aria-hidden="true"></span>{{ label }}</label>
+      {% endfor %}
+    </fieldset>
+
+    <p class="locked-in" id="about-cast-summary" data-cast='{{ cast|tojson }}'></p>
+
+    <div class="generate-row">
+      {% if fee_label %}
+      <p class="fee-line">Your book is one fee of {{ fee_label }}, taken when the PDF is written.</p>
+      {% else %}
+      <p class="fee-line">Twenty pictures take about five minutes. You can watch them arrive.</p>
+      {% endif %}
+      <button type="submit" class="button primary big" id="make-book">Make the book <span aria-hidden="true">✨</span></button>
+    </div>
+    <p class="inline-message hidden" id="about-message" role="status" aria-live="polite"></p>
+  </form>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/about.js"></script>{% endblock %}

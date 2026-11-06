@@ -151,6 +151,10 @@ class TestLabels:
         assert choice_label(Outfit, "not_a_real_outfit") == "Not A Real Outfit"
 
 
+STUDIO = "/stories/jack_and_the_beanstalk/studio"
+ABOUT = "/stories/jack_and_the_beanstalk/about"
+
+
 class TestPageUsesLabels:
     @pytest.mark.parametrize(
         "phrase",
@@ -165,26 +169,30 @@ class TestPageUsesLabels:
         ],
     )
     def test_page_shows_the_human_labels(self, client: TestClient, phrase: str) -> None:
-        assert phrase in client.get("/").text
+        assert phrase in client.get(STUDIO).text
 
     def test_free_text_is_only_the_names_title_and_about(self, client: TestClient) -> None:
         # The closed enums are the injection surface; free typing is allowed
         # exactly at the identity fields, which go to the PDF, never to a prompt.
-        body = client.get("/").text
+        # The studio has none at all: every setting there is a closed choice.
+        studio = client.get(STUDIO).text
+        assert not re.findall(r'<input type="text"', studio)
+        assert "<textarea" not in studio
+        body = client.get(ABOUT).text
         text_inputs = re.findall(r'<input type="text"[^>]*name="([a-z_]+)"', body)
-        assert sorted(text_inputs) == ["about_name", "about_title", "child_name"]
+        assert sorted(text_inputs) == ["about_name", "about_title"]
         textareas = re.findall(r'<textarea[^>]*name="([a-z_]+)"', body)
         assert textareas == ["details"]
 
     def test_page_does_not_leak_a_raw_enum_value(self, client: TestClient) -> None:
-        body = client.get("/").text
+        body = client.get(STUDIO).text
         for raw in ("As Uploaded", "Storybook Tunic", "Very Light", "Western Cartoon"):
             assert raw not in body, f"raw enum value rendered: {raw}"
 
     def test_form_values_are_still_the_stable_enum_values(self, client: TestClient) -> None:
         # The raw value must stay in the markup as the form value — it is the
         # label that had to change, not the wire format.
-        body = client.get("/").text
+        body = client.get(STUDIO).text
         assert 'value="as_uploaded"' in body
         assert "Storybook Tunic" not in body
 

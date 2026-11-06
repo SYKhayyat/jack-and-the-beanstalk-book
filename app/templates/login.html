@@ -1,42 +1,50 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Jack and the Beanstalk — sign in</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body class="login-body">
-  <main class="login-shell">
-    <h1>Jack and the Beanstalk</h1>
+{% extends "_layout.html" %}
+{# The signed-out shelf. `/` redirects here when there is no session, so this
+   is the one signed-out look: the site explains itself before it asks for
+   anything, and the covers (which hold no visitor data) stay visible. #}
+{% block title %}Storybook Studio — sign in{% endblock %}
+{% block body_attrs %}data-page="signed-out"{% endblock %}
+{% block main_class %}page shelf signed-out{% endblock %}
+{% block content %}
+  <section class="banner" aria-labelledby="banner-title">
+    <h1 id="banner-title">Make a picture book starring someone you love.</h1>
+    <p>
+      You bring a photo of someone you love. We draw them into a picture book:
+      the cover, the whole story and an About page about them, all in one PDF
+      you keep.
+    </p>
 
     {% if error %}
-      <p class="login-error" role="alert">{{ error }}</p>
+    <p class="banner-error" role="alert">{{ error }}</p>
     {% endif %}
 
     {% if google_enabled %}
-      <!-- The production way in: a real Google account, so the book that comes
-           out of it is yours and nobody else's. -->
-      <form class="login-card" method="get" action="/auth/google/login">
-        <p class="login-tagline">Sign in to make your picture book.</p>
-        <input type="hidden" name="next" value="{{ next_path }}">
-        <button type="submit" class="button google-button">Continue with Google</button>
-      </form>
+    <form class="banner-form" method="get" action="/auth/google/login">
+      <p class="banner-note">Sign in with Google so your books are yours and survive a restart.</p>
+      <input type="hidden" name="next" value="{{ next_path }}">
+      <button type="submit" class="button primary google-button">Continue with Google</button>
+    </form>
     {% endif %}
 
     {% if password_enabled %}
-      <!-- The local-dev fallback: one shared password, no accounts. -->
-      <form id="login-form" class="login-card" method="post" action="/login">
-        <p class="login-tagline">This app is private. Enter the password to continue.</p>
-
-        <label for="password">Password</label>
+    <form id="login-form" class="banner-form" method="post" action="/login">
+      <p class="banner-note">This studio is private for now. Enter the password to come in.</p>
+      <div class="password-row">
+        <label class="visually-hidden" for="password">Password</label>
         <input type="password" id="password" name="password" autocomplete="current-password"
-               autofocus required>
-
+               placeholder="Password" autofocus required>
         <input type="hidden" name="next_path" value="{{ next_path }}">
-        <button type="submit" class="button">Enter</button>
-      </form>
+        <button type="submit" class="button primary">Enter</button>
+      </div>
+    </form>
     {% endif %}
-  </main>
-</body>
-</html>
+  </section>
+
+  <section class="shelf-cards" aria-label="The books">
+    {% set signed_out = true %}
+    {% for story in stories %}
+      {% set card = {"story": story, "state": "fresh" if story.available else "soon", "href": none, "cover_url": none} %}
+      {% include "_story_card.html" %}
+    {% endfor %}
+  </section>
+{% endblock %}

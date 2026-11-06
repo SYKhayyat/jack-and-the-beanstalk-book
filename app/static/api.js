@@ -1,7 +1,7 @@
-/* HTTP client — the only module allowed to call fetch. Each endpoint wrapper
-   takes a ready FormData body and throws on non-ok responses, carrying the
-   server's `detail` message across, and the HTTP status on the error so a
-   caller can tell "your session expired" (401) from "the model refused". */
+/* HTTP client — the only module allowed to call fetch. Each wrapper throws on
+   a non-ok response, carrying the server's `detail` message across, and the
+   HTTP status on the error, so a caller can tell "your session expired" (401)
+   or "top up the wallet" (402) from "the model refused". */
 
 function requestError(message, status) {
   const error = new Error(message);
@@ -9,56 +9,69 @@ function requestError(message, status) {
   return error;
 }
 
+async function readError(response) {
+  const data = await response.json().catch(() => ({}));
+  const detail = Array.isArray(data.detail) ? data.detail[0]?.msg : data.detail;
+  return requestError(detail || `Request failed (${response.status}).`, response.status);
+}
+
 export async function postForm(url, body) {
   const response = await fetch(url, { method: "POST", body });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw requestError(data.detail || `Request failed (${response.status}).`, response.status);
-  }
-  return data;
+  if (!response.ok) throw await readError(response);
+  return response.json().catch(() => ({}));
 }
 
 async function getJson(url) {
   const response = await fetch(url);
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw requestError(data.detail || `Request failed (${response.status}).`, response.status);
-  }
-  return data;
+  if (!response.ok) throw await readError(response);
+  return response.json();
 }
 
 async function deleteResource(url) {
   const response = await fetch(url, { method: "DELETE" });
-  if (!response.ok && response.status !== 404) {
-    const data = await response.json().catch(() => ({}));
-    throw requestError(data.detail || `Request failed (${response.status}).`, response.status);
-  }
-  return response.status === 404 ? false : true;
+  if (!response.ok && response.status !== 404) throw await readError(response);
+  return response.status !== 404;
 }
 
-/* The book job is polled, not posted twice — a plain GET wrapper beside the
-   POST one keeps `fetch` living in exactly one module. */
-export function createBookClient() {
-  return {
-    start: (body) => postForm("/api/book/start", body),
-    status: (bookId) => getJson(`/api/book/${bookId}`),
-  };
+/* A draft's images live under /media for its 24-hour life. */
+export function draftImageUrl(generationId, stem = "cartoon") {
+  return `/media/${generationId}/${stem}`;
 }
 
-export function createApiClient() {
+/* The studio: comics, chosen takes, and the drafts behind them. */
+export function createStudioClient() {
   return {
     cartoonify: (body) => postForm("/api/cartoonify", body),
+    choose: (generationId, index) => {
+      const body = new FormData();
+      body.append("index", String(index));
+      return postForm(`/api/cartoonify/${generationId}/choose`, body);
+    },
+    /* Is this draft still on the server? Drafts expire after a day. */
+    async draftAlive(generationId) {
+      try {
+        const response = await fetch(draftImageUrl(generationId), { cache: "no-store" });
+        return response.ok;
+      } catch {
+        return false;
+      }
+    },
+    /* The stored original photo, so a retry after a reload needs no re-upload. */
+    async draftPhoto(generationId) {
+      const response = await fetch(draftImageUrl(generationId, "photo"), { cache: "no-store" });
+      if (!response.ok) throw requestError("That photo expired — add it again.", response.status);
+      return response.blob();
+    },
+    startBook: (body) => postForm("/api/book/start", body),
   };
 }
 
 /* One existing book: poll it, edit it, throw it away. */
-export function createBookDetailClient(bookId) {
+export function createBookClient(bookId) {
   return {
     status: () => getJson(`/api/book/${bookId}`),
     edit: (body) => postForm(`/api/book/${bookId}/edit`, body),
     remove: () => deleteResource(`/api/book/${bookId}`),
-    /* Any book in the sidebar, not just the one this page is showing. */
-    removeOther: (otherId) => deleteResource(`/api/book/${otherId}`),
     cartoonify: (body) => postForm("/api/cartoonify", body),
   };
 }
