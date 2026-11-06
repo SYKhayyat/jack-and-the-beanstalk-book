@@ -42,8 +42,8 @@
           {% if pdf_url %}
           <a id="book-pdf-link" class="button primary" href="{{ pdf_url }}" download="book-{{ book.book_id }}.pdf">Download the book (PDF)</a>
           {% endif %}
-          <a id="book-cartoon-link" class="button secondary" href="/book-media/{{ book.book_id }}/portrait?download=1" download="cartoon-{{ book.book_id }}.png">Download the cartoon</a>
-          <a id="book-photo-link" class="button secondary" href="/book-media/{{ book.book_id }}/photo?download=1" download="original-photo-{{ book.book_id }}.png">Download the original photo</a>
+          <a id="book-cartoon-link" class="button secondary" href="/book-media/{{ book.book_id }}/portrait?download=1" download>Download the cartoon</a>
+          <a id="book-photo-link" class="button secondary" href="/book-media/{{ book.book_id }}/photo?download=1" download>Download the original photo</a>
           <a class="button secondary" href="/">Start a new book</a>
         </div>
       </div>
