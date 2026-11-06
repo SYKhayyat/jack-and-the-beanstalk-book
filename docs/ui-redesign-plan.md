@@ -1,7 +1,65 @@
 # The new face of the book app — project plan
 
-**Status:** plan agreed, no code written. This document is the deliverable of the
-design session; building starts at Phase 0.
+**Status:** plan agreed and reviewed (2026-11-06). The review's corrections are
+folded in below and summarised in §0. The UI phases (P2–P5) are built against
+Jack alone; the story catalogue and *Little Red Riding Hood* follow as their own
+phase.
+
+## 0. Review amendments (2026-11-06)
+
+These override anything older in this document that contradicts them.
+
+1. **Page count, one rule.** A book is the cover, nineteen story pages and the
+   About page: 21 PDF pages, of which **20 are drawn pictures** (cover + 19).
+   The tagline says "Twenty pictures", the progress map has 20 tiles (cover
+   first), the counter reads "12 of 20 pictures drawn", and the reader shows 21
+   spreads (the About page is the last).
+2. **One story key spelling:** `jack_and_the_beanstalk` — routes, localStorage,
+   data files, the future `books.story_key` default. The second story is
+   `little_red_riding_hood`.
+3. **`/login` is the signed-out shelf.** `login.html` is rewritten as the shelf
+   with the banner, so there is exactly one signed-out look. `/` is **not**
+   made public: it keeps redirecting a signed-out visitor to `/login`, which now
+   *is* the shelf. The visitor sees the same thing and the auth guard does not
+   change at all (§11.8 is superseded).
+4. **One header on every screen** — wordmark (or story/book title), My books,
+   wallet pill, sign out. The studio's "← Choose another book" and the About
+   screen's "← Back to the faces" are breadcrumbs under that header, not
+   replacements for it.
+5. **Copy speaks to the grown-up about the child.** "The last page is about
+   Mia" (live from the Name field; "about the star" while it is blank), "Their
+   face goes where the circle is", "What do they want to be?".
+6. **Advanced is quiet.** A small text link under the comic with its summary
+   line beside it ("Soft storybook · 1 take"), never a third big button next to
+   Take/Upload.
+7. **"Not quite right?" appears only once a comic exists.**
+8. **Card states are honest.** "Keep going" shows only when the saved star
+   draft still exists on the server (checked on load); otherwise the card is
+   "Start this book" and the stale draft is forgotten. A story with finished
+   books shows the newest one's cover; the button stays "Make another", and
+   opening an old book is the drawer's job.
+9. **The rate limit is not raised.** `max_generations_per_minute` stays 30: the
+   runner already waits for allowance, and loosening an abuse brake is its own
+   decision, not a side effect of a redesign.
+10. **Edit costs are defined.** The wallet fee is taken once per book and is
+    idempotent per book id, so redrawing a page, the cover or a face and
+    rewriting the About page cost **no further fee**. The edit strip says so in
+    one line: "Changes are included — the book's fee was taken once."
+11. **No per-picture cost line in the studio.** It is replaced by a tip: "A
+    bright, face-on photo works best."
+12. **Mobile book stage.** Swipe turns pages; below 640px the 20-tile map
+    becomes one bar with a line ("3 still drawing").
+13. **Start over is studio-wide**, a small link at the bottom of the studio
+    behind a confirm. Per-section reset is already "Change photo".
+14. **Alternatives need a server step.** `Draft.with_candidate` exists but no
+    route uses it, so a chosen take cannot reach the book today. New:
+    `POST /api/cartoonify/{generation_id}/choose` (`index`) saves the chosen
+    take as a new draft and returns it in the `cartoonify` shape. No image
+    call, no rate token.
+15. **Jack first.** P2–P5 ship against Jack with Red's card showing "Coming
+    soon"; the catalogue refactor (§11.1) and Red's content are a later phase,
+    so the golden-prompt risk never overlaps the UI change. `/api/book/pages`
+    and `/api/book/characters` stay until that phase replaces them.
 
 **Scope:** the visitor-facing UI — the shelf, the character studio, the About
 page, the book as it is drawn, and the chrome around them — plus the two pieces
@@ -49,7 +107,7 @@ anywhere:
 
 | Route | Screen | Auth |
 | --- | --- | --- |
-| `GET /` | The shelf | open — shows the sign-in banner when signed out |
+| `GET /` | The shelf | session required; signed out redirects to `/login`, which renders the shelf with the banner (§0.3) |
 | `GET /stories/{story}/studio` | The studio | session required |
 | `GET /stories/{story}/about` | The About page | session required |
 | `GET /books/{book_id}` | The book (drawing or finished) | owner required |
@@ -80,7 +138,7 @@ Decisions taken in this session, recorded so they are not re-litigated:
 ├───────────────────────────────────────────────────────────────────────────┤
 │                                                                           │
 │      Make a picture book starring someone you love.                       │
-│      One photo. Twenty pages. A story they keep.                          │
+│      One photo. Twenty pictures. A story they keep.                       │
 │                                                                           │
 │   ┌──────────────────────┐      ┌──────────────────────┐                  │
 │   │                      │      │                      │                  │
@@ -105,16 +163,18 @@ Decisions taken in this session, recorded so they are not re-litigated:
 - **The cover has a face-shaped hole.** Every cover art is drawn (or, until real
   art exists, hand-written as SVG in `app/assets/covers/`) with the story's hero
   and a plain white circle where the face is, ringed with a dashed marigold
-  line. It is the app's core promise in one image: *your face goes here*. The
-  shelf adds a one-time hint under the first card: "We put your face where the
+  line. It is the app's core promise in one image: *their face goes here*. The
+  shelf adds a one-time hint under the first card: "Their face goes where the
   circle is."
 - **State on the card**, never a separate page: `Start this book` when fresh,
-  `Keep going` when a studio draft exists in this browser, `Being drawn…` when a
-  book of that story is already rendering, and `Coming soon` (card dimmed, not
-  clickable) when a story has no catalogue yet.
+  `Keep going` when a studio draft exists in this browser **and the server
+  still has it** (§0.8), `Being drawn…` when a book of that story is already
+  rendering, `Make another` when one is finished, and `Coming soon` (card
+  dimmed, not clickable) when a story has no catalogue yet.
 - **A live cover, not a stock one**: once a person has a finished book for a
-  story, their card shows *their* cover with *their* cartoon on it. Until then it
-  shows the placeholder. One card, two states, no extra screen.
+  story, their card shows the *newest* one's cover with *their* cartoon on it.
+  Until then it shows the placeholder. Opening an older book is the drawer's
+  job, so the card's button never becomes ambiguous.
 - **Mobile:** cards stack full-width; the cover is the first thing above the
   fold; the tagline shrinks to one line.
 
@@ -138,12 +198,12 @@ page — the site explains itself before it asks for anything:
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-In password mode the same banner carries a single password field and "Enter",
-and the separate `login.html` card disappears. The `/login` **route** stays —
-OAuth failures and the lockout message redirect there — but it renders this same
-shelf in signed-out mode with the message in the banner, so there is one
-signed-out look and the redirects keep working. The covers stay visible in both
-cases: they contain no visitor data.
+In password mode the same banner carries a single password field and "Enter".
+`login.html` *is* this shelf in signed-out mode: OAuth failures and the lockout
+message land there with the message in the banner, so there is one signed-out
+look and the redirects keep working. `/` itself stays behind the session guard
+and redirects here (§0.3). The covers stay visible in both cases: they contain
+no visitor data.
 
 ---
 
@@ -166,12 +226,13 @@ section is independently collapsible, independently filled, and independently
   ┌─ ★ THE STAR ────────────────────────────────────── ready ────── ▾ ─┐ │
   │  This is the face on every page.                                   │ │
   │                                                                    │ │
-  │  [  Take a photo  ]   [  Upload a photo  ]   [  Advanced  ]        │ │
+  │  [  Take a photo  ]   [  Upload a photo  ]                         │ │
+  │  A bright, face-on photo works best.                               │ │
   │                                                                    │ │
   │  ┌────────────┐   ┌────────────┐    [  Make the comic  ]           │ │
-  │  │   photo    │   │  cartoon   │    Not quite right?               │ │
+  │  │   photo    │   │  cartoon   │    Not quite right?  (once drawn) │ │
   │  └────────────┘   └────────────┘    ☐ hair   ☐ age                 │ │
-  │                                     ☐ likeness …                   │ │
+  │  Adjust the look · Soft storybook   ☐ likeness …                   │ │
   └────────────────────────────────────────────────────────────────────┘ │
 │                                                                        │
   ┌─ The mother ─────────────────────────────────── optional ────── ▸ ─┐ │
@@ -205,11 +266,14 @@ section is independently collapsible, independently filled, and independently
 3. **`Make the comic`** — one call to the existing `POST /api/cartoonify` with
    this section's `character=`. The comic appears *beside* the photo, in the same
    row, framed like a printed plate. Alternatives come back as a strip of takes
-   under it; clicking one makes it the chosen comic.
-4. **`Not quite right?`** — the existing closed-set chips (hair, age, likeness,
-   …) plus `Try again with these fixes`. Exactly the chips the backend already
-   validates as `RejectionReason`; no free text, still.
-5. **`⚙ Advanced`** — opens a modal over a dimmed page: every setting we have
+   under it; clicking one makes it the chosen comic (through the new `choose`
+   route, §0.14).
+4. **`Not quite right?`** — shown only once a comic exists. The existing
+   closed-set chips (hair, age, likeness, …) plus `Try again with these fixes`.
+   Exactly the chips the backend already validates as `RejectionReason`; no free
+   text, still.
+5. **`Adjust the look`** — a small text link under the photo, with the summary
+   of what is set beside it. It opens a modal over a dimmed page: every setting we have
    today **except** "make it in one go" (that flag dies with this redesign — the
    flow is staged now, so `one_step` disappears from the model, the form and the
    tests). Contents: art style, cartoon intensity, age, skin tone, hair style,
@@ -234,9 +298,15 @@ section is independently collapsible, independently filled, and independently
   settings, the collapsed/expanded state. Drafts live 24 hours server-side; if a
   draft has expired, that section says "That photo expired — add it again" and
   nothing else resets.
-- **Cost is stated once, plainly.** Above the buttons: "Each comic is one
-  picture. You'll usually need one." No dollar amounts per image; the book fee is
-  the wallet's business.
+- **No cost talk in the studio.** Under the buttons sits a tip instead: "A
+  bright, face-on photo works best." The book fee is stated once, on the About
+  screen, beside the button that incurs it.
+- **Start over** is one small link at the foot of the studio, behind a confirm:
+  it forgets this story's drafts in this browser. It is the one thing that
+  *should* reset.
+- **The star's photo also says who it is.** A two-way choice in the star
+  section — "This is a boy / girl" — drives the Jack/Jane default name; it is
+  the existing `photo_gender` field, moved out of the hidden settings.
 
 ### Advanced modal
 
@@ -276,7 +346,7 @@ the one book-wide setting lives here, next to the button it affects.
 ┌──────────────────────────────────────────────────────────────────────────┐
 │  ← Back to the faces                                                     │
 │                                                                          │
-│  The last page is about you                                              │
+│  The last page is about Mia                                              │
 │  This is the page the book closes on. Say anything you like.             │
 │                                                                          │
 │   Name          [ Mia                        ]                           │
@@ -331,11 +401,11 @@ the one book-wide setting lives here, next to the button it affects.
 │                       └───────────────────────┘                       │
 │                           click the page to turn it                   │
 │                                                                       │
-│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░  12 of 20 pages drawn                         │
+│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░  12 of 20 pictures drawn                      │
 │  ┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐         │
 │  │▓││▓││▓││▓││▓││▓││▓││▓││▓││▓││▓││▓││░││░││░││░││░││░││░││░│         │
 │  └─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘         │
-│  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19 20          │
+│  C  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19          │
 │                                                                       │
 └───────────────────────────────────────────────────────────────────────┘
 ```
@@ -343,8 +413,9 @@ the one book-wide setting lives here, next to the button it affects.
 - **The book slot at the top is the artefact itself**, not a viewport for a PDF.
   One page at a time: cover, then pages 1–19, then the About page. Clicking the
   page turns forward; the `←` button on the left turns back. Arrow keys work
-  too. The turn is a 240ms paper flip, and with `prefers-reduced-motion` it is a
-  cut.
+  too, and on touch screens a swipe turns the page. The turn is a 240ms paper
+  flip, and with `prefers-reduced-motion` it is a cut. Below 640px the 20-tile
+  map collapses into the bar and one line ("3 still drawing").
 - **While it draws**, pages appear in the slot the moment they land (out of
   order, because they are drawn in parallel — the slot always shows the page you
   are on, and a page that is not ready says "being drawn…" with the pencil
@@ -371,9 +442,9 @@ the one book-wide setting lives here, next to the button it affects.
   `only_missing`).
 - **After it is finished** the same stage stays usable: the map becomes an index
   (click a tile to jump), and an "Edit this book" strip offers the existing
-  powers — redraw one page (chips), replace a face (reopens the studio for that
-  book, one section), edit the About page, delete the book — each with its cost
-  in one plain sentence.
+  powers — redraw one page (chips), redraw the cover, replace a face, edit the
+  About page, delete the book. One line covers the cost of all of them:
+  "Changes are included — the book's fee was taken once." (§0.10)
 
 ---
 
@@ -389,9 +460,11 @@ sheet.
 **The wallet** stays a small pill in the header (`◯ 12.00`), and only when money
 is on. It is a link, not a panel, and it never competes with the book.
 
-**Header behaviour per screen:** shelf shows the wordmark and the drawer; studio
-shows the story title and a back link to the shelf; the book screen shows the
-book's own title. The sign-in banner appears on the shelf only.
+**Header behaviour per screen:** one header everywhere — the wordmark links
+home, then the screen's title (story title in the studio and About screens, the
+book's own title on the book screen), then My books, the wallet pill and sign
+out. Back links are breadcrumbs under it. The sign-in banner appears on the
+signed-out shelf only.
 
 **One footer line**, everywhere: "Books are kept for 7 days." Gentle, honest, and
 it stops "where did my book go?" from being a mystery.
@@ -444,9 +517,9 @@ child's face is the loudest thing on the screen.
 | Where | Words |
 | --- | --- |
 | Shelf headline | Make a picture book starring someone you love. |
-| Shelf sub | One photo. Twenty pages. A story they keep. |
-| Card action | Start this book / Keep going / Being drawn… / Coming soon |
-| Face hint | We put your face where the circle is. |
+| Shelf sub | One photo. Twenty pictures. A story they keep. |
+| Card action | Start this book / Keep going / Being drawn… / Make another / Coming soon |
+| Face hint | Their face goes where the circle is. |
 | Signed-out banner | You bring a photo of someone you love. We draw them into a 20-page picture book… Sign in with Google so your books are yours. |
 | Studio headline | Who's in the story? |
 | Studio sub | Give a face to whoever you like. The star goes on every page; the rest appear only on the pages they belong to. |
@@ -457,13 +530,16 @@ child's face is the loudest thing on the screen.
 | Empty optional section | No photo — drawn from the story |
 | Studio footer | 1 portrait ready · 3 optional characters skipped |
 | Studio next | Next: about me → |
-| About headline | The last page is about you |
+| Studio tip | A bright, face-on photo works best. |
+| Advanced link | Adjust the look |
+| About headline | The last page is about {name} (or "about the star" while blank) |
 | About sub | This is the page the book closes on. Say anything you like. |
 | About labels | Name · Age · What do they want to be? · Anything else? · On that page, show: cartoon / the photo / both |
 | Page shape | Page shape: Landscape · Square · Portrait |
 | Generate | Make the book ✨ |
 | Fee line | Your book is one fee of 99¢, taken when the PDF is written. |
-| Drawing | Your book is being drawn. · 12 of 20 pages drawn |
+| Drawing | Your book is being drawn. · 12 of 20 pictures drawn |
+| Edit strip | Changes are included — the book's fee was taken once. |
 | Queue pause | The pencil is resting for a moment — the pictures come one a minute. |
 | Finished | ✨ Your book is ready. |
 | Downloads | Download the book (PDF) · Keep the photos and comics (zip) |
@@ -650,6 +726,10 @@ person asks for a book, and the 24-hour draft window already makes that promise.
 
 ### 11.8 Auth and the banner
 
+> **Superseded by §0.3:** `/` stays guarded and `/login` renders the
+> signed-out shelf, so the guard does not change. The original text follows
+> for the record.
+
 `GET /` becomes readable without a session, because the banner needs somewhere to
 live: `app/auth.py`'s page guard gains exactly one allowance (`/` and the static
 files it needs), and **nothing else moves** — `/books/{id}`, every `/api` route
@@ -675,6 +755,12 @@ Effort is rough focused-days for one person; the order is the point.
 | **P6 QA + docs** | full click-through on mock mode, tests green, README/HANDOFF updated, decisions.md entry | `make check` green; the click-through matrix in §13 all passes | 0.5d |
 
 Total: about eight focused days, with P1 and P3 as the two risky ones.
+
+**Order after review (§0.15):** P2 → P3 → P4 → P5 ship first against Jack,
+together with the small backend pieces the screens need (`choose`, the
+`aspect_ratio`/`about_photo` start fields, the About-page photo, `sources.zip`).
+The catalogue half of P1 (`story_key`, the migration, Red's content) follows as
+its own phase.
 
 ---
 
@@ -717,7 +803,7 @@ reopen from the drawer · delete then shelf · signed out · wrong password ·
 | --- | --- | --- |
 | The catalogue refactor touches prompts, PDF and runner | Jack's book could quietly change | golden prompt fixtures captured before the move; the old `BOOK_PAGES` alias keeps call sites compiling |
 | Two images on the About page re-flow the text | a long description could overrun "The End" | `_fit_text` already measures the available height; test with a maximal name, title and 1000-character details |
-| The per-minute brake vs the studio | 4 comics × 3 takes + 20 pages is one very busy minute | the book runner already *waits* rather than failing; the studio shows the wait in words, and the default `max_generations_per_minute` is raised from 30 to 60 in the same change |
+| The per-minute brake vs the studio | 4 comics × 3 takes + 20 pages is one very busy minute | the book runner already *waits* rather than failing; the studio shows a 429 in words ("try again in a minute"); the brake itself stays at 30 (§0.9) |
 | "Never resets" regresses | a client-side counter would drift from the server | §10.1: status document is the only truth; a reload mid-draw is in the test matrix |
 | Relaxing `/` unauthenticated | could expose a stranger's books | only static shelf content is public; drawer and every API/media route keep the guard; pinned in `test_auth.py` |
 | A hand-written JS rewrite drifts from the templates | silent dead buttons | the asset-hook test in §13 |
@@ -738,9 +824,8 @@ reopen from the drawer · delete then shelf · signed out · wrong password ·
 4. **Password-mode banner wording** — the site is now described before the
    password is asked for. Proposed copy is in §3; the risk is saying too much to
    a stranger.
-5. **Does the studio need a "start over" affordance** (clear this story's drafts)?
-   Proposed: a small "Start over" in the section's overflow, behind a confirm —
-   the one thing that *should* reset.
+5. ~~Does the studio need a "start over" affordance?~~ Decided (§0.13): yes,
+   studio-wide, behind a confirm.
 
 ---
 
