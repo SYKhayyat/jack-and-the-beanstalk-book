@@ -6,8 +6,10 @@ import io
 import re
 import threading
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from pypdf import PdfReader
 
@@ -62,6 +64,21 @@ def _wait(client: TestClient, book_id: str, seconds: float = 20.0) -> dict[str, 
 
 def _pdf_text(data: bytes) -> str:
     return "\n".join((page.extract_text() or "") for page in PdfReader(io.BytesIO(data)).pages)
+
+
+@pytest.fixture(scope="module")
+def completed_library(tmp_path_factory) -> Iterator[tuple[TestClient, str]]:  # type: ignore[no-untyped-def]
+    """One finished, owned book shared by the read-only library tests.
+
+    Each of those tests used to draw a whole 21-picture book to read it back,
+    which is six seconds apiece. None of them changes the book.
+    """
+    tmp_path = tmp_path_factory.mktemp("library")
+    with _google_client(tmp_path) as client:
+        _sign_in(client, "owner-1")
+        book_id = _start(client)
+        _wait(client, book_id)
+        yield client, book_id
 
 
 def _page_calls(provider: RecordingProvider) -> list[ImageRequest]:
@@ -379,76 +396,76 @@ def _sign_in(client: TestClient, sub: str) -> None:
 
 
 class TestLibrary:
-    def test_a_signed_in_person_sees_only_their_books(self, tmp_path: Path) -> None:
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _start(client)
-            _wait(client, book_id)
+    def test_a_signed_in_person_sees_only_their_books(
+        self, completed_library: tuple[TestClient, str]
+    ) -> None:
+        client, book_id = completed_library
+        _sign_in(client, "owner-1")
 
-            listing = client.get("/api/books").json()["books"]
-            assert [entry["book_id"] for entry in listing] == [book_id]
-            assert listing[0]["title"] == "Shai and the Beanstalk"
+        listing = client.get("/api/books").json()["books"]
+        assert [entry["book_id"] for entry in listing] == [book_id]
+        assert listing[0]["title"] == "Shai and the Beanstalk"
 
-            detail = client.get(f"/books/{book_id}")
-            assert detail.status_code == 200
-            assert "Shai and the Beanstalk" in detail.text
+        detail = client.get(f"/books/{book_id}")
+        assert detail.status_code == 200
+        assert "Shai and the Beanstalk" in detail.text
 
-            _sign_in(client, "owner-2")
-            assert client.get("/api/books").json()["books"] == []
-            assert client.get(f"/books/{book_id}").status_code == 404
+        _sign_in(client, "owner-2")
+        assert client.get("/api/books").json()["books"] == []
+        assert client.get(f"/books/{book_id}").status_code == 404
 
-    def test_every_screen_offers_my_books_for_a_signed_in_person(self, tmp_path: Path) -> None:
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _start(client)
-            _wait(client, book_id)
-            for path in ("/", STUDIO, ABOUT, f"/books/{book_id}"):
-                page = client.get(path)
-                assert 'id="books-drawer"' in page.text, path
-                assert f'href="/books/{book_id}"' in page.text, path
+    def test_every_screen_offers_my_books_for_a_signed_in_person(
+        self, completed_library: tuple[TestClient, str]
+    ) -> None:
+        client, book_id = completed_library
+        _sign_in(client, "owner-1")
+        for path in ("/", STUDIO, ABOUT, f"/books/{book_id}"):
+            page = client.get(path)
+            assert 'id="books-drawer"' in page.text, path
+            assert f'href="/books/{book_id}"' in page.text, path
 
-    def test_every_book_in_the_drawer_has_its_own_delete_button(self, tmp_path: Path) -> None:
+    def test_every_book_in_the_drawer_has_its_own_delete_button(
+        self, completed_library: tuple[TestClient, str]
+    ) -> None:
         """UAT: putting a book away meant opening it first. The cross is in the row."""
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _start(client)
-            _wait(client, book_id)
-            for path in ("/", f"/books/{book_id}"):
-                page = client.get(path)
-                assert 'class="drawer-row"' in page.text
-                assert 'class="drawer-delete"' in page.text
-                assert f'data-delete-book="{book_id}"' in page.text
-            # The count the reader sees: twenty-one drawn pictures (cover + 20).
-            assert "21 pictures" in page.text
+        client, book_id = completed_library
+        _sign_in(client, "owner-1")
+        for path in ("/", f"/books/{book_id}"):
+            page = client.get(path)
+            assert 'class="drawer-row"' in page.text
+            assert 'class="drawer-delete"' in page.text
+            assert f'data-delete-book="{book_id}"' in page.text
+        # The count the reader sees: twenty-one drawn pictures (cover + 20).
+        assert "21 pictures" in page.text
 
-    def test_the_downloads_are_private_to_the_book_owner(self, tmp_path: Path) -> None:
+    def test_the_downloads_are_private_to_the_book_owner(
+        self, completed_library: tuple[TestClient, str]
+    ) -> None:
         """Another signed-in person must not fetch someone's photo or cartoon."""
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _start(client)
-            _wait(client, book_id)
-            assert client.get(f"/book-media/{book_id}/photo?download=1").status_code == 200
+        client, book_id = completed_library
+        _sign_in(client, "owner-1")
+        assert client.get(f"/book-media/{book_id}/photo?download=1").status_code == 200
 
-            _sign_in(client, "owner-2")
-            for path in ("photo", "portrait"):
-                response = client.get(f"/book-media/{book_id}/{path}?download=1")
-                assert response.status_code == 404, path
+        _sign_in(client, "owner-2")
+        for path in ("photo", "portrait"):
+            response = client.get(f"/book-media/{book_id}/{path}?download=1")
+            assert response.status_code == 404, path
 
-    def test_the_book_can_be_read_in_the_page_without_the_pdf(self, tmp_path: Path) -> None:
+    def test_the_book_can_be_read_in_the_page_without_the_pdf(
+        self, completed_library: tuple[TestClient, str]
+    ) -> None:
         """UAT: the PDF would not open, so the book itself is shown in the page."""
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _start(client)
-            _wait(client, book_id)
-            page = client.get(f"/books/{book_id}")
-            assert page.status_code == 200
-            assert 'id="book-slot"' in page.text
-            assert 'id="turn-back"' in page.text
-            assert 'id="turn-next"' in page.text
-            # The story line travels with the picture, not only in the PDF.
-            assert "spread-story" in page.text
-            # Cover + twenty story pages + the About page.
-            assert len(re.findall(r'class="spread[ "]', page.text)) == 22
+        client, book_id = completed_library
+        _sign_in(client, "owner-1")
+        page = client.get(f"/books/{book_id}")
+        assert page.status_code == 200
+        assert 'id="book-slot"' in page.text
+        assert 'id="turn-back"' in page.text
+        assert 'id="turn-next"' in page.text
+        # The story line travels with the picture, not only in the PDF.
+        assert "spread-story" in page.text
+        # Cover + twenty story pages + the About page.
+        assert len(re.findall(r'class="spread[ "]', page.text)) == 22
 
     def test_password_mode_has_no_library(self, client: TestClient) -> None:
         book_id = _start(client)

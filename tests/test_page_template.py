@@ -9,7 +9,7 @@ differ. A later page-count or prose change must not be able to move the band.
 from __future__ import annotations
 
 import io
-import random
+import os
 from dataclasses import replace
 from statistics import pstdev
 
@@ -113,7 +113,8 @@ class TestStoryPageGeometry:
         geometry: TemplateGeometry = book_template(PAGE_WIDTH, ART_BOX_HEIGHT, [long_story])
         assert geometry.text_band_height > ART_BOX_HEIGHT * 0.5
 
-        data = build_book_pdf(ABOUT, twenty(long_story))
+        # Two pages prove the rendering; the geometry above proves the band.
+        data = build_book_pdf(ABOUT, [story_page(long_story), story_page(long_story)])
         reader = PdfReader(io.BytesIO(data))
         for page in reader.pages[:-1]:
             text = (page.extract_text() or "").replace("\n", " ")
@@ -135,11 +136,7 @@ class TestCoverTitleBand:
         assert title_band_report(art("#faf6ec")).ok
 
     def test_a_gentle_sky_gradient_passes(self) -> None:
-        image = Image.new("RGB", (ART_WIDTH, ART_HEIGHT))
-        for y in range(ART_HEIGHT):
-            shade = int(150 + 80 * y / ART_HEIGHT)
-            for x in range(ART_WIDTH):
-                image.putpixel((x, y), (shade // 2, shade // 2 + 20, shade))
+        image = Image.linear_gradient("L").resize((ART_WIDTH, ART_HEIGHT)).convert("RGB")
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         report = title_band_report(buffer.getvalue())
@@ -147,11 +144,12 @@ class TestCoverTitleBand:
 
     def test_a_busy_top_band_fails_with_a_reason(self) -> None:
         """T1.5: the admin screen disables Approve and shows this reason."""
-        random.seed(11)
+        band = int(ART_HEIGHT * COVER_TITLE_BAND_FRACTION)
         image = Image.new("RGB", (ART_WIDTH, ART_HEIGHT), "#faf6ec")
-        for y in range(int(ART_HEIGHT * COVER_TITLE_BAND_FRACTION)):
-            for x in range(ART_WIDTH):
-                image.putpixel((x, y), (random.randrange(256),) * 3)
+        image.paste(
+            Image.frombytes("RGB", (ART_WIDTH, band), os.urandom(ART_WIDTH * band * 3)),
+            (0, 0),
+        )
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         report: TitleBandReport = title_band_report(buffer.getvalue())
@@ -162,21 +160,20 @@ class TestCoverTitleBand:
 
     def test_the_check_only_looks_at_the_top_band(self) -> None:
         """A busy picture below the band is fine; the title never reaches it."""
-        random.seed(12)
-        image = Image.new("RGB", (ART_WIDTH, ART_HEIGHT), "#faf6ec")
         start = int(ART_HEIGHT * COVER_TITLE_BAND_FRACTION) + 1
-        for y in range(start, ART_HEIGHT):
-            for x in range(ART_WIDTH):
-                image.putpixel((x, y), (random.randrange(256),) * 3)
+        height = ART_HEIGHT - start
+        image = Image.new("RGB", (ART_WIDTH, ART_HEIGHT), "#faf6ec")
+        image.paste(
+            Image.frombytes("RGB", (ART_WIDTH, height), os.urandom(ART_WIDTH * height * 3)),
+            (0, start),
+        )
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         assert title_band_report(buffer.getvalue()).ok
 
     def test_the_band_measurement_is_a_real_standard_deviation(self) -> None:
         image = Image.new("RGB", (100, 100), "#808080")
-        for y in range(100):
-            for x in range(50):
-                image.putpixel((x, y), (0, 0, 0))
+        image.paste(Image.new("RGB", (50, 100), "#000000"), (0, 0))
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         report = title_band_report(buffer.getvalue(), fraction=1.0)

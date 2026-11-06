@@ -701,12 +701,17 @@ is the setting times the worker count.
 ## Tests
 
 ```bash
-make test
+make test-fast   # the inner loop: parallel, no coverage
+make test        # the full run: serial, with coverage
 make lint
 make typecheck
 # or all three with:
 make check
 ```
+
+`make test-fast` runs the same tests across every CPU with pytest-xdist and
+skips coverage, which is the difference between roughly two minutes and eight
+on a full run. `make check` (and CI) keeps the serial, covered run.
 
 The suite is fully offline and deterministic: it never touches the network and
 never needs an API key. Provider behaviour is verified against a recording

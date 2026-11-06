@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 
 import pytest
 from PIL import Image
@@ -54,14 +55,27 @@ def pages(story: bool = True) -> list[PageArt]:
     )
 
 
+# The whole 20-page book costs about 1.9 s to assemble (fonts + one JPEG per
+# page). Most assertions read it without changing it, so build it once per
+# module instead of once per test.
+@pytest.fixture(scope="module")
+def book_bytes() -> bytes:
+    return build_book_pdf(about(), pages())
+
+
+@pytest.fixture(scope="module")
+def book_with_cover() -> bytes:
+    return build_book_pdf(about(), pages(), art_bytes())
+
+
 class TestAssembly:
-    def test_one_page_per_story_page_plus_about_me(self) -> None:
-        reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages())))
+    def test_one_page_per_story_page_plus_about_me(self, book_bytes: bytes) -> None:
+        reader = PdfReader(io.BytesIO(book_bytes))
         # About page + every active story page = 21 sheets. The cover is the
         # 22nd, added when the book has one.
         assert len(reader.pages) == len(BOOK_PAGES) + 1 == 21
 
-    def test_the_unretired_beanstalk_page_is_in_the_pdf(self) -> None:
+    def test_the_unretired_beanstalk_page_is_in_the_pdf(self, book_bytes: bytes) -> None:
         """Step 7 changed the constraint: page 4 is story, not retired data.
 
         This test used to pin that the beanstalk-at-dawn prose was *absent*
@@ -69,21 +83,19 @@ class TestAssembly:
         hand-in book, so the same prose must be present as real PDF text. The
         retirement mechanism itself is still covered by the model tests.
         """
-        data = build_book_pdf(about(), pages())
         texts = [
             (page.extract_text() or "").replace("\n", " ")
-            for page in PdfReader(io.BytesIO(data)).pages
+            for page in PdfReader(io.BytesIO(book_bytes)).pages
         ]
         assert any("woke at sunrise" in text for text in texts)
 
-    def test_story_text_is_real_pdf_text(self) -> None:
-        data = build_book_pdf(about(), pages())
-        reader = PdfReader(io.BytesIO(data))
+    def test_story_text_is_real_pdf_text(self, book_bytes: bytes) -> None:
+        reader = PdfReader(io.BytesIO(book_bytes))
         first = reader.pages[0]
         text = first.extract_text()
         assert "Milky-White" in text.replace("\n", " ")
 
-    def test_no_page_loses_the_end_of_its_story(self) -> None:
+    def test_no_page_loses_the_end_of_its_story(self, book_bytes: bytes) -> None:
         """A paragraph must fit the panel: nothing truncated, no ellipsis.
 
         The text is no longer a caption, so the panel has to hold several
@@ -91,30 +103,28 @@ class TestAssembly:
         reader would lose the end of the story, which is the whole point of
         rewriting it.
         """
-        data = build_book_pdf(about(), pages())
-        reader = PdfReader(io.BytesIO(data))
+        reader = PdfReader(io.BytesIO(book_bytes))
         for index, page in enumerate(reader.pages[:-1]):
             text = (page.extract_text() or "").replace("\n", " ")
             assert "…" not in text, f"page {index + 1} was truncated"
 
-    def test_every_page_prints_its_own_story(self) -> None:
+    def test_every_page_prints_its_own_story(self, book_bytes: bytes) -> None:
         """Each page's own paragraph is on that page, in full."""
-        data = build_book_pdf(about(), pages())
-        reader = PdfReader(io.BytesIO(data))
+        reader = PdfReader(io.BytesIO(book_bytes))
         texts = [(page.extract_text() or "").replace("\n", " ") for page in reader.pages]
         for page in BOOK_PAGES:
             opening = page.story.split("{name}")[0].split("{possessive}")[0].strip()
             opening = opening[:40]
             assert any(opening in text for text in texts), page.key
 
-    def test_every_page_is_the_art_plus_one_story_margin(self) -> None:
+    def test_every_page_is_the_art_plus_one_story_margin(self, book_with_cover: bytes) -> None:
         """One template: the art's width, its height plus the same margin.
 
         Used to pin a 720x540 page (the art alone, text over it). The story is
         now set under the art, so the page is taller than the art, and every
         page — cover and About included — has the same size.
         """
-        reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages(), art_bytes())))
+        reader = PdfReader(io.BytesIO(book_with_cover))
         sizes = {(float(p.mediabox.width), float(p.mediabox.height)) for p in reader.pages}
         assert len(sizes) == 1
         width, height = sizes.pop()
@@ -143,13 +153,13 @@ class TestAssembly:
         text = reader.pages[-1].extract_text()
         assert "אוהבת" in text
 
-    def test_story_text_never_sits_on_the_art(self) -> None:
+    def test_story_text_never_sits_on_the_art(self, book_bytes: bytes) -> None:
         """AI assessment: no white boxes over the picture, no text on a face.
 
         Every glyph of a story page is set in the margin below the art box
         (PDF y runs upwards, so "below" means a y under the margin's height).
         """
-        reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages())))
+        reader = PdfReader(io.BytesIO(book_bytes))
         for page in reader.pages[:-1]:
             height = float(page.mediabox.height)
             margin = height - 540
@@ -163,10 +173,10 @@ class TestAssembly:
             assert ys, "the story is on the page"
             assert max(ys) < margin, "story text was drawn over the art"
 
-    def test_one_font_size_for_the_whole_book(self) -> None:
+    def test_one_font_size_for_the_whole_book(self, book_bytes: bytes) -> None:
         """No font size drifting page to page."""
         sizes: set[float] = set()
-        reader = PdfReader(io.BytesIO(build_book_pdf(about(), pages())))
+        reader = PdfReader(io.BytesIO(book_bytes))
         for page in reader.pages[:-1]:
 
             def visit(text, cm, tm, font, size):  # type: ignore[no-untyped-def]
@@ -176,10 +186,9 @@ class TestAssembly:
             page.extract_text(visitor_text=visit)
         assert len(sizes) == 1, sizes
 
-    def test_the_book_is_set_in_literata(self) -> None:
-        data = build_book_pdf(about(), pages())
-        assert b"Literata" in data
-        assert b"ComicNeue" not in data
+    def test_the_book_is_set_in_literata(self, book_bytes: bytes) -> None:
+        assert b"Literata" in book_bytes
+        assert b"ComicNeue" not in book_bytes
 
     def test_the_about_page_frames_the_portrait_and_ends_the_story(self) -> None:
         data = build_book_pdf(about(), pages(), portrait=art_bytes(512, 512))
@@ -208,17 +217,9 @@ class TestAssembly:
         """
         # Incompressible noise makes a genuinely large PNG, as a provider's
         # detailed art would.
-        import random
-
-        random.seed(7)
         width, height = 2048, 1536
-        noise = Image.new("RGB", (width, height))
-        noise.putdata(
-            [
-                (random.randrange(256), random.randrange(256), random.randrange(256))
-                for _ in range(width * height)
-            ]
-        )
+        # Random bytes give incompressible noise without a million putpixel calls.
+        noise = Image.frombytes("RGB", (width, height), os.urandom(width * height * 3))
         raw = io.BytesIO()
         noise.save(raw, format="PNG")
         image = raw.getvalue()

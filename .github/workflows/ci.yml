@@ -29,5 +29,5 @@ jobs:
 
       # No secrets needed: the suite runs entirely against the mock provider.
       - name: Test
-        run: pytest --cov --cov-report=term-missing
+        run: pytest --cov --cov-report=term-missing -n auto --dist loadscope
 

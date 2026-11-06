@@ -1,4 +1,4 @@
-.PHONY: install dev test migrate lint typecheck check clean
+.PHONY: install dev test test-fast migrate lint typecheck check clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -13,8 +13,14 @@ dev: ## Run with reload in mock mode (no API key needed)
 test: ## Run the suite with coverage
 	$(VENV)/bin/python -m pytest --cov=app --cov-report=term-missing
 
+test-fast: ## Run the suite in parallel, without coverage (the inner loop)
+	$(VENV)/bin/python -m pytest -n auto --dist loadscope
+
 migrate: ## Apply database migrations (needs DATABASE_URL in the environment)
 	$(VENV)/bin/python -m alembic upgrade head
+
+seed: ## Load the story seeds into the database (idempotent; run after migrate)
+	$(VENV)/bin/python -m app.scripts.seed_stories
 
 lint: ## Check formatting and lint rules
 	$(VENV)/bin/ruff check .
