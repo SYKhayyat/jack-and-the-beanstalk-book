@@ -1,8 +1,9 @@
 # The 20-page book template — plan
 
-Status: **plan only, no code written.** This turns the brief into separate work
-items, each with acceptance constraints that can be checked rather than
-argued about.
+Status: **T1 and T2 have landed on `main`; T0 is blocked on a provider key and
+T3–T15 are gated behind T0/T4/T8/T9.** See [Status of this pass](#status-of-this-pass-2026-11-06)
+at the end. Everything else here is the agreed plan, with acceptance
+constraints that can be checked rather than argued about.
 
 ## Decisions taken
 
@@ -659,6 +660,25 @@ tier-1 suspicion.
 9. **T11, T12, T13, T14** — speed, UX, page load, persistence. Buffy.
 10. **T15** — guardrail pass and the recorded timing/cost numbers. Buffy, then
     Claude's required review of the prompts and guardrail tests.
+
+## Status of this pass (2026-11-06)
+
+| Item | State |
+| --- | --- |
+| **T1** — template freeze, cream page, cover title band | **Done.** `TemplateGeometry` is the one geometry every page uses; `title_band_report()` measures the cover's top 22 % and returns the reason an admin screen will show. `tests/test_page_template.py` covers 20 pages, overlong prose, cream fill, and flat/busy/gradient bands. |
+| **T2** — twenty pages for both stories | **Done for Red and content-complete for Jack.** `app/books/little_red_riding_hood.toml` holds 20 pages, cover, cast and the wolf's non-photoable flag; `app/books/__init__.py` is the boot-time validator. Jack gained `the-second-climb` as page 10, so all counts moved to 21 drawn pictures / 22 sheets. |
+| **T0** — edit latency and plate preservation | **Blocked.** The environment has `IMAGE_PROVIDER=mock` and no OpenAI, Gemini or Agnes key, so there are no real numbers to hand Claude. Needs an operator run with a key and three hand-made plates. |
+| **T3–T15** | **Blocked on contracts, not effort.** T4 (schema), T8 (edit pass) and T9 (quality loop) are Claude's; T3, T5–T7 and T10–T15 build on them. T5/T6 also wait on the operator's plate review. |
+
+Two transitional notes for whoever picks this up:
+
+1. **Jack's catalogue still lives in `prompts.toml`.** T2's boot check enforces
+   its twenty pages, but the full prose floor (sentence length, simple
+   vocabulary) is enforced on seeds only. T7 moves Jack into
+   `app/books/jack_and_the_beanstalk.toml` and closes that gap.
+2. **The reference cap is a constant for now.** `MAX_REFERENCE_CAST = 2`
+   (star included) stands in for T8's per-provider `max_reference_images`;
+   when T8 lands, the seed check should read the configured provider's limit.
 
 ## Open questions (small, can be answered during the work)
 
