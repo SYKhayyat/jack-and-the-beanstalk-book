@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -85,9 +87,15 @@ class FileUserStore(UserStore):
             created_at=existing.created_at if existing else _now(),
         )
         path = self._path(user.sub)
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(asdict(stored), indent=2), encoding="utf-8")
-        tmp.replace(path)
+        # A unique temporary name per write, not one fixed per user: two
+        # simultaneous sign-ins of the same account used to collide on
+        # `<sub>.json.tmp`, and one could rename the other's half-written file.
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        try:
+            tmp.write_text(json.dumps(asdict(stored), indent=2), encoding="utf-8")
+            tmp.replace(path)
+        finally:
+            tmp.unlink(missing_ok=True)
         return stored
 
     def get(self, sub: str) -> User | None:

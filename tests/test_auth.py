@@ -8,7 +8,9 @@ every shape Google can answer with is exercised.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -428,6 +430,32 @@ def test_a_sign_in_records_the_person_once(tmp_path: Path) -> None:
     assert first.created_at == second.created_at
     assert store.get(SUB) is not None
     assert store.get("nobody") is None
+
+
+def test_simultaneous_sign_ins_of_one_person_do_not_collide(tmp_path: Path) -> None:
+    """Two callbacks for the same account must not share a temporary file.
+
+    The store used one fixed `<sub>.json.tmp` per user; concurrent writers
+    could rename each other's half-written file, losing the record or raising
+    on the rename. Each write now owns its temporary name.
+    """
+    store = FileUserStore(tmp_path / "users")
+    barrier = threading.Barrier(8)
+
+    def sign_in(index: int) -> None:
+        barrier.wait()
+        for attempt in range(4):
+            store.upsert(
+                User(sub=SUB, email="someone@example.com", name=f"n{index}-{attempt}")
+            )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(sign_in, range(8)))
+
+    stored = store.get(SUB)
+    assert stored is not None
+    assert stored.name.startswith("n")
+    assert [path for path in (tmp_path / "users").iterdir() if path.suffix == ".tmp"] == []
 
 
 def test_a_path_traversal_sub_is_refused(tmp_path: Path) -> None:
