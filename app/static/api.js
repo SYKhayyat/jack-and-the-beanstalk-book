@@ -38,6 +38,11 @@ export function draftImageUrl(generationId, stem = "cartoon") {
   return `/media/${generationId}/${stem}`;
 }
 
+/* The admin review screen: one press paints one missing plate. */
+export function paintMissingPlate(storyKey) {
+  return postForm(`/admin/plates/${storyKey}/paint.json`, new FormData());
+}
+
 /* The studio: comics, chosen takes, and the drafts behind them. */
 export function createStudioClient() {
   return {

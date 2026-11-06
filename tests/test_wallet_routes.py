@@ -25,6 +25,7 @@ from app.services.payments import (
     PaymentProvider,
     Refund,
 )
+from app.services.user_store import User
 from app.services.wallet import FUNDING_AMOUNTS_CENTS
 from app.sessions import SESSION_COOKIE, SessionKind
 from tests.helpers import RecordingProvider, make_photo_bytes
@@ -101,6 +102,10 @@ def wallet_app(
     assert isinstance(payments, FakeStripe)
     app = create_app(configured, provider=provider, payments=payments)
     with TestClient(app) as client:
+        # The Google callback records the person before it signs them in; the
+        # stand-in session has to leave the same row behind, because a book is
+        # filed under a real `users` row.
+        client.app.state.container.user_store.upsert(User(sub=SUB, name="Shai"))
         token = client.app.state.sessions.issue(
             SessionKind.GOOGLE, ttl_seconds=3600, sub=SUB, name="Shai"
         )

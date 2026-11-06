@@ -190,9 +190,13 @@ class TestLogsCarryNoSecrets:
 
         A URL can be logged in pieces (a repr, a per-field debug line), so the
         password portion is now armed separately. The whole URL stays armed.
+
+        The arming is run on its own rather than through `create_app`: the app
+        now connects and migrates the database it is given, and this test is
+        about what the process arms before it logs anything.
         """
         from app.config import Settings
-        from app.main import create_app
+        from app.main import _configure_logging
 
         url = "postgres://user:a-very-long-db-password@host/db"
         settings = Settings(
@@ -202,7 +206,7 @@ class TestLogsCarryNoSecrets:
             storage_dir=tmp_path / "storage",
             database_url=url,
         )
-        create_app(settings)
+        _configure_logging(settings)
 
         with caplog.at_level(logging.WARNING, logger="app.main"):
             logging.getLogger("app.main").warning(

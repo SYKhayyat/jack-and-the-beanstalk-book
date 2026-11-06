@@ -1,8 +1,8 @@
-"""The wallet against `DATABASE_URL`.
+"""The wallet: the one implementation of `WalletStore`.
 
-The same contract as `FileWalletStore`, with the durability promise the rest of
-database mode makes: an account's balance survives the death of the process
-that took the payment.
+The ledger is the database — Postgres in production, the local SQLite file
+otherwise — so an account's balance survives the death of the process that
+took the payment.
 
 Two things the schema gives this store for free, and it relies on both:
 

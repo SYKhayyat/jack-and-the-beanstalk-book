@@ -1,0 +1,35 @@
+{% extends "_layout.html" %}
+{% block title %}Plate review — Storybook Studio{% endblock %}
+{% block body_attrs %}data-page="admin"{% endblock %}
+{% block header_title %}<span class="header-title">Plate review</span>{% endblock %}
+{% block main_class %}page admin{% endblock %}
+{% block content %}
+  <nav class="breadcrumb"><a href="/">← Back to the books</a></nav>
+
+  <section class="card admin-intro">
+    <h1>Plates</h1>
+    <p class="field-help">
+      A story's pages are painted empty once — the place, the props and the light,
+      with nobody in them and no lettering. Each plate is approved here before any
+      book can be made on it. A story with no complete template version cannot start
+      a book at all.
+    </p>
+  </section>
+
+  <ul class="admin-stories">
+    {% for story in stories %}
+    <li class="card">
+      <h2><a href="/admin/plates/{{ story.key }}">{{ story.title }}</a></h2>
+      {% if story.seeded %}
+      <p class="admin-progress">
+        {{ story.approved }} of {{ page_total }} plates approved{% if story.version %}
+        · template version {{ story.version }}{% else %} · no complete version yet{% endif %}
+      </p>
+      <p class="field-help">{{ story.drafts }} draft plate(s) waiting for review.</p>
+      {% else %}
+      <p class="inline-message error">This story is not seeded yet. Run <code>make seed</code> first.</p>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+{% endblock %}

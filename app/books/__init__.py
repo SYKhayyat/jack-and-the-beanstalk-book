@@ -39,6 +39,7 @@ __all__ = [
     "SeedPage",
     "SeedScene",
     "StorySeed",
+    "check_readability",
     "load_seed",
     "seed_from_mapping",
     "seed_paths",
@@ -334,7 +335,14 @@ def _syllables(word: str) -> int:
     return max(1, len(groups))
 
 
-def _check_prose(text: str, where: str, key: str, allowed: frozenset[str]) -> None:
+def check_readability(text: str, where: str, key: str) -> None:
+    """The read-aloud rules, without the vocabulary gate.
+
+    Length, sentence length, syllables and word length are what make a page
+    readable to a five-year-old and still worth reading at twenty. They are
+    checked on every page the app can print, seeds and the built-in catalogue
+    alike; the word list is the seeds' own editing tool.
+    """
     words = _words(text)
     if not MIN_WORDS <= len(words) <= MAX_WORDS:
         raise SeedError(
@@ -349,8 +357,6 @@ def _check_prose(text: str, where: str, key: str, allowed: frozenset[str]) -> No
                 f"{MAX_SENTENCE_WORDS}"
             )
     for word in words:
-        if word not in allowed:
-            raise SeedError(f"{where} page {key!r}: {word!r} is not in the simple vocabulary")
         if _syllables(word) > MAX_SYLLABLES:
             raise SeedError(f"{where} page {key!r}: {word!r} has too many syllables")
     average = sum(len(word) for word in words) / len(words)
@@ -359,6 +365,13 @@ def _check_prose(text: str, where: str, key: str, allowed: frozenset[str]) -> No
             f"{where} page {key!r}: average word length {average:.1f}, "
             f"the limit is {MAX_AVERAGE_WORD_LENGTH}"
         )
+
+
+def _check_prose(text: str, where: str, key: str, allowed: frozenset[str]) -> None:
+    check_readability(text, where, key)
+    for word in _words(text):
+        if word not in allowed:
+            raise SeedError(f"{where} page {key!r}: {word!r} is not in the simple vocabulary")
 
 
 def _check_prose_is_not_a_prompt(

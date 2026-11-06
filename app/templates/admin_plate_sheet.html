@@ -1,0 +1,84 @@
+{% extends "_layout.html" %}
+{% block title %}{{ story.title }} plates — Storybook Studio{% endblock %}
+{% block body_attrs %}data-page="admin"{% endblock %}
+{% block header_title %}<span class="header-title">Plate review</span>{% endblock %}
+{% block main_class %}page admin{% endblock %}
+{% block content %}
+  <nav class="breadcrumb"><a href="/admin/plates">← All stories</a></nav>
+
+  <h1>{{ story.title }}</h1>
+  {% if painted_page is not none %}
+  <p class="inline-message" role="status">Painted page {{ painted_page }}.</p>
+  {% elif finished %}
+  <p class="inline-message" role="status">Every page already has a candidate.</p>
+  {% endif %}
+  <p class="field-help">
+    {{ painted_count }} of {{ page_total }} plates painted,
+    {{ approved_count }} approved{% if version %}
+    · template version {{ version }}{% else %} · no complete version yet{% endif %}.
+    The slots show where each character is painted into the plate; the cover's
+    band is the strip its title sits over. Open a page to approve it, or type what
+    should change and press <strong>Paint again</strong> for one more try.
+  </p>
+
+  <form class="admin-paint" method="post" action="/admin/plates/{{ story.key }}/paint"
+        data-paint data-story="{{ story.key }}">
+    <button type="submit" class="button primary" {% if painted_count >= page_total %}disabled{% endif %}>
+      Paint missing plates
+    </button>
+    <span class="field-help" data-paint-status>
+      One image call per plate, so {{ page_total - painted_count }} more call(s) to paint this story.
+      An approved plate is never repainted; leaving the page stops the run, and pressing
+      again picks up the pages still missing one.
+    </span>
+  </form>
+
+  <input type="checkbox" id="show-overlay" class="overlay-toggle" checked>
+  <label class="overlay-label" for="show-overlay">Show character slots and title band</label>
+
+  <div class="overlay-host">
+    <ol class="contact-sheet">
+      {% for tile in tiles %}
+      <li class="sheet-tile{% if tile.approved %} approved{% endif %}">
+        <a class="sheet-link" href="/admin/plates/{{ story.key }}/{{ tile.number }}">
+          <div class="sheet-frame">
+            {% if tile.plate %}
+            <img src="{{ tile.plate.url }}" alt="Plate for {{ tile.label }}" loading="lazy">
+            <div class="overlay-layer">
+              {% if tile.number == 0 %}
+              <span class="title-band" style="height:{{ tile.band_percent }}%"><em>title band</em></span>
+              {% endif %}
+              {% for slot in tile.plate.slots %}
+              <span class="slot" data-cast="{{ slot.cast_key }}" data-rect="{{ slot.rect }}" style="{{ slot.style }}">
+                <em>{{ slot.cast_key }}</em>
+              </span>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="sheet-empty">No plate yet</p>
+            {% endif %}
+          </div>
+          <p class="sheet-caption">
+            {{ tile.label }}
+            {% if tile.approved %}· approved{% elif tile.plate %}· not approved{% else %}· nothing painted{% endif %}
+            {% if tile.drafts %}· {{ tile.drafts }} draft(s){% endif %}
+          </p>
+        </a>
+        {% if tile.plate %}
+        <form class="admin-tile-change" method="post"
+              action="/admin/plates/{{ story.key }}/{{ tile.number }}/reroll">
+          <input type="hidden" name="back" value="sheet">
+          <input type="text" name="change" maxlength="300"
+                 placeholder="What should change?"
+                 aria-label="What should change on {{ tile.label }}">
+          <button type="submit" class="button secondary">Paint again</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+{% endblock %}
+{% block scripts %}
+  <script type="module" src="/static/admin-plates.js"></script>
+{% endblock %}

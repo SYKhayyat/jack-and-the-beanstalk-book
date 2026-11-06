@@ -1,24 +1,31 @@
 """Shared fixtures.
 
-Two things matter here:
+Three things matter here:
 
 1. `settings` never reads the developer's real `.env`, so a key on your machine
    cannot leak into a test run or change what the tests exercise.
 2. `client` always runs against a stub provider, so the suite is offline,
    free, and deterministic.
+3. Every test gets its own SQLite file, built once per session and copied. That
+   is the same database the app runs on with no `DATABASE_URL`, so the tests
+   exercise the real store, the real schema and the boot-time migration —
+   without a Postgres server and without paying for a migration chain per test.
 """
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.engine import Engine
 
 from app.config import Settings
 from app.container import Container, build_container
+from app.db import build_engine, prepare_database
 from app.main import create_app
 from app.services.image_providers.base import ImageProvider
 from tests.helpers import RecordingProvider, make_photo_bytes
@@ -29,9 +36,47 @@ from tests.helpers import RecordingProvider, make_photo_bytes
 Settings.model_config["env_file"] = None
 
 
+@pytest.fixture(scope="session")
+def schema_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A database migrated to head once, copied into each test's storage dir.
+
+    The app migrates at boot; running the whole chain from empty for every one
+    of hundreds of tests would dominate the suite. A copy still goes through
+    the boot path (a no-op upgrade against a database already at head), so the
+    migration is still exercised, and `tests/test_migrations.py` owns the
+    from-empty up/down proof.
+    """
+    path = tmp_path_factory.mktemp("schema") / "app.sqlite3"
+    engine = build_engine(f"sqlite:///{path}")
+    try:
+        prepare_database(engine)
+    finally:
+        engine.dispose()
+    return path
+
+
 @pytest.fixture
-def settings(tmp_path: Path) -> Settings:
-    """Isolated settings pointed at a throwaway storage directory."""
+def engine(tmp_path: Path, schema_template: Path) -> Iterator[Engine]:
+    """A throwaway SQLite database at head, for store-level tests."""
+    path = tmp_path / "app.sqlite3"
+    shutil.copyfile(schema_template, path)
+    built = build_engine(f"sqlite:///{path}")
+    try:
+        yield built
+    finally:
+        built.dispose()
+
+
+@pytest.fixture
+def settings(tmp_path: Path, schema_template: Path) -> Settings:
+    """Isolated settings: a throwaway storage dir and its own empty database.
+
+    `DATABASE_URL` stays empty on purpose — that is local development's real
+    configuration — so every test boots the SQLite path the app ships with.
+    """
+    storage = tmp_path / "storage"
+    storage.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(schema_template, storage / "app.sqlite3")
     return Settings(
         image_provider="mock",  # type: ignore[arg-type]
         gemini_api_key="",

@@ -1,10 +1,11 @@
-"""The production schema, built the way production builds it.
+"""The schema, built the way the app builds it.
 
-A deployed process never calls `create_all`: `make migrate` runs Alembic and the
-app boots on whatever that produced. The other database tests build their
-tables from the models instead, so nothing would notice if the two drifted
-apart — every insert would still succeed against a schema the app was not
-written for, and only a real deployment would find out.
+Nothing calls `create_all` in the app: the one Alembic chain runs at boot
+(`app.db.prepare_database`) and `make migrate` runs the same chain ahead of
+time. The other database tests start from a copy of this migrated file, so
+nothing would notice if the schema and the models drifted apart — every insert
+would still succeed against a schema the app was not written for, and only a
+real deployment would find out.
 
 These tests run the operator's own command in a subprocess. A subprocess is
 deliberate: `migrations/env.py` calls `fileConfig`, which reconfigures global
@@ -25,7 +26,8 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import MetaData, create_engine
 
-from app.db import Base, build_engine
+from app.config import Settings
+from app.db import Base, build_engine, local_database_url, prepare_database
 from app.models.book import AboutMe
 from app.services.book_store import BookStatus
 from app.services.db_book_store import DatabaseBookStore
@@ -199,6 +201,57 @@ def empty_database(request: pytest.FixtureRequest, tmp_path: Path) -> str:
     return POSTGRES_URL
 
 
+class TestTheWholeChain:
+    """T3.2: the chain runs up and down on both engines, and re-running is a no-op."""
+
+    def test_up_down_up_lands_on_the_models_each_time(self, empty_database: str) -> None:
+        models = describe(Base.metadata, affinity=True)
+
+        alembic(empty_database, "upgrade", "head")
+        assert describe(reflect(empty_database), affinity=True) == models
+
+        alembic(empty_database, "downgrade", "base")
+        assert describe(reflect(empty_database), affinity=True) == {}
+
+        alembic(empty_database, "upgrade", "head")
+        assert describe(reflect(empty_database), affinity=True) == models
+
+    def test_upgrading_twice_changes_nothing(self, empty_database: str) -> None:
+        """`make migrate` is idempotent: a second run is not a second schema."""
+        alembic(empty_database, "upgrade", "head")
+        first = describe(reflect(empty_database), affinity=True)
+
+        alembic(empty_database, "upgrade", "head")
+        assert describe(reflect(empty_database), affinity=True) == first
+
+
+def test_booting_with_no_url_creates_and_migrates_the_local_file(tmp_path: Path) -> None:
+    """T3.1: the default configuration is a database, not a special case.
+
+    An empty `DATABASE_URL` means one SQLite file under `STORAGE_DIR`; booting
+    the app builds it and runs the same chain a deployment runs, and booting a
+    second time is a cheap no-op rather than a second attempt at the schema.
+    """
+    settings = Settings(
+        image_provider="mock",  # type: ignore[arg-type]
+        gemini_api_key="",
+        app_env="test",
+        storage_dir=tmp_path / "storage",
+    )
+    assert settings.database_url == ""
+    assert settings.effective_database_url == local_database_url(tmp_path / "storage")
+
+    engine = prepare_database(build_engine(settings.effective_database_url))
+    try:
+        assert settings.local_database_path.is_file()
+        assert describe(reflect(settings.effective_database_url), affinity=True) == describe(
+            Base.metadata, affinity=True
+        )
+        prepare_database(engine)
+    finally:
+        engine.dispose()
+
+
 class TestMigration0005:
     """T4.6: the story-template migration runs up and down on both engines."""
 
@@ -244,6 +297,10 @@ class TestMigration0005:
                 page = connection.exec_driver_sql(
                     "SELECT attempt_count, review, best_effort FROM book_pages"
                 ).one()
+            # And the store that serves it still reads the old rows (T3.4).
+            store = DatabaseBookStore(engine)
+            assert store.load_status("old") is not None
+            assert store.read_page("old", 1) == b"\x00"
         finally:
             engine.dispose()
         assert tuple(book) == ("jack_and_the_beanstalk", None, None)

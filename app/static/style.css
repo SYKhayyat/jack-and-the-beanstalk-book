@@ -1471,3 +1471,208 @@ dialog.modal form {
   background: #fbe9ec;
   color: var(--berry-dark);
 }
+
+/* --- admin: the plate review screen ------------------------------------------- */
+
+.admin-stories,
+.contact-sheet,
+.candidates {
+  list-style: none;
+  margin: var(--gutter) 0;
+  padding: 0;
+  display: grid;
+  gap: var(--gutter);
+}
+
+.admin-stories {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.contact-sheet {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.candidates {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.contact-sheet a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.sheet-tile.approved .sheet-caption {
+  color: var(--bean-dark);
+  font-weight: 600;
+}
+
+.sheet-frame {
+  position: relative;
+}
+
+.sheet-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+  background: var(--card);
+}
+
+.sheet-empty {
+  margin: 0;
+  padding: 48px 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-input);
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.overlay-label {
+  display: inline-block;
+  margin-bottom: 4px;
+  color: var(--ink-soft);
+}
+
+/* The overlay is a sibling of its host, so the toggle needs no JavaScript. */
+.overlay-layer {
+  position: absolute;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+}
+
+.overlay-toggle:checked ~ .overlay-host .overlay-layer {
+  display: block;
+}
+
+.slot,
+.title-band {
+  position: absolute;
+}
+
+.slot {
+  border: 2px dashed var(--bean);
+  border-radius: 8px;
+  background: rgba(60, 122, 78, 0.1);
+}
+
+.slot em,
+.title-band em {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.5;
+  color: #fff;
+  background: var(--bean-dark);
+}
+
+.title-band {
+  left: 0;
+  right: 0;
+  top: 0;
+  border-bottom: 2px dashed var(--marigold);
+  background: rgba(242, 166, 59, 0.18);
+}
+
+.title-band em {
+  background: var(--marigold);
+}
+
+.sheet-caption {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.admin-prose {
+  max-width: 60ch;
+  color: var(--ink);
+}
+
+.candidate-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.candidate-actions form {
+  margin: 0;
+}
+
+.admin-refusal {
+  margin: 0;
+  color: var(--berry-dark);
+}
+
+.prompt {
+  max-height: 240px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: var(--radius-input);
+  background: var(--paper);
+  white-space: pre-wrap;
+}
+
+.admin-reroll textarea {
+  width: 100%;
+  font-family: inherit;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+  padding: 8px;
+}
+
+.admin-paint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.admin-paint .field-help {
+  margin: 0;
+}
+
+.admin-tile-change {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.admin-tile-change input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+}
+
+.admin-tile-change .button {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.admin-reroll input[type="text"] {
+  width: 100%;
+  font-family: inherit;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+  padding: 8px;
+}
+
+.admin-prompt-edit {
+  margin-top: 12px;
+}
+
+.admin-prompt-edit summary {
+  cursor: pointer;
+  color: var(--ink-soft);
+}

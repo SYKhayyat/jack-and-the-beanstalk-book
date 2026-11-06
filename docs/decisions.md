@@ -42,14 +42,25 @@ to someone, survive a restart, and not be openable by guessing a link.
 
 ## 4. Books survive restarts
 
-By default everything is stored on the server's disk. When a database is
-configured, books, their pages, their PDFs, and the people who made them live in
-the database instead. A finished book then survives a restart or redeploy and is
-still there when its owner signs back in. A database is a switch in the
-environment; local development needs none.
+Everything is in the database: books, their pages, their PDFs, the people who
+made them, and the story templates they are made from. A finished book survives
+a restart or redeploy and is still there when its owner signs back in.
+
+There is one storage path, not two. `DATABASE_URL` names a Postgres database in
+production; leaving it empty means a SQLite file under `STORAGE_DIR`, created
+and migrated on boot. Local development therefore still needs no database
+server — it just gets a real database anyway, the same tables and the same
+migrations the deployment runs. Books that only ever existed as files under
+`<STORAGE_DIR>/books` are dropped rather than migrated; that affects local
+development only, because production has used the database since books gained
+accounts.
 
 **Why:** the assignment's grader flow explicitly restarts the site between
 making a book and downloading it. A book that disappears is a failed hand-in.
+Keeping a filesystem mode as well meant two code paths, two test suites and a
+class of bug where a feature worked in one and not the other — and the story
+templates only exist in the database, so a filesystem book could not be rendered
+from one.
 
 ## 5. Pages appear as they finish, several at a time
 

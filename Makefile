@@ -7,7 +7,7 @@ install: ## Create the venv and install everything
 	python3 -m venv $(VENV)
 	$(VENV)/bin/pip install --requirement requirements-dev.lock
 
-dev: ## Run with reload in mock mode (no API key needed)
+dev: ## Run with reload in mock mode (no API key, no database server needed)
 	$(VENV)/bin/uvicorn app.main:create_app --factory --reload --port 8000
 
 test: ## Run the suite with coverage
@@ -16,7 +16,7 @@ test: ## Run the suite with coverage
 test-fast: ## Run the suite in parallel, without coverage (the inner loop)
 	$(VENV)/bin/python -m pytest -n auto --dist loadscope
 
-migrate: ## Apply database migrations (needs DATABASE_URL in the environment)
+migrate: ## Apply database migrations (empty DATABASE_URL = the local SQLite file)
 	$(VENV)/bin/python -m alembic upgrade head
 
 seed: ## Load the story seeds into the database (idempotent; run after migrate)

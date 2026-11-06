@@ -330,9 +330,9 @@ app/
 │   ├── images.py         #     upload validation, normalisation, EXIF stripping
 │   ├── storage.py        #     artefact persistence (drafts)
 │   ├── book_runner.py    #     the picture-book background job
-│   ├── book_store.py     #     the book-store contract + filesystem implementation
-│   ├── db_book_store.py  #     the same contract against DATABASE_URL
-│   ├── user_store.py     #     the people who signed in (file or database)
+│   ├── book_store.py     #     the book-store contract
+│   ├── db_book_store.py  #     the one implementation, over the database
+│   ├── user_store.py     #     the people who signed in
 │   ├── pdf.py            #     the PDF assembler: full-bleed art + real text
 │   ├── rate_limit.py     #     per-minute billable-image brake
 │   └── image_providers/  #     the swappable backend boundary
@@ -342,7 +342,7 @@ app/
 │       ├── agnes_provider.py #     the free testing backend (reference images)
 │       ├── gemini.py     #         the fallback backend
 │       └── registry.py   #         name → class
-├── db.py                 # the database engine and tables (only used with DATABASE_URL)
+├── db.py                 # the database engine, tables and boot-time migration
 ├── stories.py            # the shelf: which books exist and which can be made today
 ├── routes/               # CONTROLLER: web (the four screens), book, api, media, auth
 ├── templates/            # VIEW: shelf, studio, about_page, book, login (signed-out shelf), wallet
@@ -571,6 +571,51 @@ setting added without its wording raises `KeyError` at startup rather than
 sending a prompt with a hole in it. `app/services/prompts.py` only decides which
 lines apply and how they are joined.
 
+## Reviewing plates (operator only)
+
+Every story page is painted once as an empty **plate** — the place, the props
+and the light, with nobody in it and no lettering — and approved by the
+operator before any book is made. A book's pages are then edit passes that
+paint the cast into those plates, so the plate is also the layout: it declares
+one slot per character on its page.
+
+```bash
+make migrate && make seed                              # words and the character bible
+```
+
+Then, signed in as the operator — set `OPERATOR_SUB` to your Google `sub` —
+open `/admin/plates` and press **Paint missing plates** on a story. It paints
+21 draft plates (cover plus twenty pages), one image call each, and the button
+shows which page it just finished; the same command from a terminal is
+
+```bash
+.venv/bin/python -m app.scripts.make_plates --story little_red_riding_hood
+```
+
+The screen and the command paint the same plates from the same prompts. Either
+way it is one call per plate, the count is shown before you start, and an
+already approved plate is never repainted.
+
+- `/admin/plates` — every story, how many of its 21 plates are painted and
+  approved, and whether it has a complete template version. A story with no
+  complete version cannot start a book.- `/admin/plates/{story}` — the contact sheet: all 21 plates in page order,
+  with a toggle showing each character's slot and the cover's title band. This
+  is also where **Paint missing plates** lives: one press, one image call per
+  plate, and it stops when every page has a candidate. Each painted tile has
+  its own **What should change?** box: type a correction, press Paint again,
+  and only that plate is painted again.
+- `/admin/plates/{story}/{page}` — that page's candidates: approve, paint one
+  page again with a change note, edit the whole prompt, or retire a plate. The
+  cover's Approve is disabled while its top band is too busy to carry real
+  text, and the reason is printed instead.
+
+Approving is idempotent and records the operator and the timestamp. Approving
+the last missing page — or replacing an approved plate — writes a new template
+version; books already started keep the version they pinned. Plate images and
+prompts live in the database, never in the repo, and every action is logged
+with the request id and without image bytes. Anybody who is not `OPERATOR_SUB`
+gets the same 404 an unknown URL gives.
+
 ## Two steps, so you only pay for what you keep
 
 The book is twenty-two calls, and the interface keeps the portrait apart on purpose:
@@ -794,15 +839,19 @@ keys, the Google client secret, `SESSION_SECRET`, the Stripe secret key, the
 whole `DATABASE_URL` and its password fragment. Image bytes are never written — only their length — and
 the visitor's About free text never reaches a logger.
 
-**Persistence is a switch, not a rewrite.** Without `DATABASE_URL` the app
-stores everything on the instance disk, which Render wipes on every restart —
-books disappear, and a restart between the portrait and the book asks the
-uploader to start over. Set `DATABASE_URL` (a Neon free-tier Postgres works
-well) and books, their pages, their PDFs and the people who made them live in
-Postgres instead: a completed book survives a restart or redeploy, and it
-stays answerable to the account that made it. The schema is applied once with `make migrate` (see `to-do.md` for the
-first-deploy runbook). Local development needs none of this — with the
-variable empty, nothing ever touches a database.
+**There is one store, and it is a database.** Set `DATABASE_URL` (a Neon
+free-tier Postgres works well) and books, their pages, their PDFs, the people
+who made them and the story templates live in Postgres: a completed book
+survives a restart or redeploy and stays answerable to the account that made
+it. Leave it empty and the same schema runs in one SQLite file under
+`STORAGE_DIR` (`storage/app.sqlite3`), created and migrated when the app boots
+— local development and CI need no server, and no test and no request ever
+takes a second storage path.
+
+Nothing needs `make migrate` to get started: the app migrates its own database
+at boot. The command still exists for applying a deploy's migrations ahead of
+time (see `to-do.md` for the first-deploy runbook), and with no `DATABASE_URL`
+it targets the local SQLite file.
 
 ## Paying for a book (optional)
 
@@ -856,6 +905,7 @@ the provider and OAuth keys.
 | `APP_PASSWORD` | *(empty)* | The local-dev fallback: shared password required when no Google client is configured. Both unset means the app is open. |
 | `APP_SESSION_MAX_AGE_DAYS` | `7` | How long one successful sign-in stays valid. Rotating `SESSION_SECRET` invalidates every session. |
 | `APP_LOGIN_MAX_ATTEMPTS` | `8` | Wrong passwords per client before a 15-minute lockout. |
+| `OPERATOR_SUB` | *(empty)* | The Google `sub` of the one person who may review plates at `/admin`. Empty disables the admin screens. |
 | `MAX_UPLOAD_MB` | `10` | Enforced before decoding |
 | `GENERATION_TIMEOUT_SECONDS` | `600` | One budget per request: queue + model call. Also applied to the provider's HTTP client. |
 | `MAX_CONCURRENT_GENERATIONS` | `2` | Admission control per process. Beyond this, requests queue and then get 429. |
@@ -863,7 +913,7 @@ the provider and OAuth keys.
 | `STORAGE_DIR` | `./storage` | Created on startup |
 | `DRAFT_RETENTION_HOURS` | `24` | How long an uploaded photo and the portraits made from it are kept. Swept on boot and hourly. |
 | `BOOK_RETENTION_DAYS` | `7` | How long a finished (or failed) book is kept after it started; then its portrait, pages and PDF are deleted. |
-| `DATABASE_URL` | *(empty)* | Postgres URL (Neon pooled endpoint). Set = books/people persist in the database and survive restarts; empty = everything on disk. Apply the schema once with `make migrate`. |
+| `DATABASE_URL` | *(empty)* | Postgres URL (Neon pooled endpoint). Set = the database is Postgres and survives redeploys; empty = a local SQLite file under `STORAGE_DIR`, created and migrated on boot. Both run the same schema and the same code. |
 | `STRIPE_SECRET_KEY` | *(empty)* | Stripe **sandbox** secret key (`sk_test_...`). Set = wallets, top-ups, a 99¢ per-book fee and card refunds; empty = free books, no wallet page. |
 
 `MAX_UPLOAD_MB` and `STORAGE_DIR` map to `MAX_UPLOAD_MB` and `STORAGE_DIR`.

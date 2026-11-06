@@ -74,7 +74,7 @@ class TestPageCatalogue:
     def test_render_fills_name_and_pronouns(self) -> None:
         settings = CartoonSettings(photo_gender="girl")
         rendered = render_book_page(BOOK_PAGES[0], settings)
-        assert "there lived a child named Jane and her mother" in rendered.story
+        assert "Jane lived in a little stone cottage" in rendered.story
         assert "her mother" in rendered.story
         assert "{name}" not in rendered.story
         assert "{possessive}" not in rendered.scene.caption

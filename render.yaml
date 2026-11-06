@@ -98,10 +98,12 @@ services:
       - key: STRIPE_SECRET_KEY
         sync: false
 
-      # Optional: a Postgres URL (Neon's pooled connection string). Set it and
-      # books and signed-in people survive restarts; leave it unset and the
-      # app runs on the ephemeral disk exactly as before. It embeds the
-      # database password, so it is pasted into the dashboard and never
-      # committed. Apply the schema once after setting it: `make migrate`.
+      # The Postgres URL (Neon's pooled connection string). Set it and books,
+      # pages, PDFs, signed-in people and the story templates survive restarts.
+      # Leave it unset and the app uses a SQLite file on Render's ephemeral
+      # disk, which a restart erases. It embeds the database password, so it is
+      # pasted into the dashboard and never committed. The app migrates the
+      # database itself on boot; `make migrate` is only for applying a deploy's
+      # migrations ahead of time.
       - key: DATABASE_URL
         sync: false

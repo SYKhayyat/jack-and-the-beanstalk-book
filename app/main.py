@@ -34,7 +34,7 @@ from app.logging_context import (
 )
 from app.models.book import BOOK_PAGES
 from app.redaction import install_secret_redaction
-from app.routes import api, auth, book, book_media, media, wallet, web
+from app.routes import admin, api, auth, book, book_media, media, wallet, web
 from app.routes.auth import install_auth_gate
 from app.services.google_oauth import GoogleOAuthClient
 from app.services.image_providers.base import ImageProvider
@@ -239,6 +239,10 @@ def create_app(
     app.include_router(media.router)
     app.include_router(wallet.router)
     app.include_router(auth.router)
+    # Operator-only, and hidden from the schema: the review screen is not part
+    # of the visitor-facing app, and every route in it 404s for anybody who is
+    # not the configured operator.
+    app.include_router(admin.router)
     # The book face the PDF already bundles, served to the pages too. Mounted
     # under /static so the login page (which is pre-session) can load it.
     app.mount("/static/fonts", RevalidatedStaticFiles(directory=FONTS_DIR), name="fonts")

@@ -1,0 +1,94 @@
+{% extends "_layout.html" %}
+{% block title %}{{ page.label }} — Storybook Studio{% endblock %}
+{% block body_attrs %}data-page="admin"{% endblock %}
+{% block header_title %}<span class="header-title">Plate review</span>{% endblock %}
+{% block main_class %}page admin{% endblock %}
+{% block content %}
+  <nav class="breadcrumb"><a href="/admin/plates/{{ story.key }}">← {{ story.title }} plates</a></nav>
+
+  <h1>{{ page.label }}</h1>
+  {% if error %}
+  <p class="inline-message error" role="status">{{ error }}</p>
+  {% endif %}
+  {% if page.prose %}
+  <p class="admin-prose">{{ page.prose }}</p>
+  {% endif %}
+  <p class="field-help">
+    This page casts {{ page.cast_label }}. A plate needs exactly one slot for each of them.
+  </p>
+
+  <input type="checkbox" id="show-overlay" class="overlay-toggle" checked>
+  <label class="overlay-label" for="show-overlay">Show character slots and title band</label>
+
+  <div class="overlay-host">
+    <ul class="candidates">
+      {% for plate in candidates %}
+      <li class="card candidate">
+        <div class="sheet-frame">
+          <img src="{{ plate.url }}" alt="Candidate plate for {{ page.label }}">
+          <div class="overlay-layer">
+            {% if page.number == 0 %}
+            <span class="title-band" style="height:{{ band_percent }}%"><em>title band</em></span>
+            {% endif %}
+            {% for slot in plate.slots %}
+            <span class="slot" data-cast="{{ slot.cast_key }}" data-rect="{{ slot.rect }}" style="{{ slot.style }}">
+              <em>{{ slot.cast_key }}</em>
+            </span>
+            {% endfor %}
+          </div>
+        </div>
+        <p class="field-help">
+          {{ plate.status }}{% if plate.approved_by %} · approved by {{ plate.approved_by }}{% endif %}
+          · painted {{ plate.created }} · prompt {{ plate.prompt_hash[:12] }}
+        </p>
+        <details>
+          <summary>Prompt used</summary>
+          <pre class="prompt">{{ plate.prompt }}</pre>
+        </details>
+        <div class="candidate-actions">
+          {% if plate.status == "draft" %}
+            {% if plate.can_approve %}
+            <form method="post" action="/admin/plates/{{ story.key }}/{{ page.number }}/{{ plate.id }}/approve">
+              <button type="submit" class="button primary">Approve</button>
+            </form>
+            {% else %}
+            <p class="field-help admin-refusal">Approve is off: {{ plate.reason }}</p>
+            {% endif %}
+          {% endif %}
+          {% if plate.status != "retired" %}
+          <form method="post" action="/admin/plates/{{ story.key }}/{{ page.number }}/{{ plate.id }}/retire">
+            <button type="submit" class="button secondary">Retire</button>
+          </form>
+          {% endif %}
+        </div>
+      </li>
+      {% else %}
+      <li class="card"><p class="field-help">Nothing painted for this page yet. Re-roll below.</p></li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <section class="card admin-reroll">
+    <h2>Paint this page again</h2>
+    <p class="field-help">
+      One image call, one new draft. Say what should change and the plate's own
+      prompt is painted again with your note added; the layout's slots stay as
+      planned, and an approved plate is never overwritten — the new candidate
+      waits beside it.
+    </p>
+    <form method="post" action="/admin/plates/{{ story.key }}/{{ page.number }}/reroll">
+      <label for="change">What should change?</label>
+      <input id="change" name="change" type="text" maxlength="300"
+             placeholder="e.g. warmer light, the path off to the right, no well">
+      <button type="submit" class="button primary">Paint a new candidate</button>
+    </form>
+    <details class="admin-prompt-edit">
+      <summary>Edit the whole prompt instead</summary>
+      <form method="post" action="/admin/plates/{{ story.key }}/{{ page.number }}/reroll">
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt" name="prompt" rows="12">{{ plan.prompt }}</textarea>
+        <button type="submit" class="button secondary">Paint from this prompt</button>
+      </form>
+    </details>
+  </section>
+{% endblock %}

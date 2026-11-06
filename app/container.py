@@ -11,10 +11,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from sqlalchemy.engine import Engine
+
 from app.config import Settings
-from app.db import build_engine, persistence_mode
+from app.db import build_engine, persistence_mode, prepare_database
 from app.services.book_runner import BookRunner
-from app.services.book_store import BookStore, FileBookStore
+from app.services.book_store import BookStore
 from app.services.concurrency import ConcurrencyGate
 from app.services.db_book_store import DatabaseBookStore
 from app.services.db_wallet_store import DatabaseWalletStore
@@ -24,8 +26,8 @@ from app.services.payments import PaymentProvider, StripePaymentProvider
 from app.services.pipeline import GenerationPipeline
 from app.services.rate_limit import GenerationRateLimiter
 from app.services.storage import GenerationStore
-from app.services.user_store import DatabaseUserStore, FileUserStore, UserStore
-from app.services.wallet import FileWalletStore, Wallet, WalletStore
+from app.services.user_store import DatabaseUserStore, UserStore
+from app.services.wallet import Wallet, WalletStore
 
 __all__ = ["Container", "build_container"]
 
@@ -40,6 +42,10 @@ class Container:
     provider: ImageProvider
     store: GenerationStore
     pipeline: GenerationPipeline
+    #: The one database: books, people, the wallet ledger and the story
+    #: templates. Handed to the admin screens so they write through the same
+    #: engine the routes read from.
+    engine: Engine
     # Everyone who has signed in, so a book can be filed under a person and
     # nobody else can read it.
     user_store: UserStore
@@ -89,31 +95,22 @@ def build_container(
     store = GenerationStore(settings.storage_dir)
     user_store: UserStore
     book_store: BookStore
-    if settings.database_mode:
-        # The durable pair: people and books live in Postgres and survive
-        # restarts. GC mode is logged as the dialect only — never the URL,
-        # which embeds the password.
-        engine = build_engine(settings.database_url)
-        user_store = DatabaseUserStore(engine)
-        book_store = DatabaseBookStore(engine)
-        wallet_store = DatabaseWalletStore(engine)
-        logger.info(
-            "container.built provider=%s env=%s persistence=database (%s)",
-            resolved.name,
-            settings.app_env,
-            persistence_mode(engine),
-        )
-    else:
-        # The offline pair: everything on disk. Local development, tests and
-        # a deployment that has not been given a database yet.
-        book_store = FileBookStore(settings.storage_dir / "books")
-        user_store = FileUserStore(settings.storage_dir / "users")
-        wallet_store = FileWalletStore(settings.storage_dir / "wallets")
-        logger.info(
-            "container.built provider=%s env=%s persistence=filesystem",
-            resolved.name,
-            settings.app_env,
-        )
+    # One storage path, in every environment: a Postgres URL when the operator
+    # set one, otherwise the SQLite file under STORAGE_DIR. Booting migrates
+    # it, so a fresh checkout (or a deploy that added a migration) is ready
+    # before the first request rather than failing on a missing table.
+    engine = build_engine(settings.effective_database_url)
+    prepare_database(engine)
+    user_store = DatabaseUserStore(engine)
+    book_store = DatabaseBookStore(engine)
+    wallet_store = DatabaseWalletStore(engine)
+    # Logged as the dialect only — never the URL, which embeds the password.
+    logger.info(
+        "container.built provider=%s env=%s persistence=database (%s)",
+        resolved.name,
+        settings.app_env,
+        persistence_mode(engine),
+    )
     gate = ConcurrencyGate(settings.max_concurrent_generations)
     wallet = Wallet(wallet_store)
     return Container(
@@ -121,6 +118,7 @@ def build_container(
         provider=resolved,
         store=store,
         pipeline=GenerationPipeline(resolved, store),
+        engine=engine,
         user_store=user_store,
         book_store=book_store,
         book_runner=BookRunner(

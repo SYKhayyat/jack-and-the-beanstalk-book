@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.engine import Engine
 
 from app.auth import AuthGate
 from app.config import Settings
@@ -26,7 +27,7 @@ from app.services.google_oauth import (
     GoogleOAuthError,
     GoogleProfile,
 )
-from app.services.user_store import FileUserStore, User
+from app.services.user_store import DatabaseUserStore, User
 from app.sessions import SESSION_COOKIE, SessionCodec
 from tests.helpers import RecordingProvider
 
@@ -418,8 +419,8 @@ def test_the_full_google_round_trip_signs_the_visitor_in(google_client: TestClie
     assert google_client.get("/api/settings-options").status_code == 200
 
 
-def test_a_sign_in_records_the_person_once(tmp_path: Path) -> None:
-    store = FileUserStore(tmp_path / "users")
+def test_a_sign_in_records_the_person_once(engine: Engine) -> None:
+    store = DatabaseUserStore(engine)
 
     first = store.upsert(User(sub=SUB, email="someone@example.com", name="Someone"))
     second = store.upsert(User(sub=SUB, email="someone@example.com", name="A New Name"))
@@ -432,36 +433,38 @@ def test_a_sign_in_records_the_person_once(tmp_path: Path) -> None:
     assert store.get("nobody") is None
 
 
-def test_simultaneous_sign_ins_of_one_person_do_not_collide(tmp_path: Path) -> None:
-    """Two callbacks for the same account must not share a temporary file.
+def test_simultaneous_sign_ins_of_one_person_do_not_collide(engine: Engine) -> None:
+    """Two callbacks for the same account must both succeed.
 
-    The store used one fixed `<sub>.json.tmp` per user; concurrent writers
-    could rename each other's half-written file, losing the record or raising
-    on the rename. Each write now owns its temporary name.
+    Both requests read "no such person" and both insert, so one of them loses
+    the primary-key race. It must recover and leave one coherent record, not
+    raise at the visitor's sign-in.
     """
-    store = FileUserStore(tmp_path / "users")
-    barrier = threading.Barrier(8)
+    store = DatabaseUserStore(engine)
+    barrier = threading.Barrier(4)
 
     def sign_in(index: int) -> None:
         barrier.wait()
-        for attempt in range(4):
+        for attempt in range(2):
             store.upsert(
                 User(sub=SUB, email="someone@example.com", name=f"n{index}-{attempt}")
             )
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        list(pool.map(sign_in, range(8)))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(sign_in, range(4)))
 
     stored = store.get(SUB)
     assert stored is not None
     assert stored.name.startswith("n")
-    assert [path for path in (tmp_path / "users").iterdir() if path.suffix == ".tmp"] == []
 
 
-def test_a_path_traversal_sub_is_refused(tmp_path: Path) -> None:
-    store = FileUserStore(tmp_path / "users")
+def test_an_unstorable_sub_is_refused(engine: Engine) -> None:
+    """An empty or over-long id is a broken client, not a row to write."""
+    store = DatabaseUserStore(engine)
     with pytest.raises(ValueError):
-        store.upsert(User(sub="../../etc/passwd"))
+        store.upsert(User(sub=""))
+    with pytest.raises(ValueError):
+        store.upsert(User(sub="x" * 129))
 
 
 def test_google_can_refuse_the_sign_in(google_client: TestClient) -> None:

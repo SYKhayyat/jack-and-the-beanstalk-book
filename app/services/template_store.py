@@ -49,8 +49,10 @@ __all__ = [
     "FACINGS",
     "PAGE_NUMBERS",
     "NoTemplateVersion",
+    "PageSummary",
     "PlateNotApprovable",
     "PlateStatus",
+    "PlateSummary",
     "SeedReport",
     "Slot",
     "TemplateError",
@@ -189,6 +191,40 @@ class TemplateVersion:
             if page.page_number == number:
                 return page
         raise UnknownTemplate(f"version {self.number} has no page {number}")
+
+
+@dataclass(frozen=True, slots=True)
+class PageSummary:
+    """The latest revision of one page: what the admin screen reviews against.
+
+    There is no look here, because a page never had one — the cast is keys, and
+    the words are for reading on the review screen rather than for the prompt.
+    """
+
+    page_number: int
+    page_key: str
+    title: str
+    prose: str
+    cast_keys: tuple[str, ...]
+    text_band: Mapping[str, Any]
+    revision: int
+
+
+@dataclass(frozen=True, slots=True)
+class PlateSummary:
+    """A plate's metadata, never its bytes: a contact sheet must stay cheap."""
+
+    id: str
+    story_key: str
+    page_number: int
+    status: str
+    prompt: str
+    prompt_hash: str
+    slots: tuple[Slot, ...]
+    media_type: str
+    created_at: datetime
+    approved_by: str | None
+    approved_at: datetime | None
 
 
 @dataclass(slots=True)
@@ -371,6 +407,88 @@ class TemplateStore:
                 )
             )
             return self._refresh_version(conn, story_key, f"look updated: {cast_key}")
+
+    # --- reading the review surfaces -------------------------------------------
+
+    def pages(self, story_key: str) -> dict[int, PageSummary]:
+        """Every page's latest revision, keyed by page number.
+
+        Reads only the words: the admin screen shows what a plate will carry.
+        A revision is append-only, so "latest" is the highest `revision` per
+        page number.
+        """
+        with self._engine.connect() as conn:
+            _require_story(conn, story_key)
+            rows = conn.execute(
+                select(
+                    StoryPageRow.page_number,
+                    StoryPageRow.page_key,
+                    StoryPageRow.title,
+                    StoryPageRow.prose,
+                    StoryPageRow.cast_keys,
+                    StoryPageRow.text_band,
+                    StoryPageRow.revision,
+                )
+                .where(StoryPageRow.story_key == story_key)
+                .order_by(StoryPageRow.page_number, StoryPageRow.revision)
+            ).all()
+        latest: dict[int, PageSummary] = {}
+        for row in rows:
+            latest[int(row.page_number)] = PageSummary(
+                page_number=int(row.page_number),
+                page_key=row.page_key,
+                title=row.title,
+                prose=row.prose,
+                cast_keys=tuple(row.cast_keys),
+                text_band=row.text_band,
+                revision=int(row.revision),
+            )
+        return latest
+
+    def plates(self, story_key: str, page_number: int | None = None) -> list[PlateSummary]:
+        """A story's plates (or one page's), in page order and newest first.
+
+        The image column is deliberately not selected: a contact sheet of 21
+        pages must not pull 21 blobs to render a list.
+        """
+        with self._engine.connect() as conn:
+            _require_story(conn, story_key)
+            query = select(
+                TemplatePlateRow.id,
+                TemplatePlateRow.story_key,
+                TemplatePlateRow.page_number,
+                TemplatePlateRow.status,
+                TemplatePlateRow.prompt,
+                TemplatePlateRow.prompt_hash,
+                TemplatePlateRow.slots,
+                TemplatePlateRow.media_type,
+                TemplatePlateRow.created_at,
+                TemplatePlateRow.approved_by,
+                TemplatePlateRow.approved_at,
+            ).where(TemplatePlateRow.story_key == story_key)
+            if page_number is not None:
+                query = query.where(TemplatePlateRow.page_number == page_number)
+            rows = conn.execute(
+                query.order_by(
+                    TemplatePlateRow.page_number, TemplatePlateRow.created_at.desc()
+                )
+            ).all()
+        return [
+            PlateSummary(
+                id=row.id,
+                story_key=row.story_key,
+                page_number=int(row.page_number),
+                status=row.status,
+                prompt=row.prompt,
+                prompt_hash=row.prompt_hash,
+                slots=tuple(Slot.from_json(slot) for slot in row.slots),
+                media_type=row.media_type,
+                created_at=row.created_at,
+                approved_by=row.approved_by,
+                approved_at=row.approved_at,
+            )
+            for row in rows
+        ]
 
     # --- plates ----------------------------------------------------------------
 

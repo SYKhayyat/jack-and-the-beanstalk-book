@@ -22,23 +22,18 @@ The rules:
 * **Funding is credited only from a paid Stripe session**, keyed by the session
   id, so a refreshed success page or a double-click cannot fund twice.
 
-`WalletStore` has a filesystem implementation here and a database one in
-`db_wallet_store.py`. `Wallet` is the business logic both share.
+`WalletStore` is the ledger contract; `db_wallet_store.py` implements it against
+the database, and `Wallet` here is the business logic that uses it.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
-import os
 import threading
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import cast
 
 from app.services.payments import PaymentProvider
 
@@ -47,7 +42,6 @@ __all__ = [
     "DOCUMENT_PRICE_CENTS",
     "FUNDING_AMOUNTS_CENTS",
     "DuplicateTransaction",
-    "FileWalletStore",
     "InsufficientFunds",
     "RefundRequest",
     "Wallet",
@@ -475,235 +469,6 @@ def format_cents(cents: int) -> str:
     sign = "\u2212" if cents < 0 else ""
     whole, part = divmod(abs(cents), 100)
     return f"{sign}${whole}.{part:02d}"
-
-
-class FileWalletStore(WalletStore):
-    """One JSON file per account, under `<storage>/wallets`.
-
-    The owner id is hashed into the filename rather than used directly: a
-    Google `sub` is safe today, but the ledger is not the place to test that,
-    and the payload keeps the real id for reading.
-    """
-
-    def __init__(self, root: Path) -> None:
-        self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
-
-    # --- the document ----------------------------------------------------------
-
-    def _path(self, owner: str) -> Path:
-        digest = hashlib.sha256(owner.encode()).hexdigest()[:32]
-        return self.root / f"{digest}.json"
-
-    def _read(self, owner: str) -> dict[str, object]:
-        path = self._path(owner)
-        if not path.is_file():
-            return {"owner": owner, "transactions": [], "refunds": []}
-        try:
-            payload = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError):
-            # Silence here would turn a corrupt ledger into a zero balance,
-            # and the next write would overwrite the history with it. Say so;
-            # the operator can recover the file before any money moves again.
-            logger.warning("wallet.ledger_unreadable path=%s", path.name)
-            return {"owner": owner, "transactions": [], "refunds": []}
-        payload.setdefault("transactions", [])
-        payload.setdefault("refunds", [])
-        return payload
-
-    def _write(self, owner: str, payload: dict[str, object]) -> None:
-        path = self._path(owner)
-        tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
-        try:
-            tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            tmp.replace(path)
-        finally:
-            tmp.unlink(missing_ok=True)
-
-    @staticmethod
-    def _transactions_of(payload: dict[str, object]) -> list[dict[str, object]]:
-        raw = payload.get("transactions", [])
-        return [dict(entry) for entry in cast("list[object]", raw) if isinstance(entry, dict)]
-
-    @staticmethod
-    def _refunds_of(payload: dict[str, object]) -> list[dict[str, object]]:
-        raw = payload.get("refunds", [])
-        return [dict(entry) for entry in cast("list[object]", raw) if isinstance(entry, dict)]
-
-    # --- the contract ----------------------------------------------------------
-
-    def balance_cents(self, owner: str) -> int:
-        with self._lock:
-            entries = self._transactions_of(self._read(owner))
-        return sum(int(cast(int, entry.get("amount_cents", 0))) for entry in entries)
-
-    def transactions(self, owner: str) -> list[WalletTransaction]:
-        with self._lock:
-            entries = self._transactions_of(self._read(owner))
-        return [_transaction(entry) for entry in sorted(entries, key=_transaction_order)]
-
-    def add(
-        self,
-        *,
-        owner: str,
-        amount_cents: int,
-        kind: str,
-        description: str,
-        reference: str | None = None,
-        payment_id: str | None = None,
-    ) -> WalletTransaction:
-        with self._lock:
-            payload = self._read(owner)
-            entries = self._transactions_of(payload)
-            if reference is not None and any(
-                entry.get("reference") == reference and entry.get("kind") == kind
-                for entry in entries
-            ):
-                raise DuplicateTransaction(reference)
-            entry = {
-                "id": uuid.uuid4().hex,
-                "owner": owner,
-                "amount_cents": amount_cents,
-                "kind": kind,
-                "description": description,
-                "reference": reference,
-                "payment_id": payment_id,
-                "created_at": _now(),
-            }
-            entries.append(entry)
-            payload["transactions"] = entries
-            payload["owner"] = owner
-            self._write(owner, payload)
-        return _transaction(entry)
-
-    def refunds(self, owner: str) -> list[RefundRequest]:
-        with self._lock:
-            entries = self._refunds_of(self._read(owner))
-        return [_refund(entry) for entry in reversed(entries)]
-
-    def save_refund(self, request: RefundRequest) -> None:
-        with self._lock:
-            payload = self._read(request.owner)
-            entries = self._refunds_of(payload)
-            entries.append(_refund_payload(request))
-            payload["refunds"] = entries
-            payload["owner"] = request.owner
-            self._write(request.owner, payload)
-
-    def get_refund(self, refund_id: str) -> RefundRequest | None:
-        with self._lock:
-            for _, payload in self._ledgers():
-                for entry in self._refunds_of(payload):
-                    if entry.get("id") == refund_id:
-                        return _refund(entry)
-        return None
-
-    def claim_refund(self, refund_id: str) -> bool:
-        with self._lock:
-            for _, payload in self._ledgers():
-                entries = self._refunds_of(payload)
-                for entry in entries:
-                    if entry.get("id") != refund_id:
-                        continue
-                    if entry.get("status") != REFUND_REQUESTED:
-                        return False
-                    entry["status"] = REFUND_PROCESSING
-                    payload["refunds"] = entries
-                    self._write(str(payload.get("owner", "")), payload)
-                    return True
-        return False
-
-    def finish_refund(
-        self,
-        refund_id: str,
-        *,
-        status: str,
-        provider_refund_ids: Sequence[str],
-        note: str,
-    ) -> None:
-        with self._lock:
-            for _, payload in self._ledgers():
-                entries = self._refunds_of(payload)
-                for entry in entries:
-                    if entry.get("id") != refund_id:
-                        continue
-                    entry["status"] = status
-                    entry["provider_refund_ids"] = list(provider_refund_ids)
-                    entry["processed_at"] = _now()
-                    entry["note"] = note
-                    payload["refunds"] = entries
-                    self._write(str(payload.get("owner", "")), payload)
-                    return
-
-    # --- internals -------------------------------------------------------------
-
-    def _ledgers(self) -> Iterator[tuple[Path, dict[str, object]]]:
-        """Every account file, parsed; a corrupt file is skipped and reported.
-
-        Refund requests are looked up by id across accounts because the id is
-        the only thing processing has. One helper keeps that scan — and its
-        corruption handling — from being written three times.
-        """
-        for path in self.root.iterdir():
-            if path.suffix != ".json" or not path.is_file():
-                continue
-            try:
-                payload = cast(
-                    "dict[str, object]", json.loads(path.read_text(encoding="utf-8"))
-                )
-            except (OSError, json.JSONDecodeError):
-                logger.warning("wallet.ledger_unreadable path=%s", path.name)
-                continue
-            yield path, payload
-
-
-def _transaction(entry: dict[str, object]) -> WalletTransaction:
-    reference = entry.get("reference")
-    payment_id = entry.get("payment_id")
-    return WalletTransaction(
-        id=str(entry.get("id", "")),
-        owner=str(entry.get("owner", "")),
-        amount_cents=int(cast(int, entry.get("amount_cents", 0))),
-        kind=str(entry.get("kind", "")),
-        description=str(entry.get("description", "")),
-        reference=str(reference) if reference else None,
-        payment_id=str(payment_id) if payment_id else None,
-        created_at=str(entry.get("created_at", "")),
-    )
-
-
-def _refund(entry: dict[str, object]) -> RefundRequest:
-    raw_ids = entry.get("provider_refund_ids", [])
-    ids = tuple(str(item) for item in cast("list[object]", raw_ids) if item)
-    processed = entry.get("processed_at")
-    return RefundRequest(
-        id=str(entry.get("id", "")),
-        owner=str(entry.get("owner", "")),
-        amount_cents=int(cast(int, entry.get("amount_cents", 0))),
-        status=str(entry.get("status", "")),
-        provider_refund_ids=ids,
-        created_at=str(entry.get("created_at", "")),
-        processed_at=str(processed) if processed else None,
-        note=str(entry.get("note", "")),
-    )
-
-
-def _refund_payload(request: RefundRequest) -> dict[str, object]:
-    return {
-        "id": request.id,
-        "owner": request.owner,
-        "amount_cents": request.amount_cents,
-        "status": request.status,
-        "provider_refund_ids": list(request.provider_refund_ids),
-        "created_at": request.created_at,
-        "processed_at": request.processed_at,
-        "note": request.note,
-    }
-
-
-def _transaction_order(entry: dict[str, object]) -> tuple[str, str]:
-    return (str(entry.get("created_at", "")), str(entry.get("id", "")))
 
 
 def _safe_note(exc: BaseException) -> str:

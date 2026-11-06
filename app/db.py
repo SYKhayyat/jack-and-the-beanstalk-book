@@ -1,8 +1,9 @@
-"""The database: engine and tables.
+"""The database: engine, tables and boot-time migration.
 
-Present only when `DATABASE_URL` is set. With an empty URL the app boots the
-filesystem stores and this module is never imported — local development and
-CI stay fully offline.
+There is one storage path. `DATABASE_URL` names a Postgres database in
+production; empty means a local SQLite file under `STORAGE_DIR`, so local
+development and CI need no server and still exercise the same tables, the same
+migrations and the same store code the deployment runs.
 
 Two design points:
 
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import (
@@ -60,7 +62,9 @@ __all__ = [
     "build_engine",
     "database_secrets",
     "enforce_sqlite_foreign_keys",
+    "local_database_url",
     "persistence_mode",
+    "prepare_database",
 ]
 
 logger = logging.getLogger(__name__)
@@ -416,35 +420,73 @@ def database_secrets(database_url: str) -> tuple[str, ...]:
     return tuple(secrets)
 
 
+def local_database_url(storage_dir: Path) -> str:
+    """The SQLite URL an empty `DATABASE_URL` means.
+
+    One file under the storage directory: it is the whole store (books, pages,
+    PDFs, people, the story templates), so deleting it is how a developer
+    starts over. Four slashes would be needed for an absolute Windows path;
+    `Path` renders the platform's own separators and SQLite accepts them.
+    """
+    return f"sqlite:///{Path(storage_dir) / 'app.sqlite3'}"
+
+
 def build_engine(database_url: str) -> Engine:
     """Build the one engine for the process.
 
+    A SQLite engine gets foreign keys enforced from its first connection, so a
+    local database refuses the same broken writes Postgres would.
+
     Raises:
         ValueError: when the URL is empty or not a URL the installed driver
-            can handle (the caller turns that into a loud startup failure,
-            not a silent filesystem fallback).
+            can handle (the caller turns that into a loud startup failure).
     """
     if not database_url:
-        raise ValueError("DATABASE_URL is not set; there is no database mode.")
+        raise ValueError("there is no database URL to build an engine from")
     url = make_url(normalise_database_url(database_url))
     connect_args = {"check_same_thread": False} if url.drivername.startswith("sqlite") else {}
-    return create_engine(
+    engine = create_engine(
         url,
         pool_pre_ping=True,
         pool_size=2,
         max_overflow=5,
         connect_args=connect_args,
     )
+    return enforce_sqlite_foreign_keys(engine)
+
+
+def prepare_database(engine: Engine) -> Engine:
+    """Bring the database up to the schema the code expects, at boot.
+
+    Runs the same Alembic chain as `make migrate`, against this process's own
+    engine: a fresh SQLite file is created and built, an existing Postgres
+    database gets whatever this deploy added, and a database already at the
+    head is a cheap no-op. Nothing else in the app creates tables, so the
+    deployed schema is always a migrated one.
+
+    The engine is handed to Alembic through `config.attributes` rather than
+    through `DATABASE_URL`, because this runs inside the app process: the URL
+    is already parsed (and may embed a password), and other threads — and the
+    test suite — must not see it change underneath them.
+
+    Returns the engine, so a boot can be one expression.
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    config = Config(str(Path(__file__).resolve().parent.parent / "alembic.ini"))
+    config.attributes["engine"] = engine
+    command.upgrade(config, "head")
+    return engine
 
 
 def enforce_sqlite_foreign_keys(engine: Engine) -> Engine:
     """Make a SQLite engine enforce foreign keys, as Postgres always does.
 
-    Opt-in for now: several store fixtures insert books for users that do not
-    exist, which Postgres would refuse. T3 (SQLite becomes the default database)
-    turns this on inside `build_engine` and fixes those fixtures. Until then the
-    template store also checks every reference itself, so the guarantee does
-    not depend on the pragma. A no-op for any other dialect.
+    Applied by `build_engine`, so every engine the app builds has it. It stays
+    public because a test (or a tool) that calls `create_engine` directly gets
+    SQLite's default — no enforcement — unless it asks for this. A no-op for
+    any other dialect.
     """
     if engine.dialect.name == "sqlite":
         event.listen(engine, "connect", _sqlite_foreign_keys_on)

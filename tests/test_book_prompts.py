@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.books import check_readability
 from app.models import CartoonSettings, CartoonStyle
 from app.models.book import BOOK_PAGES, get_book_page
 from app.prompt_data import prompt_text
@@ -404,6 +405,17 @@ def test_the_whole_scene_keeps_one_art_style() -> None:
 # context from being drawn onto the wrong page.
 
 
+def test_jack_is_readable_aloud_on_every_page() -> None:
+    """The story contract's reading rules, on the pages that ship today.
+
+    Jack's catalogue predates the seed files, so its prose is held to the same
+    read-aloud limits as Red's: 45-90 words a page, no sentence over 22 words,
+    short words, and no word of more than four syllables.
+    """
+    for page in BOOK_PAGES:
+        check_readability(page.story, "jack", page.key)
+
+
 def test_every_page_is_given_the_whole_story_labelled_by_page() -> None:
     """The story is quoted once per prompt, labelled, from the pages' own text.
 
@@ -417,10 +429,7 @@ def test_every_page_is_given_the_whole_story_labelled_by_page() -> None:
             "Page 1: Jack and his mother have nothing left to sell but the white cow, "
             "Milky-White." in prompt
         )
-        assert (
-            "Page 2: An old man offers Jack five magic beans in exchange for the cow."
-            in prompt
-        )
+        assert "Page 2: An old man offers Jack five beans in exchange for the cow." in prompt
         assert (
             "Page 3: Jack's mother throws the five beans out of the cottage window." in prompt
         )
@@ -484,9 +493,9 @@ def test_every_page_forbids_extra_limbs() -> None:
 def test_page_two_shows_exactly_five_beans() -> None:
     """The trade is the page where the beans are counted: exactly five."""
     prompt = _prompt(BOOK_PAGES[1], CartoonSettings(), 2)
-    assert "holds out his open palm with exactly five magic beans" in prompt
+    assert "holds out his open palm with exactly five beans" in prompt
     assert (
-        "exactly five magic beans in the old man's open palm — five and only five, "
+        "exactly five beans in the old man's open palm — five and only five, "
         "one speckled red, one blue-grey, one deep green, one golden-tan, one dark "
         "violet, no sixth bean and no extra bean of any colour" in prompt
     )
@@ -495,9 +504,9 @@ def test_page_two_shows_exactly_five_beans() -> None:
 def test_page_three_shows_exactly_five_beans() -> None:
     """The beans thrown from the window are the same five of the trade."""
     prompt = _prompt(BOOK_PAGES[2], CartoonSettings(), 3)
-    assert "throws the very same five magic beans" in prompt
+    assert "throws the five beans" in prompt
     assert (
-        "exactly five magic beans falling in an arc towards the garden, five and only "
+        "exactly five beans falling in an arc towards the garden, five and only "
         "five, each one separately visible and countable — speckled red, blue-grey, "
         "deep green, golden-tan and dark violet — none missing, no sixth bean and no "
         "extra bean" in prompt
@@ -514,7 +523,7 @@ def test_pages_do_not_borrow_each_other_scenes() -> None:
     """
     cupboard = _prompt(BOOK_PAGES[0], CartoonSettings(), 1)
     assert "the old man — he has not arrived in this story yet" in cupboard
-    assert "magic beans or any glowing object — none have been given yet" in cupboard
+    assert "beans or any glowing object — none have been given yet" in cupboard
     window = _prompt(BOOK_PAGES[2], CartoonSettings(), 3)
     assert (
         "Milky-White the cow — she was already sold, and she is nowhere in this scene"
@@ -575,7 +584,7 @@ def test_the_beans_are_always_exactly_five() -> None:
     window_prompt = _prompt(window, CartoonSettings(), window.number)
 
     for prompt in (trade_prompt, window_prompt):
-        assert "exactly five magic beans" in prompt
+        assert "exactly five beans" in prompt
         assert "no sixth bean" in prompt
         assert "any number of beans other than exactly five" in prompt
         # The five colours are named, so the count is checkable by eye.
@@ -760,8 +769,12 @@ def test_the_story_text_and_the_pictures_agree() -> None:
     assert "a sack of gold bigger than the child or carried with ease" in (
         pages["the-bag-of-gold"].scene.must_avoid
     )
-    # The mother acknowledges the magic glow she throws away.
-    assert "She saw how they glowed" in pages["beans-out-the-window"].story
+    # The beans look like beans to the mother: the shine is a trick of the
+    # old man's hand, so she throws away five ordinary beans and nothing more.
+    window_story = pages["beans-out-the-window"].story
+    assert "Beans were beans" in window_story
+    for word in ("glow", "magic", "shone", "shining"):
+        assert word not in window_story.lower(), word
     # The chase runs towards the beanstalk, not away from it.
     assert "Jack running away from the beanstalk" in pages["the-chase"].scene.must_avoid
 

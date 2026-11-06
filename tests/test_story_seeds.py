@@ -29,6 +29,8 @@ RED_PATH = SEED_DIR / "little_red_riding_hood.toml"
 RED: StorySeed = next(seed for seed in SEEDS if seed.key == "little_red_riding_hood")
 RED_DATA = tomllib.loads(RED_PATH.read_text(encoding="utf-8"))
 
+JACK: StorySeed = next(seed for seed in SEEDS if seed.key == "jack_and_the_beanstalk")
+
 PLACEHOLDER = re.compile(r"\{[a-zA-Z_]+\}")
 WORD = re.compile(r"[a-z]+(?:'[a-z]+)?")
 
@@ -217,3 +219,31 @@ class TestJacksCatalogue:
         for page in BOOK_PAGES:
             count = len(words(page.story))
             assert 45 <= count <= 90, f"{page.key} has {count} words"
+
+
+class TestJacksSeed:
+    def test_the_seed_holds_twenty_pages_and_a_cover(self) -> None:
+        assert JACK.star == "jack"
+        assert len(JACK.pages) == PAGE_COUNT
+        assert JACK.cover.cast == ("jack",)
+        assert JACK.title_band == "calm"
+
+    def test_the_seed_prints_the_words_the_catalogue_prints(self) -> None:
+        """Two copies exist only until T7's other half lands. They must not drift."""
+        assert [page.key for page in JACK.pages] == [page.key for page in BOOK_PAGES]
+        for page, catalogue in zip(JACK.pages, BOOK_PAGES, strict=True):
+            assert page.beat == catalogue.beat, page.key
+            assert page.story == catalogue.story, page.key
+
+    def test_the_cow_is_never_a_cast_member(self) -> None:
+        """No photograph can be given to a cow, so she is painted into the plate."""
+        assert "milky_white" not in JACK.cast
+        assert all("milky_white" not in page.scene.cast for page in JACK.pages)
+        assert "Milky-White" in JACK.pages[0].scene.environment
+        assert "Milky-White" in JACK.pages[1].scene.environment
+
+    def test_every_jack_plate_prompt_names_nobody(self) -> None:
+        """A plate is the empty stage: no placeholder survives into one."""
+        for page in JACK.pages:
+            for field in ("environment", "time_of_day", "camera"):
+                assert "{" not in getattr(page.scene, field), (page.key, field)

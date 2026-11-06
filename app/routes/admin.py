@@ -1,0 +1,598 @@
+"""The plate review screen: where an operator settles a story's plates (T6).
+
+Three screens, one gate:
+
+    /admin/plates                               every story and its progress
+    /admin/plates/{story}                       the contact sheet — all 21 plates
+    /admin/plates/{story}/{page}                one page's candidates, to approve
+
+The gate is an identity, not a role: `OPERATOR_SUB` names one Google account,
+and every route answers 404 to anybody else — the same answer an unknown URL
+gives, so `/admin` neither confirms that it exists nor hints at what it holds.
+
+Every write goes through `TemplateStore`; this module owns no SQL. The one rule
+it adds in front of the store is the cover's title-band check (T1.5): a plate
+whose top band is too busy for real text cannot be approved, and the reason is
+shown on the button that would have done it — checked again on POST, because a
+hidden button is not a rule.
+
+Approving idempotently records the operator and timestamp (the store does that),
+and replacing an approved plate writes a new template version; nothing a
+visitor already started changes.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from typing import Annotated, Any
+from urllib.parse import urlencode
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.templating import Jinja2Templates
+
+from app.books import SEEDS, StorySeed
+from app.container import Container
+from app.dependencies import ContainerDep
+from app.routes.auth import CurrentSessionDep
+from app.routes.book_access import no_store
+from app.routes.web import page_chrome
+from app.services.image_providers.base import ImageRequest
+from app.services.pdf import COVER_TITLE_BAND_FRACTION, title_band_report
+from app.services.plates import PlatePlan, plate_plans
+from app.services.template_store import (
+    COVER_PAGE,
+    PAGE_NUMBERS,
+    PlateNotApprovable,
+    PlateStatus,
+    PlateSummary,
+    Slot,
+    TemplateError,
+    TemplateStore,
+    UnknownTemplate,
+)
+
+__all__ = ["router"]
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/admin", tags=["admin"], include_in_schema=False)
+
+#: One ratio for every plate, the same one `make_plates` paints at.
+_PLATE_ASPECT = "4:3"
+
+#: One lock per story around "pick the next missing page, paint it, store it".
+#: Two tabs (or a reload mid-call) otherwise both read the same missing page and
+#: pay for it twice. Serialising instead makes the second request paint the page
+#: after it and wait its turn; nothing is invented and nothing is paid for twice.
+_PAINT_LOCKS: dict[str, threading.Lock] = {}
+_PAINT_LOCKS_GUARD = threading.Lock()
+
+
+def _paint_lock(story_key: str) -> threading.Lock:
+    with _PAINT_LOCKS_GUARD:
+        return _PAINT_LOCKS.setdefault(story_key, threading.Lock())
+
+
+def get_templates(container: ContainerDep) -> TemplateStore:
+    """The store the admin screens read and write, over the app's one engine."""
+    return TemplateStore(container.engine)
+
+
+TemplateDep = Annotated[TemplateStore, Depends(get_templates)]
+
+
+def _operator(container: Container, session: CurrentSessionDep) -> str:
+    """The operator's sub, or a 404 for everyone else.
+
+    Deliberately indistinguishable from a missing page: a 403 would tell a
+    signed-in visitor that a review screen exists and who may use it.
+    """
+    operator = container.settings.operator_sub
+    if not operator or session is None or session.sub != operator:
+        raise HTTPException(status_code=404, detail="Not Found")
+    return operator
+
+
+def _seed_or_404(story_key: str) -> StorySeed:
+    for seed in SEEDS:
+        if seed.key == story_key:
+            return seed
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+def _page_or_404(page_number: int) -> int:
+    if page_number not in PAGE_NUMBERS:
+        raise HTTPException(status_code=404, detail="Not Found")
+    return page_number
+
+
+def _render(request: Request, name: str, context: dict[str, Any]) -> HTMLResponse:
+    templates: Jinja2Templates = request.app.state.templates
+    return templates.TemplateResponse(request=request, name=name, context=context)
+
+
+def _page_url(story_key: str, page_number: int, *, error: str = "") -> str:
+    path = f"/admin/plates/{story_key}/{page_number}"
+    return f"{path}?{urlencode({'error': error})}" if error else path
+
+
+def _page_label(page_number: int, title: str) -> str:
+    return "Cover" if page_number == COVER_PAGE else f"Page {page_number} — {title}"
+
+
+def _cast_label(star: str, cast_keys: tuple[str, ...]) -> str:
+    """Who is on the page, in the order the slots are laid out.
+
+    The star is always first — the plate edit pass draws them into slot one —
+    so the screen and the stored slots name people in the same order.
+    """
+    names = list(dict.fromkeys([star, *cast_keys]))
+    return ", ".join(names) if names else "the star"
+
+
+def _slot_rows(slots: tuple[Slot, ...]) -> list[dict[str, Any]]:
+    """Each slot as the page draws it: a CSS rectangle plus its stored numbers."""
+    return [
+        {
+            "cast_key": slot.cast_key,
+            "rect": ",".join(f"{value:.4f}" for value in slot.rect),
+            "style": (
+                f"left:{slot.rect[0] * 100:.2f}%;top:{slot.rect[1] * 100:.2f}%;"
+                f"width:{slot.rect[2] * 100:.2f}%;height:{slot.rect[3] * 100:.2f}%"
+            ),
+        }
+        for slot in slots
+    ]
+
+
+def _band(image: bytes) -> tuple[bool, str]:
+    """Whether a plate's title band is calm, and why not when it is not."""
+    try:
+        report = title_band_report(image)
+    except ValueError as exc:
+        return False, str(exc)
+    return report.ok, report.reason
+
+
+def _plate_view(plate: PlateSummary) -> dict[str, Any]:
+    return {
+        "id": plate.id,
+        "status": plate.status,
+        "url": f"/admin/plates/{plate.story_key}/{plate.id}.png",
+        "prompt": plate.prompt,
+        "prompt_hash": plate.prompt_hash,
+        "approved_by": plate.approved_by,
+        "created": plate.created_at.strftime("%Y-%m-%d %H:%M"),
+        "slots": _slot_rows(plate.slots),
+    }
+
+
+# --- the screens --------------------------------------------------------------
+
+
+@router.get("/plates", response_class=HTMLResponse)
+def plate_index(
+    request: Request, container: ContainerDep, session: CurrentSessionDep, store: TemplateDep
+) -> HTMLResponse:
+    """Every story, how much of it is approved, and whether it can make books."""
+    _operator(container, session)
+    stories = [_story_progress(seed, store) for seed in SEEDS]
+    return _render(
+        request,
+        "admin_plates.html",
+        {
+            **page_chrome(container, session),
+            "stories": stories,
+            "page_total": len(PAGE_NUMBERS),
+        },
+    )
+
+
+@router.get("/plates/{story_key}", response_class=HTMLResponse)
+def contact_sheet(
+    story_key: str,
+    request: Request,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+    painted_page: int | None = None,
+    finished: bool = False,
+) -> HTMLResponse:
+    """All 21 plates of a story in page order: the set, not one picture."""
+    _operator(container, session)
+    seed = _seed_or_404(story_key)
+    try:
+        pages = store.pages(story_key)
+        # One query for all 21 pages, not one per page: on Postgres each
+        # round trip is tens of milliseconds, and 21 of them is a ten-second
+        # screen for the operator.
+        all_plates = store.plates(story_key)
+    except UnknownTemplate:
+        raise HTTPException(status_code=404, detail="Not Found") from None
+    by_page: dict[int, list[PlateSummary]] = {number: [] for number in PAGE_NUMBERS}
+    for plate in all_plates:
+        by_page.setdefault(plate.page_number, []).append(plate)
+    painted = {
+        plate.page_number for plate in all_plates if plate.status != PlateStatus.RETIRED
+    }
+    tiles = []
+    for number in PAGE_NUMBERS:
+        page = pages.get(number)
+        plates = by_page[number]
+        approved = next((p for p in plates if p.status == PlateStatus.APPROVED), None)
+        drafts = [p for p in plates if p.status == PlateStatus.DRAFT]
+        shown = approved or (drafts[0] if drafts else None)
+        title = page.title if page else ""
+        tiles.append(
+            {
+                "number": number,
+                "label": _page_label(number, title),
+                "approved": approved is not None,
+                "drafts": len(drafts),
+                "plate": _plate_view(shown) if shown else None,
+                "band_percent": f"{COVER_TITLE_BAND_FRACTION * 100:.2f}",
+            }
+        )
+    version = store.current_version(story_key)
+    return _render(
+        request,
+        "admin_plate_sheet.html",
+        {
+            **page_chrome(container, session),
+            "story": seed,
+            "tiles": tiles,
+            "version": version.number if version else None,
+            "approved_count": sum(1 for tile in tiles if tile["approved"]),
+            "painted_count": len(painted),
+            "painted_page": painted_page,
+            "finished": finished,
+            "page_total": len(PAGE_NUMBERS),
+        },
+    )
+
+
+# Declared before the page view on purpose: a plate URL ends in `.png`, and
+# the page route would otherwise claim it and answer 422 for a bad page number.
+@router.get("/plates/{story_key}/{plate_id}.png")
+def plate_image(
+    story_key: str,
+    plate_id: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+) -> Response:
+    """A plate's bytes, for the operator's own screen only."""
+    _operator(container, session)
+    _seed_or_404(story_key)
+    try:
+        image, media_type = store.plate_image(plate_id)
+    except UnknownTemplate:
+        raise HTTPException(status_code=404, detail="Not Found") from None
+    # A plate carries no child's face, but it is the operator's working set:
+    # keep it out of any shared cache, like the rest of the book artefacts.
+    return no_store(image, media_type=media_type)
+
+
+@router.get("/plates/{story_key}/{page_number}", response_class=HTMLResponse)
+def page_review(
+    story_key: str,
+    page_number: int,
+    request: Request,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+    error: str = "",
+) -> HTMLResponse:
+    """One page's candidates, each with its slot overlay and Approve state."""
+    _operator(container, session)
+    seed = _seed_or_404(story_key)
+    _page_or_404(page_number)
+    try:
+        pages = store.pages(story_key)
+        plates = store.plates(story_key, page_number)
+    except UnknownTemplate:
+        raise HTTPException(status_code=404, detail="Not Found") from None
+    page = pages.get(page_number)
+    candidates = [_candidate(plate, store, page_number) for plate in plates]
+    plan = _plan(seed, page_number)
+    return _render(
+        request,
+        "admin_plate_review.html",
+        {
+            **page_chrome(container, session),
+            "story": seed,
+            "page": {
+                "number": page_number,
+                "label": _page_label(page_number, page.title if page else ""),
+                "title": page.title if page else "",
+                "prose": page.prose if page else "",
+                "cast_label": _cast_label(seed.star, page.cast_keys if page else ()),
+            },
+            "candidates": candidates,
+            "plan": {"prompt": plan.prompt, "slots": _slot_rows(plan.slots)},
+            "band_percent": f"{COVER_TITLE_BAND_FRACTION * 100:.2f}",
+            "error": error,
+        },
+    )
+
+
+# --- the actions --------------------------------------------------------------
+
+
+@router.post("/plates/{story_key}/{page_number}/{plate_id}/approve")
+def approve(
+    story_key: str,
+    page_number: int,
+    plate_id: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+) -> RedirectResponse:
+    """Approve one plate, refusing a cover whose title band is too busy."""
+    operator = _operator(container, session)
+    _seed_or_404(story_key)
+    _page_or_404(page_number)
+    plates = _plates_on(store, story_key, page_number, plate_id)
+    if page_number == COVER_PAGE:
+        busy = next((p for p in plates if p.id == plate_id), None)
+        if busy is not None and busy.status != PlateStatus.APPROVED:
+            ok, reason = _band(store.plate_image(plate_id)[0])
+            if not ok:
+                logger.info("admin.plate_refused cover=%s reason=title_band", plate_id)
+                return RedirectResponse(
+                    _page_url(story_key, page_number, error=reason), status_code=303
+                )
+    try:
+        version = store.approve_plate(plate_id, operator=operator)
+    except PlateNotApprovable as exc:
+        logger.info("admin.plate_refused plate=%s reason=%s", plate_id, exc)
+        return RedirectResponse(
+            _page_url(story_key, page_number, error=str(exc)), status_code=303
+        )
+    logger.info(
+        "admin.plate_approved story=%s page=%d plate=%s version=%s operator=%s",
+        story_key,
+        page_number,
+        plate_id,
+        version or "",
+        operator,
+    )
+    return RedirectResponse(_page_url(story_key, page_number), status_code=303)
+
+
+@router.post("/plates/{story_key}/{page_number}/reroll")
+def reroll(
+    story_key: str,
+    page_number: int,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+    prompt: Annotated[str, Form()] = "",
+    change: Annotated[str, Form()] = "",
+    back: Annotated[str, Form()] = "",
+) -> RedirectResponse:
+    """Paint one more candidate for a page. Never touches an approved plate.
+
+    Two ways in. A `change` note — "make the light warmer" — is added to the
+    page's planned prompt, so an operator corrects the one thing they did not
+    like instead of rewriting twenty paragraphs of spec. A `prompt` is the
+    whole text, for when the plate needs more than a correction. With neither,
+    the planned prompt is painted again.
+    """
+    _operator(container, session)
+    seed = _seed_or_404(story_key)
+    _page_or_404(page_number)
+    plan = _plan(seed, page_number)
+    note = " ".join(change.split())
+    text = prompt.strip() or plan.prompt
+    if note:
+        text = f"{plan.prompt}\n\nCHANGE REQUESTED: {note}"
+    try:
+        image = container.provider.generate(
+            ImageRequest(prompt=text, aspect_ratio=_PLATE_ASPECT, label="plate")
+        )
+        plate_id = store.add_plate(
+            story_key,
+            page_number,
+            image=image.data,
+            media_type=image.media_type,
+            prompt=text,
+            slots=plan.slots,
+        )
+    except TemplateError as exc:
+        logger.info(
+            "admin.plate_reroll_failed story=%s page=%d reason=%s",
+            story_key,
+            page_number,
+            exc,
+        )
+        return RedirectResponse(
+            _page_url(story_key, page_number, error=str(exc)), status_code=303
+        )
+    logger.info(
+        "admin.plate_rerolled story=%s page=%d plate=%s provider=%s changed=%s",
+        story_key,
+        page_number,
+        plate_id,
+        container.provider.name,
+        bool(note),
+    )
+    if back == "sheet":
+        return RedirectResponse(
+            f"/admin/plates/{story_key}?{urlencode({'painted': page_number})}",
+            status_code=303,
+        )
+    return RedirectResponse(_page_url(story_key, page_number), status_code=303)
+
+
+@router.post("/plates/{story_key}/paint")
+def paint_next(
+    story_key: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+) -> RedirectResponse:
+    """Paint one missing plate, then come back (the no-JavaScript path).
+
+    One image call per press: a whole story is 21 calls, which is minutes, so
+    it is one plate per request and the browser repeats it. The sheet says how
+    many are painted, so a reload never loses the operator's place.
+    """
+    _operator(container, session)
+    seed = _seed_or_404(story_key)
+    page, _plate_id, _remaining = _paint_next(container, store, seed)
+    query = {"painted": page} if page is not None else {"finished": "1"}
+    return RedirectResponse(f"/admin/plates/{story_key}?{urlencode(query)}", status_code=303)
+
+
+@router.post("/plates/{story_key}/paint.json")
+def paint_next_json(
+    story_key: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+) -> JSONResponse:
+    """The same one plate, counted: what the browser's repeat loop reads."""
+    _operator(container, session)
+    seed = _seed_or_404(story_key)
+    page, plate_id, remaining = _paint_next(container, store, seed)
+    return JSONResponse(
+        {
+            "page": page,
+            "plate_id": plate_id,
+            "remaining": remaining,
+            "total": len(PAGE_NUMBERS),
+        }
+    )
+
+
+@router.post("/plates/{story_key}/{page_number}/{plate_id}/retire")
+def retire(
+    story_key: str,
+    page_number: int,
+    plate_id: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+) -> RedirectResponse:
+    """Take a plate out of future versions. Old versions keep it."""
+    _operator(container, session)
+    _seed_or_404(story_key)
+    _page_or_404(page_number)
+    _plates_on(store, story_key, page_number, plate_id)
+    try:
+        store.retire_plate(plate_id)
+    except UnknownTemplate:
+        raise HTTPException(status_code=404, detail="Not Found") from None
+    logger.info(
+        "admin.plate_retired story=%s page=%d plate=%s", story_key, page_number, plate_id
+    )
+    return RedirectResponse(_page_url(story_key, page_number), status_code=303)
+
+
+# --- shared shaping -----------------------------------------------------------
+
+
+def _story_progress(seed: StorySeed, store: TemplateStore) -> dict[str, Any]:
+    try:
+        plates = store.plates(seed.key)
+        pages = store.pages(seed.key)
+    except UnknownTemplate:
+        return {
+            "key": seed.key,
+            "title": seed.title,
+            "seeded": False,
+            "approved": 0,
+            "drafts": 0,
+            "version": None,
+        }
+    version = store.current_version(seed.key)
+    return {
+        "key": seed.key,
+        "title": seed.title,
+        "seeded": bool(pages),
+        "approved": sum(1 for p in plates if p.status == PlateStatus.APPROVED),
+        "drafts": sum(1 for p in plates if p.status == PlateStatus.DRAFT),
+        "version": version.number if version else None,
+    }
+
+
+def _next_page(store: TemplateStore, story_key: str) -> tuple[int | None, int]:
+    """The first page with no candidate, and how many pages still need one.
+
+    A retired plate does not count: retiring is how a plate leaves, and the
+    page then needs a new candidate. An approved plate does count — it is the
+    page's current answer, and re-rolling it is a deliberate act for one page,
+    not something a bulk paint should ever do behind the operator's back.
+    """
+    painted = {
+        plate.page_number
+        for plate in store.plates(story_key)
+        if plate.status != PlateStatus.RETIRED
+    }
+    missing = [number for number in PAGE_NUMBERS if number not in painted]
+    return (missing[0] if missing else None), len(missing)
+
+
+def _paint_next(
+    container: Container, store: TemplateStore, seed: StorySeed
+) -> tuple[int | None, str, int]:
+    """Paint the planned plate for the next unpainted page. One image call."""
+    with _paint_lock(seed.key):
+        number, remaining = _next_page(store, seed.key)
+        if number is None:
+            return None, "", 0
+        plan = _plan(seed, number)
+        image = container.provider.generate(
+            ImageRequest(prompt=plan.prompt, aspect_ratio=_PLATE_ASPECT, label="plate")
+        )
+        try:
+            plate_id = store.add_plate(
+                seed.key,
+                number,
+                image=image.data,
+                media_type=image.media_type,
+                prompt=plan.prompt,
+                slots=plan.slots,
+            )
+        except UnknownTemplate:
+            raise HTTPException(status_code=404, detail="Not Found") from None
+    logger.info(
+        "admin.plate_painted story=%s page=%d plate=%s provider=%s",
+        seed.key,
+        number,
+        plate_id,
+        container.provider.name,
+    )
+    return number, plate_id, remaining - 1
+
+
+def _plates_on(
+    store: TemplateStore, story_key: str, page_number: int, plate_id: str
+) -> list[PlateSummary]:
+    """The page's plates, refusing a plate that belongs to some other page."""
+    try:
+        plates = store.plates(story_key, page_number)
+    except UnknownTemplate:
+        raise HTTPException(status_code=404, detail="Not Found") from None
+    if not any(plate.id == plate_id for plate in plates):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return plates
+
+
+def _plan(seed: StorySeed, page_number: int) -> PlatePlan:
+    return next(plan for plan in plate_plans(seed) if plan.page_number == page_number)
+
+
+def _candidate(plate: PlateSummary, store: TemplateStore, page_number: int) -> dict[str, Any]:
+    """One candidate, with the cover's band verdict the button obeys."""
+    view = _plate_view(plate)
+    view["can_approve"] = True
+    view["reason"] = ""
+    if page_number == COVER_PAGE and plate.status == PlateStatus.DRAFT:
+        ok, reason = _band(store.plate_image(plate.id)[0])
+        view["can_approve"] = ok
+        view["reason"] = reason
+    return view

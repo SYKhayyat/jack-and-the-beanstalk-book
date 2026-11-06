@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import json
 import os
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -13,14 +12,18 @@ from time import time
 import pytest
 from PIL import Image
 from pydantic import ValidationError
+from sqlalchemy import update
+from sqlalchemy.engine import Engine
 
 from app.config import ProviderName, Settings
 from app.container import build_container
+from app.db import BookRow
 from app.main import expire_once
 from app.models import CartoonSettings
 from app.models.book import AboutMe
 from app.models.settings import CartoonStyle, LikenessStrength
-from app.services.book_store import BookStatus, FileBookStore
+from app.services.book_store import BookStatus, BookStore
+from app.services.db_book_store import DatabaseBookStore
 from app.services.storage import Draft, GenerationStore
 from tests.helpers import RecordingProvider, tiny_png_bytes
 
@@ -221,22 +224,20 @@ def _age_files(directory: Path, seconds: float) -> None:
             os.utime(child, (stamp, stamp))
 
 
-def _age_book(store: FileBookStore, book_id: str, seconds: float) -> None:
-    """Backdate a book's whole history, so retention sees it as old."""
-    stamp = (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat()
-    _age_created_at(store, book_id, seconds)
-    path = store.path(book_id, "status.json")
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["updated_at"] = stamp
-    path.write_text(json.dumps(payload), encoding="utf-8")
+def _age_book(
+    engine: Engine, book_id: str, seconds: float, *, recent_edit: bool = False
+) -> None:
+    """Backdate a book in the database, as if it had been written then.
 
-
-def _age_created_at(store: FileBookStore, book_id: str, seconds: float) -> None:
-    """Backdate only the request time; the status keeps its last activity."""
-    path = store.path(book_id, "book.json")
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["created_at"] = (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat()
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    `recent_edit` ages only the created time: a book made long ago but written
+    to now has just been used, and retention must follow the last use.
+    """
+    stamp = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=seconds)
+    values: dict[str, object] = {"created_at": stamp}
+    if not recent_edit:
+        values["updated_at"] = stamp
+    with engine.begin() as conn:
+        conn.execute(update(BookRow).where(BookRow.id == book_id).values(**values))
 
 
 class TestDraftRetention:
@@ -275,59 +276,60 @@ class TestDraftRetention:
 class TestBookRetention:
     """#10: finished books are megabytes of a child's photographs."""
 
-    def _book(self, store: FileBookStore, book_id: str, status: str) -> None:
+    def _book(self, store: BookStore, book_id: str, status: str) -> None:
         store.save_record(book_id=book_id, user_id=None, about=ABOUT, generation_id="gen-1")
         store.save_status(book_id, status, [])
 
-    def test_an_old_finished_book_is_deleted(self, tmp_path: Path) -> None:
-        store = FileBookStore(tmp_path / "books")
+    def test_an_old_finished_book_is_deleted(self, engine: Engine) -> None:
+        store = DatabaseBookStore(engine)
         self._book(store, "old", BookStatus.COMPLETE)
         store.save_page("old", 1, b"PNG-PAGE")
+        store.save_pdf("old", b"%PDF-old")
         self._book(store, "fresh", BookStatus.COMPLETE)
-        _age_book(store, "old", 8 * DAY)
+        _age_book(engine, "old", 8 * DAY)
 
         assert store.expire(older_than_seconds=7 * DAY) == 1
 
-        # The whole directory goes: pages, portrait and PDF with it.
+        # The whole book goes: pages, portrait and PDF with it.
         assert store.load_status("old") is None
         assert store.read_page("old", 1) is None
-        assert not (tmp_path / "books" / "old").exists()
+        assert store.read_pdf("old") is None
         assert store.load_status("fresh") is not None
 
-    def test_a_recent_edit_keeps_an_old_book_alive(self, tmp_path: Path) -> None:
+    def test_a_recent_edit_keeps_an_old_book_alive(self, engine: Engine) -> None:
         """Retention follows last use, not the day the request was first made.
 
         A book created a month ago but written to (finished, or edited) today
         has just been used; sweeping it would delete something the reader is
         still looking at.
         """
-        store = FileBookStore(tmp_path / "books")
+        store = DatabaseBookStore(engine)
         self._book(store, "edited", BookStatus.COMPLETE)
-        _age_created_at(store, "edited", 30 * DAY)
+        _age_book(engine, "edited", 30 * DAY, recent_edit=True)
 
         assert store.expire(older_than_seconds=7 * DAY) == 0
         assert store.load_status("edited") is not None
 
-    def test_an_old_failed_book_is_deleted(self, tmp_path: Path) -> None:
-        store = FileBookStore(tmp_path / "books")
+    def test_an_old_failed_book_is_deleted(self, engine: Engine) -> None:
+        store = DatabaseBookStore(engine)
         self._book(store, "failed", BookStatus.FAILED)
-        _age_book(store, "failed", 8 * DAY)
+        _age_book(engine, "failed", 8 * DAY)
 
         assert store.expire(older_than_seconds=7 * DAY) == 1
         assert store.load_status("failed") is None
 
     @pytest.mark.parametrize("status", [BookStatus.PENDING, BookStatus.RENDERING])
-    def test_a_live_book_is_never_expired(self, tmp_path: Path, status: str) -> None:
+    def test_a_live_book_is_never_expired(self, engine: Engine, status: str) -> None:
         """Age is not enough: a book that is still being made is not rubbish."""
-        store = FileBookStore(tmp_path / "books")
+        store = DatabaseBookStore(engine)
         self._book(store, "live", status)
-        _age_book(store, "live", 8 * DAY)
+        _age_book(engine, "live", 8 * DAY)
 
         assert store.expire(older_than_seconds=7 * DAY) == 0
         assert store.load_status("live") is not None
 
-    def test_a_zero_window_deletes_nothing(self, tmp_path: Path) -> None:
-        store = FileBookStore(tmp_path / "books")
+    def test_a_zero_window_deletes_nothing(self, engine: Engine) -> None:
+        store = DatabaseBookStore(engine)
         self._book(store, "kept", BookStatus.COMPLETE)
         assert store.expire(older_than_seconds=0) == 0
         assert store.load_status("kept") is not None
@@ -344,7 +346,7 @@ class TestTheSweep:
             book_id="old-book", user_id=None, about=ABOUT, generation_id="old-draft"
         )
         container.book_store.save_status("old-book", BookStatus.COMPLETE, [])
-        _age_book(container.book_store, "old-book", 8 * DAY)
+        _age_book(container.engine, "old-book", 8 * DAY)
 
         assert expire_once(container) == (1, 1)
 

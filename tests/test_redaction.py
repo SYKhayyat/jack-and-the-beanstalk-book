@@ -188,14 +188,19 @@ class TestTheSecretsTheAppArmsAtStartup:
         assert not installed or not installed[0].secrets
 
     def test_the_database_url_is_armed_whole(self, tmp_path: Path, caplog) -> None:
-        """A connection URL embeds its password; the whole URL is a secret."""
+        """A connection URL embeds its password; the whole URL is a secret.
+
+        This runs the startup arming itself rather than `create_app`: an app
+        now connects and migrates the database it is given, and the point here
+        is what the process arms before it logs anything.
+        """
         from app.config import Settings
-        from app.main import create_app
+        from app.main import _configure_logging
 
         url = "postgres://user:db-password@host/db"
         redaction._installed = None
         _strip_redacting_filters()
-        create_app(
+        _configure_logging(
             Settings(
                 image_provider="mock",  # type: ignore[arg-type]
                 gemini_api_key="",

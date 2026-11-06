@@ -1,4 +1,4 @@
-"""The wallet's rules, over both stores.
+"""The wallet's rules, over the database ledger.
 
 The wallet is the only place in the app that decides what money may move, so
 these tests are about the guarantees rather than the plumbing: a session funds
@@ -9,9 +9,8 @@ be processed twice), and a failed refund costs the visitor nothing.
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 
-from app.db import Base
 from app.services.db_wallet_store import DatabaseWalletStore
 from app.services.payments import PaidCheckout, PaymentError, PaymentProvider, Refund
 from app.services.wallet import (
@@ -20,7 +19,6 @@ from app.services.wallet import (
     REFUND_FAILED,
     REFUND_PROCESSED,
     DuplicateTransaction,
-    FileWalletStore,
     InsufficientFunds,
     RefundRequest,
     Wallet,
@@ -54,12 +52,8 @@ class FakeStripe(PaymentProvider):
         raise NotImplementedError
 
 
-@pytest.fixture(params=["file", "database"])
-def wallet(request: pytest.FixtureRequest, tmp_path) -> Wallet:
-    if request.param == "file":
-        return Wallet(FileWalletStore(tmp_path / "wallets"))
-    engine = create_engine(f"sqlite:///{tmp_path / 'wallet.sqlite'}")
-    Base.metadata.create_all(engine)
+@pytest.fixture
+def wallet(engine: Engine) -> Wallet:
     return Wallet(DatabaseWalletStore(engine))
 
 
@@ -187,12 +181,12 @@ def test_nothing_can_be_refunded_twice(wallet: Wallet) -> None:
         wallet.request_refund("me")
 
 
-def test_a_refund_that_cannot_be_recorded_does_not_keep_the_money(tmp_path) -> None:
-    class BrokenStore(FileWalletStore):
+def test_a_refund_that_cannot_be_recorded_does_not_keep_the_money(engine: Engine) -> None:
+    class BrokenStore(DatabaseWalletStore):
         def save_refund(self, request: RefundRequest) -> None:
-            raise RuntimeError("the disk is full")
+            raise RuntimeError("the database is down")
 
-    broken = Wallet(BrokenStore(tmp_path / "wallets"))
+    broken = Wallet(BrokenStore(engine))
     fund(broken, "me", 1000)
     with pytest.raises(RuntimeError):
         broken.request_refund("me")
@@ -213,8 +207,8 @@ def test_a_refund_never_exceeds_what_stripe_can_send_back(wallet: Wallet) -> Non
     assert wallet.refundable_cents("me") == 0
 
 
-def test_a_duplicate_ledger_reference_is_refused(tmp_path) -> None:
-    store = FileWalletStore(tmp_path / "wallets")
+def test_a_duplicate_ledger_reference_is_refused(engine: Engine) -> None:
+    store = DatabaseWalletStore(engine)
 
     def add() -> None:
         store.add(

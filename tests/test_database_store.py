@@ -1,17 +1,16 @@
-"""Database-mode persistence: same contract, different durability promise.
+"""Persistence: the database is the only store, and it survives a restart.
 
-These tests run the `DatabaseBookStore` and `DatabaseUserStore` against
-SQLite, which needs none of Postgres's infrastructure and answers the
-questions that matter for the contract: does the data survive a rebuild of
-the process (a **new engine** over the same file), do pages upsert, does
-ownership hold, and does an orphaned mid-render book reap rather than poll
-forever. The multi-account acceptance test at the end runs the real routes.
+These tests run the real stores against SQLite, which needs none of Postgres's
+infrastructure, and answer the questions that matter: does the data survive a
+rebuild of the process (a **new engine** over the same file), do pages upsert,
+does ownership hold, and does an orphaned mid-render book reap rather than
+poll forever. The multi-account acceptance test at the end runs the real
+routes.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -23,34 +22,29 @@ from sqlalchemy import func, select, update
 from app.config import Settings
 from app.container import build_container
 from app.db import (
-    Base,
     BookPageRow,
     BookRow,
     build_engine,
+    local_database_url,
     normalise_database_url,
     persistence_mode,
+    prepare_database,
 )
 from app.main import create_app
 from app.models.book import AboutMe
-from app.services.book_store import BookStatus, FileBookStore
+from app.services.book_store import BookStatus
 from app.services.db_book_store import DatabaseBookStore
-from app.services.user_store import DatabaseUserStore, FileUserStore, User
+from app.services.user_store import DatabaseUserStore, User
 
 ABOUT = AboutMe.model_validate({"prompt_name": "Jack", "about_name": "Jack"})
 USER = "109876543210987654321"
 
 
 @pytest.fixture
-def engine(tmp_path: Path) -> Iterator[Any]:
-    """A SQLite engine over a file, so the tables can be rebuilt on it."""
-    e = build_engine(f"sqlite:///{tmp_path / 'db.sqlite'}")
-    Base.metadata.create_all(e)
-    yield e
-    e.dispose()
-
-
-@pytest.fixture
 def store(engine: Any) -> DatabaseBookStore:
+    # Books are filed under a real person: the `books.user_id` foreign key is
+    # enforced here exactly as Postgres enforces it.
+    DatabaseUserStore(engine).upsert(User(sub=USER, name="Owner"))
     return DatabaseBookStore(engine)
 
 
@@ -168,9 +162,9 @@ def test_data_survives_rebuilding_the_process(tmp_path: Path) -> None:
     mode, and the whole reason the store exists.
     """
     url = f"sqlite:///{tmp_path / 'db.sqlite'}"
-    first = build_engine(url)
-    Base.metadata.create_all(first)
+    first = prepare_database(build_engine(url))
     store = DatabaseBookStore(first)
+    DatabaseUserStore(first).upsert(User(sub=USER, name="Owner"))
     _seed(store)
     store.save_pdf("book-1", b"%PDF-1.4")
     store.save_page("book-1", 1, b"PNG")
@@ -391,18 +385,25 @@ def test_the_container_builds_database_stores_when_a_url_is_set(
     assert isinstance(container.user_store, DatabaseUserStore)
 
 
-def test_the_container_stays_on_the_filesystem_without_a_url(
-    tmp_path: Path,
-) -> None:
+def test_the_container_falls_back_to_one_sqlite_file(tmp_path: Path) -> None:
+    """No `DATABASE_URL`: the storage directory holds the whole store."""
     settings = Settings(
         image_provider="mock",  # type: ignore[arg-type]
         gemini_api_key="",
         app_env="test",
         storage_dir=tmp_path / "storage",
     )
+    assert settings.effective_database_url == local_database_url(tmp_path / "storage")
     container = build_container(settings)
-    assert isinstance(container.book_store, FileBookStore)
-    assert isinstance(container.user_store, FileUserStore)
+    try:
+        assert isinstance(container.book_store, DatabaseBookStore)
+        assert isinstance(container.user_store, DatabaseUserStore)
+        # Booting created it, tables and all: there is no other store to find.
+        assert (tmp_path / "storage" / "app.sqlite3").is_file()
+        assert not (tmp_path / "storage" / "books").exists()
+        container.user_store.upsert(User(sub=USER, name="Someone"))
+    finally:
+        container.engine.dispose()
 
 
 def test_an_engine_needs_a_url() -> None:
@@ -435,43 +436,35 @@ def test_a_pasted_postgres_url_names_the_installed_driver() -> None:
     )
 
 
-def test_both_stores_read_a_new_book_as_pending(tmp_path: Path, engine: Any) -> None:
-    """The two stores answer the same document from the moment the book exists."""
-    file_store = FileBookStore(tmp_path / "books")
-    db_store = DatabaseBookStore(engine)
-    for store in (file_store, db_store):
-        store.save_record(book_id="book-1", user_id=USER, about=ABOUT, generation_id="gen-1")
-        status = store.load_status("book-1")
-        assert status is not None, store.__class__.__name__
-        assert status["status"] == BookStatus.PENDING, store.__class__.__name__
-        assert status["pages"] == [], store.__class__.__name__
-        assert status["pdf_url"] is None, store.__class__.__name__
+def test_a_new_book_polls_as_pending(store: DatabaseBookStore) -> None:
+    """The poll's document is right from the moment the book exists."""
+    store.save_record(book_id="book-1", user_id=USER, about=ABOUT, generation_id="gen-1")
+    status = store.load_status("book-1")
+    assert status is not None
+    assert status["status"] == BookStatus.PENDING
+    assert status["pages"] == []
+    assert status["pdf_url"] is None
 
 
-def test_file_and_database_stores_serve_the_same_status_shapes(
-    tmp_path: Path, engine: Any
+def test_the_status_document_has_exactly_the_polls_fields(
+    store: DatabaseBookStore,
 ) -> None:
-    """The contract: whichever store runs, the poll sees the same document."""
-    file_store = FileBookStore(tmp_path / "books")
-    db_store = DatabaseBookStore(engine)
-    for s in (file_store, db_store):
-        s.save_record(book_id="book-1", user_id=USER, about=ABOUT, generation_id="gen-1")
-        s.save_status(
-            "book-1", BookStatus.COMPLETE, [{"number": 1, "status": "done", "url": "u"}]
-        )
-        s.save_prompts("book-1", [{"page": "1", "key": "k", "prompt": "p"}])
-        file_status = s.load_status("book-1")
-        keys = set((file_status or {}).keys())
-        assert keys == {
-            "book_id",
-            "status",
-            "pages",
-            "error",
-            "pdf_url",
-            "cover_url",
-            "title",
-            "updated_at",
-        }, s.__class__.__name__
+    store.save_record(book_id="book-1", user_id=USER, about=ABOUT, generation_id="gen-1")
+    store.save_status(
+        "book-1", BookStatus.COMPLETE, [{"number": 1, "status": "done", "url": "u"}]
+    )
+    store.save_prompts("book-1", [{"page": "1", "key": "k", "prompt": "p"}])
+    status = store.load_status("book-1")
+    assert set((status or {}).keys()) == {
+        "book_id",
+        "status",
+        "pages",
+        "error",
+        "pdf_url",
+        "cover_url",
+        "title",
+        "updated_at",
+    }
 
 
 # --- the acceptance flow, through the real routes --------------------------------
@@ -515,9 +508,7 @@ def _db_google_settings(tmp_path: Path) -> Settings:
 def _app_with(tmp_path: Path, sub: str) -> TestClient:
     """A fresh process: new container, same database file."""
     settings = _db_google_settings(tmp_path)
-    creator = build_engine(settings.database_url)
-    Base.metadata.create_all(creator)
-    creator.dispose()
+    # `create_app` migrates the database at boot, exactly as a restart would.
     app = create_app(settings)
     app.state.oauth = _Google(sub)
     client = TestClient(app)
@@ -553,10 +544,8 @@ def _dispose(container: object) -> None:
 
 
 def _seed_book(settings: Settings, user_id: str) -> str:
-    creator = build_engine(settings.database_url)
-    Base.metadata.create_all(creator)
-    creator.dispose()
     container = build_container(settings)
+    container.user_store.upsert(User(sub=user_id, name="Owner"))
     store = container.book_store
     assert isinstance(store, DatabaseBookStore)
     store.save_record(

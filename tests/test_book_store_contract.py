@@ -1,10 +1,12 @@
-"""One contract, two implementations, the same assertions.
+"""The book store's contract, asserted once against the one implementation.
 
-The filesystem and database book stores are separate classes with the same
-promise. Each has its own tests, but nothing was forcing them to answer the
-same way — a change to one could quietly drift from the other until a
-deployment chose the wrong mode. This suite runs the contract itself against
-both, so a divergence fails here instead of in Postgres.
+There used to be two stores (filesystem and database) and this suite held them
+to the same answers. T3 removed the filesystem store, so what is pinned here is
+the contract itself: the shapes, the round trips, the replacements, and the
+lifecycle promises `BookRunner` and the routes rely on.
+
+Each test runs against a throwaway SQLite database at head — the same schema
+and the same code the deployment runs on Postgres.
 """
 
 from __future__ import annotations
@@ -16,7 +18,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.engine import Engine
 
-from app.db import Base, build_engine
 from app.models import CartoonSettings, LikenessStrength
 from app.models.book import AboutMe
 from app.services.book_store import (
@@ -24,7 +25,6 @@ from app.services.book_store import (
     BookStatus,
     BookStore,
     CharacterReference,
-    FileBookStore,
 )
 from app.services.db_book_store import DatabaseBookStore
 from app.services.user_store import DatabaseUserStore, User
@@ -38,20 +38,12 @@ PNG = b"\x89PNG\r\n\x1a\n"
 JPEG = b"\xff\xd8\xff\xe0"
 
 
-@pytest.fixture(params=["filesystem", "database"])
-def store(request: pytest.FixtureRequest, tmp_path) -> Iterator[BookStore]:
-    if request.param == "filesystem":
-        yield FileBookStore(tmp_path / "books")
-        return
-    engine: Engine = build_engine(f"sqlite:///{tmp_path / 'contract.sqlite'}")
-    Base.metadata.create_all(engine)
+@pytest.fixture
+def store(engine: Engine) -> Iterator[BookStore]:
     DatabaseUserStore(engine).upsert(
         User(sub=USER, email="contract@example.com", name="Contract")
     )
-    try:
-        yield DatabaseBookStore(engine)
-    finally:
-        engine.dispose()
+    yield DatabaseBookStore(engine)
 
 
 def seed(store: BookStore, *, book_id: str = "book-1", user_id: str | None = USER) -> str:
@@ -227,7 +219,8 @@ def test_delete_removes_every_artefact(store: BookStore) -> None:
     assert store.read_pdf(book_id) is None
 
 
-def test_list_for_owner_is_scoped_to_that_person(store: BookStore) -> None:
+def test_list_for_owner_is_scoped_to_that_person(store: BookStore, engine: Engine) -> None:
+    DatabaseUserStore(engine).upsert(User(sub="contract-user-2", name="Other"))
     seed(store, book_id="mine-1")
     seed(store, book_id="mine-2")
     seed(store, book_id="theirs", user_id="contract-user-2")
@@ -258,7 +251,7 @@ def test_a_restart_reaps_a_book_that_never_finished(store: BookStore) -> None:
     assert status["status"] == BookStatus.FAILED
 
 
-def test_urls_are_identical_in_both_modes(store: BookStore) -> None:
+def test_urls_are_the_same_everywhere(store: BookStore) -> None:
     book_id = seed(store)
     assert store.pdf_url(book_id) == f"/book-media/{book_id}/pdf"
     assert store.portrait_url(book_id) == f"/book-media/{book_id}/portrait"

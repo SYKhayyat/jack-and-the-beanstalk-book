@@ -22,6 +22,7 @@ from app.services.image_providers.base import (
     ImageRequest,
     ProviderError,
 )
+from app.services.user_store import User
 from app.sessions import SESSION_COOKIE
 from tests.helpers import RecordingProvider, make_photo_bytes, multipart
 
@@ -388,7 +389,12 @@ def _google_client(tmp_path: Path) -> TestClient:
 
 
 def _sign_in(client: TestClient, sub: str) -> None:
-    """Mint the same session the Google callback would, without the network."""
+    """Mint the same session the Google callback would, without the network.
+
+    The callback also records the person, and books are filed under a real
+    `users` row (the foreign key says so), so the stand-in does the same write.
+    """
+    client.app.state.container.user_store.upsert(User(sub=sub, name=sub))
     token = client.app.state.sessions.issue_google(  # type: ignore[attr-defined]
         sub=sub, name=sub, ttl_seconds=3600
     )

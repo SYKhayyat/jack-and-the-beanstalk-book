@@ -1,8 +1,9 @@
-"""The book store against `DATABASE_URL`.
+"""The book store: the one implementation of `BookStore` (`book_store.py`).
 
-Same contract as `FileBookStore` (`book_store.py`), so `BookRunner` and the
-routes cannot tell the difference; what changes is the durability promise:
-a completed book survives the death of the process that made it.
+It runs against Postgres in production and against the local SQLite file
+everywhere else, so `BookRunner` and the routes have exactly one store to be
+written against, and a completed book survives the death of the process that
+made it in every environment.
 
 Implementation notes:
 

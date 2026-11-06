@@ -12,14 +12,19 @@ import httpx
 from fastapi.testclient import TestClient
 from PIL import Image
 from pypdf import PdfReader
+from sqlalchemy import func, select
+from sqlalchemy.engine import Engine
 
+from app.config import Settings
 from app.container import build_container
+from app.db import BookPageRow, BookRow, build_engine
 from app.main import create_app
 from app.models import REJECTION_CLAUSES, RejectionReason
 from app.models.book import BOOK_PAGES, AboutMe
 from app.routes import book as book_routes
 from app.services.book_runner import BookRunner
-from app.services.book_store import FileBookStore
+from app.services.book_store import BookStore
+from app.services.db_book_store import DatabaseBookStore
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
@@ -613,11 +618,11 @@ class TestRestartRecovery:
         assert "restarted" in str(payload["error"])
 
 
-class _ThreadRecordingStore(FileBookStore):
+class _ThreadRecordingStore(DatabaseBookStore):
     """Records which thread each blocking store call ran on."""
 
-    def __init__(self, root: Path) -> None:
-        super().__init__(root)
+    def __init__(self, engine: Engine) -> None:
+        super().__init__(engine)
         self.threads: dict[str, int] = {}
 
     def save_record(self, **kwargs: object) -> None:
@@ -639,8 +644,8 @@ def test_book_start_moves_its_blocking_store_calls_off_the_loop(
     driving the progress UI. Compare the thread they ran on with the thread the
     async route itself runs on (recorded through the rate limiter).
     """
-    store = _ThreadRecordingStore(settings.storage_dir / "books")
     base = build_container(settings, provider=provider)
+    store = _ThreadRecordingStore(base.engine)
     container = replace(
         base,
         book_store=store,
@@ -691,7 +696,7 @@ class _CountingBookStore:
     implements it with two file reads, so only the outer method matters.
     """
 
-    def __init__(self, inner: FileBookStore) -> None:
+    def __init__(self, inner: BookStore) -> None:
         self.inner = inner
         self.calls: list[str] = []
 
@@ -901,3 +906,52 @@ class TestQuotaAccounting:
 
         assert first["candidate_count"] == 1
         assert second["candidate_count"] == 1
+
+
+class TestOneStoragePath:
+    """T3: with no `DATABASE_URL`, one SQLite file is the whole store."""
+
+    def test_a_whole_book_lives_in_the_sqlite_file_only(
+        self, client: TestClient, settings: Settings
+    ) -> None:
+        assert settings.database_url == "", "the fixture must exercise the default"
+        portrait = make_portrait(client)
+        start = client.post(
+            "/api/book/start", data={"generation_id": portrait["generation_id"]}
+        )
+        assert start.status_code == 201, start.text
+        book_id = start.json()["book_id"]
+        assert wait_for_book(client, book_id)["status"] == "complete"
+
+        database = settings.local_database_path
+        assert database.is_file(), "booting with no URL must create the local database"
+
+        # The book, its page and its PDF are rows in that one file...
+        engine = build_engine(settings.effective_database_url)
+        try:
+            with engine.connect() as conn:
+                found = conn.execute(
+                    select(BookRow.id).where(BookRow.id == book_id)
+                ).scalar_one()
+                pages = conn.execute(
+                    select(func.count())
+                    .select_from(BookPageRow)
+                    .where(BookPageRow.book_id == book_id)
+                ).scalar_one()
+                pdf = conn.execute(
+                    select(BookRow.pdf).where(BookRow.id == book_id)
+                ).scalar_one()
+        finally:
+            engine.dispose()
+        assert found == book_id
+        assert pages == PAGE_COUNT
+        assert pdf.startswith(b"%PDF")
+
+        # ...and nothing the old filesystem store would have written exists.
+        assert not (settings.storage_dir / "books").exists()
+        assert not (settings.storage_dir / "users").exists()
+        assert not (settings.storage_dir / "wallets").exists()
+
+        download = client.get(f"/book-media/{book_id}/pdf")
+        assert download.status_code == 200
+        assert download.content.startswith(b"%PDF")

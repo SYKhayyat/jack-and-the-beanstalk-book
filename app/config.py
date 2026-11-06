@@ -155,6 +155,14 @@ class Settings(BaseSettings):
             "production. It is never the password."
         ),
     )
+    operator_sub: str = Field(
+        default="",
+        description=(
+            "Google `sub` of the one person who may review plates at /admin. "
+            "Empty disables the admin screens entirely: the operator is a named "
+            "account, never 'anybody signed in'."
+        ),
+    )
     max_upload_mb: int = Field(default=10, ge=1, le=50)
     generation_timeout_seconds: int = Field(
         default=600,
@@ -227,11 +235,12 @@ class Settings(BaseSettings):
         default="",
         # Pasted whole (e.g. a Neon pooled connection string); it embeds the
         # database password, so it must never be logged or committed. Empty
-        # means the filesystem stores are used and the app runs offline.
+        # means SQLite: one file under STORAGE_DIR, created and migrated on
+        # boot. There is no other store to fall back to.
         description=(
             "Postgres connection URL for durable persistence (books survive "
-            "restarts, books are keyed to the person). Empty means filesystem "
-            "mode."
+            "restarts, books are keyed to the person). Empty means a local "
+            "SQLite database under STORAGE_DIR."
         ),
     )
 
@@ -242,9 +251,24 @@ class Settings(BaseSettings):
         return value
 
     @property
-    def database_mode(self) -> bool:
-        """Whether books and people persist in Postgres rather than on disk."""
-        return bool(self.database_url)
+    def local_database_path(self) -> Path:
+        """The SQLite file an empty `DATABASE_URL` means: the whole store."""
+        return self.storage_dir / "app.sqlite3"
+
+    @property
+    def effective_database_url(self) -> str:
+        """The URL the app actually connects to; never empty.
+
+        `DATABASE_URL` when the operator set one, otherwise this machine's
+        SQLite file. Everything downstream — the container, the stores, the
+        migration command — goes through this, so there is one storage path
+        and local development cannot drift onto a second one.
+        """
+        if self.database_url:
+            return self.database_url
+        from app.db import local_database_url
+
+        return local_database_url(self.storage_dir)
 
     @property
     def payments_enabled(self) -> bool:

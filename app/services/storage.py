@@ -246,21 +246,21 @@ class GenerationStore:
     def expire(self, *, older_than_seconds: float) -> int:
         """Delete every draft whose newest file is older than the window.
 
-        Drafts are a child's uploaded photo and the portraits made from it, and
-        they exist only so the review flow can survive a restart: keeping them
-        after that is retention nobody asked for. The review flow needs
-        minutes, so the window (`Settings.draft_retention_hours`) is hours.
+                Drafts are a child's uploaded photo and the portraits made from it, and
+                they exist only so the review flow can survive a restart: keeping them
+                after that is retention nobody asked for. The review flow needs
+                minutes, so the window (`Settings.draft_retention_hours`) is hours.
 
-        Age is the newest file's mtime, not the directory's: every write to a
-        draft touches a file inside it, so the newest file is the last activity.
-        A draft written while this runs is therefore never mistaken for stale.
+                Age is the newest file's mtime, not the directory's: every write to a
+                draft touches a file inside it, so the newest file is the last activity.
+                A draft written while this runs is therefore never mistaken for stale.
 
-        Only a directory holding a `draft.json` is a draft. The store's root
-        also holds the app's other directories (`books/`, `users/`), and those
-        must never be mistaken for a stale generation.
+                Only a directory holding a `draft.json` is a draft. This root holds
+        the interactive drafts and the local SQLite file, and neither may be
+        mistaken for a stale generation.
 
-        Returns:
-            How many drafts were removed.
+                Returns:
+                    How many drafts were removed.
         """
         if older_than_seconds <= 0:
             return 0

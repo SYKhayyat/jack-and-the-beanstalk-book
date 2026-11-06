@@ -11,14 +11,16 @@ import threading
 from pathlib import Path
 
 import pytest
+from sqlalchemy.engine import Engine
 
 from app.models import CartoonSettings
 from app.models.book import BOOK_PAGES, AboutMe
 from app.services import book_document as book_document_module
 from app.services import book_runner as book_runner_module
 from app.services.book_runner import BookRunner
-from app.services.book_store import BookRecord, BookStatus, FileBookStore
+from app.services.book_store import BookRecord, BookStatus
 from app.services.concurrency import ConcurrencyGate, GateTimeout
+from app.services.db_book_store import DatabaseBookStore
 from app.services.image_providers.base import GeneratedImage, ImageRequest
 from app.services.pipeline import GenerationPipeline
 from app.services.storage import GenerationStore
@@ -52,7 +54,7 @@ def _persisted_draft(store: GenerationStore) -> str:
 
 
 def test_titles_are_rendered_per_page_not_per_status_write(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, engine: Engine, monkeypatch
 ) -> None:
     """#12: `_page_view` runs on every transition, so it must not re-render.
 
@@ -61,7 +63,7 @@ def test_titles_are_rendered_per_page_not_per_status_write(
     change. One pass for the whole book is all the status document needs.
     """
     store = GenerationStore(tmp_path / "drafts")
-    book_store = FileBookStore(tmp_path / "books")
+    book_store = DatabaseBookStore(engine)
     generation_id = _persisted_draft(store)
     runner = BookRunner(
         provider=RecordingProvider(),
@@ -105,14 +107,16 @@ def test_titles_are_rendered_per_page_not_per_status_write(
     assert len(rendered) <= 2 * len(BOOK_PAGES), len(rendered)
 
 
-def test_a_cancelled_page_leaves_its_slot_to_the_running_worker(tmp_path: Path) -> None:
+def test_a_cancelled_page_leaves_its_slot_to_the_running_worker(
+    tmp_path: Path, engine: Engine
+) -> None:
     """#23: cancelling the wait must not free a slot while a call is in flight.
 
     The worker thread cannot be interrupted, and it may still be billing, so a
     cancelled page must hand its slot over exactly as a timed-out one does.
     """
     store = GenerationStore(tmp_path / "drafts")
-    book_store = FileBookStore(tmp_path / "books")
+    book_store = DatabaseBookStore(engine)
     generation_id = _persisted_draft(store)
     provider = _BlockingProvider()
     gate = ConcurrencyGate(1)
@@ -163,9 +167,9 @@ def test_a_cancelled_page_leaves_its_slot_to_the_running_worker(tmp_path: Path) 
     asyncio.run(scenario())
 
 
-def test_a_cancelled_render_is_recorded_as_failed(tmp_path: Path) -> None:
+def test_a_cancelled_render_is_recorded_as_failed(tmp_path: Path, engine: Engine) -> None:
     store = GenerationStore(tmp_path / "drafts")
-    book_store = FileBookStore(tmp_path / "books")
+    book_store = DatabaseBookStore(engine)
     generation_id = _persisted_draft(store)
     provider = _BlockingProvider()
     runner = BookRunner(
@@ -205,7 +209,7 @@ def test_a_cancelled_render_is_recorded_as_failed(tmp_path: Path) -> None:
 
 
 def test_the_book_counts_its_cover_and_reports_the_pdf_phase(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, engine: Engine, monkeypatch
 ) -> None:
     """A book is the cover plus the story pages, and assembly is its own phase.
 
@@ -215,7 +219,7 @@ def test_the_book_counts_its_cover_and_reports_the_pdf_phase(
     the runner writes, so they are pinned here.
     """
     store = GenerationStore(tmp_path / "drafts")
-    book_store = FileBookStore(tmp_path / "books")
+    book_store = DatabaseBookStore(engine)
     generation_id = _persisted_draft(store)
     runner = BookRunner(
         provider=RecordingProvider(),
