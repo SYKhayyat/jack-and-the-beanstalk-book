@@ -482,12 +482,15 @@ async def edit_book(
             )
             return _edit_started(book_id, "character")
 
-        await asyncio.to_thread(
-            container.book_store.save_character, book_id, character_key, reference
-        )
+        # Validate before storing: a character that is photoable in the
+        # catalogue but absent from this book's pages is a 422, and a 422 must
+        # not leave a face filed under the book.
         affected = {page.number for page in BOOK_PAGES if character_key in page.cast}
         if not affected:
             raise InvalidSettings(f"{character_key} does not appear in this book.")
+        await asyncio.to_thread(
+            container.book_store.save_character, book_id, character_key, reference
+        )
         await container.book_runner.start_edit(
             book_id,
             page_numbers=affected,

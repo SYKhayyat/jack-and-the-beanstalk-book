@@ -202,6 +202,35 @@ class TestEditing:
             # Every redrawn page received the new mother: four references.
             assert all(len(request.reference_images) == 4 for request in new_calls)
 
+    def test_a_character_with_no_page_is_refused_before_its_face_is_stored(
+        self, client_factory, monkeypatch
+    ) -> None:
+        """A rejected character edit must not leave a portrait behind.
+
+        The catalogue is the source of "which pages cast whom". With no page
+        casting the mother, the request is a 422 — and the face must not have
+        been written first.
+        """
+        provider = ChangingProvider()
+        with client_factory(provider) as client:
+            book_id = _start(client)
+            _wait(client, book_id)
+            replacement = _portrait(client, character="mother")
+            monkeypatch.setattr("app.routes.book.BOOK_PAGES", ())
+
+            response = client.post(
+                f"/api/book/{book_id}/edit",
+                data={
+                    "action": "character",
+                    "character_key": "mother",
+                    "generation_id": replacement["generation_id"],
+                },
+            )
+            assert response.status_code == 422, response.text
+            assert "does not appear" in response.json()["detail"]
+            store = client.app.state.container.book_store
+            assert "mother" not in store.load_characters(book_id)
+
     def test_the_about_page_can_change_without_redrawing(self, client_factory) -> None:
         provider = ChangingProvider()
         with client_factory(provider) as client:
