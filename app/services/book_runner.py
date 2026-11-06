@@ -142,7 +142,7 @@ class BookRunner:
         )
         self._schedule(
             record.book_id,
-            self._render(
+            lambda: self._render(
                 record.book_id,
                 page_charge=page_charge,
                 page_numbers=None,
@@ -168,21 +168,39 @@ class BookRunner:
         immediately after the 202 can never see the *previous* `complete`
         document and conclude the edit already finished.
 
+        The book's one job slot is reserved *before* that status write. If it
+        were not, a second edit arriving while the first was still waiting on
+        its status write would get its 409 only after rewriting the running
+        job's poll document — resetting a `making` page to `pending`, or
+        putting an assembling book back into the pages phase.
+
         `page_numbers=None` means every story page. `only_missing` leaves pages
         that already finished untouched (the retry path).
         """
-        await asyncio.to_thread(self._mark_rendering, book_id, page_numbers, only_missing)
-        self._schedule(
-            book_id,
-            self._render(
+        self._ensure_idle(book_id)
+        started = asyncio.Event()
+
+        async def job() -> None:
+            # Released by `finally` below, after the status write has either
+            # succeeded or failed; the book is not touched before then.
+            await started.wait()
+            await self._render(
                 book_id,
                 page_charge=page_charge,
                 page_numbers=page_numbers,
                 draw_cover=draw_cover,
                 only_missing=only_missing,
                 corrections=corrections or {},
-            ),
-        )
+            )
+
+        task = self._schedule(book_id, job)
+        try:
+            await asyncio.to_thread(self._mark_rendering, book_id, page_numbers, only_missing)
+        except BaseException:
+            task.cancel()
+            raise
+        finally:
+            started.set()
 
     def _mark_rendering(
         self,
@@ -221,12 +239,23 @@ class BookRunner:
             extra={"phase": _PHASE_PAGES, "total_pages": len(rendered_pages) + 1},
         )
 
-    def _schedule(self, book_id: str, coro: Coroutine[Any, Any, None]) -> None:
-        """Run one job per book; refuse a second concurrent edit of it."""
+    def _ensure_idle(self, book_id: str) -> None:
+        """Refuse a second job for a book that already has one running.
+
+        Synchronous on purpose: callers check and reserve without an `await`
+        in between, so two requests cannot both pass the check before either
+        has registered its task.
+        """
         current = self._active.get(book_id)
         if current is not None and not current.done():
             raise BookBusy("This book is already being worked on. Wait for it to finish.")
-        task = asyncio.create_task(coro)
+
+    def _schedule(
+        self, book_id: str, make_coro: Callable[[], Coroutine[Any, Any, None]]
+    ) -> asyncio.Task[None]:
+        """Run one job per book; refuse a second concurrent edit of it."""
+        self._ensure_idle(book_id)
+        task = asyncio.create_task(make_coro())
         self._active[book_id] = task
         self._tasks.add(task)
 
@@ -236,6 +265,7 @@ class BookRunner:
                 self._active.pop(book_id, None)
 
         task.add_done_callback(_finished)
+        return task
 
     def rebuild_pdf(self, book_id: str) -> None:
         """Re-assemble the PDF from the pages already on disk (no model calls).

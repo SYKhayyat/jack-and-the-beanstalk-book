@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import threading
 import time
 from pathlib import Path
 
@@ -232,6 +233,67 @@ class TestEditing:
         _wait(client, book_id)
         assert client.delete(f"/api/book/{book_id}").status_code == 204
         assert client.get(f"/api/book/{book_id}").status_code == 404
+
+    def test_a_refused_edit_does_not_touch_the_running_job(self, client_factory) -> None:
+        """A 409 must not rewrite the poll document of the job it refused.
+
+        The second request used to publish its own "rendering" status before
+        discovering the book was busy, which turned the page that was being
+        drawn right now back into `pending`.
+        """
+        provider = BlockingPageProvider()
+        with client_factory(provider) as client:
+            book_id = _start(client)
+            assert _wait(client, book_id)["status"] == "complete"
+
+            provider.block = True
+            first = client.post(
+                f"/api/book/{book_id}/edit",
+                data={"action": "page", "page_number": "2"},
+            )
+            assert first.status_code == 202, first.text
+            assert provider.entered.wait(10), "the first edit never reached the provider"
+            assert _page_status(client, book_id, 2) == "making"
+
+            second = client.post(
+                f"/api/book/{book_id}/edit",
+                data={"action": "page", "page_number": "3"},
+            )
+            assert second.status_code == 409, second.text
+            assert _page_status(client, book_id, 2) == "making", (
+                "the refused edit clobbered the running job's status"
+            )
+
+            provider.release.set()
+            assert _wait(client, book_id)["status"] == "complete"
+
+
+def _page_status(client: TestClient, book_id: str, number: int) -> str:
+    payload = client.get(f"/api/book/{book_id}").json()
+    entry = next(page for page in payload["pages"] if page["number"] == number)
+    return str(entry["status"])
+
+
+class BlockingPageProvider(ImageProvider):
+    """Holds a page call open so a test can observe a book mid-edit."""
+
+    name = "blocking"
+
+    def __init__(self) -> None:
+        self.block = False
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.requests: list[ImageRequest] = []
+
+    def generate(self, request: ImageRequest) -> GeneratedImage:
+        self.requests.append(request)
+        if self.block and request.label == "book-page":
+            self.entered.set()
+            if not self.release.wait(15):
+                raise ProviderError("The blocking test provider was never released.")
+        return GeneratedImage(
+            data=make_photo_bytes(), media_type="image/png", model="blocking-v1"
+        )
 
 
 def _google_settings(tmp_path: Path) -> Settings:
