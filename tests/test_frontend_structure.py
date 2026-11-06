@@ -171,6 +171,17 @@ def test_the_detail_page_also_fetches_only_from_the_api_client() -> None:
     assert "createBookDetailClient" in source
 
 
+def test_replacing_a_face_names_the_slot_it_is_for() -> None:
+    """A replacement portrait must be drawn for the chosen character.
+
+    Without the `character` field the server makes a star portrait, and the
+    edit endpoint refuses to file it under anyone else — so every non-star
+    replacement failed. The key in the form is the contract.
+    """
+    detail = _strip_js_comments(_read("book-detail.js"))
+    assert 'if (key !== "star") portraitForm.append("character", key);' in detail
+
+
 def test_api_errors_carry_the_http_status() -> None:
     """A 401 must be tellable apart from a failure, or the resume flow is dead.
 

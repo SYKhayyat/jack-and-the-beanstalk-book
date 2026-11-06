@@ -102,6 +102,10 @@ async function replaceFace() {
     const prepared = await preparePhoto(blob, { maxBytes: MAX_UPLOAD });
     const portraitForm = new FormData();
     portraitForm.append("photo", prepared.blob, blob.name || "face.jpg");
+    // The portrait pass has to know which slot it is drawing for. Without this
+    // the server makes a star portrait, and the edit endpoint rightly refuses
+    // to file it under the mother, the old man or the giant.
+    if (key !== "star") portraitForm.append("character", key);
     const portrait = await api.cartoonify(portraitForm);
     const form = new FormData();
     form.append("action", "character");
