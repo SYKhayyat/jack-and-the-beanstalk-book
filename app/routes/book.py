@@ -1,19 +1,19 @@
-"""JSON API for the picture book, and the book's own media.
+"""JSON API for the picture book.
 
 The flow is three endpoints around one background job:
 
-    POST /api/book/start       -> start rendering using an approved portrait
-    GET  /api/book/{id}        -> poll: status + page list, updated as each lands
-    GET  /book-media/{id}/pdf  -> the assembled book once rendering is complete
+    POST /api/book/start  -> start rendering using an approved portrait
+    GET  /api/book/{id}   -> poll: status + page list, updated as each lands
+    GET  /api/books       -> the signed-in person's library
 
 The portrait itself is made with the existing `/api/cartoonify` endpoint and
 reviewed through the existing approve flow — the book reuses the same pass-1
 call and settings machinery, so the portrait the uploader saw is exactly the
 portrait every page is anchored on.
 
-Media (portrait, pages) lives under `/book-media` and is served with the same
-no-store discipline as `/media`: the URLs carry the visitor's data and must not
-be cached by shared browsers or proxies.
+Media (portrait, pages, PDF) lives in `app/routes/book_media.py` and is served
+with the same no-store discipline as `/media`: those URLs carry the visitor's
+data and must not be cached by shared browsers or proxies.
 
 Everything the route accepts is validated like the rest of the app: closed enum
 settings for the model-facing knobs, and the free-text About fields confined
@@ -37,7 +37,6 @@ from pydantic import ValidationError
 from app.container import Container
 from app.dependencies import ContainerDep
 from app.errors import (
-    BookNotReady,
     GenerationRateLimited,
     InvalidSettings,
     PaymentRequired,
@@ -52,9 +51,10 @@ from app.models import (
     RejectionReason,
 )
 from app.routes.auth import CurrentSessionDep
+from app.routes.book_access import ensure_book as _ensure_book
+from app.routes.book_access import user_id as _user_id
 from app.services.book_runner import CharacterReference
 from app.services.book_store import BookRecord, BookStatus, BookSummary
-from app.services.media import extension_for, media_type_for
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import (
     book_name_for,
@@ -65,12 +65,11 @@ from app.services.prompts import (
 from app.services.storage import Draft
 from app.services.wallet import format_cents
 
-__all__ = ["books_router", "media_router", "router"]
+__all__ = ["books_router", "router"]
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/book", tags=["book"])
-media_router = APIRouter(prefix="/book-media", tags=["book-media"])
 books_router = APIRouter(prefix="/api/books", tags=["books"])
 
 #: How long an identical `start` request reuses the book it already started.
@@ -583,144 +582,7 @@ def book_status(
 # so the status record's pdf_url and this file have exactly one canonical path.
 
 
-# --- book-media: the pages as they render -------------------------------------
-
-
-@media_router.get("/{book_id}/pdf", response_class=Response)
-def book_pdf(book_id: str, container: ContainerDep, session: CurrentSessionDep) -> Response:
-    """Serve the assembled book PDF once rendering has completed."""
-    _ensure_book(book_id, _user_id(session), container)
-    data = container.book_store.read_pdf(book_id)
-    if data is None:
-        raise BookNotReady(
-            "The book is not ready yet — poll its status and retry once it reports complete."
-        )
-    logger.info(
-        "book.pdf user=%s book=%s bytes=%d outcome=served",
-        _user_id(session) or "-",
-        book_id,
-        len(data),
-    )
-    return _no_store(
-        data,
-        media_type="application/pdf",
-        filename=f"book-{book_id}.pdf",
-    )
-
-
-@media_router.get("/{book_id}/portrait")
-def book_portrait(
-    book_id: str,
-    container: ContainerDep,
-    session: CurrentSessionDep,
-    download: bool = False,
-) -> Response:
-    """The approved cartoon portrait every page is anchored on.
-
-    With `?download=1` it is handed over as a file instead of shown in place,
-    so the reader can keep the cartoon of their face.
-    """
-    _ensure_book(book_id, _user_id(session), container)
-    data = container.book_store.read_portrait(book_id)
-    if data is None:
-        raise UnknownBook("That book has no portrait stored.")
-    return _no_store(
-        data,
-        media_type=media_type_for(data),
-        filename=f"cartoon-{book_id}{extension_for(data)}",
-        download=download,
-    )
-
-
-@media_router.get("/{book_id}/photo")
-def book_photo(
-    book_id: str,
-    container: ContainerDep,
-    session: CurrentSessionDep,
-    download: bool = False,
-) -> Response:
-    """The original photograph the book was drawn from.
-
-    With `?download=1` the reader gets the untouched photo back, not a copy of
-    somebody else's face.
-    """
-    _ensure_book(book_id, _user_id(session), container)
-    data = container.book_store.read_source_photo(book_id)
-    if data is None:
-        raise UnknownBook("That book has no original photo stored.")
-    return _no_store(
-        data,
-        media_type=media_type_for(data),
-        filename=f"original-photo-{book_id}{extension_for(data)}",
-        download=download,
-    )
-
-
-@media_router.get("/{book_id}/cover")
-def book_cover(book_id: str, container: ContainerDep, session: CurrentSessionDep) -> Response:
-    """The finished cover illustration, as soon as it exists."""
-    _ensure_book(book_id, _user_id(session), container)
-    data = container.book_store.read_cover(book_id)
-    if data is None:
-        raise BookNotReady("The cover is not ready yet — poll the book's status.")
-    return _no_store(data, media_type=media_type_for(data))
-
-
-@media_router.get("/{book_id}/pages/{page_number}")
-def book_page(
-    page_number: int, book_id: str, container: ContainerDep, session: CurrentSessionDep
-) -> Response:
-    """One page's art, as soon as it exists — the browser shows them landing."""
-    _ensure_book(book_id, _user_id(session), container)
-    data = container.book_store.read_page(book_id, page_number)
-    if data is None:
-        raise BookNotReady("That page is not ready yet — poll the book's status.")
-    return _no_store(data, media_type=media_type_for(data))
-
-
-@media_router.get("/{book_id}/prompts.json")
-def book_prompts(
-    book_id: str, container: ContainerDep, session: CurrentSessionDep
-) -> Response:
-    """The exact prompt sent for each page — the record of what was sent."""
-    _ensure_book(book_id, _user_id(session), container)
-    data = container.book_store.read_prompts_json(book_id)
-    if data is None:
-        raise BookNotReady("The prompt record appears when the book completes.")
-    return _no_store(data, media_type="application/json")
-
-
 # --- shared helpers -----------------------------------------------------------
-
-
-def _user_id(session: CurrentSessionDep) -> str | None:
-    """The person behind the request, or None (password/anon deployments)."""
-    return session.user_id if session else None
-
-
-def _ensure_book(
-    book_id: str,
-    user_id: str | None,
-    container: ContainerDep,
-) -> dict[str, object]:
-    """Authorise this request to touch a book's artefacts, and return its status.
-
-    Books are keyed to the person who started them. A book with an owner is
-    reachable only by that owner — anybody else, signed in or not, gets the
-    same plain 404 they would get for a book that does not exist at all, so
-    the id leaks no information. An unowned book is open to whoever has a
-    session (that only happens where there is no identity to own things).
-
-    Authorisation and payload come from one store call: this is the hot path
-    of the progress UI, and a poll that spends three reads authorising itself
-    is three round trips per browser tab per 1.5 seconds in database mode.
-    """
-    payload, owner = container.book_store.load_status_and_owner(book_id)
-    if payload is None:
-        raise UnknownBook("No book with that id. It may have expired — start a new one.")
-    if owner and owner != (user_id or ""):
-        raise UnknownBook("No book with that id. It may have expired — start a new one.")
-    return payload
 
 
 def _client_key(request: Request) -> str:
@@ -850,21 +712,3 @@ def _character_references(
             photo_media_type=draft.photo_media_type,
         )
     return references
-
-
-def _no_store(
-    data: bytes,
-    *,
-    media_type: str,
-    filename: str | None = None,
-    download: bool = False,
-) -> Response:
-    """A response carrying child-derived data: private, never cached."""
-    headers: dict[str, str] = {
-        "Cache-Control": "private, no-store",
-        "X-Content-Type-Options": "nosniff",
-    }
-    if filename:
-        disposition = "attachment" if download else "inline"
-        headers["Content-Disposition"] = f'{disposition}; filename="{filename}"'
-    return Response(content=data, media_type=media_type, headers=headers)

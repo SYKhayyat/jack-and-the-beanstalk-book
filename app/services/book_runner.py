@@ -40,6 +40,7 @@ from typing import Any, TypeVar, cast
 from app.errors import BookBusy
 from app.models.book import BOOK_PAGES, BookPage
 from app.models.settings import CartoonSettings
+from app.services.book_document import COVER_KEY, COVER_NUMBER, BookDocument
 from app.services.book_store import (
     BookRecord,
     BookStatus,
@@ -49,7 +50,7 @@ from app.services.book_store import (
 from app.services.concurrency import ConcurrencyGate, GateTimeout, Slot
 from app.services.image_providers.base import ImageProvider, ImageRequest
 from app.services.media import media_type_for
-from app.services.pdf import PageArt, build_book_pdf
+from app.services.pdf import PageArt
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import build_book_page_prompt, build_cover_prompt, render_book_page
 from app.services.storage import GenerationStore
@@ -65,20 +66,12 @@ _T = TypeVar("_T")
 # minute is full. Small enough to resume promptly, large enough not to spin.
 _PAGE_CHARGE_RETRY_SECONDS = 0.25
 
-#: The prompt record uses one pseudo-page for the cover.
-_COVER_KEY = "cover"
-
-#: The cover is page zero of the book. It is counted with the story pages —
-#: a book is the cover plus nineteen story pages — and it is drawn first.
-_COVER_NUMBER = 0
-
 #: The phases a book job moves through, as the poll document reports them.
 #: The distinction that matters to the reader: the pictures can all be done
 #: while the PDF is still being put together, and saying so is the difference
 #: between "your book is ready" and a progress bar that stops moving.
 _PHASE_PAGES = "pages"
 _PHASE_ASSEMBLING = "assembling"
-_PHASE_COMPLETE = "complete"
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +110,7 @@ class BookRunner:
         self._page_timeout = page_timeout_seconds
         # None when payments are off: the book is still rendered, and nothing
         # is charged. An owned book made in that mode is simply free.
-        self._wallet = wallet
+        self._document = BookDocument(book_store=book_store, wallet=wallet)
         self._tasks: set[asyncio.Task[None]] = set()
         self._active: dict[str, asyncio.Task[None]] = {}
 
@@ -222,14 +215,12 @@ class BookRunner:
             render_book_page(page, record.settings, prompt_name=record.about.prompt_name)
             for page in BOOK_PAGES
         )
-        existing = self._stored_progress(book_id)
+        existing = self._document.stored_progress(book_id)
         progress = {
             page.number: "done" if existing.get(page.number) == "done" else "pending"
             for page in BOOK_PAGES
         }
-        progress[_COVER_NUMBER] = (
-            "done" if existing.get(_COVER_NUMBER) == "done" else "pending"
-        )
+        progress[COVER_NUMBER] = "done" if existing.get(COVER_NUMBER) == "done" else "pending"
         target = (
             {page.number for page in BOOK_PAGES} if page_numbers is None else set(page_numbers)
         )
@@ -240,7 +231,7 @@ class BookRunner:
         self._book_store.save_status(
             book_id,
             BookStatus.RENDERING,
-            self._page_view(book_id, progress, rendered_pages),
+            self._document.page_view(book_id, progress, rendered_pages),
             title=record.about.book_title,
             extra={"phase": _PHASE_PAGES, "total_pages": len(rendered_pages) + 1},
         )
@@ -313,7 +304,9 @@ class BookRunner:
             render_book_page(page, record.settings, prompt_name=record.about.prompt_name)
             for page in BOOK_PAGES
         )
-        self._assemble_and_save(record, rendered_pages, self._stored_progress(book_id))
+        self._document.assemble(
+            record, rendered_pages, self._document.stored_progress(book_id)
+        )
 
     # --- the job ----------------------------------------------------------------
 
@@ -342,14 +335,14 @@ class BookRunner:
                 render_book_page(page, artwork.settings, prompt_name=prompt_name)
                 for page in pages
             )
-            existing = await asyncio.to_thread(self._stored_progress, book_id)
+            existing = await asyncio.to_thread(self._document.stored_progress, book_id)
             progress: dict[int, str] = {
                 page.number: "done" if existing.get(page.number) == "done" else "pending"
                 for page in pages
             }
             # The cover counts as one of the book's pages and is drawn first.
-            progress[_COVER_NUMBER] = (
-                "done" if existing.get(_COVER_NUMBER) == "done" else "pending"
+            progress[COVER_NUMBER] = (
+                "done" if existing.get(COVER_NUMBER) == "done" else "pending"
             )
             target = (
                 {page.number for page in pages} if page_numbers is None else set(page_numbers)
@@ -368,7 +361,7 @@ class BookRunner:
                         self._book_store.save_status,
                         book_id,
                         BookStatus.RENDERING,
-                        self._page_view(book_id, progress, rendered_pages),
+                        self._document.page_view(book_id, progress, rendered_pages),
                         None,
                         title=record.about.book_title,
                         extra={"phase": phase, "total_pages": total + 1},
@@ -470,7 +463,7 @@ class BookRunner:
             phase = _PHASE_ASSEMBLING
             await paint()
             pdf_bytes = await asyncio.to_thread(
-                self._assemble_and_save, record, rendered_pages, progress, rendered
+                self._document.assemble, record, rendered_pages, progress, rendered
             )
             logger.info(
                 "book.complete user=%s book=%s pages=%d pdf_bytes=%d ms=%.0f outcome=complete",
@@ -521,72 +514,6 @@ class BookRunner:
                 elapsed_ms=(monotonic() - started) * 1000,
             )
 
-    def _assemble_and_save(
-        self,
-        record: BookRecord,
-        rendered_pages: Sequence[BookPage],
-        progress: Mapping[int, str],
-        rendered: Mapping[int, PageArt] | None = None,
-    ) -> int:
-        """Build the PDF from every page on disk, then publish complete.
-
-        `rendered` carries the pages this job just drew, so a full render does
-        not re-format every page a third time just to assemble them. Pages an
-        edit did not touch are read back from the store.
-        """
-        arts: list[PageArt] = []
-        fresh = rendered or {}
-        for page in rendered_pages:
-            if page.number in fresh:
-                arts.append(fresh[page.number])
-                continue
-            image = self._book_store.read_page(record.book_id, page.number)
-            if image is None:
-                raise ValueError(f"Page {page.number} is missing; cannot assemble the book.")
-            arts.append(PageArt(image=image, page=page))
-        cover = self._book_store.read_cover(record.book_id)
-        # The child's approved portrait is framed on the About page.
-        portrait = self._book_store.read_portrait(record.book_id)
-        pdf_bytes = build_book_pdf(record.about, arts, cover, portrait=portrait)
-        self._book_store.save_pdf(record.book_id, pdf_bytes)
-        # The document exists now, so this is the moment its fee belongs to.
-        # Charging is idempotent per book id: an edit that rebuilds the PDF
-        # does not charge for the same document twice.
-        self._charge_document(record)
-        self._book_store.save_status(
-            record.book_id,
-            BookStatus.COMPLETE,
-            self._page_view(record.book_id, progress, rendered_pages),
-            title=record.about.book_title,
-            extra={"phase": _PHASE_COMPLETE, "total_pages": len(rendered_pages) + 1},
-        )
-        return len(pdf_bytes)
-
-    def _charge_document(self, record: BookRecord) -> None:
-        """Take the one document fee, now that the PDF is on disk.
-
-        `require_funds=False`: the start endpoint already refused a book this
-        account could not afford, so a balance that moved mid-render must not
-        throw away a finished document. A ledger failure is logged, never
-        allowed to turn a finished book into a failed one.
-        """
-        if self._wallet is None or not record.user_id:
-            return
-        try:
-            self._wallet.charge_document(
-                record.user_id,
-                book_id=record.book_id,
-                title=record.about.book_title,
-                require_funds=False,
-            )
-        except Exception:
-            logger.warning(
-                "book.charge_failed user=%s book=%s",
-                record.user_id,
-                record.book_id,
-                exc_info=True,
-            )
-
     async def _render_cover(
         self,
         record: BookRecord,
@@ -597,7 +524,7 @@ class BookRunner:
         """Draw and persist the cover: one billable call, before the pages."""
         prompt = build_cover_prompt(artwork.settings, prompt_name=record.about.prompt_name)
         await _await_page_charge(page_charge)
-        await mark(_COVER_NUMBER, "making")
+        await mark(COVER_NUMBER, "making")
         image = await self._on_worker_thread_with_slot(
             self._page_call(
                 [artwork.portrait, artwork.photo],
@@ -611,9 +538,9 @@ class BookRunner:
         await asyncio.to_thread(
             self._book_store.append_prompt,
             record.book_id,
-            {"page": "cover", "key": _COVER_KEY, "prompt": prompt},
+            {"page": "cover", "key": COVER_KEY, "prompt": prompt},
         )
-        await mark(_COVER_NUMBER, "done")
+        await mark(COVER_NUMBER, "done")
         return image
 
     async def _on_worker_thread_with_slot(
@@ -688,19 +615,6 @@ class BookRunner:
             characters=self._book_store.load_characters(record.book_id),
         )
 
-    def _stored_progress(self, book_id: str) -> dict[int, str]:
-        status = self._book_store.load_status(book_id) or {}
-        progress: dict[int, str] = {}
-        raw = status.get("pages", [])
-        if isinstance(raw, list):
-            for entry in raw:
-                if isinstance(entry, dict) and entry.get("status") == "done":
-                    try:
-                        progress[int(str(entry["number"]))] = "done"
-                    except (KeyError, TypeError, ValueError):
-                        continue
-        return progress
-
     def _fail(
         self, book_id: str, message: str, *, user: str = "-", elapsed_ms: float = 0.0
     ) -> None:
@@ -735,48 +649,6 @@ class BookRunner:
             elapsed_ms,
             message,
         )
-
-    def _page_view(
-        self,
-        book_id: str,
-        progress: Mapping[int, str],
-        rendered_pages: Sequence[BookPage],
-    ) -> list[dict[str, object]]:
-        """The full page list for status, in story order, from live progress.
-
-        The cover comes first and is counted like any other page: the book is
-        the cover plus nineteen story pages, and the reader should see that.
-        Each entry carries its own story text, so the browser can show the
-        book page by page without a second request.
-        """
-        cover_state = progress.get(_COVER_NUMBER, "pending")
-        cover_done = cover_state == "done"
-        view: list[dict[str, object]] = [
-            {
-                "number": _COVER_NUMBER,
-                "key": _COVER_KEY,
-                "title": "Cover",
-                "url": self._book_store.cover_url(book_id) if cover_done else None,
-                "status": cover_state,
-                "story": "",
-            }
-        ]
-        for page in rendered_pages:
-            state = progress.get(page.number, "pending")
-            finished = state == "done"
-            view.append(
-                {
-                    "number": page.number,
-                    "key": page.key,
-                    "title": page.scene.title,
-                    "url": self._book_store.page_url(book_id, page.number)
-                    if finished
-                    else None,
-                    "status": state,
-                    "story": page.story,
-                }
-            )
-        return view
 
 
 async def _await_page_charge(charge: Callable[[], bool] | None) -> None:

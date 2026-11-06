@@ -31,7 +31,7 @@ from app.logging_context import (
     set_request_id,
 )
 from app.redaction import install_secret_redaction
-from app.routes import api, auth, book, media, wallet, web
+from app.routes import api, auth, book, book_media, media, wallet, web
 from app.routes.auth import install_auth_gate
 from app.services.google_oauth import GoogleOAuthClient
 from app.services.image_providers.base import ImageProvider
@@ -206,7 +206,7 @@ def create_app(
     app.include_router(api.router)
     app.include_router(book.router)
     app.include_router(book.books_router)
-    app.include_router(book.media_router)
+    app.include_router(book_media.router)
     app.include_router(media.router)
     app.include_router(wallet.router)
     app.include_router(auth.router)

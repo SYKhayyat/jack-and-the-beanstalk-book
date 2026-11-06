@@ -14,6 +14,7 @@ import pytest
 
 from app.models import CartoonSettings
 from app.models.book import BOOK_PAGES, AboutMe
+from app.services import book_document as book_document_module
 from app.services import book_runner as book_runner_module
 from app.services.book_runner import BookRunner
 from app.services.book_store import BookRecord, BookStatus, FileBookStore
@@ -238,14 +239,14 @@ def test_the_book_counts_its_cover_and_reports_the_pdf_phase(
 
     assembling = threading.Event()
     release = threading.Event()
-    real_build = book_runner_module.build_book_pdf
+    real_build = book_document_module.build_book_pdf
 
     def blocking_build(*args, **kwargs):
         assembling.set()
         release.wait(timeout=15)
         return real_build(*args, **kwargs)
 
-    monkeypatch.setattr(book_runner_module, "build_book_pdf", blocking_build)
+    monkeypatch.setattr(book_document_module, "build_book_pdf", blocking_build)
 
     async def scenario() -> dict[str, object]:
         await runner.start(record)
