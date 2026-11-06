@@ -221,7 +221,7 @@ def test_expire_deletes_only_finished_old_books(store: DatabaseBookStore, engine
         conn.execute(
             update(BookRow)
             .where(BookRow.id.in_(("old-complete", "old-failed", "old-rendering")))
-            .values(created_at=old)
+            .values(created_at=old, updated_at=old)
         )
 
     assert store.expire(older_than_seconds=week) == 2
@@ -234,6 +234,19 @@ def test_expire_deletes_only_finished_old_books(store: DatabaseBookStore, engine
     assert store.load_status("young") is not None
     with engine.connect() as conn:
         assert conn.execute(select(func.count()).select_from(BookPageRow)).scalar_one() == 0
+
+
+def test_a_recent_edit_keeps_an_old_book_alive(store: DatabaseBookStore, engine: Any) -> None:
+    """Retention follows `updated_at`, not the request's creation time."""
+    week = 7 * 24 * 3600
+    store.save_record(book_id="edited", user_id=USER, about=ABOUT, generation_id="gen")
+    store.save_status("edited", BookStatus.COMPLETE, [])
+    old = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=30)
+    with engine.begin() as conn:
+        conn.execute(update(BookRow).where(BookRow.id == "edited").values(created_at=old))
+
+    assert store.expire(older_than_seconds=week) == 0
+    assert store.load_status("edited") is not None
 
 
 def test_expire_with_a_zero_window_deletes_nothing(store: DatabaseBookStore) -> None:

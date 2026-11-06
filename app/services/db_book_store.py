@@ -569,6 +569,10 @@ class DatabaseBookStore(BookStore):
     def expire(self, *, older_than_seconds: float) -> int:
         """Delete finished books older than the window; see `BookStore.expire`.
 
+        Age is `updated_at` — refreshed when the book completes and on every
+        edit — not `created_at`. A week-old book edited today has just been
+        used and must not be swept.
+
         Page rows go first: they carry the foreign key, and this delete is not
         declared `ON DELETE CASCADE` in the schema. All of it is one
         transaction, so a poll never sees a book whose pages are gone.
@@ -580,7 +584,7 @@ class DatabaseBookStore(BookStore):
             stale = (
                 conn.execute(
                     select(BookRow.id).where(
-                        BookRow.created_at < cutoff,
+                        BookRow.updated_at < cutoff,
                         BookRow.status.in_((BookStatus.COMPLETE, BookStatus.FAILED)),
                     )
                 )

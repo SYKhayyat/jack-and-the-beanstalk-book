@@ -723,7 +723,13 @@ class FileBookStore(BookStore):
         return reaped
 
     def expire(self, *, older_than_seconds: float) -> int:
-        """Delete finished books older than the window; see `BookStore.expire`."""
+        """Delete finished books older than the window; see `BookStore.expire`.
+
+        Age is the book's last activity — the status document's `updated_at`
+        (written at completion and on every edit) — not the moment the request
+        was first made. A book made a week ago and edited today has just been
+        used and must not be swept because its `created_at` is old.
+        """
         if older_than_seconds <= 0:
             return 0
         cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
@@ -738,11 +744,8 @@ class FileBookStore(BookStore):
             }:
                 continue
             record = self.load_record(directory.name)
-            if record is not None:
-                if _started_at_or_after(record.created_at, cutoff):
-                    continue
-            elif directory.stat().st_mtime > cutoff.timestamp():
-                # No record to date it by — and not old enough to be junk.
+            last_activity = _last_activity(status, record, directory)
+            if last_activity is not None and last_activity > cutoff:
                 continue
             self.delete(directory.name)
             removed += 1
@@ -842,6 +845,38 @@ def _safe(book_id: str) -> bool:
 #: The states in which an identical `start` request should be answered with
 #: the book that already exists rather than a second one.
 _REUSABLE_STATUSES = frozenset({BookStatus.PENDING, BookStatus.RENDERING, BookStatus.COMPLETE})
+
+
+def _last_activity(
+    status: dict[str, object] | None,
+    record: BookRecord | None,
+    directory: Path,
+) -> datetime | None:
+    """When a book was last written, for retention.
+
+    The status document's timestamp wins: it is written when a book finishes
+    and again on every edit, so it is the honest "last used". A book with no
+    readable status falls back to its record, and one with neither to the
+    directory's own mtime. `None` means nothing datable was found — which the
+    caller treats as old enough to remove, exactly as it did for an unreadable
+    record before.
+    """
+    raw_values: tuple[object, ...] = (
+        status.get("updated_at") if status else None,
+        record.created_at if record else None,
+    )
+    for raw in raw_values:
+        if not isinstance(raw, str) or not raw:
+            continue
+        try:
+            stamp = datetime.fromisoformat(raw)
+        except ValueError:
+            continue
+        return stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=UTC)
+    try:
+        return datetime.fromtimestamp(directory.stat().st_mtime, UTC)
+    except OSError:
+        return None
 
 
 def _started_at_or_after(created_at: str, since: datetime) -> bool:

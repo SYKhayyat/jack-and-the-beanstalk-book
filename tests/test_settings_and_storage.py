@@ -222,7 +222,17 @@ def _age_files(directory: Path, seconds: float) -> None:
 
 
 def _age_book(store: FileBookStore, book_id: str, seconds: float) -> None:
-    """Rewrite a book's recorded start time, so retention sees it as old."""
+    """Backdate a book's whole history, so retention sees it as old."""
+    stamp = (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat()
+    _age_created_at(store, book_id, seconds)
+    path = store.path(book_id, "status.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["updated_at"] = stamp
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _age_created_at(store: FileBookStore, book_id: str, seconds: float) -> None:
+    """Backdate only the request time; the status keeps its last activity."""
     path = store.path(book_id, "book.json")
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["created_at"] = (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat()
@@ -283,6 +293,20 @@ class TestBookRetention:
         assert store.read_page("old", 1) is None
         assert not (tmp_path / "books" / "old").exists()
         assert store.load_status("fresh") is not None
+
+    def test_a_recent_edit_keeps_an_old_book_alive(self, tmp_path: Path) -> None:
+        """Retention follows last use, not the day the request was first made.
+
+        A book created a month ago but written to (finished, or edited) today
+        has just been used; sweeping it would delete something the reader is
+        still looking at.
+        """
+        store = FileBookStore(tmp_path / "books")
+        self._book(store, "edited", BookStatus.COMPLETE)
+        _age_created_at(store, "edited", 30 * DAY)
+
+        assert store.expire(older_than_seconds=7 * DAY) == 0
+        assert store.load_status("edited") is not None
 
     def test_an_old_failed_book_is_deleted(self, tmp_path: Path) -> None:
         store = FileBookStore(tmp_path / "books")
