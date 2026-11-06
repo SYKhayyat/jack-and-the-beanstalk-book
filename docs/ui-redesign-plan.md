@@ -35,13 +35,13 @@ it.** Each step is a screen with one job.
 
 ```
   ┌────────────┐    ┌──────────────────┐    ┌────────────┐    ┌──────────────┐
-  │   SHELF    │───▶│     STUDIO       │───▶│  ABOUT ME  │───▶│  THE BOOK    │
-  │ two covers │    │ one section per  │    │ name, age, │    │ drawn live,  │
-  │  faceless  │    │ character, comic │    │ title, the │    │ flippable,   │
-  │            │    │ beside each face │    │ photo pick │    │ downloadable │
+  │   SHELF    │───▶│      STUDIO      │───▶│  ABOUT ME  │───▶│   THE BOOK   │
+  │ two covers │───▶│ one section per  │───▶│ name, age, │───▶│ drawn live,  │
+  │  faceless  │───▶│ character, comic │───▶│ title, the │───▶│  flippable,  │
+  │            │───▶│ beside each face │───▶│ photo pick │───▶│ downloadable │
   └────────────┘    └──────────────────┘    └────────────┘    └──────────────┘
-        ▲                                                            │
-        └────────────────  MY BOOKS drawer (top right)  ◀────────────┘
+        ▲                                                                    │
+        └────────────────  MY BOOKS drawer (top right)  ◀────────────────────┘
 ```
 
 Four routes, one flow, and one drawer that can reopen any earlier book from
@@ -75,29 +75,29 @@ Decisions taken in this session, recorded so they are not re-litigated:
 ## 3. Screen 1 — The shelf
 
 ```
-┌───────────────────────────────────────────────────────────────────────┐
-│  ✦ Storybook Studio                              [ My books ▾ ]  ⟨◯ 12.00⟩│
-├───────────────────────────────────────────────────────────────────────┤
-│                                                                       │
-│      Make a picture book starring someone you love.                   │
-│      One photo. Twenty pages. A story they keep.                      │
-│                                                                       │
-│   ┌──────────────────────┐      ┌──────────────────────┐              │
-│   │                      │      │                      │              │
-│   │      [cover art]     │      │      [cover art]     │              │
-│   │         ╭───╮        │      │         ╭───╮        │              │
-│   │         │ ◯ │  ← the │      │         │ ◯ │        │              │
-│   │         ╰───╯    face│      │         ╰───╯        │              │
-│   │                      │      │                      │              │
-│   │  Jack and the        │      │  Little Red          │              │
-│   │  Beanstalk           │      │  Riding Hood         │              │
-│   │  20 pages · ~5 min   │      │  20 pages · ~5 min   │              │
-│   │  ┌────────────────┐  │      │  ┌────────────────┐  │              │
-│   │  │  Start this ▸  │  │      │  │  Start this ▸  │  │              │
-│   │  └────────────────┘  │      │  └────────────────┘  │              │
-│   └──────────────────────┘      └──────────────────────┘              │
-│                                                                       │
-└───────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│  ✦ Storybook Studio                              [ My books ▾ ]  (o 12.00)│
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│      Make a picture book starring someone you love.                       │
+│      One photo. Twenty pages. A story they keep.                          │
+│                                                                           │
+│   ┌──────────────────────┐      ┌──────────────────────┐                  │
+│   │                      │      │                      │                  │
+│   │      [cover art]     │      │      [cover art]     │                  │
+│   │         ╭───╮        │      │         ╭───╮        │                  │
+│   │         │ ◯ │  ← the │      │         │ ◯ │        │                  │
+│   │         ╰───╯    face│      │         ╰───╯        │                  │
+│   │                      │      │                      │                  │
+│   │  Jack and the        │      │  Little Red          │                  │
+│   │  Beanstalk           │      │  Riding Hood         │                  │
+│   │  20 pages · ~5 min   │      │  20 pages · ~5 min   │                  │
+│   │  ┌────────────────┐  │      │  ┌────────────────┐  │                  │
+│   │  │  Start this ▸  │  │      │  │  Start this ▸  │  │                  │
+│   │  └────────────────┘  │      │  └────────────────┘  │                  │
+│   └──────────────────────┘      └──────────────────────┘                  │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Two cards, each a single big button.** The whole card is the target: no
@@ -125,7 +125,7 @@ page — the site explains itself before it asks for anything:
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│  ✦ Storybook Studio                                                  │
+│  ✦ Storybook Studio                                                   │
 ├───────────────────────────────────────────────────────────────────────┤
 │  You bring a photo of someone you love. We draw them into a           │
 │  20-page picture book — the cover, the whole story, an About page     │
@@ -154,46 +154,43 @@ section is independently collapsible, independently filled, and independently
 "comic'd" — nothing in one section blocks another.
 
 ```
-┌───────────────────────────────────────────────────────────────────────┐
-│  ✦ Jack and the Beanstalk          [ My books ▾ ]        ⟨◯ 12.00⟩     │
-├───────────────────────────────────────────────────────────────────────┤
-│  ← Choose another book                                                │
-│                                                                       │
-│  Who's in the story?                                                  │
-│  Give a face to whoever you like. The star goes on every page; the    │
-│  rest appear only on the pages they belong to.                        │
-│                                                                       │
-│  ┌─ ★ THE STAR ────────────────────────────────────────  ▾ ready ──┐ │
-│  │  This is the face on every page.                                 │ │
-│  │                                                                  │ │
-│  │   ┌──────────────┐   ┌──────────────┐   ┌───────────────────┐   │ │
-│  │   │  📷 Take a   │   │  🖼 Upload a  │   │  ⚙ Advanced       │   │ │
-│  │   │     photo    │   │     photo    │   │                   │   │ │
-│  │   └──────────────┘   └──────────────┘   └───────────────────┘   │ │
-│  │                                                                  │ │
-│  │   ┌────────────┐        ┌────────────────┐                       │ │
-│  │   │            │        │                │   [ Make the comic ]  │ │
-│  │   │ your photo │        │  the cartoon   │                       │ │
-│  │   │            │        │   (appears)    │   Not quite right?    │ │
-│  │   └────────────┘        └────────────────┘   ☐ hair  ☐ age      │ │
-│  │                                              ☐ likeness …       │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                                                                       │
-│  ┌─ The mother ────────────────────────────── optional ──  ▸ ──────┐ │
-│  │  No photo — drawn from the story                                  │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│  ┌─ The old man ───────────────────────────── optional ──  ▸ ──────┐ │
-│  │  No photo — drawn from the story                                  │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│  ┌─ The giant ─────────────────────────────── optional ──  ▸ ──────┐ │
-│  │  No photo — drawn from the story                                  │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                                                                       │
-│  1 portrait ready · 3 optional characters skipped                     │
-│                                              ┌──────────────────────┐ │
-│                                              │   Next: about me  →  │ │
-│                                              └──────────────────────┘ │
-└───────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│  ✦ Jack and the Beanstalk        [ My books ▾ ]      (o 12.00)         │
+├────────────────────────────────────────────────────────────────────────┤
+│  ← Choose another book                                                 │
+│                                                                        │
+│  Who's in the story?                                                   │
+│  Give a face to whoever you like. The star goes on every page;         │
+│  the rest appear only on the pages they belong to.                     │
+│                                                                        │
+  ┌─ ★ THE STAR ────────────────────────────────────── ready ────── ▾ ─┐ │
+  │  This is the face on every page.                                   │ │
+  │                                                                    │ │
+  │  [  Take a photo  ]   [  Upload a photo  ]   [  Advanced  ]        │ │
+  │                                                                    │ │
+  │  ┌────────────┐   ┌────────────┐    [  Make the comic  ]           │ │
+  │  │   photo    │   │  cartoon   │    Not quite right?               │ │
+  │  └────────────┘   └────────────┘    ☐ hair   ☐ age                 │ │
+  │                                     ☐ likeness …                   │ │
+  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                        │
+  ┌─ The mother ─────────────────────────────────── optional ────── ▸ ─┐ │
+  │  No photo — drawn from the story                                   │ │
+  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                        │
+  ┌─ The old man ────────────────────────────────── optional ────── ▸ ─┐ │
+  │  No photo — drawn from the story                                   │ │
+  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                        │
+  ┌─ The giant ──────────────────────────────────── optional ────── ▸ ─┐ │
+  │  No photo — drawn from the story                                   │ │
+  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                        │
+│  1 portrait ready · 3 optional characters skipped                      │
+│                                                ┌──────────────────────┐│
+│                                                │  Next: about me  →   ││
+│                                                └──────────────────────┘│
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### A section, step by step
@@ -244,22 +241,22 @@ section is independently collapsible, independently filled, and independently
 ### Advanced modal
 
 ```
-        ┌───────────────────────────────────────────────┐
-        │  The star's look                        ✕     │
-        │                                               │
-        │  Style          [ Soft storybook        ▾ ]   │
-        │  Intensity      [ ▁▂▃▄▅▆▇█ ]  8               │
-        │  Age            [ Same as the photo     ▾ ]   │
-        │  Skin tone      [ As in the photo       ▾ ]   │
-        │  Hair           [ As in the photo       ▾ ]   │
-        │  Outfit         [ Storybook tunic       ▾ ]   │
-        │  Likeness       [ Strict — most like you▾ ]   │
-        │  Background     [ Plain                 ▾ ]   │
-        │  ☑ Keep glasses      ☑ Keep facial hair      │
-        │  Alternatives   [ 1 ▾ ]  (each one is a picture)│
-        │                                               │
-        │           [ Cancel ]      [ Save and close ]  │
-        └───────────────────────────────────────────────┘
+        ┌─────────────────────────────────────────────────┐
+        │  The star's look                        ✕       │
+        │                                                 │
+        │  Style          [ Soft storybook        ▾ ]     │
+        │  Intensity      [ ▁▂▃▄▅▆▇█ ]  8                 │
+        │  Age            [ Same as the photo     ▾ ]     │
+        │  Skin tone      [ As in the photo       ▾ ]     │
+        │  Hair           [ As in the photo       ▾ ]     │
+        │  Outfit         [ Storybook tunic       ▾ ]     │
+        │  Likeness       [ Strict — most like you ▾ ]    │
+        │  Background     [ Plain                 ▾ ]     │
+        │  ☑ Keep glasses      ☑ Keep facial hair         │
+        │  Alternatives   [ 1 ▾ ]   one picture each      │
+        │                                                 │
+        │           [ Cancel ]      [ Save and close ]    │
+        └─────────────────────────────────────────────────┘
            (the studio behind it is dimmed and inert)
 ```
 
@@ -276,31 +273,31 @@ The last page of the book is about the person, so it gets its own screen — and
 the one book-wide setting lives here, next to the button it affects.
 
 ```
-┌───────────────────────────────────────────────────────────────────────┐
-│  ← Back to the faces                                                  │
-│                                                                       │
-│  The last page is about you                                           │
-│  This is the page the book closes on. Say anything you like.          │
-│                                                                       │
-│   Name          [ Mia                        ]                        │
-│   Age           [ 7        ]    What do they want to be?              │
-│                                 [ an astronaut            ]           │
-│   Anything else?                                                      │
+┌──────────────────────────────────────────────────────────────────────────┐
+│  ← Back to the faces                                                     │
+│                                                                          │
+│  The last page is about you                                              │
+│  This is the page the book closes on. Say anything you like.             │
+│                                                                          │
+│   Name          [ Mia                        ]                           │
+│   Age           [ 7        ]    What do they want to be?                 │
+│                                 [ an astronaut            ]              │
+│   Anything else?                                                         │
 │   [ Mia loves rockets, her dog Bo, and anything with                     ]
-│   [ sprinkles on it.                                                    ]
-│                                                                       │
-│   On that page, show:                                                 │
-│   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                  │
-│   │  ● cartoon   │ │  ○ the photo │ │  ○ both      │                  │
-│   └──────────────┘ └──────────────┘ └──────────────┘                  │
-│                                                                       │
-│   Page shape:  ( Landscape )  ( Square )  ( Portrait )                │
-│                                                                       │
-│   Your book is one fee of 99¢, taken when the PDF is written.         │
-│                                        ┌───────────────────────────┐  │
-│                                        │     Make the book  ✨     │  │
-│                                        └───────────────────────────┘  │
-└───────────────────────────────────────────────────────────────────────┘
+│   [ sprinkles on it.                                                     ]
+│                                                                          │
+│   On that page, show:                                                    │
+│   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                     │
+│   │  ● cartoon   │ │  ○ the photo │ │  ○ both      │                     │
+│   └──────────────┘ └──────────────┘ └──────────────┘                     │
+│                                                                          │
+│   Page shape:  ( Landscape )  ( Square )  ( Portrait )                   │
+│                                                                          │
+│   Your book is one fee of 99¢, taken when the PDF is written.            │
+│                                        ┌───────────────────────────┐     │
+│                                        │       Make the book       │     │
+│                                        └───────────────────────────┘     │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Every field is optional.** A blank name becomes Jack/Jane (or Red) by the
@@ -335,10 +332,10 @@ the one book-wide setting lives here, next to the button it affects.
 │                           click the page to turn it                   │
 │                                                                       │
 │  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░  12 of 20 pages drawn                         │
-│  ┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐    │
-│  │▓▓││▓▓││▓▓││▓▓││▓▓││▓▓││▓▓││▓▓││▓▓││▓▓││▓▓││▓▓││░░││░░││░░││░░│    │
-│  └──┘└──┘└──┘└──┘└──┘└──┘└──┘└──┘└──┘└──┘└──┘└──┘└──┘└──┘└──┘└──┘    │
-│  1    2    3    4    5    6    7    8    9   10   11   12   13 …      │
+│  ┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐         │
+│  │▓││▓││▓││▓││▓││▓││▓││▓││▓││▓││▓││▓││░││░││░││░││░││░││░││░│         │
+│  └─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘         │
+│  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19 20          │
 │                                                                       │
 └───────────────────────────────────────────────────────────────────────┘
 ```
