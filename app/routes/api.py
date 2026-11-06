@@ -6,7 +6,6 @@ import asyncio
 import logging
 from collections.abc import Callable
 from enum import StrEnum
-from pathlib import Path
 from typing import Annotated, TypeVar
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
@@ -36,7 +35,7 @@ from app.routes.settings_form import cartoon_settings_from_form
 from app.services.concurrency import GateTimeout
 from app.services.images import InvalidImage, decode_upload
 from app.services.prompts import cast_photoable
-from app.services.storage import Draft, StoredGeneration
+from app.services.storage import Draft, candidate_url, draft_urls
 
 SettingsDep = Annotated[CartoonSettings, Depends(cartoon_settings_from_form)]
 
@@ -252,8 +251,7 @@ def _cartoon_payload(
     picture is the operator's business, chosen in the environment, and a
     visitor has no use for it. Both stay on the stored draft, server-side.
     """
-    stored = StoredGeneration(Path(), draft.generation_id)
-    urls = stored.to_urls()
+    urls = draft_urls(draft.generation_id)
     return {
         "generation_id": draft.generation_id,
         "stage": "cartoonified",
@@ -262,7 +260,8 @@ def _cartoon_payload(
         "images": {
             "cartoon_url": urls["cartoon"],
             "candidate_urls": [
-                stored.candidate_url(index) for index in range(len(draft.candidates))
+                candidate_url(draft.generation_id, index)
+                for index in range(len(draft.candidates))
             ],
         },
         "candidate_count": len(draft.candidates),

@@ -53,6 +53,7 @@ from app.models import (
 from app.routes.auth import CurrentSessionDep
 from app.services.book_runner import CharacterReference
 from app.services.book_store import BookRecord, BookStatus, BookSummary
+from app.services.media import extension_for, media_type_for
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import (
     book_name_for,
@@ -418,10 +419,10 @@ async def edit_book(
         return _edit_started(book_id, "about")
 
     if action == "delete":
-        # Stop the job before the store disappears: a render that is still
-        # running would keep making billable calls, then fail writing into the
-        # directory this call is about to remove.
-        container.book_runner.cancel(book_id)
+        # Stop the job, and let it unwind, before the store disappears: a
+        # render that is still running would keep making billable calls, then
+        # fail writing into the directory this call is about to remove.
+        await container.book_runner.cancel(book_id)
         await asyncio.to_thread(container.book_store.delete, book_id)
         return {"book_id": book_id, "deleted": True}
 
@@ -558,9 +559,11 @@ async def delete_book(
 ) -> Response:
     """Delete a book and every artefact that belongs to it."""
     _ensure_book(book_id, _user_id(session), container)
-    # Cancel on the event loop, where the job's task lives; only then remove
-    # the store (a blocking call, so it goes to a worker thread).
-    container.book_runner.cancel(book_id)
+    # Cancel on the event loop, where the job's task lives, and wait for it;
+    # only then remove the store (a blocking call, so it goes to a worker
+    # thread). A delete that raced the cancellation handler could otherwise
+    # have a status file rewritten behind it.
+    await container.book_runner.cancel(book_id)
     await asyncio.to_thread(container.book_store.delete, book_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -620,8 +623,8 @@ def book_portrait(
         raise UnknownBook("That book has no portrait stored.")
     return _no_store(
         data,
-        media_type=_detect_media_type(data),
-        filename=f"cartoon-{book_id}{_extension_for(data)}",
+        media_type=media_type_for(data),
+        filename=f"cartoon-{book_id}{extension_for(data)}",
         download=download,
     )
 
@@ -644,8 +647,8 @@ def book_photo(
         raise UnknownBook("That book has no original photo stored.")
     return _no_store(
         data,
-        media_type=_detect_media_type(data),
-        filename=f"original-photo-{book_id}{_extension_for(data)}",
+        media_type=media_type_for(data),
+        filename=f"original-photo-{book_id}{extension_for(data)}",
         download=download,
     )
 
@@ -657,7 +660,7 @@ def book_cover(book_id: str, container: ContainerDep, session: CurrentSessionDep
     data = container.book_store.read_cover(book_id)
     if data is None:
         raise BookNotReady("The cover is not ready yet — poll the book's status.")
-    return _no_store(data, media_type=_detect_media_type(data))
+    return _no_store(data, media_type=media_type_for(data))
 
 
 @media_router.get("/{book_id}/pages/{page_number}")
@@ -669,7 +672,7 @@ def book_page(
     data = container.book_store.read_page(book_id, page_number)
     if data is None:
         raise BookNotReady("That page is not ready yet — poll the book's status.")
-    return _no_store(data, media_type=_detect_media_type(data))
+    return _no_store(data, media_type=media_type_for(data))
 
 
 @media_router.get("/{book_id}/prompts.json")
@@ -842,18 +845,3 @@ def _no_store(
         disposition = "attachment" if download else "inline"
         headers["Content-Disposition"] = f'{disposition}; filename="{filename}"'
     return Response(content=data, media_type=media_type, headers=headers)
-
-
-def _extension_for(data: bytes) -> str:
-    """The file extension that matches the bytes, never a claim."""
-    if data.startswith(b"\xff\xd8"):
-        return ".jpg"
-    return ".png"
-
-
-def _detect_media_type(data: bytes) -> str:
-    if data.startswith(b"\xff\xd8"):
-        return "image/jpeg"
-    if data.startswith(b"\x89PNG"):
-        return "image/png"
-    return "application/octet-stream"

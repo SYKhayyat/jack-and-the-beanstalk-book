@@ -48,6 +48,7 @@ from app.services.book_store import (
 )
 from app.services.concurrency import ConcurrencyGate, GateTimeout, Slot
 from app.services.image_providers.base import ImageProvider, ImageRequest
+from app.services.media import media_type_for
 from app.services.pdf import PageArt, build_book_pdf
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import build_book_page_prompt, build_cover_prompt, render_book_page
@@ -267,18 +268,30 @@ class BookRunner:
         task.add_done_callback(_finished)
         return task
 
-    def cancel(self, book_id: str) -> bool:
-        """Stop the running job for `book_id`, if there is one.
+    async def cancel(self, book_id: str) -> bool:
+        """Stop the running job for `book_id`, and wait for it to unwind.
 
         Called when the book is about to be deleted: the job must not keep
         making billable calls, and its cancellation handler must not write a
-        status into a book that is going away. Returns whether a job was
-        actually cancelled.
+        status into a book that is going away. Waiting for the task is what
+        makes the second half true — a delete that raced the handler could
+        find the file it was removing rewritten behind it. The wait is short:
+        the cancellation path does one record read and one status write, and
+        an in-flight provider call is abandoned, not awaited.
+
+        Returns whether a job was actually cancelled.
         """
         task = self._active.pop(book_id, None)
         if task is None or task.done():
             return False
         task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            # The job's own cancellation is expected. The request being
+            # cancelled while it waits is not ours to swallow.
+            if not task.cancelled():
+                raise
         return True
 
     def rebuild_pdf(self, book_id: str) -> None:
@@ -634,9 +647,9 @@ class BookRunner:
             about=record.about,
             settings=record.settings,
             portrait=portrait,
-            portrait_media_type=_media_type(portrait),
+            portrait_media_type=media_type_for(portrait),
             photo=photo,
-            photo_media_type=_media_type(photo),
+            photo_media_type=media_type_for(photo),
             photo_is_portrait=photo_is_portrait,
             characters=self._book_store.load_characters(record.book_id),
         )
@@ -758,10 +771,6 @@ def _references(
         references.extend([character.portrait, character.photo])
         media_types.extend([character.portrait_media_type, character.photo_media_type])
     return references, media_types
-
-
-def _media_type(data: bytes) -> str:
-    return "image/jpeg" if data[:2] == b"\xff\xd8" else "image/png"
 
 
 def _hand_slot_to_worker(slot: Slot, hop: asyncio.Task[object]) -> None:

@@ -41,6 +41,7 @@ from app.services.book_store import (
     CharacterReference,
     page_totals,
 )
+from app.services.media import media_type_for
 
 __all__ = ["DatabaseBookStore"]
 
@@ -448,7 +449,7 @@ class DatabaseBookStore(BookStore):
                     book_id=book_id,
                     page_number=page_number,
                     image=data,
-                    media_type=_media_type(data),
+                    media_type=media_type_for(data),
                 )
             )
 
@@ -599,13 +600,6 @@ class DatabaseBookStore(BookStore):
                 conn.execute(delete(BookRow).where(BookRow.id == book_id))
                 logger.info("book.expired id=%s", book_id)
         return len(stale)
-
-
-def _media_type(data: bytes) -> str:
-    """Chosen from the bytes themselves, like the filesystem store does."""
-    if data.startswith(b"\xff\xd8"):
-        return "image/jpeg"
-    return "image/png"
 
 
 def _now() -> datetime:

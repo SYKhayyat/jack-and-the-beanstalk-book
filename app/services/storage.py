@@ -19,8 +19,27 @@ from pathlib import Path
 from time import time
 
 from app.models import CartoonSettings
+from app.services.media import image_filename, media_type_for
 
-__all__ = ["Draft", "GenerationStore", "StoredGeneration"]
+__all__ = [
+    "Draft",
+    "GenerationStore",
+    "StoredGeneration",
+    "candidate_url",
+    "draft_urls",
+]
+
+
+def draft_urls(generation_id: str) -> dict[str, str]:
+    """The URLs of a draft's images, without needing a store instance."""
+    return {"cartoon": f"/media/{generation_id}/cartoon"}
+
+
+def candidate_url(generation_id: str, index: int) -> str:
+    """URL for one portrait alternative: candidate zero is the default."""
+    stem = "cartoon" if index == 0 else f"candidate-{index}"
+    return f"/media/{generation_id}/{stem}"
+
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +72,7 @@ class StoredGeneration:
 
     def candidate_url(self, index: int) -> str:
         """URL for one portrait alternative."""
-        stem = "cartoon" if index == 0 else f"candidate-{index}"
-        return f"/media/{self.generation_id}/{stem}"
+        return candidate_url(self.generation_id, index)
 
     def read_image_file(self, stem: str) -> bytes | None:
         """Read `stem.png` or `stem.jpg` if present."""
@@ -66,8 +84,7 @@ class StoredGeneration:
 
     def to_urls(self) -> dict[str, str]:
         """The draft's URLs: the approved-looking cartoon and its alternatives."""
-        base = f"/media/{self.generation_id}"
-        return {"cartoon": f"{base}/cartoon"}
+        return draft_urls(self.generation_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +128,7 @@ class Draft:
         """
         if self.candidate_media_types:
             return self.candidate_media_types[0]
-        return _media_type_for(self.cartoon_image)
+        return media_type_for(self.cartoon_image)
 
     def with_candidate(self, index: int) -> Draft:
         """A view of this draft with a different portrait chosen.
@@ -148,8 +165,8 @@ class GenerationStore:
 
         for index, candidate in enumerate(draft.candidates):
             stem = "cartoon" if index == 0 else f"candidate-{index}"
-            stored.path(_filename(stem, candidate)).write_bytes(candidate)
-        stored.path(_filename("photo", draft.photo_data)).write_bytes(draft.photo_data)
+            stored.path(image_filename(stem, candidate)).write_bytes(candidate)
+        stored.path(image_filename("photo", draft.photo_data)).write_bytes(draft.photo_data)
 
         payload = {
             "generation_id": draft.generation_id,
@@ -198,7 +215,7 @@ class GenerationStore:
             cartoon_prompt=str(payload.get("cartoon_prompt", "")),
             candidates=tuple(candidates),
             photo_data=photo,
-            photo_media_type=_media_type_for(photo),
+            photo_media_type=media_type_for(photo),
             provider=str(payload.get("provider", "unknown")),
             model=str(payload.get("model", "unknown")),
             candidate_media_types=media_types,
@@ -281,15 +298,6 @@ def _newest_file_mtime(directory: Path) -> float:
     except OSError:
         return 0.0
     return newest
-
-
-def _filename(stem: str, data: bytes) -> str:
-    """Pick the extension from the bytes themselves, not from a claim."""
-    return f"{stem}.jpg" if data[:2] == b"\xff\xd8" else f"{stem}.png"
-
-
-def _media_type_for(data: bytes) -> str:
-    return "image/jpeg" if data[:2] == b"\xff\xd8" else "image/png"
 
 
 def _is_known_stem(stem: str) -> bool:

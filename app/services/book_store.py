@@ -46,6 +46,7 @@ from typing import cast
 
 from app.models.book import AboutMe
 from app.models.settings import CartoonSettings
+from app.services.media import image_filename, media_type_for
 
 __all__ = [
     "BookRecord",
@@ -587,9 +588,11 @@ class FileBookStore(BookStore):
         directory = self._book_dir(book_id) / "characters"
         directory.mkdir(parents=True, exist_ok=True)
         self._atomic_write_bytes(
-            directory / _image_name(f"{key}-portrait", ref.portrait), ref.portrait
+            directory / image_filename(f"{key}-portrait", ref.portrait), ref.portrait
         )
-        self._atomic_write_bytes(directory / _image_name(f"{key}-photo", ref.photo), ref.photo)
+        self._atomic_write_bytes(
+            directory / image_filename(f"{key}-photo", ref.photo), ref.photo
+        )
 
     def load_characters(self, book_id: str) -> dict[str, CharacterReference]:
         directory = self._book_dir(book_id) / "characters"
@@ -608,9 +611,9 @@ class FileBookStore(BookStore):
                 continue
             found[key] = CharacterReference(
                 portrait=portrait,
-                portrait_media_type=_media_type(portrait),
+                portrait_media_type=media_type_for(portrait),
                 photo=photo,
-                photo_media_type=_media_type(photo),
+                photo_media_type=media_type_for(photo),
             )
         return found
 
@@ -759,7 +762,7 @@ class FileBookStore(BookStore):
         return self.root / book_id
 
     def _write_image(self, book_id: str, stem: str, data: bytes) -> None:
-        self._atomic_write_bytes(self.path(book_id, _image_name(stem, data)), data)
+        self._atomic_write_bytes(self.path(book_id, image_filename(stem, data)), data)
 
     def _read_image(self, book_id: str, stem: str) -> bytes | None:
         return self._read_image_file(self._book_dir(book_id), stem)
@@ -817,15 +820,6 @@ def page_totals(pages: list[dict[str, object]], *, cover_done: bool) -> tuple[in
     if any(page.get("number") == 0 for page in pages):
         return len(pages), done
     return len(pages) + 1, done + (1 if cover_done else 0)
-
-
-def _image_name(stem: str, data: bytes) -> str:
-    """Pick the extension from the bytes, never from a claim."""
-    return f"{stem}.jpg" if data[:2] == b"\xff\xd8" else f"{stem}.png"
-
-
-def _media_type(data: bytes) -> str:
-    return "image/jpeg" if data[:2] == b"\xff\xd8" else "image/png"
 
 
 def _guard(book_id: str) -> None:
