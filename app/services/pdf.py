@@ -32,12 +32,23 @@ from functools import lru_cache
 from pathlib import Path
 
 from fpdf import FPDF
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageStat, UnidentifiedImageError
 
 from app.models.book import AboutMe, AboutPhotoChoice, BookPage
 from app.prompt_data import prompt_text
 
-__all__ = ["PageArt", "build_book_pdf", "draw_about_page", "draw_cover_page"]
+__all__ = [
+    "COVER_TITLE_BAND_FRACTION",
+    "PAPER_RGB",
+    "PageArt",
+    "TemplateGeometry",
+    "TitleBandReport",
+    "book_template",
+    "build_book_pdf",
+    "draw_about_page",
+    "draw_cover_page",
+    "title_band_report",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +75,20 @@ _MARGIN_PAD_BOTTOM = 40.0  # pt below the last line, room for the folio
 _MARGIN_CAP = 0.50  # the margin may take this fraction of the art height before
 #                     the font shrinks; past the floor it grows instead
 
-_PAPER = (250, 246, 236)
+# The page's paper. Public because the template check samples the drawn page
+# against it (tests/test_page_template.py), not because callers may change it.
+PAPER_RGB = (250, 246, 236)
 _INK = (64, 48, 32)
 _GOLD = (184, 142, 64)
 _SHADOW = (24, 16, 8)
 _CREAM = (255, 249, 235)
+
+# The cover's title lockup sits over the top of the art. A plate can only be
+# approved when that band is calm enough for real text: a flat or gently graded
+# sky passes, a busy scene does not. Measured as the luminance standard
+# deviation of the top band, in 0-255 levels.
+COVER_TITLE_BAND_FRACTION = 0.22
+TITLE_BAND_MAX_STDDEV = 22.0
 
 # The art is re-encoded before it is embedded. Providers return multi-megabyte
 # PNGs; embedding nineteen of them verbatim produced a ~42 MB PDF, which blew
@@ -89,13 +109,24 @@ class PageArt:
 
 
 @dataclass(frozen=True, slots=True)
-class _Layout:
-    """The one template every story page is set in."""
+class TemplateGeometry:
+    """The one template every story page is set in.
+
+    Explicit data rather than values recomputed per page: the art box, the text
+    band beneath it, and the one font size the whole book is set at. Every
+    derived point (where the band starts, how much room the words get) is a
+    property of this object, so a test can assert the geometry without parsing
+    a PDF and the renderer cannot drift from it.
+    """
 
     art_width: float
     art_height: float
-    margin_height: float
+    text_band_height: float
     font_size: float
+
+    @property
+    def page_width(self) -> float:
+        return self.art_width
 
     @property
     def line_height(self) -> float:
@@ -103,11 +134,72 @@ class _Layout:
 
     @property
     def page_height(self) -> float:
-        return self.art_height + self.margin_height
+        return self.art_height + self.text_band_height
 
     @property
     def text_width(self) -> float:
         return self.art_width * (1 - 2 * _SIDE_MARGIN)
+
+    @property
+    def text_band_top(self) -> float:
+        """Where the text band begins: the art's bottom edge."""
+        return self.art_height
+
+    @property
+    def text_top(self) -> float:
+        """Where the first line may sit, after the band's top padding."""
+        return self.art_height + _MARGIN_PAD_TOP
+
+    @property
+    def text_room(self) -> float:
+        """The vertical space the words may occupy."""
+        return self.text_band_height - _MARGIN_PAD_TOP - _MARGIN_PAD_BOTTOM
+
+
+@dataclass(frozen=True, slots=True)
+class TitleBandReport:
+    """Whether a cover plate leaves its top band calm enough for the title."""
+
+    ok: bool
+    stddev: float
+    fraction: float
+    reason: str = ""
+
+
+def title_band_report(
+    image: bytes, *, fraction: float = COVER_TITLE_BAND_FRACTION
+) -> TitleBandReport:
+    """Measure the cover's title band: calm enough for real text, or not.
+
+    The cover is the one page whose title sits over the art, so it is the one
+    place "no text over a face" cannot be guaranteed by the layout alone. A
+    plate whose top band is busy cannot be approved: the admin screen disables
+    Approve and shows `reason`.
+
+    Raises:
+        ValueError: if `image` is unreadable or `fraction` is out of range.
+    """
+    if not 0 < fraction <= 1:
+        raise ValueError("fraction must be between 0 and 1")
+    try:
+        with Image.open(io.BytesIO(image)) as opened:
+            grey = opened.convert("L")
+            width, height = grey.size
+            band = grey.crop((0, 0, width, max(1, int(height * fraction))))
+            stddev = float(ImageStat.Stat(band).stddev[0])
+    except (OSError, UnidentifiedImageError) as exc:
+        raise ValueError("The cover image was unreadable.") from exc
+
+    ok = stddev <= TITLE_BAND_MAX_STDDEV
+    reason = (
+        ""
+        if ok
+        else (
+            f"The top {fraction:.0%} of this plate is too busy for the title "
+            f"(luminance spread {stddev:.1f}). Re-roll for a calm sky or paper band."
+        )
+    )
+    return TitleBandReport(ok=ok, stddev=stddev, fraction=fraction, reason=reason)
 
 
 def build_book_pdf(
@@ -132,9 +224,9 @@ def build_book_pdf(
         raise ValueError("A book needs at least one page.")
 
     art_width, art_height = _page_shape(pages[0].image)
-    layout = _book_layout(art_width, art_height, [entry.page.story for entry in pages])
+    layout = book_template(art_width, art_height, [entry.page.story for entry in pages])
 
-    pdf = FPDF(unit="pt", format=(layout.art_width, layout.page_height))
+    pdf = FPDF(unit="pt", format=(layout.page_width, layout.page_height))
     pdf.set_auto_page_break(False)
     _register_fonts(pdf)
     if _shaping_supported():
@@ -156,12 +248,15 @@ def build_book_pdf(
     return output.getvalue()
 
 
-def _book_layout(art_width: float, art_height: float, stories: Sequence[str]) -> _Layout:
-    """One font size and one margin height for the whole book.
+def book_template(
+    art_width: float, art_height: float, stories: Sequence[str]
+) -> TemplateGeometry:
+    """One font size and one text band for the whole book.
 
-    The largest size at which every page's story fits inside the capped
-    margin wins. If even the floor does not fit, the margin grows to hold the
-    longest page: a story is never truncated.
+    The largest size at which every page's story fits inside the capped band
+    wins. If even the floor does not fit, the band grows to hold the longest
+    page: a story is never truncated, and a short page keeps the same band as
+    every other page of the book.
     """
     text_width = art_width * (1 - 2 * _SIDE_MARGIN)
     cap = art_height * _MARGIN_CAP
@@ -173,7 +268,7 @@ def _book_layout(art_width: float, art_height: float, stories: Sequence[str]) ->
         )
         needed = _MARGIN_PAD_TOP + lines * size * _LINE_FACTOR + _MARGIN_PAD_BOTTOM
         if needed <= cap or size <= _MIN_STORY_FONT:
-            return _Layout(art_width, art_height, max(needed, cap * 0.6), size)
+            return TemplateGeometry(art_width, art_height, max(needed, cap * 0.6), size)
         size = max(_MIN_STORY_FONT, size - 0.5)
 
 
@@ -236,24 +331,23 @@ def _shadowed_cell(
     pdf.cell(pdf.w, line_height, text, align="C")
 
 
-def _draw_page(pdf: FPDF, entry: PageArt, layout: _Layout, number: int) -> None:
-    """One story page: art on top, the story in the margin beneath it."""
+def _draw_page(pdf: FPDF, entry: PageArt, layout: TemplateGeometry, number: int) -> None:
+    """One story page: art on top, the story in the band beneath it."""
     pdf.add_page()
-    pdf.set_fill_color(*_PAPER)
+    pdf.set_fill_color(*PAPER_RGB)
     pdf.rect(0, 0, pdf.w, pdf.h, style="F")
     pdf.image(_image_for_pdf(entry.image), x=0, y=0, w=layout.art_width, h=layout.art_height)
 
     # A thin gold rule where the picture meets the page.
     pdf.set_draw_color(*_GOLD)
     pdf.set_line_width(1.6)
-    pdf.line(0, layout.art_height, pdf.w, layout.art_height)
+    pdf.line(0, layout.text_band_top, pdf.w, layout.text_band_top)
 
     story = entry.page.story
     if story.strip():
         lines = _wrap(story, _FAMILY, "", layout.font_size, layout.text_width)
         block = len(lines) * layout.line_height
-        room = layout.margin_height - _MARGIN_PAD_TOP - _MARGIN_PAD_BOTTOM
-        y = layout.art_height + _MARGIN_PAD_TOP + max(0.0, (room - block) / 2)
+        y = layout.text_top + max(0.0, (layout.text_room - block) / 2)
         pdf.set_font(_FAMILY, "", layout.font_size)
         pdf.set_text_color(*_INK)
         _centred_lines(pdf, lines, y, layout.line_height)
@@ -276,7 +370,7 @@ def draw_about_page(
     """
     width, height = pdf.w, pdf.h
     pdf.add_page()
-    pdf.set_fill_color(*_PAPER)
+    pdf.set_fill_color(*PAPER_RGB)
     pdf.rect(0, 0, width, height, style="F")
     usable = width * (1 - 2 * _SIDE_MARGIN)
 
