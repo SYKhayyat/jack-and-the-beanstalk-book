@@ -418,6 +418,10 @@ async def edit_book(
         return _edit_started(book_id, "about")
 
     if action == "delete":
+        # Stop the job before the store disappears: a render that is still
+        # running would keep making billable calls, then fail writing into the
+        # directory this call is about to remove.
+        container.book_runner.cancel(book_id)
         await asyncio.to_thread(container.book_store.delete, book_id)
         return {"book_id": book_id, "deleted": True}
 
@@ -546,10 +550,15 @@ def _character_reference(
 
 
 @router.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_book(book_id: str, container: ContainerDep, session: CurrentSessionDep) -> Response:
+async def delete_book(
+    book_id: str, container: ContainerDep, session: CurrentSessionDep
+) -> Response:
     """Delete a book and every artefact that belongs to it."""
     _ensure_book(book_id, _user_id(session), container)
-    container.book_store.delete(book_id)
+    # Cancel on the event loop, where the job's task lives; only then remove
+    # the store (a blocking call, so it goes to a worker thread).
+    container.book_runner.cancel(book_id)
+    await asyncio.to_thread(container.book_store.delete, book_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

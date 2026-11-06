@@ -234,6 +234,31 @@ class TestEditing:
         assert client.delete(f"/api/book/{book_id}").status_code == 204
         assert client.get(f"/api/book/{book_id}").status_code == 404
 
+    def test_deleting_a_book_stops_its_running_render(self, settings: Settings) -> None:
+        """A deleted book must not keep drawing pages, or write itself back.
+
+        The render used to survive the delete: it kept making billable page
+        calls and then failed against a directory that no longer existed.
+        """
+        provider = BlockingPageProvider()
+        # One slot, so exactly one page is in flight when the delete arrives.
+        tight = settings.model_copy(update={"max_concurrent_generations": 1})
+        with TestClient(create_app(tight, provider=provider)) as client:
+            provider.block = True
+            book_id = _start(client)
+            assert provider.entered.wait(10), "the book never started drawing"
+            calls_at_delete = len(provider.requests)
+
+            assert client.delete(f"/api/book/{book_id}").status_code == 204
+            provider.release.set()
+            time.sleep(0.4)
+
+            assert len(provider.requests) == calls_at_delete, (
+                "the cancelled book kept making page calls"
+            )
+            assert client.get(f"/api/book/{book_id}").status_code == 404
+            assert not (tight.storage_dir / "books" / book_id).exists()
+
     def test_a_refused_edit_does_not_touch_the_running_job(self, client_factory) -> None:
         """A 409 must not rewrite the poll document of the job it refused.
 

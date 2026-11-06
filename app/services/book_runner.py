@@ -267,6 +267,20 @@ class BookRunner:
         task.add_done_callback(_finished)
         return task
 
+    def cancel(self, book_id: str) -> bool:
+        """Stop the running job for `book_id`, if there is one.
+
+        Called when the book is about to be deleted: the job must not keep
+        making billable calls, and its cancellation handler must not write a
+        status into a book that is going away. Returns whether a job was
+        actually cancelled.
+        """
+        task = self._active.pop(book_id, None)
+        if task is None or task.done():
+            return False
+        task.cancel()
+        return True
+
     def rebuild_pdf(self, book_id: str) -> None:
         """Re-assemble the PDF from the pages already on disk (no model calls).
 
@@ -449,14 +463,19 @@ class BookRunner:
                 (monotonic() - started) * 1000,
             )
         except asyncio.CancelledError:
-            self._fail(
-                book_id,
-                "Rendering was cancelled before the book finished. The pages "
-                "already finished were kept — starting a new book is safe, the "
-                "same portrait is reused.",
-                user=user,
-                elapsed_ms=(monotonic() - started) * 1000,
-            )
+            # A delete cancels the job and removes the book; a shutdown cancels
+            # it and leaves the book in place. Only the second case has a
+            # status document to write — and writing one into a deleted book
+            # would fail on a directory that no longer exists.
+            if await asyncio.to_thread(self._book_store.load_record, book_id) is not None:
+                self._fail(
+                    book_id,
+                    "Rendering was cancelled before the book finished. The pages "
+                    "already finished were kept — starting a new book is safe, the "
+                    "same portrait is reused.",
+                    user=user,
+                    elapsed_ms=(monotonic() - started) * 1000,
+                )
             raise
         except GateTimeout:
             self._fail(
@@ -638,8 +657,12 @@ class BookRunner:
     def _fail(
         self, book_id: str, message: str, *, user: str = "-", elapsed_ms: float = 0.0
     ) -> None:
-        status = self._book_store.load_status(book_id) or {"pages": []}
+        # The book may have been deleted while its job was unwinding. There is
+        # nothing to report to and nowhere to write it: stay quiet.
         record = self._book_store.load_record(book_id)
+        if record is None:
+            return
+        status = self._book_store.load_status(book_id) or {"pages": []}
         pages: list[dict[str, object]] = []
         for entry in cast("list[object]", status.get("pages", [])):
             if not isinstance(entry, dict):
@@ -654,7 +677,7 @@ class BookRunner:
             BookStatus.FAILED,
             pages,
             error=message,
-            title=record.about.book_title if record is not None else None,
+            title=record.about.book_title,
         )
         done = sum(1 for entry in pages if entry.get("status") == "done")
         logger.error(
