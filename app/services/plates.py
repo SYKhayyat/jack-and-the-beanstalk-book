@@ -31,6 +31,7 @@ from app.prompt_data import prompt_text
 from app.services.template_store import COVER_PAGE, Slot
 
 __all__ = [
+    "COVER_KEY",
     "MAX_PLATE_CAST",
     "PlateError",
     "PlatePlan",
@@ -43,6 +44,9 @@ __all__ = [
 #: How many characters a plate can hold. The seed validator already caps a page
 #: at the provider's reference limit; this is the layout's own answer.
 MAX_PLATE_CAST = 3
+
+#: The cover's name in a story's `[plate_places]`; pages use their own key.
+COVER_KEY = "cover"
 
 
 class PlateError(ValueError):
@@ -117,25 +121,29 @@ _TITLE_BAND = (
 )
 
 
-def build_plate_prompt(story: StorySeed, scene: SeedScene, *, cover: bool = False) -> str:
+def build_plate_prompt(
+    story: StorySeed, scene: SeedScene, *, page_key: str, cover: bool = False
+) -> str:
     """The exact prompt for one plate: place and light, and nothing alive.
 
-    Assembled from the story's own section in `prompts.toml` and this page's
-    place, time and framing from the seed. It contains no prose, no name and no
-    placeholder — a `{name}` reaching a plate would be a bug, not a prompt. The
-    cover is told to keep its title band empty; a story page is not.
+    Assembled from the story's own section in `prompts.toml` — only the places
+    this page is set in — and this page's place, time and framing from the seed.
+    It contains no prose, no name and no placeholder — a `{name}` reaching a
+    plate would be a bug, not a prompt. The cover is told to keep its title
+    band empty; a story page is not.
     """
     section = _story_section(story.key)
     style = _style_sentence(section)
     parts = [
         section["intro"],
-        section["world"],
+        _places_sentence(section, story.key, page_key),
         section["palette"],
         f"ART STYLE: {style}",
         f"THE PAGE: {_literal(scene.environment, story.key, 'environment')}",
         f"TIME OF DAY: {_literal(scene.time_of_day, story.key, 'time_of_day')}",
         f"CAMERA AND FRAMING: {_literal(scene.camera, story.key, 'camera')}",
     ]
+    parts.append(_clear_space_sentence(len(page_cast(story, scene.cast))))
     if cover:
         parts.append(_TITLE_BAND)
     parts += [section["empty"], section["no_text"], section["negative"]]
@@ -147,8 +155,8 @@ def plate_plans(story: StorySeed) -> tuple[PlatePlan, ...]:
     plans = [
         PlatePlan(
             page_number=COVER_PAGE,
-            key="cover",
-            prompt=build_plate_prompt(story, story.cover, cover=True),
+            key=COVER_KEY,
+            prompt=build_plate_prompt(story, story.cover, page_key=COVER_KEY, cover=True),
             slots=slots_for(page_cast(story, story.cover.cast)),
         )
     ]
@@ -157,7 +165,7 @@ def plate_plans(story: StorySeed) -> tuple[PlatePlan, ...]:
             PlatePlan(
                 page_number=page.number,
                 key=page.key,
-                prompt=build_plate_prompt(story, page.scene),
+                prompt=build_plate_prompt(story, page.scene, page_key=page.key),
                 slots=slots_for(page_cast(story, page.scene.cast)),
             )
         )
@@ -166,7 +174,7 @@ def plate_plans(story: StorySeed) -> tuple[PlatePlan, ...]:
     return tuple(plans)
 
 
-def _story_section(story_key: str) -> Mapping[str, str]:
+def _story_section(story_key: str) -> Mapping[str, Any]:
     sections = prompt_text().get("stories")
     if not isinstance(sections, Mapping) or story_key not in sections:
         raise PlateError(
@@ -176,20 +184,41 @@ def _story_section(story_key: str) -> Mapping[str, str]:
     section = cast(Mapping[str, Any], sections[story_key])
     missing = [
         field
-        for field in ("intro", "world", "palette", "empty", "no_text", "negative")
+        for field in ("intro", "palette", "empty", "no_text", "negative")
         if not isinstance(section.get(field), str)
     ]
     if missing:
         raise PlateError(f"[stories.{story_key}] is missing {missing}")
-    return cast(Mapping[str, str], section)
+    return section
 
 
-def _style_sentence(section: Mapping[str, str]) -> str:
+def _common() -> Mapping[str, Any]:
+    return cast(Mapping[str, Any], prompt_text()["plate_common"])
+
+
+def _style_sentence(section: Mapping[str, Any]) -> str:
     key = section.get("style", "")
-    styles = cast(Mapping[str, str], prompt_text()["styles"])
+    styles = cast(Mapping[str, str], _common()["styles"])
     if key not in styles:
-        raise PlateError(f"[stories] style {key!r} is not a key of [styles]")
+        raise PlateError(f"[stories] style {key!r} is not a key of [plate_common.styles]")
     return styles[key]
+
+
+def _places_sentence(section: Mapping[str, Any], story_key: str, page_key: str) -> str:
+    """The fixed designs of the places this page is set in, and no others."""
+    places = cast(Mapping[str, str], section.get("places", {}))
+    wanted = cast(Mapping[str, Sequence[str]], section.get("plate_places", {})).get(page_key)
+    if not wanted:
+        raise PlateError(f"[stories.{story_key}.plate_places] has no entry for {page_key!r}")
+    unknown = [place for place in wanted if place not in places]
+    if unknown:
+        raise PlateError(f"{story_key}: {page_key!r} names unknown places {unknown}")
+    designs = " ".join(places[place][0].upper() + places[place][1:] for place in wanted)
+    return f"{_common()['places_intro']} {designs}"
+
+
+def _clear_space_sentence(cast_size: int) -> str:
+    return str(_common()[f"clear_space_{cast_size}"])
 
 
 def _literal(text: str, story_key: str, field: str) -> str:

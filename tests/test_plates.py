@@ -77,7 +77,7 @@ def test_a_plate_prompt_names_nobody_and_carries_no_prose(story: StorySeed) -> N
         assert "{" not in plan.prompt and "}" not in plan.prompt, plan.key
         assert "the child in the red hood" not in plan.prompt.lower()
     for page in story.pages:
-        prompt = build_plate_prompt(story, page.scene)
+        prompt = build_plate_prompt(story, page.scene, page_key=page.key)
         assert page.story not in prompt
         assert story.cast[story.star].look[:60] not in prompt
 
@@ -133,7 +133,36 @@ def test_a_placeholder_in_the_camera_never_reaches_a_plate() -> None:
         RED.pages[0].scene, camera="two-shot at {name}'s eye level, both faces clear"
     )
     with pytest.raises(PlateError, match="camera"):
-        build_plate_prompt(RED, scene)
+        build_plate_prompt(RED, scene, page_key=RED.pages[0].key)
+
+
+@pytest.mark.parametrize("story", SEEDS, ids=lambda seed: seed.key)
+def test_a_plate_prompt_never_contradicts_the_3d_style(story: StorySeed) -> None:
+    """The style asks for a 3D feature, so nothing may forbid a 3D look."""
+    for plan in plate_plans(story):
+        assert "Modern 3D animated feature" in plan.prompt, plan.key
+        assert "3D-render look" not in plan.prompt, plan.key
+        assert "catchlights" not in plan.prompt, plan.key  # a plate has no eyes
+
+
+@pytest.mark.parametrize("story", SEEDS, ids=lambda seed: seed.key)
+def test_every_plate_is_landscape_and_says_where_the_cast_goes(story: StorySeed) -> None:
+    for plan in plate_plans(story):
+        assert "vertical" not in plan.prompt.lower(), plan.key
+        assert "CLEAR SPACE:" in plan.prompt, plan.key
+
+
+def test_a_page_reads_only_about_the_places_it_is_set_in() -> None:
+    jack = next(seed for seed in SEEDS if seed.key == "jack_and_the_beanstalk")
+    road = next(plan for plan in plate_plans(jack) if plan.key == "the-trade")
+    assert "The road to market" in road.prompt
+    assert "three round towers" not in road.prompt
+    assert "as tall as a cathedral" not in road.prompt
+
+
+def test_a_page_with_no_places_listed_is_refused() -> None:
+    with pytest.raises(PlateError, match="plate_places"):
+        build_plate_prompt(RED, RED.pages[0].scene, page_key="no-such-page")
 
 
 def test_a_page_crowded_past_the_layout_is_refused() -> None:
@@ -152,7 +181,7 @@ def test_a_placeholder_in_a_scene_never_reaches_a_plate() -> None:
         RED.pages[0], scene=replace(RED.pages[0].scene, environment="{name}'s lane")
     )
     with pytest.raises(PlateError, match="placeholder"):
-        build_plate_prompt(RED, page.scene)
+        build_plate_prompt(RED, page.scene, page_key=page.key)
 
 
 # --- the command ---------------------------------------------------------------

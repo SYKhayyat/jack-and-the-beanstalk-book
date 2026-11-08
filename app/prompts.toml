@@ -346,18 +346,30 @@ full_frame = "FRAME: the whole image is the illustration, edge to edge. No part 
 # A plate is one page's world painted once, with no people and no text, which
 # an approved edit pass later paints the characters into. Everything here is
 # fixed book data: no user text, no child, no real person, no brand. Each
-# story section drives all 21 of its plates from the same world, palette and
-# forbid-lists, so the set reads as one book.
+# story section drives all 21 of its plates from the same palette, style and
+# forbid-lists. [places] holds one block per location and [plate_places] says
+# which blocks each page gets, so a page never reads about a place it isn't in.
 # ---------------------------------------------------------------------------
+
+[plate_common]
+places_intro = "THE PLACES AND PROPS ON THIS PAGE (fixed designs, drawn exactly this way wherever they appear):"
+# Where the cast will stand, said in words. Keyed by how many characters the page has.
+clear_space_1 = "CLEAR SPACE: a character will be added later in the middle third of the frame, from about a third of the way down to near the bottom. Keep that area free of furniture and loose props: only open ground, floor, path, cloud or the stalk itself. Arrange everything else to the sides and behind."
+clear_space_2 = "CLEAR SPACE: two characters will be added later, one in the left third of the frame and one in the right third, each from about a third of the way down to near the bottom. Keep both areas free of furniture and loose props: only open ground, floor, path or cloud, with walls far behind. Put furniture and props in the centre of the frame or against the far wall."
+clear_space_3 = "CLEAR SPACE: three characters will be added later across the lower two-thirds of the frame, at the left, the centre and the right. Keep that foreground open: only open ground, floor or path. Put furniture and props against the far wall."
+
+# The plate's half of a story's style: the same look with everything about
+# people taken out, because a plate has nobody in it. Keyed like [styles].
+[plate_common.styles]
+pixar_like = "Modern 3D animated feature: rounded sculpted forms, soft rim light, smooth shading, warm cinematic colour grading, polished family-film design, with stone, wood, thatch, leaves and cloud all modelled in the same soft rounded way. The same rendering on every page: never 2D ink outlines, a flat cartoon, watercolour, gouache or photographic realism."
 
 [stories.jack_and_the_beanstalk]
 style = "pixar_like"
 intro = "TASK: Paint one EMPTY background plate for a page of this picture book: the place, the props and the light the page happens in, with nobody in it. This is not a finished page — a later pass paints the characters into it — so the frame must be a clean, uncluttered stage with one clear patch of ground or floor where a character will stand, and nothing occupying it."
-world = "THE PLACES AND PROPS (fixed designs, drawn the same way whenever they appear): a small single-storey cottage of grey fieldstone under a golden thatched roof, a stone chimney at its left end, one square window with a wooden shutter, a weathered blue-green plank door with an iron handle and a stone step, a vegetable garden in front and a low picket fence with a gate, standing alone at the end of a dirt lane; Milky-White, the family's cow, drawn wherever a place names her standing in it — a plain white dairy cow with a calm, gentle face, a soft pink muzzle, small short horns and a long tufted tail, never a person, never a cartoon face and never any other colour; its kitchen with the stone hearth and hanging copper pots on the left wall, the worn oak table with two stools in the middle, open shelves and a cupboard on the back wall and the window on the right; the dusty dirt road to market, running away between green fields and a hedgerow; the vegetable garden with a path of flat stones and a ring of grey fieldstones where the beanstalk grows, and the flat stump it leaves behind; the beanstalk — one twisting green stalk as thick as an old oak trunk, with broad heart-shaped leaves, rising out of the stone ring and up through the clouds; the cloud country — rolling white cloud-banks firm enough to walk on, with a pale stone path crossing them; the castle — grey stone with exactly three round towers with pointed slate roofs, the tallest in the middle, and one great arched wooden door; the giant's kitchen — a vast stone hall built to giant size, with the towering hearth and giant iron pots on the left wall, the great oak table in the middle with a high-backed chair on its near side, a wooden perch over a nest of straw in the right-hand corner, the great door in the right wall and one high, narrow window."
 palette = "ONE PALETTE FOR THE WHOLE BOOK: warm storybook colours — honey gold, sage and deep forest green, weathered stone grey, cream and soft sky blue — at the same saturation and contrast from the cover to the last page. Only the time of day changes across the set: pale gold morning, clear midday, warm evening, blue-violet dusk, then a deep blue night lit by warm lamplight."
 empty = "THE PLATE IS EMPTY OF PEOPLE: no people at all — no child, no grown-up, no crowd of any size, no silhouettes of people, no figures at the edges of the frame, no face, no hand, no foot. The giant is a character and is never in a plate, and nobody is holding anything: no beans in a palm, no rope, no purse hugged in a pair of arms, no axe in a hand. The plain white cow, the plump brown hen and the golden harp belong to the places they stand in, not to the cast: a plate draws one of them only where its own place names it, in exactly the one look the places and props give it, and leaves it out everywhere else. The perch and the straw under it are part of the giant's kitchen."
 no_text = "NO TEXT OF ANY KIND: no lettering, no signage, no captions, no logos, no labels, no numbers, no speech bubbles, no shop signs, no writing on any wall, page, banner or object, and no letter-like marks anywhere in the frame."
-negative = "Do not draw: a busy or cluttered composition, a close-up of a face, a person's reflection in a window or a mirror, a decorative border or frame, a watermark, a signature, a photograph, a plastic or 3D-render look, or anything frightening for a young child."
+negative = "Do not draw: a busy or cluttered composition, a close-up of a face, a person's reflection in a window or a mirror, a decorative border or frame, a watermark, a signature, a photograph, a shiny plastic-toy look, or anything frightening for a young child."
 
 # The finished page's own props-and-places sheet, pasted whole into every page
 # and the cover, and the rules this tale adds to the shared book rules.
@@ -379,14 +391,51 @@ page_world = """THE PROPS AND PLACES (fixed designs: whenever one appears it is 
 - Milky-White: Milky-White is the family's cow, and she is an animal: an ordinary white dairy cow with a calm, gentle face, a soft pink muzzle, small short horns and a long tufted tail — the same plain white cow, unchanged, on every page she appears. She is never drawn with human features, clothes, hands or a human face."""
 page_rules = ["Milky-White the cow is the same white cow everywhere she appears: a plain white coat, unchanged from page to page, at whatever distance the scene shows her.", "The giant is never a larger copy of the old man: a different age, a different face, a different beard and a different build.", "In this tale the world works the same way: a climber's hands grip the beanstalk, the axe blade bites into the trunk it is cutting, no hand sinks into the harp's strings, no coins pass through the purse, and the gold is real gold."]
 
+[stories.jack_and_the_beanstalk.places]
+cottage = "the cottage — a small single-storey cottage of grey fieldstone under a golden thatched roof, one tall square stone chimney with a square cap at its left end and no chimney pot, one square window with a wooden shutter to the left of the door and no flower box, a weathered blue-green plank door with an iron handle and a stone step, a vegetable garden in front with a path of flat stones, and a low wooden picket fence with exactly one gate, standing alone at the end of a dirt lane."
+ring = "the ring — a flat circle of grey fieldstones lying level with the ground in the garden to the right of the cottage, never raised like a well and never planted with flowers."
+beanstalk = "the beanstalk — one single solid twisting green trunk as thick as an old oak, never a braid or bundle of vines, with broad heart-shaped leaves and no flowers or pods, rising out of the ring and up through the clouds."
+stump = "the stump — a low stump of the beanstalk cut flat and level, pale rings on its cut face, standing inside the ring."
+cow = "Milky-White — a plain white dairy cow with a calm, gentle face, a soft pink muzzle, small short horns and a long tufted tail, never a person, never a cartoon face and never any other colour."
+kitchen = "the cottage kitchen — plastered walls above a stone floor, a stone hearth with hanging copper pots on the left wall, one worn oak table with two matching plain wooden stools in the middle, open shelves and a cupboard on the back wall, and one shuttered window on the right wall."
+road = "the road to market — a dusty dirt road running away between green fields and a hedgerow."
+cloud_country = "the cloud country — rolling white cloud-banks firm enough to walk on, crossed by a faint pale stone path, never a paved plaza or courtyard."
+castle = "the castle — weathered grey stone, exactly three round towers with pointed slate roofs, the tallest in the middle, one great arched wooden door, no fourth turret or gatehouse, never white."
+giants_kitchen = "the giant's kitchen — a vast stone hall as tall as a cathedral, always seen from a camera close to the floor, as a mouse would see it: the legs of the great oak table and the high-backed chair are as thick as old trees and their seat and tabletop tower far overhead; each floor flagstone is as big as a bed; the towering hearth with giant iron pots is on the left wall, the table is in the middle with the chair on its near side, a wooden perch over a nest of straw is in the right-hand corner, the great door is in the right wall, and there is one high, narrow window."
+hen = "the hen — a plump red-brown hen of ordinary size, never larger than a real hen."
+harp = "the harp — a small golden harp with silver strings and a leather strap, knee-high to a child."
+eggs = "the golden eggs — gleaming gold, each the size of a goose egg."
+
+[stories.jack_and_the_beanstalk.plate_places]
+cover = ["cottage", "ring", "beanstalk"]
+empty-cupboard = ["kitchen", "cow"]
+the-trade = ["road", "cow"]
+beans-out-the-window = ["cottage", "ring"]
+beanstalk-at-dawn = ["cottage", "ring", "beanstalk"]
+the-climb = ["beanstalk", "cottage"]
+the-cloud-country = ["cloud_country", "castle", "beanstalk"]
+"the-giant's-kitchen" = ["giants_kitchen"]
+the-bag-of-gold = ["giants_kitchen"]
+home-with-gold = ["kitchen"]
+the-second-climb = ["kitchen", "beanstalk"]
+the-hen = ["giants_kitchen", "hen", "eggs"]
+the-singing-harp = ["giants_kitchen", "harp", "eggs"]
+fee-fi-fo-fum = ["giants_kitchen"]
+the-chase = ["cloud_country", "castle", "beanstalk"]
+down-the-beanstalk = ["beanstalk", "cottage"]
+the-axe = ["cottage", "ring", "beanstalk", "hen", "harp"]
+the-fall = ["cottage", "ring", "beanstalk", "stump"]
+safe-at-home = ["cottage", "ring", "stump", "hen", "harp"]
+the-golden-eggs = ["kitchen", "hen", "harp", "eggs"]
+riches-and-pride = ["cottage", "ring", "stump", "hen", "harp"]
+
 [stories.little_red_riding_hood]
 style = "pixar_like"
 intro = "TASK: Paint one EMPTY background plate for a page of this picture book: the place, the props and the light the page happens in, with nobody in it. This is not a finished page — a later pass paints the characters into it — so the frame must be a clean, uncluttered stage with one clear patch of path, floor or grass where a character will stand, and nothing occupying it."
-world = "THE PLACES AND PROPS (fixed designs, drawn the same way whenever they appear): the child's cottage — one small stone cottage with a blue plank door weathered to blue-green, one square window that glows with lamp light after dark, a curl of smoke from the chimney and a low picket fence with a gate; its kitchen with a stone hearth and copper pots on the left wall, a worn oak table with two stools in the middle, open shelves and a cupboard on the back wall and a window on the right; a winding dirt path through a tall green wood of mossy trunks and deep shade, with old leaves, ferns, toadstools and a low wooden stile, and a fork where a narrow side track turns off beside a drift of small wild flowers; the flower clearing beside the path, open to the sky; an old stump at the wood's edge with a woodcutter's axe standing in it; Grandmother's cottage, the same small stone cottage, quieter and deeper in the trees, with a white lace curtain at the window, a small garden of lavender and a path to its blue door; Grandmother's one room, with a wooden bed under a patchwork quilt, a small table with a jug and a candle, a stone hearth, a tall wooden cupboard and a window with half-drawn curtains."
-palette = "ONE PALETTE FOR THE WHOLE BOOK: warm storybook colours — moss and leaf green, honey gold, cream and soft brown — at the same saturation and contrast from the cover to the last page. Nothing in a plate is bright red: the red in this book is the child's cloak, and the cloak arrives with the character. Only the time of day changes across the set: pale gold morning, bright midday in the wood, warm afternoon sun through leaves, blue-green dusk, then a deep night softened by lantern light."
+palette = "ONE PALETTE FOR THE WHOLE BOOK: warm storybook colours — moss and leaf green, honey gold, cream and soft brown — at the same saturation and contrast from the cover to the last page. Apart from the small wild flowers at the fork and in the clearing, nothing in a plate is bright red: the red in this book is the child's cloak, and the cloak arrives with the character. Only the time of day changes across the set: pale gold morning, bright midday in the wood, warm afternoon sun through leaves, blue-green dusk, then a deep night softened by lantern light."
 empty = "THE PLATE IS EMPTY OF PEOPLE: no people at all — no child, no grown-up, no crowd of any size, no silhouettes of people, no figures at the edges of the frame, no face, no hand, no foot, and no red hood anywhere. No wolf either: the wolf is a character, and the edit pass paints him in. Nothing a character brings belongs in the plate: no basket, no armful of flowers, no bread, no honey, no cake, no cups on the table. Everything else belongs to the place."
 no_text = "NO TEXT OF ANY KIND: no lettering, no signage, no captions, no logos, no labels, no numbers, no speech bubbles, no notices nailed to a tree, no writing on any wall, page, banner or object, and no letter-like marks anywhere in the frame."
-negative = "Do not draw: a busy or cluttered composition, a close-up of a face, a person's reflection in a window or a mirror, a decorative border or frame, a watermark, a signature, a photograph, a plastic or 3D-render look, a weapon, blood or anything frightening for a young child."
+negative = "Do not draw: a busy or cluttered composition, a close-up of a face, a person's reflection in a window or a mirror, a decorative border or frame, a watermark, a signature, a photograph, a shiny plastic-toy look, blood or anything frightening for a young child."
 # The finished page's own props-and-places sheet, pasted whole into every page
 # and the cover, and the rules this tale adds to the shared book rules.
 page_world = """THE PROPS AND PLACES (fixed designs: whenever one appears it is drawn exactly like this, at this size and in this arrangement, on every page):
@@ -399,3 +448,37 @@ page_world = """THE PROPS AND PLACES (fixed designs: whenever one appears it is 
 - Grandmother's room: one room, always arranged the same way: a wooden bed under a patchwork quilt, a small table with a jug and a candle, a stone hearth, a tall wooden cupboard with two doors, and a window with half-drawn curtains.
 - The woodcutter's axe stays in the wood: it is never in anyone's hands on any page."""
 page_rules = ["The red hooded cloak belongs to the child alone: no other character wears red, and no one else wears a hood like it.", "The wolf is the same tall grey wolf in his dark-green coat on every page, including when he wears Grandmother's cap and shawl over it: the disguise sits on top of his own clothes and never replaces them, and his face stays a wolf's face, sly and never frightening."]
+
+[stories.little_red_riding_hood.places]
+home_cottage = "the child's cottage — one small stone cottage with a blue plank door weathered to blue-green, one square window that glows with lamp light after dark, a curl of smoke from the chimney and a low picket fence with one gate."
+home_kitchen = "the kitchen — a stone hearth with copper pots on the left wall, a worn oak table with two matching stools in the middle, open shelves and a cupboard on the back wall, and a window on the right."
+wood_path = "the wood path — one winding dirt path through a tall green wood of mossy trunks and deep shade, with old leaves, ferns, toadstools and a low wooden stile."
+fork = "the fork — where a narrow side track turns off the path beside a drift of small wild flowers in red, yellow and blue."
+clearing = "the flower clearing — a small sunny clearing beside the path, open to the sky, full of small wild flowers in red, yellow and blue."
+stump_axe = "the stump — an old stump at the wood's edge with a woodcutter's axe standing in it, the only axe in the book."
+gran_cottage = "Grandmother's cottage — a small stone cottage deeper in the trees, with a white lace curtain at the window, a small garden of lavender, a low fence and a path to its blue door."
+gran_room = "Grandmother's one room, always arranged the same way — a wooden bed under a patchwork quilt against the back wall, a window with half-drawn curtains above it, a small table with a jug and a candle beside the bed, a stone hearth on the left wall, a tall wooden cupboard with two doors on the right wall, and the blue door in the wall facing the bed."
+
+[stories.little_red_riding_hood.plate_places]
+cover = ["wood_path", "home_cottage"]
+the-basket = ["home_kitchen"]
+the-path = ["wood_path"]
+the-wolf = ["wood_path"]
+the-answer = ["wood_path", "gran_cottage"]
+the-shortcut = ["wood_path", "fork"]
+the-flowers = ["clearing", "wood_path"]
+the-wolf-runs = ["wood_path", "gran_cottage"]
+the-cottage-door = ["gran_room"]
+the-cupboard = ["gran_room"]
+the-disguise = ["gran_room"]
+red-arrives = ["gran_room"]
+big-ears = ["gran_room"]
+big-teeth = ["gran_room"]
+the-shout = ["gran_cottage", "stump_axe"]
+the-woodcutter = ["gran_cottage"]
+the-rescue = ["gran_cottage", "gran_room"]
+grandmother-out = ["gran_room"]
+the-supper = ["gran_room"]
+home-in-the-dusk = ["wood_path", "home_cottage"]
+ever-after = ["home_cottage"]
+

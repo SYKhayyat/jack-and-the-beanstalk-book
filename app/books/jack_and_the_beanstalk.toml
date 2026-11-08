@@ -41,10 +41,10 @@ title_band = "calm"
 cast = ["jack"]
 caption = "The cover of a picture book: the child stands in the cottage garden in the foreground, full of wonder and courage, looking up at the towering green beanstalk that rises beside the little cottage, climbs out of the frame and disappears into the clouds. The beanstalk is the unmistakable hero of the composition."
 subject_action = "standing in the garden in the foreground, looking up at the beanstalk, full of wonder and courage, hands loose at the sides"
-environment = "the cottage garden as fixed in the props and places: the little thatched cottage on the left, the beanstalk rising from its ring of grey stones on the right and climbing out of the frame, the picket fence and gate, green fields beyond, a wide clear sky"
+environment = "the cottage garden as fixed in the props and places: the little thatched cottage on the left, the beanstalk rising from its ring of grey stones on the right and climbing into a soft bank of low cloud that hides its top just below the upper fifth of the frame, the picket fence and gate, green fields beyond, a wide clear sky"
 time_of_day = "a bright morning, warm golden light from the left, a pale blue sky"
 camera = "wide storybook shot at a child's height from the garden, the empty path in the lower foreground leading in, the beanstalk rising on the right, the upper third of the frame calm and open"
-must_include = ["{name} in the garden looking up at the beanstalk", "the towering beanstalk rising out of the frame with broad leaves", "the little cottage with its golden thatched roof and blue-green door", "the garden gate and the ring of grey stones", "the upper third calm and uncluttered"]
+must_include = ["{name} in the garden looking up at the beanstalk", "the towering beanstalk rising into the low cloud with broad leaves", "the little cottage with its golden thatched roof and blue-green door", "the garden gate and the ring of grey stones", "the upper third calm and uncluttered"]
 must_avoid = ["lettering, a title, a logo or a caption of any kind", "a face in the title band", "any other person", "the giant", "Milky-White the cow", "the hen or the harp"]
 
 # The cow, the hen and the harp are not here: they cannot be given a photograph,
@@ -180,7 +180,7 @@ caption = "By sunrise the beanstalk had grown all the way to the clouds. An enor
 subject_action = "seen small in the frame for scale, standing at the gate with {possessive} head thrown back, looking up at the vast beanstalk rising out of the top of the image"
 environment = "the cottage garden at dawn as fixed in the props and places: the little thatched cottage on the left, the beanstalk rising from its ring of grey stones to the right of it, the picket fence and gate in front, the night still fading low behind the hills"
 time_of_day = "sunrise, warm gold and pink light from the low sun on the left, deep green shadows on the stalk"
-camera = "very wide vertical composition with the beanstalk rising through the whole frame and out of view, the garden gate and the fence small at the bottom of the frame, the cottage at the left"
+camera = "very wide landscape shot with the whole garden in frame, the beanstalk rising on a long diagonal from the right of the cottage and leaving the frame at the top right, the garden gate and the fence small at the bottom of the frame, the cottage at the left"
 must_include = ["the giant beanstalk, thicker than the cottage door, rising out of frame with broad leaves", "{name} tiny at the gate in true proportion to the beanstalk, looking up in wonder", "the cottage beside the beanstalk", "the child's tiny figure keeps a natural head-to-body ratio", "warm sunrise light"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant himself", "a fully visible sky castle", "the beanstalk toppling or broken", "a beanstalk thinner than a tree trunk", "any writing on the leaves or sky"]
 story = "But when {name} woke at sunrise, the garden was not the same. Where the beans had fallen, a great beanstalk had grown up in the night. It was as thick as an old tree. It climbed past the roof, past the birds, and up and away into the clouds. {name} ran out to the gate and stared with wide eyes."
@@ -189,7 +189,7 @@ emotion = "pure wonder: {name} wide-eyed in amazement, mouth open, head tipped r
 
 [pages.compose]
 environment = "the cottage garden at dawn as fixed in the props and places: the little thatched cottage on the left, the beanstalk rising from its stone ring on the right of it, the picket fence and gate in front, the night still fading low behind the hills"
-camera = "very wide vertical composition with the beanstalk rising through the whole frame and out of view, {name} tiny at the bottom — only a small part of the frame height, drawn in true proportion to the gate and the beanstalk, never scaled up towards the camera"
+camera = "very wide landscape shot with the whole garden in frame, the beanstalk rising on a long diagonal and leaving the frame at the top right, {name} tiny at the bottom — only a small part of the frame height, drawn in true proportion to the gate and the beanstalk, never scaled up towards the camera"
 
 [[pages]]
 key = "the-climb"
@@ -199,7 +199,7 @@ caption = "{name} climbed and climbed, up into the clouds. {name} climbs the eno
 subject_action = "mid-climb on the great beanstalk, both hands gripping the thick green stem with fingers wrapped round it, one foot on a broad leaf, {possessive} face lifted towards the clouds above"
 environment = "the middle of the towering beanstalk: a thick twisting green stem with broad leaves spiralling upward, soft white clouds drifting past, and far below at the very bottom of the frame the fields and the roof of the cottage, tiny, with a warm glow at the top of the frame"
 time_of_day = "bright morning above the mist, clear golden light on the clouds"
-camera = "wide vertical shot looking up the beanstalk, the broad leaves curling around the stem, the clouds opening at the top of the frame"
+camera = "wide landscape shot along the beanstalk, the stalk running on a diagonal from the lower left to the upper right through the middle of the frame, the broad leaves curling around the stem, the clouds opening at the top of the frame"
 must_include = ["{name} gripping the giant beanstalk with both hands, climbing", "broad green leaves and a thick curling stem", "white clouds all around and a bright opening above", "the cottage tiny and far below", "the child's figure keeps a natural head-to-body ratio"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "hands not touching the stalk", "the giant", "a castle already in full view", "birds carrying {name}", "a broken or fallen stalk"]
 story = "{name} took hold of the beanstalk and began to climb. Hand over hand, {subject} went up. The cottage below grew as small as a toy, and the fields lay spread out like a quilt. Up through the cool white clouds {subject} climbed, and on the other side, a strange bright country was waiting."
@@ -208,7 +208,7 @@ emotion = "determination with a thrill of excitement: {name} gripping hard, face
 
 [pages.compose]
 environment = "the middle of the towering beanstalk: a thick twisting green stem with broad leaves spiralling upward, soft white clouds drifting past, the cottage and fields tiny and far below at the very bottom of the frame, a warm glow at the top"
-camera = "wide vertical shot looking up the beanstalk, {name} roughly a third of the frame height and in true proportion to the huge stalk, clouds opening at the top"
+camera = "wide landscape shot along the beanstalk, the stalk running on a diagonal from the lower left to the upper right through the middle of the frame, {name} roughly a third of the frame height and in true proportion to the huge stalk, clouds opening at the top"
 
 [[pages]]
 key = "the-cloud-country"
@@ -389,7 +389,7 @@ caption = "Down the beanstalk went {name}, with the giant far above. {name} clim
 subject_action = "climbing down the beanstalk, one hand and both legs gripping the stem, the hen tucked under the other arm, glancing up at the swaying stalk"
 environment = "the great beanstalk seen from the side: the thick twisting green stem, broad leaves, the cottage and the fields far below at the bottom of the frame, clouds high above at the top, loose leaves fluttering down through the air"
 time_of_day = "late afternoon, the sun lower, warm golden light below, cooler shadow up high"
-camera = "wide vertical shot of the beanstalk, the cottage tiny at the bottom of the frame, the clouds and the top of the stalk high above"
+camera = "wide landscape shot of the beanstalk running on a diagonal through the frame, the cottage tiny at the lower left of the frame, the clouds and the top of the stalk high above"
 must_include = ["{name} climbing down the beanstalk, one hand gripping the stem", "the hen under {name}'s arm and the harp on {possessive} back", "the giant small and far above at the top of the stalk", "the cottage tiny and far below", "the child's figure keeps a natural head-to-body ratio"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant reaching for, grabbing or close to {name}", "blood, injury or anything gruesome", "anyone else on the stalk", "Milky-White the cow"]
 story = "Down the beanstalk {name} went, faster than {subject} had ever climbed, the hen under one arm and the harp on {possessive} back. High above, the giant reached the top and swung his great legs over to follow. The whole stalk shook and swayed, and the leaves came down in a flutter. “Hold on,” {name} whispered to {reflexive}. “Nearly there.”"
@@ -398,7 +398,7 @@ emotion = "fear and grit: {name} jaw set, eyes wide, glancing up at the swaying 
 
 [pages.compose]
 environment = "the great beanstalk seen from the side: the thick twisting green stem, broad leaves, the cottage and fields far below, the giant small and high above at the top among the clouds, loose leaves fluttering down"
-camera = "wide vertical shot of the beanstalk, {name} a third of the way down and in true proportion to the stalk, the giant small and high above"
+camera = "wide landscape shot of the beanstalk running on a diagonal through the frame, {name} a third of the way down and in true proportion to the stalk, the giant small and high above"
 
 [[pages]]
 key = "the-axe"
