@@ -17,6 +17,10 @@ RUN python -m pip install --no-cache-dir --requirement requirements.lock
 
 COPY app ./app
 COPY scripts ./scripts
+# The app migrates its own database on boot (app/db.py: prepare_database), so
+# the Alembic config and the migration chain ship in the image.
+COPY alembic.ini ./
+COPY migrations ./migrations
 COPY .env.example ./README.md ./
 
 RUN useradd --create-home --uid 10001 appuser \
