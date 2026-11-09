@@ -554,7 +554,8 @@ ever-after = ["home_cottage"]
 
 [review]
 # The whole instruction, once per image. {page_title}, {story_line} and
-# {cast} are filled from the page being checked.
+# {cast} are filled from the page being checked. The text goes through
+# str.format, so a literal brace (the JSON example) must be doubled.
 instruction = """You are checking one picture for a children's picture book before it is shown to a child. Be strict and literal: you are looking for reasons to FAIL, not reasons to approve.
 
 You are given the picture and a description of the moment it is supposed to show. You are NOT given the child's photograph and you must not guess at likeness — another check covers that. Judge only what is written in the checklist.
@@ -563,7 +564,7 @@ Answer about this page: "{page_title}". The moment it must show: {story_line}
 {cast}
 
 Report exactly one JSON object and nothing else, in this shape:
-{"passed": true, "score": 0, "faults": [], "note": "one short sentence"}
+{{"passed": true, "score": 0, "faults": [], "note": "one short sentence"}}
 
 "score" is 0-100: how well the picture shows the moment. "faults" is a list drawn only from these names, and is empty when nothing is wrong:
 - "wrong_moment": the picture does not show the described moment at all

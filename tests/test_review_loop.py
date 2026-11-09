@@ -473,6 +473,37 @@ class TestTheReviewer:
             build_reviewer(api_key="k", model="gemini-x", required=True), GeminiReviewer
         )
 
+    def test_the_real_prompt_reaches_the_model_and_its_answer_comes_back(self) -> None:
+        """The shipped instruction, filled in, sent through the Gemini reviewer.
+
+        The instruction carries a JSON example, and it is filled with
+        `str.format`; an unescaped brace there raised before any call was made,
+        and the runner recorded every review as "tier 2 did not run".
+        """
+        reviewer = GeminiReviewer("k", model="gemini-x")
+        sent: dict[str, Any] = {}
+
+        def generate_content(*, model: str, contents: list[Any]) -> Any:
+            sent["model"] = model
+            sent["text"] = contents[1].text
+            return Mock(text='{"passed": true, "score": 90, "faults": [], "note": "ok"}')
+
+        reviewer._client = Mock()
+        reviewer._client.models.generate_content = generate_content
+
+        answer = reviewer.review(
+            _png(Image.new("RGB", (8, 8), "white")),
+            media_type="image/png",
+            page_title="The Beanstalk",
+            story_line="Jack climbs into the clouds.",
+            cast="Jack is in this picture.",
+        )
+
+        assert answer.passed and answer.score == 90
+        assert sent["model"] == "gemini-x"
+        assert "Jack climbs into the clouds." in sent["text"]
+        assert '{"passed": true, "score": 0' in sent["text"]
+
     def test_a_production_deployment_needs_a_reviewer_but_mock_mode_does_not(self) -> None:
         from app.config import Settings
 
