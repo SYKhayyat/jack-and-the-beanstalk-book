@@ -170,6 +170,23 @@ def test_a_page_crowded_past_the_layout_is_refused() -> None:
         slots_for([f"char-{index}" for index in range(MAX_PLATE_CAST + 1)])
 
 
+def test_the_chase_puts_the_pursuer_behind_the_fleeing_star() -> None:
+    jack = next(seed for seed in SEEDS if seed.key == "jack_and_the_beanstalk")
+    plan = next(plan for plan in plate_plans(jack) if plan.key == "the-chase")
+    star, giant = plan.slots
+    assert star.cast_key == jack.star
+    assert giant.cast_key == "giant"
+    assert giant.rect[0] < star.rect[0]
+    assert star.facing == giant.facing == "right"
+
+
+def test_an_unknown_or_misfitting_staging_is_refused() -> None:
+    with pytest.raises(PlateError, match="no staging named"):
+        slots_for(["a", "b"], staging="nonsense")
+    with pytest.raises(PlateError, match="holds 2 characters"):
+        slots_for(["a"], staging="chase_right")
+
+
 def test_a_story_with_no_prompt_block_is_refused() -> None:
     unknown = replace(RED, key="no-such-story")
     with pytest.raises(PlateError, match=r"stories\.no-such-story"):

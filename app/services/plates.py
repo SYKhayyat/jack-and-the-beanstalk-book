@@ -80,6 +80,17 @@ _LAYOUTS: dict[int, tuple[tuple[tuple[float, float, float, float], str], ...]] =
     ),
 }
 
+#: Pages whose story the default stage would contradict, by the name a page's
+#: `staging` field uses. In "chase_right" the star flees towards the right of
+#: the frame with the pursuer behind on the left, so both face right; the star
+#: is still first in cast order.
+_STAGINGS: dict[str, tuple[tuple[tuple[float, float, float, float], str], ...]] = {
+    "chase_right": (
+        ((0.62, 0.30, 0.32, 0.64), "right"),
+        ((0.06, 0.30, 0.32, 0.64), "right"),
+    ),
+}
+
 
 def page_cast(story: StorySeed, cast_keys: Sequence[str]) -> tuple[str, ...]:
     """Everyone on a page, once each: the star, then the page's listed cast."""
@@ -91,19 +102,29 @@ def page_cast(story: StorySeed, cast_keys: Sequence[str]) -> tuple[str, ...]:
     return cast
 
 
-def slots_for(cast_keys: Sequence[str]) -> tuple[Slot, ...]:
+def slots_for(cast_keys: Sequence[str], *, staging: str = "") -> tuple[Slot, ...]:
     """One slot per character, laid out by how many there are.
 
     The blueprints are fixed: a lone character stands centre, a pair face each
     other, and three are staged left, centre and right. `scale` is the
     character's height as a share of the art box, so the edit pass is told how
-    big they should be as well as where they go.
+    big they should be as well as where they go. A page may name a `staging`
+    when its story needs a different stage.
     """
-    layout = _LAYOUTS.get(len(cast_keys))
-    if layout is None:
-        raise PlateError(
-            f"no slot layout for {len(cast_keys)} characters (1-{MAX_PLATE_CAST})"
-        )
+    if staging:
+        layout = _STAGINGS.get(staging)
+        if layout is None:
+            raise PlateError(f"no staging named {staging!r}; there is {sorted(_STAGINGS)}")
+        if len(layout) != len(cast_keys):
+            raise PlateError(
+                f"staging {staging!r} holds {len(layout)} characters, not {len(cast_keys)}"
+            )
+    else:
+        layout = _LAYOUTS.get(len(cast_keys))
+        if layout is None:
+            raise PlateError(
+                f"no slot layout for {len(cast_keys)} characters (1-{MAX_PLATE_CAST})"
+            )
     return tuple(
         Slot(cast_key=key, rect=rect, scale=rect[3], facing=facing)
         for key, (rect, facing) in zip(cast_keys, layout, strict=True)
@@ -157,7 +178,7 @@ def plate_plans(story: StorySeed) -> tuple[PlatePlan, ...]:
             page_number=COVER_PAGE,
             key=COVER_KEY,
             prompt=build_plate_prompt(story, story.cover, page_key=COVER_KEY, cover=True),
-            slots=slots_for(page_cast(story, story.cover.cast)),
+            slots=slots_for(page_cast(story, story.cover.cast), staging=story.cover.staging),
         )
     ]
     for page in story.pages:
@@ -166,7 +187,7 @@ def plate_plans(story: StorySeed) -> tuple[PlatePlan, ...]:
                 page_number=page.number,
                 key=page.key,
                 prompt=build_plate_prompt(story, page.scene, page_key=page.key),
-                slots=slots_for(page_cast(story, page.scene.cast)),
+                slots=slots_for(page_cast(story, page.scene.cast), staging=page.scene.staging),
             )
         )
     if len(plans) != PAGE_COUNT + 1:

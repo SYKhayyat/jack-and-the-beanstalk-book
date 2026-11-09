@@ -94,6 +94,8 @@ class SeedScene:
     cast: tuple[str, ...]
     #: The finished picture's own wording for any of `COMPOSE_FIELDS`.
     compose: Mapping[str, str] = field(default_factory=dict)
+    #: A named exception to the plate's default stage; "" for the default.
+    staging: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,6 +360,7 @@ def _scene(spec: Mapping[str, Any], where: str, name: str) -> SeedScene:
         must_avoid=_strings(spec, "must_avoid", where, name),
         cast=tuple(cast_value),
         compose=_compose(spec, where, name),
+        staging=_optional_text(spec, "staging", f"{where} {name!r}"),
     )
 
 

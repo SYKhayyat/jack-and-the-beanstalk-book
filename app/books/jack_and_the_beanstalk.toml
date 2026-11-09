@@ -366,6 +366,7 @@ camera = "wide interior shot from beside the great door, {name} small and hidden
 key = "the-chase"
 title = "The chase"
 cast = ["giant"]
+staging = "chase_right"
 caption = "{name} ran with the harp and the hen, and the giant came thundering after. Across the cloud plain {name} races to the right, towards the top of the beanstalk at the right-hand edge of the frame, the plump brown hen clutched under one arm and the golden harp on {possessive} back by its strap. Far behind on the left, by the castle's great door, the giant stamps out after {object}, puffs of cloud bursting around his boots."
 subject_action = "sprinting to the right across the cloud plain towards the beanstalk ahead, the hen clutched under one arm, the harp on {possessive} back, {possessive} face turned forward, hair streaming back"
 environment = "the cloud country as fixed in the props and places: rolling white cloud-banks, the castle with its three round towers far behind on the left, the top of the beanstalk ahead at the right-hand edge of the frame, a wide stretch of cloud plain between them"
