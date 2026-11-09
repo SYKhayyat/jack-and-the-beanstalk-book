@@ -180,6 +180,17 @@ def test_the_chase_puts_the_pursuer_behind_the_fleeing_star() -> None:
     assert star.facing == giant.facing == "right"
 
 
+@pytest.mark.parametrize(
+    "key", ["the-giant's-kitchen", "the-bag-of-gold", "the-hen", "fee-fi-fo-fum"]
+)
+def test_the_child_is_small_beside_the_giant_on_the_kitchen_pages(key: str) -> None:
+    jack = next(seed for seed in SEEDS if seed.key == "jack_and_the_beanstalk")
+    plan = next(plan for plan in plate_plans(jack) if plan.key == key)
+    star, giant = plan.slots
+    assert star.rect[2] < giant.rect[2]
+    assert star.rect[0] > giant.rect[0]
+
+
 def test_an_unknown_or_misfitting_staging_is_refused() -> None:
     with pytest.raises(PlateError, match="no staging named"):
         slots_for(["a", "b"], staging="nonsense")

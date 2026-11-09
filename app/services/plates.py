@@ -89,6 +89,30 @@ _STAGINGS: dict[str, tuple[tuple[tuple[float, float, float, float], str], ...]] 
         ((0.62, 0.30, 0.32, 0.64), "right"),
         ((0.06, 0.30, 0.32, 0.64), "right"),
     ),
+    # The giant's kitchen is seen from the floor, so the giant's slot is only
+    # his legs at the chair and the star is child-sized against the furniture.
+    "door_and_chair": (
+        ((0.86, 0.31, 0.12, 0.30), "left"),
+        ((0.38, 0.24, 0.28, 0.38), "toward"),
+    ),
+    "beside_the_chair": (
+        ((0.62, 0.30, 0.20, 0.42), "left"),
+        ((0.24, 0.24, 0.36, 0.34), "toward"),
+    ),
+    "chair_and_perch": (
+        ((0.66, 0.36, 0.20, 0.48), "left"),
+        ((0.04, 0.24, 0.44, 0.56), "toward"),
+    ),
+    # The star low on the stalk, the giant coming down it behind.
+    "up_the_stalk": (
+        ((0.30, 0.42, 0.14, 0.28), "right"),
+        ((0.72, 0.22, 0.16, 0.26), "left"),
+    ),
+    # The star at the gate, the giant a speck in the distance.
+    "far_off_fall": (
+        ((0.40, 0.52, 0.14, 0.40), "right"),
+        ((0.62, 0.40, 0.05, 0.08), "toward"),
+    ),
 }
 
 
