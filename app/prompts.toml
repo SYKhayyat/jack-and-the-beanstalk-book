@@ -341,6 +341,65 @@ emotion = "EMOTIONAL BEAT: {emotion}."
 full_frame = "FRAME: the whole image is the illustration, edge to edge. No part of it is covered by text afterwards, so compose the full frame, with no empty band left for words."
 
 # ---------------------------------------------------------------------------
+# The edit pass (T8): paint the cast INTO an approved plate.
+#
+# Every page of a book is one edit call. The first reference image is the
+# page's approved plate — the world, the props and the light, already settled —
+# and everything after it is a character anchor. The prompt's whole job is to
+# make the model change as little as possible: keep every pixel of the plate
+# that is not a character, and paint the cast into the slots the plate
+# reserved for them. A model that redraws the background has failed this pass
+# even if the picture is pretty, because the plate is what holds the book's
+# 21 pages in one world.
+# ---------------------------------------------------------------------------
+
+[book.edit]
+# The task line. {plate_note} says which page this is; the rest is fixed.
+plate_task = "TASK: This is an EDIT of the background plate supplied as the FIRST reference image. The plate already shows this page's place, its props and its light, with nobody in it. Paint the characters named below into it, one into each of the slots listed below, give each one the shadow it casts in this plate's light, and change nothing else."
+# The one sentence this pass lives or dies on.
+preserve = "KEEP THE PLATE: the background — sky, ground, walls, furniture, trees, clouds, every object, the whole composition, the camera angle, the framing, the palette and the light — must come back exactly as it is in the plate. Do not re-imagine the scene, do not re-light it, do not crop it, do not move, add or remove any object, and do not repaint any area that is not a character's own silhouette and whatever that character necessarily touches, apart from the shadow that character casts. A viewer holding the plate and this picture side by side must see the same place."
+# Where each character goes. {slots} is one line per slot.
+slots = "SLOTS (fractions of the whole image, origin top LEFT, measured left to right and top to bottom):\n{slots}"
+# One slot, as the loop above writes it. {facing} is a sentence, not a word.
+slot_line = "- {label}: the character's feet or lowest point sit at height {bottom}% of the frame, the head at about {top}%; its body spans roughly {left}% to {right}% of the width, and it is about {height}% of the frame's height. {facing} A real, correctly proportioned figure of that size — never a larger one."
+# How a slot's standing point is described, so nobody has to read a percentage.
+slot_on_ground = "The figure stands where the plate's ground is."
+slot_floating = "The figure rests on whatever the plate puts under it at that point; if the plate has no ground there, place it against the nearest thing it can stand on — never floating in the sky."
+# Facing, in words rather than a direction key.
+facing_right = "Turned slightly towards the right of the frame."
+facing_left = "Turned slightly towards the left of the frame."
+facing_toward = "Facing the viewer."
+# The identity + style contract, kept as short as it can honestly be: on an
+# edit the plate carries the style, so only the drawing of the people is
+# restated. Anything longer is an invitation to redraw the plate.
+cast_identity = "THE CHARACTERS: they are drawn in the plate's own art style — the same line weight, shading, palette and level of detail as the plate around them, so they look painted by the same hand. Never photographic, never a different medium. Each character is lit by the light the plate already shows, and casts a shadow on whatever is beneath or behind them, falling in the same direction and with the same softness and colour as the shadows of the objects around them, so that no figure looks pasted in."
+# The frame stops the edit from inventing people of its own.
+no_extras = "NOBODY ELSE: only the characters named above appear. No extra person, no crowd, no figure at the edge of the frame, no second copy of anyone, no reflection of a person in a window or a mirror, no face or hand of anyone not listed."
+no_text = "NO TEXT OF ANY KIND: no lettering, no signage, no captions, no logos, no labels, no numbers, no speech bubbles, and no letter-like marks anywhere. The picture has no words in it because the book's words are printed beside it afterwards."
+negative = "Do not draw: a redrawn or reinterpreted background, a different time of day, a different palette, a change of camera angle, a decorative border or frame, a watermark, a signature, a photograph, a shiny plastic-toy look, a bobblehead or oversized head, an extra limb, or anything frightening for a young child."
+# The plate's own instruction, echoed so the edit inherits the frame's rules.
+inherits = "The rules the plate was painted under still hold: the plate's own text-free, person-free, child-friendly and palette rules carry into this picture. Anything the plate deliberately left out stays out."
+# The cover is the one page whose title band is reserved.
+cover_band = "THE TITLE BAND: the upper fifth of the frame was painted calm and empty on purpose and must stay that way — the book's title is set there afterwards, outside this image. Nobody's head may enter it."
+# Added only on a second or third try at the same page. {faults} names what a
+# reviewer found wrong last time. The last sentence is load-bearing: a fault list
+# is an instruction to change what is drawn, and the plate is not to be changed.
+retry_intro = "A previous attempt at this page had these problems, so this is another try: {faults}. Fix exactly those, and nothing else. The background, the props and the light are not among them and must stay as they are in the plate."
+
+# How a reviewer's fault name is said back to the model on a retry. Keyed by the
+# fault names in app/services/reviewer.py; a name with no phrase falls back to
+# itself, so a new fault is clumsy here rather than invisible.
+[book.edit.fault_phrases]
+wrong_moment = "the picture did not show the moment this page is about"
+missing_character = "a character who belongs in this page was missing"
+extra_person = "someone who does not belong in this page was in it"
+text_in_image = "there was lettering or writing in the picture"
+face_obscured = "a face was hidden or cut off by the edge of the frame"
+frightening = "something in it would frighten a young child"
+wrong_counts = "the number of a repeated object was wrong"
+deformed = "a body or limb did not look right"
+
+# ---------------------------------------------------------------------------
 # The empty plates (T5).
 #
 # A plate is one page's world painted once, with no people and no text, which
@@ -482,3 +541,40 @@ the-supper = ["gran_room"]
 home-in-the-dusk = ["wood_path", "home_cottage"]
 ever-after = ["home_cottage"]
 
+# ---------------------------------------------------------------------------
+# The reviewer (T9 tier 2). A vision model looks at every finished picture and
+# answers a short checklist. It never sees the child's photograph, their name or
+# the About text: a reviewer that is shown "this should look like Emma" is being
+# invited to be polite about it, and the About text is none of its business.
+#
+# The answer is strict JSON, because a reviewer whose output has to be parsed
+# out of prose is a reviewer that silently returns "passed" whenever the model
+# gets chatty.
+# ---------------------------------------------------------------------------
+
+[review]
+# The whole instruction, once per image. {page_title}, {story_line} and
+# {cast} are filled from the page being checked.
+instruction = """You are checking one picture for a children's picture book before it is shown to a child. Be strict and literal: you are looking for reasons to FAIL, not reasons to approve.
+
+You are given the picture and a description of the moment it is supposed to show. You are NOT given the child's photograph and you must not guess at likeness — another check covers that. Judge only what is written in the checklist.
+
+Answer about this page: "{page_title}". The moment it must show: {story_line}
+{cast}
+
+Report exactly one JSON object and nothing else, in this shape:
+{"passed": true, "score": 0, "faults": [], "note": "one short sentence"}
+
+"score" is 0-100: how well the picture shows the moment. "faults" is a list drawn only from these names, and is empty when nothing is wrong:
+- "wrong_moment": the picture does not show the described moment at all
+- "missing_character": a character the moment needs is not in the picture
+- "extra_person": someone is present who is not named above
+- "text_in_image": any lettering, sign, caption, label, number, speech bubble or writing of any kind
+- "face_obscured": a face is hidden, cut off at the frame edge, or turned away in a way that loses the character
+- "frightening": anything that would frighten a young child
+- "wrong_counts": the number of a repeated object disagrees with the moment
+- "deformed": extra or missing limbs, or a body that reads as broken
+
+Set "passed" to false if any fault is listed. A picture with no faults and a score of 70 or more has passed."""
+
+page_title = "the picture book's page: "
