@@ -38,6 +38,7 @@ from app.routes.auth import install_auth_gate
 from app.services.google_oauth import GoogleOAuthClient
 from app.services.image_providers.base import ImageProvider
 from app.services.payments import PaymentProvider
+from app.services.reviewer import ImageReviewer
 from app.sessions import SessionCodec
 from app.stories import NOT_READY, shelf
 
@@ -150,6 +151,7 @@ def create_app(
     *,
     provider: ImageProvider | None = None,
     payments: PaymentProvider | None = None,
+    reviewer: ImageReviewer | None = None,
 ) -> FastAPI:
     """Build a configured application.
 
@@ -157,6 +159,8 @@ def create_app(
         settings: Overrides the environment-derived defaults. Tests pass one.
         provider: Overrides provider construction. Tests pass a fake.
         payments: Overrides Stripe construction. Tests pass a fake.
+        reviewer: Overrides reviewer construction. Tests pass a fake, so the
+            retry path can be exercised without a vision model or a key.
     """
     if not SEEDS:
         # ``app.books`` validates every seed it finds at import, so reaching
@@ -177,7 +181,9 @@ def create_app(
     )
 
     app.state.settings = resolved
-    app.state.container = build_container(resolved, provider=provider, payments=payments)
+    app.state.container = build_container(
+        resolved, provider=provider, payments=payments, reviewer=reviewer
+    )
     app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
     # Every page can show the shelf's stories (the signed-out login page too)
     # and the footer's retention line, so both are template globals. The shelf

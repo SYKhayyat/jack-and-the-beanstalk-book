@@ -1165,6 +1165,31 @@ dialog.modal form {
   animation: none;
   background: var(--berry);
 }
+.attempt-chip {
+  display: table;
+  margin: 8px auto 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+}
+.attempt-chip.first {
+  border-color: var(--bean);
+  color: var(--bean);
+}
+.attempt-chip.retried {
+  border-color: var(--marigold);
+  background: var(--marigold-soft);
+  color: var(--ink);
+}
+.attempt-chip.best {
+  border-color: var(--berry);
+  background: #fbe9ec;
+  color: var(--berry-dark);
+}
 .spread-story {
   margin-top: 14px;
   font-size: 18px;
@@ -1269,6 +1294,26 @@ dialog.modal form {
   font-weight: 600;
   color: var(--ink-soft);
   text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+}
+.map-attempts {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  padding: 0 4px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--bean);
+}
+.map-attempts.retried {
+  color: var(--ink);
+  background: var(--marigold-soft);
+}
+.map-attempts.best {
+  color: var(--berry-dark);
+  background: #fbe9ec;
 }
 .map-tile.done {
   border: 2px solid var(--bean);
@@ -1681,5 +1726,36 @@ dialog.modal form {
 
 .admin-prompt-edit summary {
   cursor: pointer;
+  color: var(--ink-soft);
+}
+
+/* --- the cost panel (wallet) ---------------------------------------------------- */
+.cost-compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 8px 0 16px;
+}
+.cost-compare p {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+}
+.cost-figure {
+  display: block;
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cost-caption {
+  display: block;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.wallet-made-for {
+  display: block;
+  font-size: 13px;
   color: var(--ink-soft);
 }

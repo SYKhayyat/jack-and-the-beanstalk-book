@@ -70,7 +70,7 @@
           {% for entry in history %}
           <tr>
             <td class="wallet-when">{{ entry.created_at[:16].replace("T", " ") }}</td>
-            <td>{{ entry.description }}</td>
+            <td>{{ entry.description }}{% if entry.made_for %}<span class="wallet-made-for">This book cost {{ entry.made_for }} in API calls to make.</span>{% endif %}</td>
             <td class="wallet-amount{% if entry.credit %} credit{% endif %}">{{ entry.amount_label }}</td>
           </tr>
           {% endfor %}
@@ -79,6 +79,37 @@
       {% else %}
       <p class="field-help">Nothing has moved yet. A top-up, a book and a refund all appear here.</p>
       {% endif %}
+    </section>
+
+    <section class="card" aria-labelledby="cost-heading">
+      <h2 id="cost-heading">What a book costs to make</h2>
+      {% if costs.books %}
+      <div class="cost-compare">
+        <p><span class="cost-figure">{{ costs.average }}</span><span class="cost-caption">average API spend per finished book</span></p>
+        <p><span class="cost-figure">{{ costs.price }}</span><span class="cost-caption">what a book is charged</span></p>
+        <p><span class="cost-figure">{{ costs.margin }}</span><span class="cost-caption">left over per book ({{ costs.share }}% of the price goes on API calls)</span></p>
+      </div>
+      <table class="wallet-table">
+        <caption class="field-help">Averaged over {{ costs.books }} finished book{{ "" if costs.books == 1 else "s" }}, including the portraits each one was made from.</caption>
+        <thead>
+          <tr><th scope="col">Calls in one book</th><th scope="col">Average count</th><th scope="col">Average cost</th></tr>
+        </thead>
+        <tbody>
+          {% for row in costs.rows %}
+          <tr><td>{{ row.label }}</td><td class="wallet-amount">{{ row.calls }}</td><td class="wallet-amount">{{ row.cost }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="field-help">No finished book has been measured yet. Every image call, redraw and quality check is logged with its price, and the average appears here once a book is done.</p>
+      {% endif %}
+      <p class="field-help">
+        All calls logged on this deployment: {{ costs.total_calls }}, costing {{ costs.total }} in total.
+        {{ costs.overhead }} of that belongs to no finished book (rejected portraits, books that stopped early, template plates).
+        {% if costs.failed_calls %}{{ costs.failed_calls }} call{{ "" if costs.failed_calls == 1 else "s" }} failed and cost nothing.{% endif %}
+        {% if costs.unpriced_calls %}<strong>{{ costs.unpriced_calls }} call{{ "" if costs.unpriced_calls == 1 else "s" }} have no known price</strong> and are counted as $0 — set IMAGE_CALL_COST_USD or REVIEW_CALL_COST_USD.{% endif %}
+        Images are priced from the active provider ({{ costs.provider }}).
+      </p>
     </section>
 
     {% if refunds %}

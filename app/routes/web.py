@@ -198,6 +198,7 @@ def book_page(
             "rejection_reasons": _rejection_reasons(),
             "about_photo_choices": _ABOUT_PHOTO_LABELS,
             "max_upload_mb": container.settings.max_upload_mb,
+            "max_attempts": container.settings.page_attempts,
         },
     )
 
@@ -339,9 +340,18 @@ def _tiles(raw: object, rendered: list[BookPage]) -> list[dict[str, Any]]:
                 "story": entry.get("story", story) or "",
                 "status": status,
                 "url": entry.get("url") if status == "done" else None,
+                # The quality loop's record for this picture (see
+                # `_with_attempts`); 0 means none was stored.
+                "attempts": _int(entry.get("attempts")),
+                "chosen_attempt": _int(entry.get("chosen_attempt")),
+                "best_effort": bool(entry.get("best_effort")),
             }
         )
     return tiles
+
+
+def _int(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def _about_images(book_id: str, choice: AboutPhotoChoice) -> list[dict[str, str]]:

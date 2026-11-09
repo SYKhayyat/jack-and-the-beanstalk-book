@@ -287,6 +287,10 @@ async def start_book(
             "pdf_url": payload.get("pdf_url"),
             "reused": True,
         }
+    # The portraits this book is made from were paid for before it existed;
+    # they are part of what it cost.
+    drafts = [generation_id, *(pair.partition(":")[2].strip() for pair in character)]
+    await asyncio.to_thread(container.costs.adopt_drafts, book_id, drafts)
     try:
         await container.book_runner.start(
             record,

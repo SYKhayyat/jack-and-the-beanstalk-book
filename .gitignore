@@ -10,6 +10,10 @@ storage/
 var/
 *.log
 
+# The plate workflow's scratch directory: prompt .txt files and the pictures
+# painted outside the app. Plates belong in the database, never in the repo.
+plates/
+
 # --- Python ----------------------------------------------------------------------
 __pycache__/
 *.py[cod]

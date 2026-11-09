@@ -145,6 +145,11 @@ class BookRow(Base):
     )
     #: The cover's quality verdicts (T9). A pinned book cannot complete without it.
     cover_review: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    #: The cover's attempts, recorded exactly as a page's are, so a redrawn cover
+    #: says how many billable calls it took and which one is on the book.
+    cover_attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    cover_chosen_attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cover_best_effort: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
@@ -414,6 +419,41 @@ class WalletTransactionRow(Base):
     #: The Stripe PaymentIntent behind a funding credit, so a refund knows
     #: which payment to send money back against.
     payment_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class ApiCallRow(Base):
+    """One billable call to a model: an image, a retry, or a review.
+
+    The cost ledger behind "what a book costs to make". Written by the metered
+    provider and reviewer (`app/services/costs.py`) on every call, success or
+    failure, so retries and review calls are counted rather than estimated.
+
+    No foreign key to `books` on purpose: deleting a book must not erase what it
+    cost. `cost_microusd` is null when the call's price is not known for the
+    configured backend, so an unpriced call is visible instead of counted as
+    free.
+    """
+
+    __tablename__ = "api_calls"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    #: "image" or "review".
+    kind: Mapped[str] = mapped_column(String(16))
+    #: "portrait", "cover", "page", "retry", "review", "plate" or "other".
+    category: Mapped[str] = mapped_column(String(16))
+    provider: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str] = mapped_column(String(128))
+    book_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    #: The portrait draft the call belongs to; a book carries its draft's id, so
+    #: the portrait it was made from is part of its cost.
+    generation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    images: Mapped[int] = mapped_column(Integer)
+    ok: Mapped[bool] = mapped_column(Boolean)
+    cost_microusd: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 

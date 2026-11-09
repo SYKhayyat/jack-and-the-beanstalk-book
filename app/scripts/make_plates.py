@@ -22,15 +22,21 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
 
-from PIL import Image
+from app.scripts._venv import ensure_venv
 
-from app.books import SEEDS, StorySeed
-from app.config import Settings, get_settings
-from app.db import build_engine, prepare_database
-from app.services.image_providers.base import ImageProvider, ImageRequest
-from app.services.image_providers.registry import build_provider
-from app.services.plates import PlatePlan, plate_plans
-from app.services.template_store import TemplateError, TemplateStore
+# Before Pillow and `app.services`: on a host python this hands the command to
+# `.venv/bin/python` instead of failing with a bare ModuleNotFoundError.
+ensure_venv()
+
+from PIL import Image  # noqa: E402
+
+from app.books import SEEDS, StorySeed  # noqa: E402
+from app.config import Settings, get_settings  # noqa: E402
+from app.db import build_engine, prepare_database  # noqa: E402
+from app.services.image_providers.base import ImageProvider, ImageRequest  # noqa: E402
+from app.services.image_providers.registry import build_provider  # noqa: E402
+from app.services.plates import PlatePlan, plate_plans  # noqa: E402
+from app.services.template_store import TemplateError, TemplateStore  # noqa: E402
 
 __all__ = ["ContactSheetError", "main", "run"]
 

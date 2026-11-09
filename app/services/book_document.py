@@ -83,7 +83,15 @@ class BookDocument:
             BookStatus.COMPLETE,
             self.page_view(record.book_id, progress, rendered_pages),
             title=record.title,
-            extra={"phase": _PHASE_COMPLETE, "total_pages": len(rendered_pages) + 1},
+            extra={
+                "phase": _PHASE_COMPLETE,
+                "total_pages": len(rendered_pages) + 1,
+                # Nothing is being drawn any more, and the stage says so rather
+                # than leaving the last one ("reviewing page 12") behind (T12).
+                "stage": _PHASE_COMPLETE,
+                "stage_page": None,
+                "stage_attempt": 1,
+            },
         )
         return len(pdf_bytes)
 

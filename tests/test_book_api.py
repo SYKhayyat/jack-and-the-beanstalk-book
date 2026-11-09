@@ -641,6 +641,69 @@ class TestPerPageProgress:
             assert client.get(page["url"]).status_code == 200
 
 
+class TestTheStageIsNamed:
+    """T12: the poll says what is happening, not only how much is done."""
+
+    def test_a_page_being_drawn_says_so(self, client_factory) -> None:
+        provider = BlockingPageProvider()
+        with client_factory(provider) as blocking_client:
+            portrait = make_portrait(blocking_client)
+            start = blocking_client.post(
+                "/api/book/start",
+                data={
+                    "story": "jack_and_the_beanstalk",
+                    "generation_id": portrait["generation_id"],
+                    "child_name": "Shai",
+                },
+            )
+            book_id = start.json()["book_id"]
+            assert provider.page_two_entered.wait(timeout=10)
+
+            # Poll while page 2 is still blocked inside its provider call. The
+            # stage must name a page that is actually being drawn, and a stage
+            # that describes work — not the old uninformative "pages".
+            deadline = time.monotonic() + 5.0
+            seen_stages: set[str] = set()
+            consistent = False
+            while time.monotonic() < deadline:
+                payload = blocking_client.get(f"/api/book/{book_id}").json()
+                stage = payload.get("stage")
+                page = payload.get("stage_page")
+                seen_stages.add(str(stage))
+                unfinished = {
+                    entry["number"] for entry in payload["pages"] if entry["status"] != "done"
+                }
+                # Every page runs at once, so which one the stage names is a
+                # race — but it must always be one that is not finished, or the
+                # reader is told about work that is already over.
+                assert page in unfinished, (stage, page, sorted(unfinished))
+                consistent = page in unfinished
+                if stage == "painting":
+                    break
+                time.sleep(0.02)
+            provider.release_page_two.set()
+            wait_for_book(blocking_client, book_id)
+
+            assert consistent
+            assert "painting" in seen_stages, seen_stages
+
+    def test_a_finished_book_stages_as_complete(self, client: TestClient) -> None:
+        portrait = make_portrait(client)
+        start = client.post(
+            "/api/book/start",
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+                "child_name": "Shai",
+            },
+        )
+        final = wait_for_book(client, start.json()["book_id"])
+        assert final["status"] == "complete"
+        # Not the last thing that happened to a page, which would read as if the
+        # book were still working.
+        assert final.get("stage") == "complete", final
+
+
 class TestRestartRecovery:
     """A book interrupted before its first status write must not poll forever."""
 
@@ -709,7 +772,7 @@ def test_book_start_moves_its_blocking_store_calls_off_the_loop(
         ),
     )
 
-    def build(_settings, provider=None, payments=None):
+    def build(_settings, provider=None, payments=None, reviewer=None):
         return container
 
     monkeypatch.setattr("app.main.build_container", build)
@@ -792,7 +855,7 @@ def test_a_poll_reads_the_book_once(
         ),
     )
 
-    def build(_settings, provider=None, payments=None):
+    def build(_settings, provider=None, payments=None, reviewer=None):
         return container
 
     monkeypatch.setattr("app.main.build_container", build)
@@ -902,7 +965,7 @@ class TestBookRateBudget:
     ) -> None:
         fast_limiter = GenerationRateLimiter(2, window_seconds=0.2)
 
-        def build(settings, provider=None, payments=None):
+        def build(settings, provider=None, payments=None, reviewer=None):
             return replace(
                 build_container(settings, provider=provider), rate_limiter=fast_limiter
             )
@@ -934,7 +997,7 @@ class TestQuotaAccounting:
     def _app_with_limiter(self, settings, provider, monkeypatch, limit: int):
         limiter = GenerationRateLimiter(limit, window_seconds=60.0)
 
-        def build(settings, provider=None, payments=None):
+        def build(settings, provider=None, payments=None, reviewer=None):
             return replace(build_container(settings, provider=provider), rate_limiter=limiter)
 
         monkeypatch.setattr("app.main.build_container", build)

@@ -31,6 +31,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from app.models.book import AboutMe
 from app.models.settings import CartoonSettings
@@ -266,7 +267,44 @@ class BookStore:
         """Persist one page's art. Raises on a bad page number, never on disk."""
         raise NotImplementedError
 
+    def record_page_review(
+        self,
+        book_id: str,
+        page_number: int,
+        *,
+        review: list[dict[str, Any]],
+        attempt_count: int,
+        chosen_attempt: int,
+        best_effort: bool = False,
+    ) -> None:
+        """Store one page's verdicts and which attempt was kept (T9).
+
+        A template-pinned book cannot complete until every one of its images
+        has one, which is what stops an unreviewed picture reaching a reader.
+        """
+        raise NotImplementedError
+
+    def record_cover_review(
+        self,
+        book_id: str,
+        review: list[dict[str, Any]],
+        *,
+        attempt_count: int = 1,
+        chosen_attempt: int = 1,
+        best_effort: bool = False,
+    ) -> None:
+        """Store the cover's verdicts and which attempt was kept (T9)."""
+        raise NotImplementedError
+
     def read_page(self, book_id: str, page_number: int) -> bytes | None:
+        raise NotImplementedError
+
+    def read_page_etag(self, book_id: str, page_number: int) -> str | None:
+        """A page's content hash, or None when the page has no art yet (T13).
+
+        Read without the image, so a browser revalidating a page costs one small
+        query instead of shipping a megabyte it already has.
+        """
         raise NotImplementedError
 
     def save_prompts(self, book_id: str, prompts: list[dict[str, str]]) -> None:

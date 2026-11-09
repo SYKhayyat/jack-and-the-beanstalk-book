@@ -25,6 +25,7 @@ const spreads = Array.from(slot.querySelectorAll(".spread"));
 const mapTiles = Array.from(document.querySelectorAll(".map-tile"));
 const lastIndex = spreads.length - 1;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const MAX_ATTEMPTS = Number(body.dataset.maxAttempts) || 3;
 
 let index = 0;
 let status = body.dataset.bookStatus;
@@ -33,6 +34,7 @@ let awaitingEdit = false;
 let lastDone = -1;
 let quietPolls = 0;
 
+spreads.forEach((spread, position) => badgeAttempts(position, attemptsFrom(spread.dataset)));
 show(initialIndex(), { animate: false });
 wireTurning();
 wireEdits();
@@ -202,13 +204,40 @@ function apply(payload) {
   } else {
     quietPolls = done > lastDone ? 0 : quietPolls + 1;
     lastDone = Math.max(lastDone, done);
+    // Say what is happening, not only how much is left. "45% for two minutes"
+    // looks stuck; "checking page 7" looks like work.
+    const stage = stageCaption(payload, done, total);
     caption(
-      quietPolls >= RESTING_AFTER_POLLS
-        ? `${done} of ${total} pictures drawn. The pencil is resting for a moment — it picks up again on its own.`
-        : `Your book is being drawn. ${done} of ${total} pictures drawn.`,
+      stage ||
+        (quietPolls >= RESTING_AFTER_POLLS
+          ? `${done} of ${total} pictures drawn. The pencil is resting for a moment — it picks up again on its own.`
+          : `Your book is being drawn. ${done} of ${total} pictures drawn.`),
     );
   }
   poll(0);
+}
+
+/**
+ * What the job is doing right now, as a sentence, or "" when there is nothing
+ * specific to say. `stage` and `stage_page` come from the server's status
+ * payload: a page being drawn, drawn and being looked at, or being redrawn
+ * because a check found something wrong.
+ */
+function stageCaption(payload, done, total) {
+  const page = Number(payload.stage_page);
+  const where = Number.isFinite(page) && page > 0 ? `page ${page}` : "the cover";
+  switch (payload.stage) {
+    case "painting":
+      return `Drawing ${where} — ${done} of ${total} pictures finished.`;
+    case "reviewing":
+      return `Checking ${where} — the picture is drawn and being looked at for stray words, extra people and anything frightening.`;
+    case "retrying": {
+      const attempt = Number(payload.stage_attempt) || 2;
+      return `Drawing ${where} again (try ${attempt}) — the first one did not pass its check.`;
+    }
+    default:
+      return "";
+  }
 }
 
 function paint(position, entry) {
@@ -225,7 +254,10 @@ function paint(position, entry) {
       tile.prepend(thumb);
     }
   }
-  if (!spread || spread.dataset.status === state) return;
+  if (!spread || spread.dataset.status === state) {
+    if (state === "done") badgeAttempts(position, attemptsFrom(entry));
+    return;
+  }
   spread.dataset.status = state;
   const art = spread.querySelector(".spread-art");
   if (state === "done" && entry.url) {
@@ -234,9 +266,66 @@ function paint(position, entry) {
     img.alt = `${spreadName(position).label}: ${entry.title || ""}`;
     art.replaceChildren(img);
     if (position === index && !reducedMotion) art.classList.add("landed");
+    badgeAttempts(position, attemptsFrom(entry));
   } else {
     const text = art.querySelector('[data-role="waiting-text"]');
     if (text) text.textContent = state === "failed" ? "This one didn't make it." : "being drawn…";
+  }
+}
+
+/* --- the attempt record -------------------------------------------------------
+   Every picture goes through the quality check and is redrawn up to
+   MAX_ATTEMPTS times; the badge says how many tries it took and which one is on
+   the page, so the loop can be seen (and graded) rather than taken on trust. */
+
+function attemptsFrom(source) {
+  const attempts = Number(source.attempts) || 0;
+  return {
+    attempts,
+    chosen: Number(source.chosenAttempt ?? source.chosen_attempt) || attempts,
+    bestEffort: source.bestEffort === "true" || source.best_effort === true,
+  };
+}
+
+function attemptWords({ attempts, chosen, bestEffort }) {
+  if (bestEffort) {
+    return `${attempts} of ${MAX_ATTEMPTS} tries — none passed every check, so the best one (try ${chosen}) is shown`;
+  }
+  if (attempts === 1) return `Passed its check on the first try (1 of ${MAX_ATTEMPTS})`;
+  return `Passed its check on try ${chosen} of ${MAX_ATTEMPTS}`;
+}
+
+function badgeAttempts(position, record) {
+  if (!record.attempts) return;
+  const words = attemptWords(record);
+  const tone = record.bestEffort ? "best" : record.attempts > 1 ? "retried" : "first";
+  const spread = spreads[position];
+  const art = spread && spread.querySelector(".spread-art");
+  if (art) {
+    // Under the picture, never on it: a badge is text too, and text must not
+    // cover the story.
+    let chip = spread.querySelector(".attempt-chip");
+    if (!chip) {
+      chip = document.createElement("p");
+      art.after(chip);
+    }
+    chip.className = `attempt-chip ${tone}`;
+    chip.textContent = record.bestEffort
+      ? `Best of ${record.attempts} tries`
+      : `Try ${record.chosen} of ${MAX_ATTEMPTS}`;
+    chip.title = words;
+  }
+  const tile = mapTiles[position];
+  if (tile) {
+    let mark = tile.querySelector(".map-attempts");
+    if (!mark) {
+      mark = document.createElement("span");
+      tile.append(mark);
+    }
+    mark.className = `map-attempts ${tone}`;
+    mark.textContent = `${record.attempts}×`;
+    mark.title = words;
+    tile.setAttribute("aria-label", `${spreadName(position).label}, ${words}`);
   }
 }
 

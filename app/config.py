@@ -100,6 +100,58 @@ class Settings(BaseSettings):
         description="Agnes output resolution tier: 1K, 2K, 3K or 4K.",
     )
 
+    # --- the reviewer (T9 tier 2) ---
+    # Every finished picture is checked by a vision model before a book can
+    # complete. The key is the operator's, like every other backend: environment
+    # only, never named on a visitor-facing surface.
+    reviewer_api_key: str = Field(
+        default="",
+        description=(
+            "Key for the picture reviewer. Empty falls back to GEMINI_API_KEY, "
+            "and with neither set the reviewer is off in development and a "
+            "start-up error in production."
+        ),
+    )
+    reviewer_model: str = Field(
+        default="gemini-3.1-flash-lite",
+        description="Vision model used to check each finished picture.",
+    )
+    page_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=3,
+        description=(
+            "Billable attempts per page before the best one is kept. Three is "
+            "the cap by design: each attempt costs money, and a page that never "
+            "passes is kept and marked best-effort rather than retried forever."
+        ),
+    )
+    reviewer_timeout_seconds: int = Field(
+        default=90,
+        ge=5,
+        description="One review's budget. A timed-out review fails that image, not the book.",
+    )
+
+    # --- what a call costs (the cost ledger) ---
+    image_call_cost_usd: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "What one generated image costs, in dollars. Empty means: priced "
+            "from the configured provider — Agnes and mock are free, OpenAI is "
+            "priced from its published per-image table for the model and "
+            "quality. Set it for a backend that table does not know."
+        ),
+    )
+    review_call_cost_usd: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "What one review call costs, in dollars. Empty leaves review calls "
+            "counted but unpriced, and the cost page says how many."
+        ),
+    )
+
     # --- app ---
     app_env: str = Field(default="development")
     app_password: str = Field(
@@ -244,6 +296,12 @@ class Settings(BaseSettings):
         ),
     )
 
+    @field_validator("image_call_cost_usd", "review_call_cost_usd", mode="before")
+    @classmethod
+    def _blank_price_is_unset(cls, value: object) -> object:
+        """`IMAGE_CALL_COST_USD=` (as `.env.example` ships it) means "not set"."""
+        return None if isinstance(value, str) and not value.strip() else value
+
     @field_validator("storage_dir", mode="after")
     @classmethod
     def _make_storage_dir(cls, value: Path) -> Path:
@@ -254,6 +312,26 @@ class Settings(BaseSettings):
     def local_database_path(self) -> Path:
         """The SQLite file an empty `DATABASE_URL` means: the whole store."""
         return self.storage_dir / "app.sqlite3"
+
+    @property
+    def effective_reviewer_key(self) -> str:
+        """The key the reviewer will use, from either variable that can carry it.
+
+        One fallback, in one place: `REVIEWER_API_KEY` wins, and a deployment
+        that already has `GEMINI_API_KEY` for images needs no second key.
+        """
+        return self.reviewer_api_key.strip() or self.gemini_api_key.strip()
+
+    @property
+    def reviewer_required(self) -> bool:
+        """Whether a missing reviewer is a start-up error (T9.6).
+
+        Required in production, where shipping unreviewed pictures is the risk
+        the whole tier exists to stop. Off in development, test and mock mode,
+        where every verdict is stamped `tiers_run: [1]` and said so in the log
+        rather than dressed up as a review.
+        """
+        return self.is_production and self.image_provider is not ProviderName.MOCK
 
     @property
     def effective_database_url(self) -> str:

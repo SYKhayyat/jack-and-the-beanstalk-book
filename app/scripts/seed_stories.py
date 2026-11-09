@@ -14,10 +14,16 @@ approved); nothing a book already pinned is rewritten.
 
 from __future__ import annotations
 
-from app.books import SEEDS
-from app.config import get_settings
-from app.db import build_engine, prepare_database
-from app.services.template_store import TemplateStore
+from app.scripts._venv import ensure_venv
+
+# Before `app.services`: on a host python this hands the command to
+# `.venv/bin/python` instead of failing with a bare ModuleNotFoundError.
+ensure_venv()
+
+from app.books import SEEDS  # noqa: E402
+from app.config import get_settings  # noqa: E402
+from app.db import build_engine, prepare_database  # noqa: E402
+from app.services.template_store import TemplateStore  # noqa: E402
 
 
 def main() -> int:

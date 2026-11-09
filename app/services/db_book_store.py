@@ -41,7 +41,7 @@ from app.db import (
 )
 from app.models.book import AboutMe
 from app.models.settings import CartoonSettings
-from app.models.story import StoryEdition
+from app.models.story import COVER_NUMBER, StoryEdition
 from app.services.book_store import (
     BookRecord,
     BookStatus,
@@ -326,14 +326,14 @@ class DatabaseBookStore(BookStore):
                     BookRow.id == book_id
                 )
             ).one_or_none()
-        if row is None:
-            return None
-        if row.status_payload is not None:
-            return dict(row.status_payload)
-        # A row that predates this fix (or an insert interrupted before the
-        # document was written) still answers in the poll's shape rather than
-        # pretending the book does not exist.
-        return self._status_payload(book_id, row.status, [], row.error)
+            if row is None:
+                return None
+            if row.status_payload is None:
+                # A row that predates this fix (or an insert interrupted before
+                # the document was written) still answers in the poll's shape
+                # rather than pretending the book does not exist.
+                return self._status_payload(book_id, row.status, [], row.error)
+            return _with_attempts(conn, book_id, dict(row.status_payload))
 
     def load_status_and_owner(
         self, book_id: str
@@ -350,13 +350,13 @@ class DatabaseBookStore(BookStore):
                     BookRow.status, BookRow.status_payload, BookRow.error, BookRow.user_id
                 ).where(BookRow.id == book_id)
             ).one_or_none()
-        if row is None:
-            return None, None
-        payload = (
-            dict(row.status_payload)
-            if row.status_payload is not None
-            else self._status_payload(book_id, row.status, [], row.error)
-        )
+            if row is None:
+                return None, None
+            payload = (
+                _with_attempts(conn, book_id, dict(row.status_payload))
+                if row.status_payload is not None
+                else self._status_payload(book_id, row.status, [], row.error)
+            )
         return payload, row.user_id or None
 
     # --- artefacts -------------------------------------------------------------
@@ -417,15 +417,34 @@ class DatabaseBookStore(BookStore):
                 .values(cover=data, cover_review=null(), updated_at=_now())
             )
 
-    def record_cover_review(self, book_id: str, review: list[dict[str, Any]]) -> None:
-        """Store the cover's verdicts (T9). A new cover clears them."""
+    def record_cover_review(
+        self,
+        book_id: str,
+        review: list[dict[str, Any]],
+        *,
+        attempt_count: int = 1,
+        chosen_attempt: int = 1,
+        best_effort: bool = False,
+    ) -> None:
+        """Store the cover's verdicts and which attempt was kept (T9).
+
+        A new cover clears them, exactly as a re-saved page does: a redraw must
+        never ride on its predecessor's verdict.
+        """
         if not review:
             raise ValueError("a review records at least one verdict")
+        if not 1 <= chosen_attempt <= attempt_count:
+            raise ValueError("chosen_attempt must be one of the attempts made")
         with self._engine.begin() as conn:
             result = conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id, BookRow.cover.is_not(None))
-                .values(cover_review=review)
+                .values(
+                    cover_review=review,
+                    cover_attempt_count=attempt_count,
+                    cover_chosen_attempt=chosen_attempt,
+                    cover_best_effort=best_effort,
+                )
             )
             if result.rowcount != 1:
                 raise LookupError(f"book {book_id} has no cover to review")
@@ -544,6 +563,22 @@ class DatabaseBookStore(BookStore):
         with self._engine.connect() as conn:
             return conn.execute(
                 select(BookPageRow.image).where(
+                    BookPageRow.book_id == book_id, BookPageRow.page_number == page_number
+                )
+            ).scalar_one_or_none()
+
+    def read_page_etag(self, book_id: str, page_number: int) -> str | None:
+        """The page's stored hash, read without its image (T13).
+
+        The hash is written with the image (`save_page`), so this is the same
+        number the browser was told last time. A page whose image predates the
+        column returns None and the caller hashes what it reads instead.
+        """
+        if page_number < 1:
+            return None
+        with self._engine.connect() as conn:
+            return conn.execute(
+                select(BookPageRow.image_sha256).where(
                     BookPageRow.book_id == book_id, BookPageRow.page_number == page_number
                 )
             ).scalar_one_or_none()
@@ -679,6 +714,64 @@ class DatabaseBookStore(BookStore):
                 _delete_book(conn, book_id)
                 logger.info("book.expired id=%s", book_id)
         return len(stale)
+
+
+def _with_attempts(
+    conn: Connection, book_id: str, payload: dict[str, object]
+) -> dict[str, object]:
+    """Stamp each finished picture in the poll document with its attempt record.
+
+    The quality loop's attempts live on the page and book rows, written once per
+    picture; the status document is rewritten on every progress tick. Reading
+    them here, from the rows, keeps one source of truth: the badge a visitor
+    sees ("try 2 of 3") is the number the loop stored, never a copy that a later
+    status write could drop. Pictures with no record (made before the loop, or
+    not finished yet) carry no attempt fields at all.
+    """
+    pages = payload.get("pages")
+    if not isinstance(pages, list) or not pages:
+        return payload
+    records: dict[int, tuple[int, int | None, bool]] = {
+        row.page_number: (row.attempt_count, row.chosen_attempt, row.best_effort)
+        for row in conn.execute(
+            select(
+                BookPageRow.page_number,
+                BookPageRow.attempt_count,
+                BookPageRow.chosen_attempt,
+                BookPageRow.best_effort,
+            ).where(BookPageRow.book_id == book_id)
+        )
+    }
+    cover = conn.execute(
+        select(
+            BookRow.cover_attempt_count,
+            BookRow.cover_chosen_attempt,
+            BookRow.cover_best_effort,
+        ).where(BookRow.id == book_id)
+    ).one_or_none()
+    if cover is not None:
+        records[COVER_NUMBER] = (
+            cover.cover_attempt_count,
+            cover.cover_chosen_attempt,
+            cover.cover_best_effort,
+        )
+    stamped: list[object] = []
+    for entry in pages:
+        number = entry.get("number") if isinstance(entry, dict) else None
+        record = records.get(number) if isinstance(number, int) else None
+        if record is None or record[0] < 1 or entry.get("status") != "done":
+            stamped.append(entry)
+            continue
+        count, chosen, best_effort = record
+        stamped.append(
+            {
+                **entry,
+                "attempts": count,
+                "chosen_attempt": chosen or count,
+                "best_effort": bool(best_effort),
+            }
+        )
+    return {**payload, "pages": stamped}
 
 
 def _delete_book(conn: Connection, book_id: str) -> None:

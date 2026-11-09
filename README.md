@@ -323,8 +323,12 @@ app/
 │   ├── scenes.py         #     the image spec shared by every page
 │   └── settings.py       #     the user-facing knobs, validated by pydantic
 ├── scripts/stress_test.py  # free load testing
+├── scripts/make_plates.py  # paint a story's plates through the provider
+├── scripts/plate_prompts.py # print/export the exact plate prompts (no calls)
+├── scripts/import_plates.py # bring in plates painted elsewhere, and approve them
 ├── services/             # domain logic, no HTTP
 │   ├── prompts.py        #     prompt assembly: which line applies, joined how
+│   ├── image_review.py   #     tier-1 review: free, deterministic, every image
 │   ├── concurrency.py    #     admission control for generation requests
 │   ├── pipeline.py       #     the cartoonify pass: build prompt, call provider
 │   ├── images.py         #     upload validation, normalisation, EXIF stripping
@@ -635,6 +639,159 @@ prompts live in the database, never in the repo, and every action is logged
 with the request id and without image bytes. Anybody who is not `OPERATOR_SUB`
 gets the same 404 an unknown URL gives.
 
+### Painting the plates somewhere else
+
+A plate is painted once per story and is nobody's personal data, so it does not
+have to be painted by this app at all: any image tool works, including a free
+web UI with no API key, which costs nothing and needs nobody's credit card.
+Two commands exist for that loop. Neither one makes an image call.
+
+```bash
+# 1. Read the exact prompts out — the same words make_plates would have sent.
+make plates-prompts              # writes plates/jack_and_the_beanstalk/0.txt … 20.txt
+make plates-prompts STORY=little_red_riding_hood
+
+# 2. Save each result as its page number (0 is the cover) in that directory,
+#    then bring the set back in and approve it in one go.
+make plates-import
+
+# The same two steps, spelled out, if you prefer:
+python -m app.scripts.plate_prompts --story jack_and_the_beanstalk \
+    --out ~/plates/jack                     # or --page 4 for one page
+python -m app.scripts.import_plates --story jack_and_the_beanstalk \
+    --dir ~/plates/jack --approve
+```
+
+Plain `python` is enough: if it cannot import the project's dependencies, every
+operator script hands the command to `.venv/bin/python` and says so. There is no
+way to run one of these against the wrong interpreter and only find out from a
+`ModuleNotFoundError: No module named 'PIL'`.
+
+`STORY` and `DIR` are overridable on every one of those targets.
+
+The import stores each file with **the page's planned prompt and slots**, never
+anything measured at import time, so a plate painted in a web UI and one painted
+by `make_plates` are the same plate to the app. `.png`, `.jpg`, `.jpeg` and
+`.webp` are all accepted and stored as one normalised PNG. Four refusals, each
+before anything is written:
+
+- a file whose name is not a page number of this story, or two files claiming
+  the same page;
+- a file that is not a readable image (every file is decoded before the first
+  write, so a broken download cannot leave half a story imported);
+- a page that **already has an approved plate** — importing would retire it, so
+  the run stops and says so. `--replace --approve` is the way to say you mean it,
+  and `--replace` without `--approve` is refused because replacing is exactly
+  what writes a new template version;
+- an empty directory.
+
+### What a book is drawn onto
+
+A book started on a template version renders **one edit call per page**: the
+approved plate is the first reference image and the prompt tells the model to
+keep it — the place, the props, the palette, the framing, the light — and paint
+the named characters into the slots the plate reserved for them. That prompt is
+in `[book.edit]` in `app/prompts.toml`, and what it leaves out matters as much
+as what it says: no scene block, no props sheet, no whole-story context, because
+on an edit an instruction to draw is an instruction to change the plate.
+
+A book with **no** pinned version — made while the start gate is off, or saved
+before template versions existed — composes each page from scratch exactly as
+the app did before plates, so nothing regresses.
+
+### What the edit pass costs
+
+Worth being precise, because the obvious guess is wrong. **An edit call and a
+from-scratch call cost the same per call** at the same output size and quality —
+vendors bill the returned picture, not the instructions. The plate is not a
+discount; it is a way to get a consistent book. What it does change is everything
+around the call:
+
+| Lever | What changes | Measurable? |
+| --- | --- | --- |
+| Prompt size | ~20,500 chars from scratch → **~4,200 chars** per page (a fifth). One book: ~410k → ~79k characters of input. | Yes — the `book.page` line logs `prompt_chars` for every page. |
+| Reference images | The star's photograph is dropped where the plate already anchors the frame, so fewer images are uploaded per call. | Yes — the same line logs `refs`. |
+| Retries | Plates pin the place, the palette, the props and their counts. Whole classes of failure that today force a **full-price re-roll** (wrong room, six beans, mixed media, the cow's coat) stop being possible. | By counting `outcome=failed` re-renders per book. |
+| Quality tier | Composition is the hard part of a from-scratch page and the plate removes it, so the cheap tier should hold up more often — the bound is what T0 measures, not a guess. | One real run at `OPENAI_QUALITY=low` against the gate clinical trial in `docs/book-template-plan.md`. |
+| Painting the plates | 21 calls per story, **once**, shared by every book of that story forever — and free if painted in a web UI. | Not a per-book cost at all. |
+
+So the honest claim is not "editing is cheaper per call". It is: *the same call,
+with a fifth of the prompt, fewer uploads, and far less to get wrong.* The retry
+rate and the quality tier are where the real money is, and both are measured by
+running a book and reading its log rather than argued here.
+
+## Checking every picture, and trying again
+
+A picture that reaches a child's book has been looked at twice. This is the
+part of the pipeline that decides whether the page is *the page*, and it runs on
+every one of the twenty-two images.
+
+**Tier 1 is free.** `app/services/image_review.py` decodes the bytes and answers
+mechanically: is it a picture at all, is it big enough, is it the right shape, is
+it blank or a black square, and — for a plate edit — did the model hand the
+plate back with nobody painted into it, or replace the background instead of
+painting into it? It costs nothing, needs no key, and catches the failures that
+actually happen.
+
+**Tier 2 is a vision model.** `app/services/reviewer.py` sends the finished
+picture and one page's checklist to a cheap model and requires one strict JSON
+object back: a score, a sentence, and any faults from a closed set —
+`wrong_moment`, `missing_character`, `extra_person`, `text_in_image`,
+`face_obscured`, `frightening`, `wrong_counts`, `deformed`. A page passes on a
+score of 70 or more with no faults. Anything else — an unknown fault name, a
+missing key, prose instead of JSON — is a failed review, never a default pass.
+
+The reviewer is never shown the child's photograph, name or About text. It is
+told "the child, and the mother", because a reviewer shown "this is Emma's book"
+starts being polite about Emma instead of checking the picture.
+
+**Then the loop tries again.** A page that fails is drawn again, up to
+`PAGE_ATTEMPTS` (3), with the previous attempt's faults named in the retry prompt
+in plain words — aimed at what was wrong rather than re-rolled. Two rules keep it
+from becoming a money pit:
+
+* it stops the moment a review passes;
+* the best attempt is the one kept (a tie goes to the **earliest**, since an
+  equally good later attempt cost money and bought nothing).
+
+A page that never passes is kept anyway and marked `best_effort`, with every
+attempt and verdict stored. A book with one imperfect picture is worth more than
+no book, and the flag means nobody can mistake it for a reviewed page.
+
+`prompts.json` keeps **one entry per attempt**, holding the text that attempt
+actually sent, so a redrawn page shows two different prompts side by side. It is
+the record of what happened, not a summary of what won.
+
+A reviewer failure is recorded, not raised: one unparseable answer or a reviewer
+outage stamps `tier2_failed` on that image and the page continues. In production
+a *missing key* is a start-up error instead, so a deployment cannot quietly ship
+pictures nobody looked at. In development, test and mock mode the reviewer is
+off, every verdict says `tiers_run: [1]`, and the log says so.
+
+```
+REVIEWER_API_KEY=      # empty: falls back to GEMINI_API_KEY
+REVIEWER_MODEL=gemini-3.1-flash-lite
+PAGE_ATTEMPTS=3        # 1-3; every attempt is a billable call
+```
+
+### Measuring it, rather than guessing
+
+`make time-book` drives a running server through one real book and reports what
+a parent actually waits for: the spread of per-page time, the time spent putting
+the PDF together, how many pages needed a second try, and the prompt characters
+sent. `make time-books` makes two books at once to see whether one waits for the
+other.
+
+```
+IMAGE_PROVIDER=mock uvicorn app.main:create_app --factory --port 8000
+make time-book URL=http://localhost:8000
+```
+
+Mock mode is free and its pictures are placeholders, so timings there are a
+floor, not a forecast. Against a real key the same command measures the real
+thing and prints an estimated spend; it refuses to guess a cost unless you pass
+`--yes-i-am-using-a-paid-key`.
+
 ## Two steps, so you only pay for what you keep
 
 The book is twenty-two calls, and the interface keeps the portrait apart on purpose:
@@ -845,12 +1002,25 @@ line it causes (`request=...`) — including the lines written later by the book
 background task, which inherits the id. One book's trail looks like this:
 
 ```
-book.started   user=… book=… draft=… provider=… characters=- pages=19
-book.page      user=… book=… page=7/19 key=the-giant's-kitchen bytes=… ms=… outcome=done
-book.page      user=… book=… page=12/19 key=fee-fi-fo-fum bytes=… ms=… outcome=failed error=ProviderError
-book.complete  user=… book=… pages=19 pdf_bytes=… ms=… outcome=complete
+book.started   user=… book=… draft=… provider=… characters=- pages=20
+book.page      user=… book=… page=7/20 key=the-giant's-kitchen mode=edit prompt_chars=4180 refs=3 bytes=… ms=… outcome=done
+book.page      user=… book=… page=12/20 key=fee-fi-fo-fum mode=edit prompt_chars=4195 refs=3 bytes=… ms=… outcome=failed error=ProviderError
+book.review    user=… book=… page=12 attempt=1 tier=1 faults=plate_unchanged score=10 outcome=failed
+book.page      user=… book=… page=12/20 key=fee-fi-fo-fum mode=edit prompt_chars=4210 refs=3 bytes=… ms=… outcome=done
+book.review    user=… book=… page=12 attempt=2 tier=2 faults=text_in_image score=62 outcome=failed note='a sign on the door'
+book.page      user=… book=… page=12 attempts=3 outcome=best_effort faults=deformed
+book.complete  user=… book=… pages=20 pdf_bytes=… ms=… outcome=complete
 book.failure   user=… book=… pages_done=11 ms=… outcome=failed message=…
 ```
+
+`mode` is `edit` when the page was painted into an approved plate and
+`compose` when it was drawn from scratch, and `prompt_chars`/`refs` are this
+page's cost record — which is what makes the question "is editing cheaper"
+answerable from a real run instead of an estimate. `book.review` lines are the
+two tiers: `tier=1` is the free mechanical check, `tier=2` the vision model, and
+`outcome=unavailable` means the reviewer could not be reached (the page was kept
+and stamped `tier2_failed`). `attempt=` on each line is which try it was, and
+`outcome=best_effort` marks the page that used all three and was kept anyway.
 
 Sign-in has its own lines (`auth.google_login_ok sub=… email=s***@…`). A
 logging filter scrubs secrets before any handler formats a record: provider
@@ -902,6 +1072,29 @@ Stripe's own error text goes to the operator's log; the page only ever shows a
 sentence this app wrote. The secret key is armed with the same log redaction as
 the provider and OAuth keys.
 
+### What a book costs to make
+
+Every billable model call — the portrait, the cover, each page, every redraw
+after a failed check, every quality check, and template plates — is written to
+`api_calls` (migration `0008_api_calls`) with its provider, model, book, page,
+attempt and price. The provider and reviewer are wrapped once, in
+`build_container`, so no call site can skip the ledger
+(`app/services/costs.py`). When a book starts it adopts the portrait drafts it
+was made from, so their cost is the book's.
+
+`/wallet` shows the **average API spend per finished book next to the 99¢
+price**, a per-category breakdown (how many redraws an average book needs, and
+what they cost), and on each book charge what that book cost to make. Spend no
+finished book carries — rejected portraits, books that stopped early, plates —
+is shown separately rather than hidden.
+
+Prices follow the configured provider: **Agnes is free** (and so is the mock),
+**OpenAI** is priced from its published per-image table for the model and
+quality. `IMAGE_CALL_COST_USD` overrides the image price, and
+`REVIEW_CALL_COST_USD` prices review calls. A call with no known price is
+counted as *unpriced* and the page says how many, rather than calling it free.
+A failed call is logged at no cost.
+
 ## Configuration reference
 
 | Variable | Default | Notes |
@@ -916,6 +1109,10 @@ the provider and OAuth keys.
 | `AGNES_BASE_URL` | `https://apihub.agnes-ai.com/v1` | Change only if the service moves. |
 | `GEMINI_API_KEY` | *(empty)* | Required for `gemini` |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite-image` | Keep it cheap. `gemini-3.1-flash-image` is the higher-quality option. |
+| `REVIEWER_API_KEY` | *(empty)* | The vision reviewer. Empty falls back to `GEMINI_API_KEY`; in production with neither set the app refuses to start. |
+| `REVIEWER_MODEL` | `gemini-3.1-flash-lite` | The vision model every finished picture is checked with. Text and image in, strict JSON out. |
+| `REVIEWER_TIMEOUT_SECONDS` | `90` | One review's budget. A timed-out review fails that image, not the book. |
+| `PAGE_ATTEMPTS` | `3` | Billable tries per page before the best is kept (1–3). A page that never passes is kept and marked best-effort. |
 | `APP_ENV` | `development` | `production` raises the log level |
 | `GOOGLE_CLIENT_ID` | *(empty)* | With `GOOGLE_CLIENT_SECRET`, makes Google sign-in the only way in. See `docs/google-oauth-setup.md`. |
 | `GOOGLE_CLIENT_SECRET` | *(empty)* | The OAuth client secret; lives only in the environment. |

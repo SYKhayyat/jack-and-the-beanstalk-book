@@ -10,7 +10,9 @@ child's photograph, and none of it may be cached by a shared browser or proxy.
 
 from __future__ import annotations
 
-from fastapi import Response
+import hashlib
+
+from fastapi import Request, Response
 
 from app.dependencies import ContainerDep
 from app.errors import StoryNotReady, UnknownBook, UnknownStory
@@ -74,6 +76,66 @@ def ensure_book(
     if owner and owner != (user_id or ""):
         raise UnknownBook("No book with that id. It may have expired — start a new one.")
     return payload
+
+
+def private_cached(
+    request: Request,
+    data: bytes,
+    *,
+    media_type: str,
+    etag: str | None = None,
+) -> Response:
+    """A derived picture, with an ETag so it is not downloaded twice (T13).
+
+    The distinction this draws is the point of the whole module: the child's
+    *photograph* is `no_store` — it never touches the device's cache — while the
+    illustrations made from it are `private, must-revalidate`. `private` forbids
+    any shared cache (a proxy, a CDN) from keeping them; `must-revalidate` means
+    the browser must ask before reusing one. What the ETag buys is the answer:
+    a 304, a few bytes, instead of a megabyte of page art the phone already has.
+
+    The tag is the content hash, so it changes exactly when the picture does — a
+    redrawn page cannot be served stale, because its bytes hash differently.
+    """
+    tag = etag or hashlib.sha256(data).hexdigest()
+    headers = {
+        "ETag": f'"{tag}"',
+        # `private`: never a shared cache. `must-revalidate`: the browser asks
+        # every time, so a redrawn page is never shown from an old copy.
+        "Cache-Control": "private, max-age=0, must-revalidate",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if etag_matches(request, tag):
+        return Response(status_code=304, headers=headers)
+    return Response(content=data, media_type=media_type, headers=headers)
+
+
+def not_modified(etag: str) -> Response:
+    """A 304 for a picture the client already has: no bytes, same tag (T13)."""
+    return Response(
+        status_code=304,
+        headers={
+            "ETag": f'"{etag}"',
+            "Cache-Control": "private, max-age=0, must-revalidate",
+        },
+    )
+
+
+def etag_matches(request: Request, tag: str) -> bool:
+    """Whether the client already holds this exact picture.
+
+    `If-None-Match` may carry a list and may carry the weak `W/` prefix; both are
+    normal from browsers and neither means "a different picture".
+    """
+    header = request.headers.get("if-none-match", "")
+    if not header:
+        return False
+    if header.strip() == "*":
+        return True
+    for candidate in header.split(","):
+        if candidate.strip().removeprefix("W/").strip('"') == tag:
+            return True
+    return False
 
 
 def no_store(

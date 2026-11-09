@@ -58,6 +58,7 @@ __all__ = [
     "PAGE_NUMBERS",
     "NoTemplateVersion",
     "PageSummary",
+    "PlateArt",
     "PlateNotApprovable",
     "PlateStatus",
     "PlateSummary",
@@ -115,6 +116,21 @@ class NoTemplateVersion(TemplateError):
 
 #: What a visitor is told when the start gate is on and the plates aren't ready.
 NOT_READY = "This story's pictures are still being prepared, so a book can't be started yet."
+
+
+@dataclass(frozen=True, slots=True)
+class PlateArt:
+    """One page's approved plate, ready to be edited: the image and its slots.
+
+    The image is the bytes the painter produced (the imported file, or one a
+    provider painted) — never re-cropped here, because the slots were measured
+    against it and a crop would move them.
+    """
+
+    plate_id: str
+    image: bytes
+    media_type: str
+    slots: tuple[Slot, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -672,6 +688,46 @@ class TemplateStore:
     def plate_status(self, plate_id: str) -> str:
         with self._engine.connect() as conn:
             return str(_plate(conn, plate_id).status)
+
+    def book_plates(self, book_id: str) -> dict[int, PlateArt]:
+        """The plates a book is drawn onto, by page number (0 is the cover).
+
+        Read through the book's *pinned* version, so a book made on version 1
+        keeps version 1's plates when version 2 is approved later. A book with
+        no pinned version — made with the start gate off — has no plates, and
+        the caller falls back to composing each page from scratch exactly as
+        it did before plates existed.
+        """
+        with self._engine.connect() as conn:
+            version_id = conn.execute(
+                select(BookRow.template_version_id).where(BookRow.id == book_id)
+            ).scalar_one_or_none()
+            if not version_id:
+                return {}
+            rows = conn.execute(
+                select(
+                    TemplateVersionPlateRow.page_number,
+                    TemplatePlateRow.id,
+                    TemplatePlateRow.image,
+                    TemplatePlateRow.media_type,
+                    TemplatePlateRow.slots,
+                )
+                .select_from(TemplateVersionPlateRow)
+                .join(
+                    TemplatePlateRow,
+                    TemplatePlateRow.id == TemplateVersionPlateRow.plate_id,
+                )
+                .where(TemplateVersionPlateRow.template_version_id == version_id)
+            ).all()
+        return {
+            int(row.page_number): PlateArt(
+                plate_id=row.id,
+                image=row.image,
+                media_type=row.media_type,
+                slots=tuple(Slot.from_json(slot) for slot in row.slots),
+            )
+            for row in rows
+        }
 
     # --- versions --------------------------------------------------------------
 

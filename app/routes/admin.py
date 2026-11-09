@@ -43,6 +43,7 @@ from app.dependencies import ContainerDep
 from app.routes.auth import CurrentSessionDep
 from app.routes.book_access import no_store
 from app.routes.web import page_chrome
+from app.services.costs import cost_scope
 from app.services.image_providers.base import ImageRequest
 from app.services.pdf import COVER_TITLE_BAND_FRACTION, title_band_report
 from app.services.plates import PlatePlan, plate_plans
@@ -418,9 +419,10 @@ def reroll(
     if note:
         text = f"{plan.prompt}\n\nCHANGE REQUESTED: {note}"
     try:
-        image = container.provider.generate(
-            ImageRequest(prompt=text, aspect_ratio=_PLATE_ASPECT, label="plate")
-        )
+        with cost_scope(purpose="plate"):
+            image = container.provider.generate(
+                ImageRequest(prompt=text, aspect_ratio=_PLATE_ASPECT, label="plate")
+            )
         plate_id = store.add_plate(
             story_key,
             page_number,
@@ -577,9 +579,10 @@ def _paint_next(
         if number is None:
             return None, "", 0
         plan = _plan(seed, number)
-        image = container.provider.generate(
-            ImageRequest(prompt=plan.prompt, aspect_ratio=_PLATE_ASPECT, label="plate")
-        )
+        with cost_scope(purpose="plate"):
+            image = container.provider.generate(
+                ImageRequest(prompt=plan.prompt, aspect_ratio=_PLATE_ASPECT, label="plate")
+            )
         try:
             plate_id = store.add_plate(
                 seed.key,

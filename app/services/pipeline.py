@@ -12,6 +12,7 @@ import logging
 from uuid import uuid4
 
 from app.models import CartoonSettings, RejectionFeedback, StoryEdition
+from app.services.costs import cost_scope
 from app.services.image_providers.base import GeneratedImage, ImageProvider, ImageRequest
 from app.services.prompts import build_cartoon_prompt, build_cast_portrait_prompt
 from app.services.storage import Draft, GenerationStore
@@ -72,15 +73,18 @@ class GenerationPipeline:
         the start endpoint can refuse a portrait made for one slot (or one
         story) being used as another.
         """
-        draft = self._build_cartoon(
-            photo_data=photo_data,
-            photo_media_type=photo_media_type,
-            settings=settings,
-            story=story,
-            generation_id=generation_id or uuid4().hex,
-            rejection=rejection,
-            character=character or "",
-        )
+        draft_id = generation_id or uuid4().hex
+        # Filed under the draft; a book started from it adopts the cost.
+        with cost_scope(purpose="portrait", generation_id=draft_id):
+            draft = self._build_cartoon(
+                photo_data=photo_data,
+                photo_media_type=photo_media_type,
+                settings=settings,
+                story=story,
+                generation_id=draft_id,
+                rejection=rejection,
+                character=character or "",
+            )
         if persist:
             self._store.save_draft(draft)
         return draft

@@ -1,6 +1,6 @@
 {% extends "_layout.html" %}
 {% block title %}{{ title }}{% endblock %}
-{% block body_attrs %}data-page="book" data-book-id="{{ book.book_id }}" data-book-status="{{ status }}" data-book-title="{{ title }}" data-book-story="{{ book.story_key }}" data-max-upload-mb="{{ max_upload_mb }}"{% endblock %}
+{% block body_attrs %}data-page="book" data-book-id="{{ book.book_id }}" data-book-status="{{ status }}" data-book-title="{{ title }}" data-book-story="{{ book.story_key }}" data-max-upload-mb="{{ max_upload_mb }}" data-max-attempts="{{ max_attempts }}"{% endblock %}
 {% block header_title %}<span class="header-title">{{ title }}</span>{% endblock %}
 {% block main_class %}page book-screen{% endblock %}
 {% block content %}
@@ -8,7 +8,7 @@
     <button type="button" class="turn turn-back" id="turn-back" aria-label="Previous page"><span aria-hidden="true">←</span><span class="turn-label">back</span></button>
     <div class="book-slot" id="book-slot" tabindex="0" aria-roledescription="book" aria-label="{{ title }} — use the arrow keys to turn the pages">
       {% for tile in tiles %}
-      <figure class="spread{% if tile.number == 0 %} is-cover{% endif %}" id="spread-{{ loop.index0 }}" data-spread="{{ loop.index0 }}" data-number="{{ tile.number }}" data-status="{{ tile.status }}" hidden>
+      <figure class="spread{% if tile.number == 0 %} is-cover{% endif %}" id="spread-{{ loop.index0 }}" data-spread="{{ loop.index0 }}" data-number="{{ tile.number }}" data-status="{{ tile.status }}" data-attempts="{{ tile.attempts }}" data-chosen-attempt="{{ tile.chosen_attempt }}" data-best-effort="{{ 'true' if tile.best_effort else 'false' }}" hidden>
         <span class="spread-art">
           {% if tile.url %}
           <img src="{{ tile.url }}" alt="{{ tile.label }}: {{ tile.title }}" loading="{{ 'eager' if loop.first else 'lazy' }}">
@@ -41,7 +41,7 @@
     </p>
     <ol class="page-map" id="page-map">
       {% for tile in tiles %}
-      <li><button type="button" class="map-tile {{ tile.status }}" data-goto="{{ loop.index0 }}" aria-label="{{ tile.label }}, {{ tile.status }}">
+      <li><button type="button" class="map-tile {{ tile.status }}" data-goto="{{ loop.index0 }}" data-attempts="{{ tile.attempts }}" data-chosen-attempt="{{ tile.chosen_attempt }}" data-best-effort="{{ 'true' if tile.best_effort else 'false' }}" aria-label="{{ tile.label }}, {{ tile.status }}">
         {% if tile.url %}<img src="{{ tile.url }}" alt="" loading="lazy">{% endif %}
         <span class="map-number">{{ tile.short }}</span>
       </button></li>

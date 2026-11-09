@@ -29,13 +29,16 @@ from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.container import Container
 from app.dependencies import ContainerDep
 from app.routes.auth import CurrentSessionDep
 from app.routes.web import page_chrome
+from app.services.costs import CATEGORY_LABELS, format_microusd
 from app.services.payments import PaymentError
 from app.services.wallet import (
     CURRENCY,
     FUNDING_AMOUNTS_CENTS,
+    KIND_CHARGE,
     REFUND_PROCESSED,
     WalletError,
     format_cents,
@@ -93,6 +96,13 @@ def wallet_page(
     # refund button) and each read is a round trip in database mode.
     balance = wallet.balance_cents(owner)
     refundable = wallet.refundable_cents(owner) if container.payments else 0
+    history = wallet.history(owner)
+    charged = [
+        entry.reference.removeprefix("book:")
+        for entry in history
+        if entry.kind == KIND_CHARGE and entry.reference
+    ]
+    made_for = container.costs.book_costs_microusd(charged)
     return templates.TemplateResponse(
         request=request,
         name="wallet.html",
@@ -110,9 +120,15 @@ def wallet_page(
                     "amount_label": format_cents(entry.amount_cents),
                     "credit": entry.amount_cents > 0,
                     "created_at": entry.created_at,
+                    # What the book behind a charge cost this app to make.
+                    "made_for": format_microusd(made_for[book_id])
+                    if (book_id := (entry.reference or "").removeprefix("book:")) in made_for
+                    and entry.kind == KIND_CHARGE
+                    else "",
                 }
-                for entry in wallet.history(owner)
+                for entry in history
             ],
+            "costs": _cost_panel(container, wallet.price_cents),
             "refunds": [
                 {
                     "amount_label": format_cents(request_refund.amount_cents),
@@ -245,6 +261,40 @@ async def refund(container: ContainerDep, session: CurrentSessionDep) -> Redirec
         container.wallet.process_refund, owner, request_refund.id, container.payments
     )
     return _back("refunded" if result.status == REFUND_PROCESSED else "refund_failed")
+
+
+def _cost_panel(container: Container, price_cents: int) -> dict[str, object]:
+    """What a book costs to make, against what it is sold for.
+
+    Summed from the ledger of every model call this deployment has made; see
+    `app/services/costs.py`. The same for every visitor: it is the app's cost,
+    not the account's.
+    """
+    summary = container.costs.summary()
+    price_micro = price_cents * 10_000
+    return {
+        "books": summary.books_measured,
+        "average": format_microusd(summary.average_book_microusd),
+        "price": format_cents(price_cents),
+        "margin": format_microusd(price_micro - summary.average_book_microusd),
+        "share": round(100 * summary.average_book_microusd / price_micro)
+        if price_micro
+        else 0,
+        "rows": [
+            {
+                "label": CATEGORY_LABELS[item.category],
+                "calls": f"{item.calls_per_book:.1f}",
+                "cost": format_microusd(item.cost_microusd),
+            }
+            for item in summary.per_book
+        ],
+        "total_calls": summary.total_calls,
+        "total": format_microusd(summary.total_microusd),
+        "overhead": format_microusd(summary.overhead_microusd),
+        "failed_calls": summary.failed_calls,
+        "unpriced_calls": summary.unpriced_calls,
+        "provider": container.provider.name,
+    }
 
 
 def _back(message: str) -> RedirectResponse:

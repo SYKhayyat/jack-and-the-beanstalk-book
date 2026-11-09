@@ -13,13 +13,21 @@ import io
 import logging
 import zipfile
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
 
 from app.dependencies import ContainerDep
 from app.errors import BookNotReady, UnknownBook
 from app.models import StoryEdition
 from app.routes.auth import CurrentSessionDep
-from app.routes.book_access import book_edition, ensure_book, no_store, user_id
+from app.routes.book_access import (
+    book_edition,
+    ensure_book,
+    etag_matches,
+    no_store,
+    not_modified,
+    private_cached,
+    user_id,
+)
 from app.services.book_store import BookStore
 from app.services.media import extension_for, media_type_for
 
@@ -55,25 +63,29 @@ def book_pdf(book_id: str, container: ContainerDep, session: CurrentSessionDep) 
 @router.get("/{book_id}/portrait")
 def book_portrait(
     book_id: str,
+    request: Request,
     container: ContainerDep,
     session: CurrentSessionDep,
     download: bool = False,
 ) -> Response:
     """The approved cartoon portrait every page is anchored on.
 
-    With `?download=1` it is handed over as a file instead of shown in place,
-    so the reader can keep the cartoon of their face.
+    With `?download=1` it is handed over as a file instead of shown in place, so
+    the reader can keep the cartoon of their face — and a download is never a
+    304: the reader asked for the file, not for permission to reuse one.
     """
     ensure_book(book_id, user_id(session), container)
     data = container.book_store.read_portrait(book_id)
     if data is None:
         raise UnknownBook("That book has no portrait stored.")
-    return no_store(
-        data,
-        media_type=media_type_for(data),
-        filename=f"cartoon-{book_id}{extension_for(data)}",
-        download=download,
-    )
+    if download:
+        return no_store(
+            data,
+            media_type=media_type_for(data),
+            filename=f"cartoon-{book_id}{extension_for(data)}",
+            download=True,
+        )
+    return private_cached(request, data, media_type=media_type_for(data))
 
 
 @router.get("/{book_id}/photo")
@@ -101,25 +113,49 @@ def book_photo(
 
 
 @router.get("/{book_id}/cover")
-def book_cover(book_id: str, container: ContainerDep, session: CurrentSessionDep) -> Response:
+def book_cover(
+    book_id: str,
+    request: Request,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+) -> Response:
     """The finished cover illustration, as soon as it exists."""
     ensure_book(book_id, user_id(session), container)
     data = container.book_store.read_cover(book_id)
     if data is None:
         raise BookNotReady("The cover is not ready yet — poll the book's status.")
-    return no_store(data, media_type=media_type_for(data))
+    return private_cached(request, data, media_type=media_type_for(data))
 
 
 @router.get("/{book_id}/pages/{page_number}")
 def book_page(
-    page_number: int, book_id: str, container: ContainerDep, session: CurrentSessionDep
+    page_number: int,
+    book_id: str,
+    request: Request,
+    container: ContainerDep,
+    session: CurrentSessionDep,
 ) -> Response:
-    """One page's art, as soon as it exists — the browser shows them landing."""
+    """One page's art, as soon as it exists — the browser shows them landing.
+
+    Revalidated by content hash (T13): a redrawn page has new bytes and therefore
+    a new tag, and a page that has not changed is a 304 rather than a megabyte.
+    """
     ensure_book(book_id, user_id(session), container)
+    etag = container.book_store.read_page_etag(book_id, page_number)
+    if etag is not None and etag_matches(request, etag):
+        # Answered from the stored hash alone: the image is never read out of the
+        # database, so revalidation costs a few bytes in each direction.
+        logger.info(
+            "book.page_media user=%s book=%s page=%d outcome=not_modified",
+            user_id(session) or "-",
+            book_id,
+            page_number,
+        )
+        return not_modified(etag)
     data = container.book_store.read_page(book_id, page_number)
     if data is None:
         raise BookNotReady("That page is not ready yet — poll the book's status.")
-    return no_store(data, media_type=media_type_for(data))
+    return private_cached(request, data, media_type=media_type_for(data), etag=etag)
 
 
 @router.get("/{book_id}/prompts.json")

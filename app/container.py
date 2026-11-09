@@ -19,6 +19,13 @@ from app.db import build_engine, persistence_mode, prepare_database
 from app.services.book_runner import BookRunner
 from app.services.book_store import BookStore
 from app.services.concurrency import ConcurrencyGate
+from app.services.costs import (
+    CostLedger,
+    MeteredProvider,
+    image_call_price,
+    metered_reviewer,
+    review_call_price,
+)
 from app.services.db_book_store import DatabaseBookStore
 from app.services.db_wallet_store import DatabaseWalletStore
 from app.services.image_providers.base import ImageProvider
@@ -26,6 +33,7 @@ from app.services.image_providers.registry import build_provider
 from app.services.payments import PaymentProvider, StripePaymentProvider
 from app.services.pipeline import GenerationPipeline
 from app.services.rate_limit import GenerationRateLimiter
+from app.services.reviewer import ImageReviewer, build_reviewer
 from app.services.storage import GenerationStore
 from app.services.template_store import TemplateStore
 from app.services.user_store import DatabaseUserStore, UserStore
@@ -64,6 +72,9 @@ class Container:
     #: configured: the app then runs without top-ups, refunds or a book fee.
     wallet: Wallet
     payments: PaymentProvider | None
+    #: Every billable model call, priced and tagged with its book (the cost
+    #: panel's source). `provider` and the runner's reviewer write to it.
+    costs: CostLedger
     # Bounds concurrent generations per process. Image models are slow and
     # rate-limited, so without a ceiling a burst of traffic becomes a burst of
     # billable requests and 429s.
@@ -90,9 +101,10 @@ def build_container(
     settings: Settings,
     provider: ImageProvider | None = None,
     payments: PaymentProvider | None = None,
+    reviewer: ImageReviewer | None = None,
 ) -> Container:
-    """Construct the graph. Pass `provider`/`payments` to override (tests do)."""
-    resolved = provider or build_provider(settings)
+    """Construct the graph. Pass `provider`/`payments`/`reviewer` to override (tests do)."""
+    unmetered = provider or build_provider(settings)
     resolved_payments: PaymentProvider | None = payments
     if resolved_payments is None and settings.payments_enabled:
         resolved_payments = StripePaymentProvider(settings.stripe_secret_key)
@@ -106,6 +118,10 @@ def build_container(
     # before the first request rather than failing on a missing table.
     engine = build_engine(settings.effective_database_url)
     prepare_database(engine)
+    # The one provider object every caller uses, so every image call — page,
+    # retry, portrait, plate — lands in the cost ledger.
+    costs = CostLedger(engine)
+    resolved: ImageProvider = MeteredProvider(unmetered, costs, image_call_price(settings))
     # The stories are data the code reads at runtime, so they are loaded
     # before the first request: seeding is idempotent (a boot with unchanged
     # seeds writes nothing), and books saved before books pinned their story
@@ -142,9 +158,25 @@ def build_container(
             gate=gate,
             page_timeout_seconds=settings.generation_timeout_seconds,
             wallet=wallet if resolved_payments is not None else None,
+            # Built here, at start-up, so a production deployment with no
+            # reviewer key fails before the first parent spends a credit rather
+            # than after (T9.6).
+            reviewer=metered_reviewer(
+                reviewer
+                or build_reviewer(
+                    api_key=settings.effective_reviewer_key,
+                    model=settings.reviewer_model,
+                    required=settings.reviewer_required,
+                    timeout_seconds=settings.reviewer_timeout_seconds,
+                ),
+                costs,
+                review_call_price(settings),
+            ),
+            page_attempts=settings.page_attempts,
         ),
         wallet=wallet,
         payments=resolved_payments,
+        costs=costs,
         gate=gate,
         rate_limiter=GenerationRateLimiter(settings.max_generations_per_minute),
     )

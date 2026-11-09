@@ -46,11 +46,14 @@ does start on a version is pinned to it.
 
 **What is not connected yet.** One link, and it is the payoff of the rest:
 
-- **T8 — there is no edit pass.** `book_runner` composes each page from scratch
-  with the image model; it does not take the book's pinned plate and paint the
-  cast into its slots. Until it does, an approved plate changes what is stored
-  and what a book is pinned to, not what a finished book looks like — which is
-  why the start gate ships switched off.
+- **T8 — the edit pass is built (2026-11-07), and not yet tested against a real
+  provider.** `book_runner` takes the book's pinned plate as the first reference
+  image and paints the cast into the plate's own slots, with `[book.edit]` in
+  `prompts.toml` forbidding any change to the plate. A book with no pinned
+  version still composes from scratch, so nothing regressed. **What is
+  unproven is the picture**: whether the provider actually keeps the background
+  is exactly what T0's spike measures, and no real key has run it yet. The start
+  gate should therefore stay off until T0 reports.
 
 **Waiting on someone else.** T0 needs a real provider key and three hand-made
 plates before Claude can make the go/fallback call. T8 and T9 need Claude's
@@ -736,13 +739,98 @@ looks like.
 | **T6** — admin review screen | **Done.** `/admin/plates` (stories and progress), `/admin/plates/{story}` (the contact sheet, with a no-JS overlay of every stored slot and the cover's title band) and `/admin/plates/{story}/{page}` (candidates: approve, re-roll with an edited prompt, retire; plate bytes at `/admin/plates/{story}/{plate}.png`). Gated on `OPERATOR_SUB`; every route answers a plain 404 to anybody else, and a password session can never be the operator. Approve is idempotent and records operator and time; only approval creates a version. Delete is not wired on purpose — retire is the scope, and `delete_plate` refuses a plate any version names. Reads come from `TemplateStore.pages()` and `.plates()`. `tests/test_admin_plates.py` covers T6.1–T6.4 and T6.6–T6.7. |
 | **T6.5** — the start gate | **Done, as an operator switch.** `stories.requires_template` (migration 0006), set from `/admin/plates` (`POST /admin/plates/{story}/gate`, operator only, 404 to anybody else) and never touched by seeding. On, with no complete version, `TemplateStore.edition_for_new_book` raises `NoTemplateVersion`; the shelf card is "Not ready yet" with the sentence, the studio and About screens answer 409, and `/api/cartoonify` and `/api/book/start` answer `409 story_not_ready` before anything is billed. Off (the default), books start on the latest revisions. `tests/test_story_editions.py::TestTheStartGate`. |
 | **T7** — the bible is the prompts' source | **Done.** See "T7 as built" below. `tests/test_story_editions.py` makes a Red book end to end, proves a re-seed and a revised look never reach a book already made, refuses the wolf and cross-story portraits, and pins a legacy book at boot; `tests/test_migrations.py::TestMigration0006` runs up/down/up on SQLite and Postgres 17. |
-| **T8–T15** | **Blocked on contracts.** T8 (edit pass) and T9 (quality loop) are Claude's; T10–T15 build on them. |
+| **T8** | **Done.** See "T8 as built" below. |
+| **T9** — the review loop | **Done, both tiers and the loop.** Tier 1 is free and mechanical (`app/services/image_review.py`); tier 2 is a vision model against a strict JSON checklist (`app/services/reviewer.py`); the loop draws a page at most `PAGE_ATTEMPTS` (3) times, aims each retry at the faults the last attempt earned, keeps the best attempt (earliest wins a tie) and marks a page that never passed `best_effort` instead of failing the book. See "T9–T14 as built" below. |
+| **T10** — the reviewer | **Done.** One cheap vision model, one page's checklist per call, no retry of a malformed answer, a reviewer outage recorded per image rather than raised, and a missing key as a start-up error in production. |
+| **T11** — measurement | **Done, waiting on a key.** `scripts/time_book.py` (`make time-book`, `make time-books`) measures a real book end to end: per-page spread, assembly time, attempts and prompt characters. Its mock-mode run reports 426,579 prompt characters for 21 pages on the from-scratch path, which is the ~410k the cost note predicted. Real-provider numbers need T0's key. |
+| **T12** — named stages | **Done.** The status payload carries `stage` (`painting` / `reviewing` / `retrying` / `assembling` / `complete`), `stage_page` and `stage_attempt`, derived from live per-page progress so the stage can never name a page that has finished. The live view turns them into a sentence. |
+| **T13** — caching | **Done.** Page art, the cover and the portrait carry an ETag that is the content hash and `private, max-age=0, must-revalidate`; a matching `If-None-Match` is a 304 answered from the stored hash without reading the image. The child's photograph stays `no-store`. |
+| **T14** — persistence | **Done.** The loop's attempts, verdicts and chosen attempt survive the process; the cover records its own. `tests/test_caching_and_persistence.py` proves a second process serves the same books, a second account gets 404 for all of it, and a PDF download draws nothing. |
+| **T15** — safety of the new surface | **Partial.** The reviewer's prompt forbids what the page prompt forbids, and a retry can only name a fault from a closed set; the reviewer never sees a name, a photograph or the About text. The wider prompt pass is unchanged. |
 
 One transitional note for whoever picks this up:
 
 1. **The reference cap is a constant for now.** `MAX_REFERENCE_CAST = 2`
    (star included) stands in for T8's per-provider `max_reference_images`;
    when T8 lands, the seed check should read the configured provider's limit.
+
+### T8 as built — where it differs from the scope above
+
+1. **The prompt is the opposite of the page prompt.** `build_plate_edit_prompt`
+   sends no scene block, no props-and-places sheet and no whole-story context.
+   Every one of those is an instruction to draw, and on an edit an instruction
+   to draw is an instruction to change the plate. What it sends is the preserve
+   contract, the slots in plain percentages, one bible line per character, and
+   the no-extras and no-text rules. Measured: ~4,200 characters per page against
+   ~20,500 for the from-scratch prompt.
+2. **The slots come from the plate, not from the page.** `_references` uses
+   `plate.slots` (the approved layout), so a change to `slots_for()` cannot
+   silently move the characters off the plate they were measured against.
+3. **Fewer references on purpose.** The plate anchors the frame, so the star's
+   photograph is dropped where it would only repeat the portrait, and a
+   photographed character sends its portrait (not portrait + photo). That keeps
+   a two-character page inside Gemini's three-reference ceiling.
+4. **`supports_edit` / `max_reference_images` are not declared.** Every provider
+   here already accepts reference images through the one `generate` call, and
+   the slot layout caps a page at three characters, so the capabilities T8 asked
+   for would be constants asserting themselves. `MAX_REFERENCE_CAST = 2` in the
+   seed check remains the honest stand-in until T0 says a provider cannot do it.
+5. **T9 arrived first, as tier 1 only, because T8 made it load-bearing.** The
+   book store already refused to complete a template-pinned book whose images
+   had no verdict — a guard that was inert while nothing pinned a version and
+   that fails every book the moment plates are in use. `app/services/image_review.py`
+   is the free, deterministic half of T9 (`undecodable`, `too_small`,
+   `wrong_aspect`, `blank`, `all_dark`, `all_light`, plus the two edit-specific
+   checks `plate_unchanged` and `background_redrawn`). It stamps
+   `tiers_run: [1]` and logs a failing picture, so nobody can mistake a
+   mechanical check for a review. Tier 2 and the three-attempt loop arrived
+   after it, in T9 itself — see "T9–T14 as built" below.
+6. **`background_redrawn`'s threshold is a placeholder**
+   (`BACKGROUND_DRIFT_LIMIT = 34.0`, mean absolute channel difference on a 64x48
+   thumbnail). T0's operator judgements replace it, exactly as the plan says.
+
+### T9–T14 as built — where they differ from the scope above
+
+1. **A retry is aimed, not re-rolled.** The second attempt's prompt carries the
+   faults the reviewer named, in plain sentences (`[book.edit.fault_phrases]`),
+   and says in the same breath that the background is not one of them. A retry
+   with the identical prompt would be a dice roll that costs money.
+2. **The loop is bounded by money, not by patience.** Three attempts, the
+   earliest winning a tie, and a page that never passes is kept and marked
+   `best_effort` — a book with one imperfect picture is worth more than no book.
+   A page that never passes therefore cannot satisfy the "no unreviewed image"
+   guard by pretending; the flag is stored and shown.
+3. **A placeholder provider is never retried.** `draws_placeholders` means there
+   is no model to steer, so three attempts would be three identical pictures and
+   three claimed attempts. One attempt, one honest verdict.
+4. **The reviewer never sees the child.** Not the photograph, not the name, not
+   the About text. `_cast_note` tells it "the child, and the mother" — a reviewer
+   told "this is Emma's book" starts being polite about Emma instead of checking
+   the picture. Identity is the portrait's approval step and tier 1's business.
+5. **A tier-2 failure is recorded, not raised.** One unparseable answer, or an
+   outage, records `tier2_failed` on that image's verdict and the page continues
+   with `tiers_run: [1]`. A reviewer that can cost a parent a finished book is a
+   worse reviewer than none.
+6. **The stage is derived, never a mutable "current page".** Pages run in
+   parallel, so a single global value names a page that has already finished by
+   the time the status is written. `stage_now()` picks a page that is genuinely
+   unfinished, and a finished page is dropped from `stages` as it completes.
+7. **Only illustrations are revalidatable.** The photograph is the child's face
+   and stays `no-store`; the art made from it is `private, must-revalidate`. The
+   line is drawn per route, in `book_media.py`, because that is where the bytes
+   are chosen.
+8. **The cover records its attempts too.** It goes through the same loop, so
+   migration 0007 gives `books` the three columns `book_pages` already had.
+9. **The prompt record is per attempt, not per page.** `prompts.json` is meant to
+   be the exact text sent, and a retry sends different text — the first draft of
+   the loop stored the *winning* prompt against every attempt, which quietly
+   hid the retry it existed to document. `_draw_until_pass` now returns an
+   `_Attempts` value carrying one prompt per attempt, and `_record` writes the
+   prompt and its verdict together. `TestTheLoopEndToEnd` drives two books
+   through `/api/book/start` to hold this: one where the reviewer is down (the
+   book must still complete), and one where the first reviewed picture fails
+   (one page must be redrawn, the retry's text must name the fault, and the
+   prompt record must show both texts).
 
 ### T7 as built — where it differs from the scope above
 

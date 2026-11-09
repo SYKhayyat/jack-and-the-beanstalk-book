@@ -39,6 +39,7 @@ from app.models.settings import (
 )
 from app.models.story import StoryEdition
 from app.prompt_data import prompt_text
+from app.services.template_store import Slot
 
 __all__ = [
     "NEGATIVE_PROMPT_TAIL",
@@ -49,6 +50,7 @@ __all__ = [
     "build_cartoon_prompt",
     "build_cast_portrait_prompt",
     "build_cover_prompt",
+    "build_plate_edit_prompt",
     "render_book_page",
 ]
 
@@ -88,6 +90,14 @@ _GENDER_DESCRIPTIONS: dict[CharacterGender, str] = {
 
 _PRONOUNS: dict[PhotoGender, dict[str, str]] = {
     gender: _DATA["pronouns"][gender.value] for gender in PhotoGender
+}
+
+#: The star's own bible line carries `{name}` and pronouns, and an edit prompt
+#: has no settings to read a gender from. These are the neutral ones: the face
+#: and clothes come from the anchor image, not from these words.
+_NEUTRAL_PRONOUNS: dict[str, str] = _PRONOUNS[PhotoGender.BOY]
+_CAPITALISED_NEUTRAL_PRONOUNS: dict[str, str] = {
+    key.capitalize(): value.capitalize() for key, value in _NEUTRAL_PRONOUNS.items()
 }
 
 _SKIN_DESCRIPTIONS: dict[SkinTone, str] = {
@@ -644,6 +654,154 @@ def build_cast_portrait_prompt(
         STANDING_NEGATIVE,
     ]
     return _join_sections(sections)
+
+
+def fault_phrases(faults: Sequence[str]) -> str:
+    """Say a reviewer's fault names in words the model can act on.
+
+    A retry prompt that repeats `wrong_moment, text_in_image` is asking the model
+    to decode an enum. It gets plain sentences instead, joined for one line. An
+    unknown name is passed through rather than dropped: a fault this file has no
+    phrase for is still something a reviewer objected to.
+
+    Public because both retry paths need it — the plate edit's own wording and
+    the from-scratch prompt's `correction` — and two copies of this table would
+    drift apart.
+    """
+    phrases = cast("Mapping[str, str]", _DATA["book"]["edit"].get("fault_phrases", {}))
+    said = [phrases.get(fault, fault) for fault in faults]
+    return "; ".join(said) if said else ""
+
+
+def correction_for(faults: Sequence[str]) -> str:
+    """A retry sentence for a from-scratch page (the plate edit has its own).
+
+    The edit prompt says "fix these and do not touch the plate"; a composed page
+    has no plate to protect, so it only needs to name what was wrong.
+    """
+    said = fault_phrases(faults)
+    if not said:
+        return ""
+    return f"A previous attempt at this page had these problems: {said}. Do not repeat them."
+
+
+def build_plate_edit_prompt(
+    page: BookPage,
+    slots: Sequence[Slot],
+    *,
+    story: StoryEdition,
+    prompt_name: str,
+    cover: bool = False,
+    retry_faults: Sequence[str] = (),
+) -> str:
+    """Prompt for one edit call: paint the cast into an approved plate.
+
+    The plate is the first reference image and the plate already carries the
+    place, the props, the light and the art style. So this prompt is the exact
+    opposite of `build_book_page_prompt`: it *forbids* re-composition. There is
+    no scene block, no `must_include`/`must_avoid`, no props-and-places sheet
+    and no whole-story context — every one of those is an instruction to draw
+    something, and on an edit an instruction to draw is an instruction to
+    change the plate. What is left is who stands where, in what style, and
+    what must not be touched.
+
+    The star is always first: it is the identity anchor, sent as the second
+    reference image, and the slot layout puts it left or centre.
+
+    Args:
+        page: The page whose plate is being edited (already formatted).
+        slots: The plate's own slots, in cast order — exactly the ones the
+            approved plate declared, so the layout cannot drift between the
+            plate and the edit.
+        story: The edition, for the bible's labels and looks.
+        prompt_name: The star's name.
+        cover: True for page 0, whose title band must stay clear.
+        retry_faults: Faults a reviewer found in the previous attempt at this
+            page. Empty on a first attempt. Steers the re-draw at what was
+            wrong, while saying in the same breath that the plate is not among
+            the faults — otherwise a fault list reads as permission to change it.
+    """
+    edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
+    lines = [
+        edit["plate_task"],
+        edit["preserve"],
+        edit["cast_identity"],
+        _slot_block(slots, story, cover=cover),
+        _edit_cast_looks(slots, story, prompt_name),
+        edit["inherits"],
+        edit["no_extras"],
+    ]
+    if retry_faults:
+        lines.append(edit["retry_intro"].format(faults=fault_phrases(retry_faults)))
+    if cover:
+        lines.append(edit["cover_band"])
+    lines += [edit["no_text"], edit["negative"]]
+    # `page` is not read: the plate already says where and what this page is,
+    # and a scene block here would be an instruction to redraw it. It stays in
+    # the signature so every page call site reads the same either way.
+    del page
+    return _join_sections(lines)
+
+
+def _slot_block(slots: Sequence[Slot], story: StoryEdition, *, cover: bool) -> str:
+    """One line per character, in plain measurements the model can follow.
+
+    A rectangle as four floats is not something an image model can place a
+    figure with, so each slot is restated as a standing point, a span and a
+    height, all as percentages, plus which way the figure turns.
+    """
+    edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
+    facing_wording = {
+        "toward": edit["facing_toward"],
+        "right": edit["facing_right"],
+        "left": edit["facing_left"],
+    }
+    described = []
+    for slot in slots:
+        x, y, w, h = slot.rect
+        member = story.cast.get(slot.cast_key)
+        label = member.label if member is not None else slot.cast_key
+        ground = edit["slot_floating"] if cover and y < 0.35 else edit["slot_on_ground"]
+        described.append(
+            edit["slot_line"]
+            .format(
+                label=label,
+                bottom=round((y + h) * 100),
+                top=round(y * 100),
+                left=round(x * 100),
+                right=round((x + w) * 100),
+                height=round(h * 100),
+                facing=f"{facing_wording.get(slot.facing, edit['facing_toward'])} {ground}",
+            )
+            .strip()
+        )
+    return edit["slots"].format(slots="\n".join(described))
+
+
+def _edit_cast_looks(slots: Sequence[Slot], story: StoryEdition, prompt_name: str) -> str:
+    """The pinned look of everyone on this page, from the bible and nowhere else.
+
+    Deliberately short: a plate edit is about not changing the plate, so each
+    character gets its bible line — the same line on every page of the book,
+    with the star's name and pronouns filled in — and the anchor image is what
+    carries the face.
+    """
+    # The edit prompt has no settings: the character is already drawn, so the
+    # only thing the bible needs is a name and a neutral pronoun.
+    subs = {"name": prompt_name, **_NEUTRAL_PRONOUNS, **_CAPITALISED_NEUTRAL_PRONOUNS}
+    looks = []
+    for slot in slots:
+        member = story.cast.get(slot.cast_key)
+        if member is None:
+            continue
+        look = member.look.format(**subs) if "{" in member.look else member.look
+        looks.append(f"- {member.label}: {look}")
+    if not looks:
+        return ""
+    return (
+        "THE CHARACTERS, AS THE BOOK FIXES THEM (draw these exactly, every time):\n"
+        + "\n".join(looks)
+    )
 
 
 def _avoid_clause(scene: Scene) -> str:
