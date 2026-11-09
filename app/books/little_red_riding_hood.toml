@@ -89,7 +89,7 @@ caption = "In a warm cottage kitchen in the morning, {name}'s mother ties the re
 subject_action = "standing by the table holding the basket with both hands while {possessive} mother ties the red hood, looking up at her"
 environment = "the cottage kitchen: a stone hearth with copper pots on the left wall, a worn oak table with two stools in the middle, open shelves and a cupboard on the back wall, a window on the right wall, morning light"
 time_of_day = "early morning, clear soft daylight through the window, a low fire in the hearth"
-camera = "eye-level medium shot across the kitchen from the window side, the table and the clear floor beside it in the middle of the frame"
+camera = "eye-level medium-wide shot looking at the back wall of the kitchen, the table in the middle of the frame with clear floor on both sides of it"
 must_include = ["{name} in the red hood with the covered basket", "the mother tying the hood or resting a hand on {name}'s shoulder", "the covered basket with bread, a honey jar and a little cake visible", "the same cottage kitchen on every page", "the child's figure keeps a natural head-to-body ratio"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "lettering or writing anywhere", "an extra person", "the wolf", "a weapon"]
 
@@ -134,7 +134,7 @@ caption = "{name} in the red hood points along the path towards a small cottage 
 subject_action = "pointing down the path with one hand, the basket on the other arm; the wolf leaning in to listen"
 environment = "the wood path opening towards a distant cottage with a blue door and a curl of smoke, tall trees on both sides, ferns and leaves"
 time_of_day = "late morning, clear warm light"
-camera = "medium-wide shot from the side, the path running from the foreground away towards the distant blue door"
+camera = "medium-wide shot along the path, running from the foreground away towards the distant blue door"
 must_include = ["{name} pointing towards the distant blue-doored cottage", "the grey wolf in the green coat leaning in to listen", "the covered basket on {name}'s arm", "the winding path and tall trees", "the child's figure keeps a natural head-to-body ratio"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wolf touching or blocking the child", "the wolf showing teeth", "lettering or writing anywhere", "an extra person"]
 
@@ -194,7 +194,7 @@ caption = "Inside Grandmother's cottage, an old woman with white hair, small rou
 subject_action = "the wolf leaning through the half-open blue door with one paw on the latch; Grandmother sitting up in bed, one hand to her ear"
 environment = "Grandmother's one-room cottage: a wooden bed with a patchwork quilt, a small table with a jug and a candle, a stone hearth, a tall wooden cupboard, a window with curtains half drawn, the blue door open"
 time_of_day = "late morning, soft light through half-drawn curtains, a low fire"
-camera = "interior wide shot from the foot of the bed, the bed under the quilt in the middle of the frame, the blue door at the edge"
+camera = "interior wide shot from just inside the door, the bed under the quilt in the middle of the frame, the open blue door at the left edge"
 must_include = ["Grandmother in bed with white hair, spectacles and a white lace cap", "the grey wolf in the green coat at the half-open blue door", "the tall wooden cupboard in the room", "the small table with a jug and a candle", "the wolf's sly smile"]
 must_avoid = ["the child in this picture", "the wolf showing teeth or snarling", "Grandmother frightened or in pain", "lettering or writing anywhere", "a weapon or blood"]
 
