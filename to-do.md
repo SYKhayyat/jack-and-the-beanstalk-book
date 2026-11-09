@@ -1,55 +1,110 @@
-# The Book Feature — What's Done and What to Do Next
+# Storybook Studio — what's done and what's left
 
-The picture-book iteration is built, tested end to end (real-server smoke:
-photo → portrait → 19 story pages → 20-page PDF) and checked — ruff, mypy and
-the full pytest suite are green. This repo is the second commissioned
-iteration: the picture book is now the whole app — one page, portrait first,
-then the whole book.
-The first app (portrait+scene per picture) lives separately and shares no word
-of UI with this one.
+This file is the hand-in's to-do list. The top half tracks **the current
+assignment** (accounts and money, the 20-page template, speed, the quality loop,
+text placement, UI and self-grading) against what is actually built. Everything
+below "Earlier iterations" is the record of the work before it, kept for
+history.
 
-## The three deliverable links
+## Hand-in links (all four must open in a private window)
 
-1. **Render site** — <https://jack-and-the-beanstalk-book.onrender.com/>
-   (create via **New → Blueprint** on the repo; `/healthz` should show healthy)
-2. **GitHub repo (this one, public)** —
-   <https://github.com/SYKhayyat/jack-and-the-beanstalk-book>
-3. **This file** —
-   <https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/to-do.md>
+1. **Live site** — <https://jack-and-the-beanstalk-book.onrender.com/>
+2. **GitHub repo (public)** — <https://github.com/SYKhayyat/jack-and-the-beanstalk-book>
+3. **This file** — <https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/to-do.md>
+4. **Review log** — <https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/review-log.md>
 
-The assignment also asks for **ten real responses, ten AI responses and a short
-comparison on a public link**. The instruments are written and live in
-[`docs/feedback/`](docs/feedback/README.md); the comparison is only filled in
-after both response sets exist. Paste its public URL here as the fourth
-deliverable when it is ready:
+Post the same four links in Canvas and in Slack, only after the private-window
+pass below.
 
-4. **The feedback comparison** — *(public link goes here; do not publish the
-   AI-persona method before Monday's class comparison)*
+## Accounts and money — Stripe sandbox
 
-## Hand-in checklist (Step 9)
+- [x] Fund an account (Stripe hosted checkout, test mode) — `/wallet`.
+- [x] See the balance (summed from the ledger, never stored).
+- [x] Request a refund, and process it back to the paying card.
+- [x] Every finished book deducts $0.99, when its PDF is written.
+- [x] Transaction history: every credit and debit, and what caused it.
+- [x] Cost tracking: every image call, redraw, quality check and portrait is
+      logged with its provider, model and price in `api_calls`
+      (`app/services/costs.py`). `/wallet` shows the average API spend per
+      finished book next to the $0.99, the per-category breakdown, and on each
+      book charge what that book cost to make. Agnes is $0, OpenAI is priced
+      from its published per-image table; `IMAGE_CALL_COST_USD` /
+      `REVIEW_CALL_COST_USD` cover anything else.
+- [ ] Set `REVIEW_CALL_COST_USD` on Render if the reviewer key is billed (a
+      free-tier Gemini key is $0); until then review calls show as unpriced.
+- [x] The sandbox key lives only in `.env` (gitignored) and the Render
+      dashboard — never in the repo.
+- [ ] Confirm `STRIPE_SECRET_KEY` is set in the Render dashboard.
 
-Everything in code is done; the unchecked items need the live deployment, the
-crowd window, or the judge's go for a paid API run. Do them in a **private
-window** first.
+## The book — 20 pages, one template
 
-- [x] `.env.example` has a placeholder for **every** settings field the code
-      reads (24 of 24), and every secret placeholder is blank.
-- [x] The repo is scanned by a test for live credential shapes (OpenAI, Google
-      API, AWS, Slack, GitHub tokens, private-key headers). None are present.
-- [x] Every relative link in `README.md`, `to-do.md` and `docs/` resolves, and
-      every external link is HTTPS. Run `make check` to re-verify.
-- [x] Every request has an id (`X-Request-ID`) and one log trail per book (see
-      *Structured logs* above).
-- [ ] Deploy via the Render blueprint and paste `OPENAI_API_KEY` (the app boots
-      free on the mock provider first, so the first deploy is green).
-- [ ] Open all three deliverable links plus the comparison link in a private
-      window and confirm each resolves **from outside the logged-in browser**.
-- [ ] Grader flow: fresh Gmail → sign in → make a book → sign out → wait across
-      a Render restart → sign in → the same 20-page book is still there → the
-      PDF downloads.
-- [ ] Fill `docs/feedback/comparison-template.md` after the crowd and AI
-      responses land, publish it, and paste the URL into item 4 above.
-- [ ] Post the Canvas/Slack hand-in only after the private-window pass.
+- [x] 20 story pages plus the About Me back page (and a cover).
+- [x] One 20-page template — layouts, art placement and text bands — serving
+      both *Jack and the Beanstalk* and *Little Red Riding Hood*.
+- [x] Character bible stored in the database; the cast is edited into the
+      template's plates.
+- [x] Scenes (plates) pre-generated for both stories and stored in the database.
+- [ ] Real-provider run of the plate edit pass (T8) — the start gate stays off
+      until it is seen to keep the plate's background.
+
+## Speed
+
+- [x] Page load serves from the database with ETag revalidation.
+- [x] Progress bar naming the stage (painting / checking / redrawing /
+      assembling) and the page it is on.
+- [x] Thumbnails appear as each picture finishes.
+- [ ] Measure a real book end to end with `make time-book` against OpenAI and
+      against Agnes: images done and PDF ready in **under 60 seconds**.
+
+## It has to still be there tomorrow
+
+- [x] Images, PDFs, attempts and verdicts are stored in the database (Neon in
+      production).
+- [ ] Grader flow on the live site: sign in → make a book → sign out → after a
+      Render restart sign in again → the same book and PDF download.
+
+## Quality loop
+
+- [x] Every generated image is analysed (tier 1 mechanical, tier 2 vision
+      model).
+- [x] A failure is redrawn, up to 3 generations in total, aimed at the faults
+      found.
+- [x] After 3 failures the best of the three is kept and marked best-effort.
+- [x] The UI shows the attempt count on every picture: a chip under each page
+      ("Try 2 of 3", "Best of 3 tries") and a count on each thumbnail.
+
+## Text must never hide the story
+
+- [x] Story text is set in a band below the art, never over the picture.
+- [x] The cover title sits in the top band of the cover art; a cover plate
+      whose top 22 % is too busy for it cannot be approved.
+- [ ] Check every page of both PDFs by eye: no text over a face or over anything
+      the page needs.
+
+## UI
+
+- [ ] A cleaner pass over the studio, the book and the wallet, judged on the
+      live site.
+
+## Grade yourself, and keep the record
+
+- [ ] Install the `storybook-review` skill from the class page and connect
+      Claude to the browser.
+- [ ] Run it against the live site; append every run to `review-log.md` (never
+      overwrite an earlier one) and commit the log.
+- [ ] Test with a photo not used during development.
+- [ ] Produce one PDF per story.
+- [ ] After each meaningful change: fix the top Fix-first item, rerun, commit
+      the log.
+
+## Before submitting
+
+- [ ] Open all four links above in a private window.
+- [ ] Post the four links in Canvas and Slack.
+
+---
+
+# Earlier iterations
 
 ## Agnes AI — the free testing provider (code in place)
 
