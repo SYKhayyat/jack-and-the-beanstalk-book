@@ -326,6 +326,31 @@ class Settings(BaseSettings):
         ),
     )
 
+    r2_account_id: str = Field(
+        default="",
+        description="Cloudflare account id (the R2 endpoint's subdomain).",
+    )
+    r2_bucket: str = Field(
+        default="", description="The private R2 bucket pictures and PDFs live in."
+    )
+    r2_access_key_id: str = Field(default="", description="R2 API token's access key id.")
+    # A credential like the others: environment only, never logged.
+    r2_secret_access_key: str = Field(
+        default="", description="R2 API token's secret access key."
+    )
+
+    @property
+    def r2_enabled(self) -> bool:
+        """Whether blobs go to R2. All four settings, or none (inline blobs)."""
+        return all(
+            (
+                self.r2_account_id,
+                self.r2_bucket,
+                self.r2_access_key_id,
+                self.r2_secret_access_key,
+            )
+        )
+
     @field_validator("image_call_cost_usd", "review_call_cost_usd", mode="before")
     @classmethod
     def _blank_price_is_unset(cls, value: object) -> object:

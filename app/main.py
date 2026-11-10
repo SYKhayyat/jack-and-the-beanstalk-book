@@ -403,6 +403,8 @@ def _configure_logging(settings: Settings) -> None:
             # A Stripe key is a bearer credential: whoever holds it can move
             # money on the account. It is armed like every other secret.
             settings.stripe_secret_key,
+            # R2 token secret: bearer credential for the whole picture bucket.
+            settings.r2_secret_access_key,
             # A database URL is pasted whole and embeds its password; a raw
             # URL in a log line is a leak of the whole credential. The password
             # fragment is armed separately because a URL can be logged in

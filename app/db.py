@@ -33,7 +33,6 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
-    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -44,6 +43,8 @@ from sqlalchemy import true as sa_true
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
+
+from app.blobs import BlobRef
 
 __all__ = [
     "DEFAULT_STORY_KEY",
@@ -120,11 +121,11 @@ class BookRow(Base):
     prompts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     status_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    portrait: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    portrait: Mapped[bytes | None] = mapped_column(BlobRef, nullable=True)
     #: The original photograph: the second identity anchor for an edit.
-    source_photo: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
-    cover: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
-    pdf: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    source_photo: Mapped[bytes | None] = mapped_column(BlobRef, nullable=True)
+    cover: Mapped[bytes | None] = mapped_column(BlobRef, nullable=True)
+    pdf: Mapped[bytes | None] = mapped_column(BlobRef, nullable=True)
     #: Hex SHA-256 of `cover` and of `portrait`, written with them. The version
     #: in a picture's URL, so the browser may keep it for good (P1), and the
     #: answer to "has this picture changed?" without reading its bytes.
@@ -175,7 +176,7 @@ class BookPageRow(Base):
         ForeignKey("books.id", ondelete="CASCADE"), primary_key=True
     )
     page_number: Mapped[int] = mapped_column(primary_key=True)
-    image: Mapped[bytes] = mapped_column(LargeBinary)
+    image: Mapped[bytes] = mapped_column(BlobRef)
     media_type: Mapped[str] = mapped_column(String(50))
     #: Billable image calls spent on this page (T9 caps it at three).
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -208,7 +209,7 @@ class PictureVariantRow(Base):
     width: Mapped[int] = mapped_column(Integer, primary_key=True)
     #: The hash of the picture this copy was made from.
     source_sha256: Mapped[str] = mapped_column(String(64))
-    image: Mapped[bytes] = mapped_column(LargeBinary)
+    image: Mapped[bytes] = mapped_column(BlobRef)
     media_type: Mapped[str] = mapped_column(String(50))
 
 
@@ -225,9 +226,9 @@ class BookCharacterRow(Base):
         ForeignKey("books.id", ondelete="CASCADE"), primary_key=True
     )
     cast_key: Mapped[str] = mapped_column(String(64), primary_key=True)
-    portrait: Mapped[bytes] = mapped_column(LargeBinary)
+    portrait: Mapped[bytes] = mapped_column(BlobRef)
     portrait_media_type: Mapped[str] = mapped_column(String(50))
-    photo: Mapped[bytes] = mapped_column(LargeBinary)
+    photo: Mapped[bytes] = mapped_column(BlobRef)
     photo_media_type: Mapped[str] = mapped_column(String(50))
     #: The portrait draft this face came from (`portrait_attempts.id`), which
     #: leads to every attempt, chip and take behind it. Null for rows written
@@ -362,7 +363,7 @@ class StoryCharacterRow(Base):
     #: The order the studio offers the cast in: the seed's order.
     position: Mapped[int] = mapped_column(Integer, default=0)
     photoable: Mapped[bool] = mapped_column(Boolean)
-    reference_image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    reference_image: Mapped[bytes | None] = mapped_column(BlobRef, nullable=True)
     reference_media_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     #: "seed" or "operator".
     provenance: Mapped[str] = mapped_column(String(16))
@@ -385,7 +386,7 @@ class TemplatePlateRow(Base):
         ForeignKey("stories.key", ondelete="RESTRICT"), index=True
     )
     page_number: Mapped[int] = mapped_column(Integer)
-    image: Mapped[bytes] = mapped_column(LargeBinary)
+    image: Mapped[bytes] = mapped_column(BlobRef)
     media_type: Mapped[str] = mapped_column(String(50))
     prompt: Mapped[str] = mapped_column(Text)
     prompt_hash: Mapped[str] = mapped_column(String(64))

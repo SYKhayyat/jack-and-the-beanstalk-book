@@ -171,3 +171,14 @@ services:
       # migrations ahead of time.
       - key: DATABASE_URL
         sync: false
+
+      # Cloudflare R2: pictures and PDFs live here, the database keeps only
+      # pointers. All four, or the blobs stay inline in Postgres.
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
