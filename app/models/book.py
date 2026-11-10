@@ -48,9 +48,10 @@ class BookPage:
         emotion: The page's emotional beat, stated in the prompt so faces
             track the story instead of falling back on a stock smile.
         cast: The supporting cast this page draws, as keys of the story's
-            character bible (the mother, the old man). The star is on every
-            page and is never listed. Looks come from the bible by key; a page
-            never restates one.
+            character bible (the mother, the old man). The star is never
+            listed. Looks come from the bible by key; a page never restates one.
+        star_in_picture: False for a page the star is not drawn on (the wolf
+            reaches the cottage first); the picture is then `cast` alone.
     """
 
     number: int
@@ -60,6 +61,7 @@ class BookPage:
     emotion: str = ""
     cast: tuple[str, ...] = ()
     beat: str = ""
+    star_in_picture: bool = True
 
     def formatted(self, substitutions: Mapping[str, str]) -> BookPage:
         """A copy with name/pronoun placeholders filled in for this child.

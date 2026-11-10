@@ -36,7 +36,7 @@ from typing import Any
 from sqlalchemy import Connection, delete, func, insert, select, update
 from sqlalchemy.engine import Engine
 
-from app.books import PAGE_COUNT, SeedScene, StorySeed
+from app.books import PAGE_COUNT, SeedScene, StorySeed, picture_cast
 from app.db import (
     BookRow,
     BookStoryCharacterRow,
@@ -56,6 +56,7 @@ __all__ = [
     "FACINGS",
     "NOT_READY",
     "PAGE_NUMBERS",
+    "RESTS",
     "NoTemplateVersion",
     "PageSummary",
     "PlateArt",
@@ -83,6 +84,10 @@ COVER_PAGE = 0
 PAGE_NUMBERS = tuple(range(COVER_PAGE, PAGE_COUNT + 1))
 
 FACINGS = frozenset({"left", "right", "toward", "away"})
+
+#: How a figure rests in its slot when it is not standing on the ground.
+#: "" is the default: on its feet where the plate's ground is.
+RESTS = frozenset({"", "in_bed", "kneeling", "seated"})
 
 
 class PlateStatus:
@@ -145,6 +150,8 @@ class Slot:
     rect: tuple[float, float, float, float]
     scale: float
     facing: str
+    #: One of `RESTS`; "" stands the figure on the ground.
+    rest: str = ""
 
     @classmethod
     def from_json(cls, raw: Mapping[str, Any]) -> Slot:
@@ -153,9 +160,10 @@ class Slot:
             x, y, w, h = (float(value) for value in raw["rect"])
             scale = float(raw["scale"])
             facing = str(raw["facing"])
+            rest = str(raw.get("rest", ""))
         except (KeyError, TypeError, ValueError) as exc:
             raise TemplateError(f"a slot is malformed: {exc}") from exc
-        slot = cls(cast_key=cast_key, rect=(x, y, w, h), scale=scale, facing=facing)
+        slot = cls(cast_key=cast_key, rect=(x, y, w, h), scale=scale, facing=facing, rest=rest)
         slot.check()
         return slot
 
@@ -171,14 +179,19 @@ class Slot:
             raise TemplateError(
                 f"slot {self.cast_key!r} facing must be one of {sorted(FACINGS)}"
             )
+        if self.rest not in RESTS:
+            raise TemplateError(f"slot {self.cast_key!r} rest must be one of {sorted(RESTS)}")
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        content: dict[str, Any] = {
             "cast_key": self.cast_key,
             "rect": list(self.rect),
             "scale": self.scale,
             "facing": self.facing,
         }
+        if self.rest:
+            content["rest"] = self.rest
+        return content
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,6 +258,8 @@ class PageSummary:
     cast_keys: tuple[str, ...]
     text_band: Mapping[str, Any]
     revision: int
+    #: False when the page leaves the star out of the picture.
+    star_in_picture: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -507,6 +522,7 @@ class TemplateStore:
                     StoryPageRow.cast_keys,
                     StoryPageRow.text_band,
                     StoryPageRow.revision,
+                    StoryPageRow.scene,
                 )
                 .where(StoryPageRow.story_key == story_key)
                 .order_by(StoryPageRow.page_number, StoryPageRow.revision)
@@ -521,6 +537,7 @@ class TemplateStore:
                 cast_keys=tuple(row.cast_keys),
                 text_band=row.text_band,
                 revision=int(row.revision),
+                star_in_picture=scene_shows_star(row.scene),
             )
         return latest
 
@@ -629,7 +646,7 @@ class TemplateStore:
                     f"page {plate.page_number} has no words yet; seed the story first"
                 )
             star = _story_star(conn, plate.story_key)
-            problem = _slot_problem(plate.slots, _page_cast(star, page.cast_keys))
+            problem = _slot_problem(plate.slots, _page_cast(star, page))
             if problem:
                 raise PlateNotApprovable(problem)
             conn.execute(
@@ -977,7 +994,7 @@ class TemplateStore:
             ).one_or_none()
             if plate is None:
                 return _current_version_id(conn, story_key)
-            cast = _page_cast(star, page.cast_keys)
+            cast = _page_cast(star, page)
             if _slot_problem(plate.slots, cast):
                 logger.warning(
                     "templates.stale_plate story=%s page=%d plate=%s",
@@ -1092,6 +1109,9 @@ def _scene_json(scene: SeedScene) -> dict[str, Any]:
     }
     if scene.compose:
         content["compose"] = dict(scene.compose)
+    if not scene.star_in_picture:
+        # Written only when off, so a page that shows the star hashes as before.
+        content["star_in_picture"] = False
     return content
 
 
@@ -1301,9 +1321,14 @@ def _character_hash(character: Any) -> str:
     )
 
 
-def _page_cast(star: str, cast_keys: Iterable[str]) -> tuple[str, ...]:
-    """Everyone on a page: the star (always) and the page's listed cast, once each."""
-    return tuple(dict.fromkeys([star, *cast_keys]))
+def _page_cast(star: str, page: Any) -> tuple[str, ...]:
+    """Everyone drawn on a stored page row, once each."""
+    return picture_cast(star, page.cast_keys, star_in_picture=scene_shows_star(page.scene))
+
+
+def scene_shows_star(scene: Mapping[str, Any] | None) -> bool:
+    """Whether a stored scene draws the star. Absent means yes."""
+    return bool((scene or {}).get("star_in_picture", True))
 
 
 def _slot_problem(slots: Sequence[Mapping[str, Any]], cast: Sequence[str]) -> str | None:

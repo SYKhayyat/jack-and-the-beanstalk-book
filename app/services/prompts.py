@@ -207,17 +207,21 @@ def _reference_map(
     story: StoryEdition,
     character_photos: Iterable[str],
     photo_only: frozenset[str] = frozenset(),
+    *,
+    star_in_picture: bool = True,
 ) -> str:
     """The per-page reference order, matching the images sent with this call.
 
     A face kept without a cartoon (`photo_only`: "" for the child, else the
     cast key) is one image, the photograph, not a portrait and a photograph.
+    A page the child is not in sends no image of the child.
     """
-    entries = (
-        ["1) the child's photograph"]
-        if "" in photo_only
-        else ["1) the child's cartoon portrait", "2) the child's photograph"]
-    )
+    if not star_in_picture:
+        entries: list[str] = []
+    elif "" in photo_only:
+        entries = ["1) the child's photograph"]
+    else:
+        entries = ["1) the child's cartoon portrait", "2) the child's photograph"]
     position = len(entries) + 1
     for name in character_photos:
         label = story.cast[name].label
@@ -228,6 +232,8 @@ def _reference_map(
         entries.append(f"{position}) {label}'s cartoon portrait")
         entries.append(f"{position + 1}) {label}'s photograph")
         position += 2
+    if not entries:
+        return ""
     return cast("dict[str, str]", _BOOK["assembly"])["reference_images"].format(
         entries="; ".join(entries)
     )
@@ -471,7 +477,10 @@ def build_book_page_prompt(
         # The exact order of the reference images sent with this call, so the
         # model can tell the child's two anchors from a character's portrait
         # and photograph. Page-level because the references are.
-        _reference_map(story, character_photos, photo_only),
+        _reference_map(
+            story, character_photos, photo_only, star_in_picture=page.star_in_picture
+        ),
+        "" if page.star_in_picture else task_book["star_absent"].format(name=subs["name"]),
         task_book["full_frame"],
         *_scene_block(page.scene, page.emotion),
         correction,
@@ -744,6 +753,7 @@ def build_plate_edit_prompt(
     settings: CartoonSettings,
     prompt_name: str,
     cover: bool = False,
+    supplied_characters: Iterable[str] = (),
     retry_faults: Sequence[str] = (),
     retry_findings: str = "",
 ) -> str:
@@ -764,8 +774,10 @@ def build_plate_edit_prompt(
     pictures as the wrong moment. The moment is framed as what the characters
     do *inside* the plate, so it never reads as permission to repaint it.
 
-    The star is always first: it is the identity anchor, sent as the second
-    reference image, and the slot layout puts it left or centre.
+    The star is first whenever the page draws them: it is the identity anchor,
+    sent as the second reference image. A page the star is not in (the wolf at
+    Grandmother's door before the child arrives) says so outright, because a
+    picture book's painter puts its hero on every page unless told not to.
 
     Args:
         page: The page whose plate is being edited (raw; its name and pronoun
@@ -777,6 +789,8 @@ def build_plate_edit_prompt(
         settings: The star's settings, for the pronouns the moment is told in.
         prompt_name: The star's name.
         cover: True for page 0, whose title band must stay clear.
+        supplied_characters: Cast keys the visitor attached a photo to; their
+            look defers to that photo for face and colouring.
         retry_faults: Faults a reviewer found in the previous attempt at this
             page, or that the owner asked to fix. Empty on a first attempt.
             Steers the re-draw at what was wrong, while saying in the same
@@ -794,11 +808,22 @@ def build_plate_edit_prompt(
         edit["plate_task"],
         edit["preserve"],
         edit["moment"].format(caption=scene.caption),
-        edit["acting"].format(name=prompt_name, action=scene.subject_action),
+        (
+            edit["acting"].format(name=prompt_name, action=scene.subject_action)
+            if page.star_in_picture
+            else edit["acting_cast"].format(action=scene.subject_action)
+        ),
+        "" if page.star_in_picture else edit["star_absent"].format(name=prompt_name),
         edit["feeling"].format(emotion=emotion) if emotion else "",
         edit["cast_identity"],
         _slot_block(slots, story, cover=cover),
-        _edit_cast_looks(slots, story, subs),
+        _edit_cast_looks(
+            slots,
+            story,
+            subs,
+            star_outfit=_star_outfit(story, settings, prompt_name),
+            supplied=frozenset(supplied_characters),
+        ),
         edit["inherits"],
         edit["no_extras"],
         _avoid_clause(scene),
@@ -824,13 +849,24 @@ def _slot_block(slots: Sequence[Slot], story: StoryEdition, *, cover: bool) -> s
         "toward": edit["facing_toward"],
         "right": edit["facing_right"],
         "left": edit["facing_left"],
+        "away": edit["facing_away"],
+    }
+    rest_wording = {
+        "in_bed": edit["slot_in_bed"],
+        "kneeling": edit["slot_kneeling"],
+        "seated": edit["slot_seated"],
     }
     described = []
     for slot in slots:
         x, y, w, h = slot.rect
         member = story.cast.get(slot.cast_key)
         label = member.label if member is not None else slot.cast_key
-        ground = edit["slot_floating"] if cover and y < 0.35 else edit["slot_on_ground"]
+        if slot.rest:
+            ground = rest_wording[slot.rest]
+        elif cover and y < 0.35:
+            ground = edit["slot_floating"]
+        else:
+            ground = edit["slot_on_ground"]
         # A slot pinned to the top edge is a figure the frame cuts off, not one
         # that fits: telling the model its "head is at 0%" would shrink it.
         line = edit["slot_line_cut"] if y == 0 and not cover else edit["slot_line"]
@@ -849,7 +885,12 @@ def _slot_block(slots: Sequence[Slot], story: StoryEdition, *, cover: bool) -> s
 
 
 def _edit_cast_looks(
-    slots: Sequence[Slot], story: StoryEdition, subs: Mapping[str, str]
+    slots: Sequence[Slot],
+    story: StoryEdition,
+    subs: Mapping[str, str],
+    *,
+    star_outfit: str,
+    supplied: frozenset[str] = frozenset(),
 ) -> str:
     """The pinned look of everyone on this page, from the bible and nowhere else.
 
@@ -858,13 +899,26 @@ def _edit_cast_looks(
     with the star's name and own pronouns filled in (a girl's bible line must
     not say "his": that pulls the painter away from the portrait) — and the
     anchor image is what carries the face.
+
+    The star's line ends with what they wear (the story's costume, or the
+    visitor's outfit pick): a look that says "the costume below" with no
+    costume after it is how Red's cover came back in a dress. A supporting
+    character whose photo the visitor supplied gets their photo-deferring
+    line, the same one the cast sheet uses.
     """
     looks = []
     for slot in slots:
         member = story.cast.get(slot.cast_key)
         if member is None:
             continue
-        look = member.look.format(**subs) if "{" in member.look else member.look
+        line = (
+            member.look_with_photo
+            if member.key in supplied and member.look_with_photo
+            else member.look
+        )
+        look = line.format(**subs) if "{" in line else line
+        if member.key == story.star:
+            look = f"{look} Clothes: {star_outfit}"
         looks.append(f"- {member.label}: {look}")
     if not looks:
         return ""

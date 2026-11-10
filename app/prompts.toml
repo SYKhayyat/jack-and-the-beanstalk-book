@@ -338,6 +338,10 @@ reference_images = "REFERENCE IMAGES (in the order supplied): {entries}. Each im
 emotion = "EMOTIONAL BEAT: {emotion}."
 # The whole frame is the picture: the story text is printed in a margin below
 # the art, never over it, so nothing in the frame has to be kept empty for it.
+# A page the child is not in (the wolf reaches the cottage first). Every other
+# line of this prompt is about the child, so this one says outright that they
+# stay out. {name} is the star's name.
+star_absent = "{name} IS NOT IN THIS PICTURE: this moment happens where {name} is not, so no child appears anywhere in it — not in the room, not at a window or door, not in the distance. Draw only the characters the scene names."
 full_frame = "FRAME: the whole image is the illustration, edge to edge. No part of it is covered by text afterwards, so compose the full frame, with no empty band left for words."
 
 # ---------------------------------------------------------------------------
@@ -366,6 +370,10 @@ preserve = "KEEP THE PLATE: the background — sky, ground, walls, furniture, tr
 moment = "THE MOMENT THIS PAGE SHOWS — the place, its props and its light are already in the plate and stay exactly as they are; this is what the characters are doing inside it: {caption}"
 # The star's own action, stated on its own so it is not lost in the caption.
 acting = "WHAT {name} IS DOING: {action}. Pose and act every character for this moment — bodies, hands, heads and faces doing what the moment says. A figure standing still and facing the viewer is wrong unless the moment says so."
+# A page the star is not in: the action without a name, then the line that
+# keeps the child out. Without it the painter puts its hero on every page.
+acting_cast = "WHAT HAPPENS: {action}. Pose and act every character for this moment — bodies, hands, heads and faces doing what the moment says. A figure standing still and facing the viewer is wrong unless the moment says so."
+star_absent = "{name} IS NOT IN THIS PICTURE: this moment happens where {name} is not, so no child appears anywhere in it — not in the room, not at a window or door, not in the distance. Only the characters in the slots below are drawn."
 feeling = "THE FEELING: {emotion}."
 # Where each character goes. {slots} is one line per slot.
 slots = "SLOTS (fractions of the whole image, origin top LEFT, measured left to right and top to bottom):\n{slots}"
@@ -377,10 +385,16 @@ slot_line_cut = "- {label}: the character's feet sit at height {bottom}% of the 
 # How a slot's standing point is described, so nobody has to read a percentage.
 slot_on_ground = "The figure stands where the plate's ground is."
 slot_floating = "The figure rests on whatever the plate puts under it at that point; if the plate has no ground there, place it against the nearest thing it can stand on — never floating in the sky."
+# A slot whose figure is not on its feet. The bed is in the plate: the figure is
+# IN it, under its covers, not standing beside it.
+slot_in_bed = "The figure is IN the plate's bed at that point, under the bedclothes: lying with the head on the pillow, or sitting up against the pillow if the moment says so, the covers pulled up over the body so only the head, shoulders and arms show above them. It is never standing beside the bed, sitting on its edge or lying on top of the covers."
+slot_kneeling = "The figure kneels on the plate's ground at that point, down at the height of whoever it faces."
+slot_seated = "The figure sits on whatever the plate puts at that point (a chair, a bench, a step), not standing."
 # Facing, in words rather than a direction key.
 facing_right = "Facing and heading towards the right of the frame, in side or three-quarter view."
 facing_left = "Facing and heading towards the left of the frame, in side or three-quarter view."
 facing_toward = "Facing the viewer."
+facing_away = "Seen from behind or in three-quarter back view, facing and heading INTO the picture, away from the viewer."
 # The identity + style contract, kept as short as it can honestly be: on an
 # edit the plate carries the style, so only the drawing of the people is
 # restated. Anything longer is an invitation to redraw the plate.
@@ -461,6 +475,25 @@ door_and_standing = "CLEAR SPACE: a child will be added later near the right edg
 window_and_door = "CLEAR SPACE: a woman will be added later leaning out of the lit window, seen from the waist up with her body inside the room, and a child will be added later standing on the doorstep at the door. Keep the window open and the doorstep and path in front of the door clear."
 toward_the_castle = "CLEAR SPACE: a child will be added later at the lower right, walking left along the cloud path towards the castle. Keep that stretch of cloud open, with nothing standing on it."
 at_the_stalk = "CLEAR SPACE: a child will be added later on the grass just left of the stalk's base, chopping at its trunk with an axe. Keep that stretch of ground open."
+path_and_far_wolf = "CLEAR SPACE: a child will be added later standing on the path just right of the middle, from a little above halfway down to near the bottom, and a small far-off figure between the trees at the left. Keep that stretch of path open and leave a gap between the left-hand trees."
+hood_and_basket = "CLEAR SPACE: a child will be added later standing on the floor right of the middle, and a grown woman standing beside the child further right, nearly the full height of the frame. Keep the floor right of the table free of stools, baskets and other props."
+away_to_the_smoke = "CLEAR SPACE: a child will be added later walking away from the viewer along the path, left of the middle, from a little above halfway down to near the bottom, with the chimney smoke ahead of them beyond the trees. Keep that stretch of path open."
+on_the_path_with_wolf = "CLEAR SPACE: a child will be added later on the path at the left, from about halfway down to near the bottom, and a tall figure on the path right of the middle, from about a quarter of the way down to near the bottom. Keep both stretches of path open and the far view between them clear."
+kneeling_in_flowers = "CLEAR SPACE: a child will be added later kneeling in the grass a little left of the middle, in the lower half of the frame, and a small far-off figure between the trees at the right. Keep that patch of meadow low and open and leave a gap between the right-hand trees."
+wolf_runs = "CLEAR SPACE: a running figure will be added later in the left foreground, from a little above halfway down to near the bottom. Keep that stretch of ground open, and keep the far cottage clear in the middle of the frame."
+door_and_bed = "CLEAR SPACE: an old woman will be added later lying in the bed, and a tall figure standing in the doorway at the left edge of the room. Keep the bed made and empty with its pillow clear, and keep the doorway open."
+bed_and_wolf = "CLEAR SPACE: an old woman will be added later lying in the bed at the left, and a tall figure standing on the floor in the middle of the room. Keep the bed made and empty with its pillow clear, and keep the floor in the middle free of furniture and props."
+wolf_in_bed = "CLEAR SPACE: a figure will be added later lying in the bed near the top of the middle of the frame. Keep the bed made and empty with its pillow clear."
+door_to_the_bed = "CLEAR SPACE: a child will be added later standing just inside the door at the left, and a figure lying in the bed in the middle of the room. Keep the floor inside the door open and the bed made and empty with its pillow clear."
+beside_the_bed = "CLEAR SPACE: a child will be added later standing on the floor beside the bed, right of the middle, and a figure lying in the bed at the upper left. Keep the floor beside the bed open and the bed made and empty with its pillow clear."
+out_of_the_bed = "CLEAR SPACE: a figure will be added later springing up out of the bed at the left, and a child running across the floor in the middle towards the door. Keep the floor between the bed and the door open."
+down_the_garden_path = "CLEAR SPACE: a child will be added later running down the garden path towards the viewer, in the lower middle of the frame, and a small far-off figure between the trees at the right edge. Keep the garden path open and leave a gap between the right-hand trees."
+kneel_to_listen = "CLEAR SPACE: a child will be added later standing on the garden path left of the middle, and a tall man kneeling on one knee just right of the middle. Keep that stretch of path and grass open."
+rescue_at_the_door = "CLEAR SPACE: a tall man will be added later standing in the open doorway, a running figure on the path right of the middle, and a child standing by the fence at the left. Keep the doorway, the path and the ground by the left-hand fence open."
+out_of_the_cupboard = "CLEAR SPACE: a child and an old woman will be added later hugging on the floor just in front of the open cupboard, a little left of and across the middle. Keep that floor free of furniture and props and the cupboard door open."
+at_the_table = "CLEAR SPACE: a child will be added later sitting on a stool at the left side of the small table, and an old woman sitting on a chair at its right side. Keep a stool and a chair pulled out at those two sides and the floor around them clear."
+home_at_dusk = "CLEAR SPACE: a child and a tall man will be added later walking away from the viewer along the path, just left of the middle, in the lower half of the frame. Keep that stretch of path open, with the far gate clear and empty."
+hug_at_the_gate = "CLEAR SPACE: a child and a kneeling woman will be added later hugging on the path in front of the gate, a little left of and across the middle. Keep that stretch of path open."
 
 [plate_common.styles]
 pixar_like = "Modern 3D animated feature: rounded sculpted forms, soft rim light, smooth shading, warm cinematic colour grading, polished family-film design, with stone, wood, thatch, leaves and cloud all modelled in the same soft rounded way. The same rendering on every page: never 2D ink outlines, a flat cartoon, watercolour, gouache or photographic realism."

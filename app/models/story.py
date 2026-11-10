@@ -142,6 +142,7 @@ def page_from_content(number: int, content: Mapping[str, Any]) -> BookPage:
         emotion=str(content.get("emotion", "")),
         cast=tuple(str(key) for key in content.get("cast_keys", ())),
         beat=str(content.get("beat", "")),
+        star_in_picture=bool(scene.get("star_in_picture", True)),
     )
 
 

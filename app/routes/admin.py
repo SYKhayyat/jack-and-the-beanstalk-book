@@ -39,7 +39,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from app.books import SEEDS, StorySeed
+from app.books import SEEDS, StorySeed, picture_cast
 from app.container import Container
 from app.dependencies import ContainerDep
 from app.routes.auth import CurrentSessionDep
@@ -52,6 +52,7 @@ from app.services.plates import PLATE_SHAPE, PlatePlan, plate_plans
 from app.services.template_store import (
     COVER_PAGE,
     PAGE_NUMBERS,
+    PageSummary,
     PlateNotApprovable,
     PlateStatus,
     PlateSummary,
@@ -156,13 +157,15 @@ def _page_label(page_number: int, title: str) -> str:
     return "Cover" if page_number == COVER_PAGE else f"Page {page_number} — {title}"
 
 
-def _cast_label(star: str, cast_keys: tuple[str, ...]) -> str:
-    """Who is on the page, in the order the slots are laid out.
+def _cast_label(star: str, page: PageSummary | None) -> str:
+    """Who is drawn on the page, in the order the slots are laid out.
 
-    The star is always first — the plate edit pass draws them into slot one —
-    so the screen and the stored slots name people in the same order.
+    The star is first unless the page leaves them out, so the screen and the
+    stored slots name people in the same order.
     """
-    names = list(dict.fromkeys([star, *cast_keys]))
+    if page is None:
+        return star or "the star"
+    names = picture_cast(star, page.cast_keys, star_in_picture=page.star_in_picture)
     return ", ".join(names) if names else "the star"
 
 
@@ -342,7 +345,7 @@ def page_review(
                 "label": _page_label(page_number, page.title if page else ""),
                 "title": page.title if page else "",
                 "prose": page.prose if page else "",
-                "cast_label": _cast_label(seed.star, page.cast_keys if page else ()),
+                "cast_label": _cast_label(seed.star, page),
             },
             "candidates": candidates,
             "plan": {"prompt": plan.prompt, "slots": _slot_rows(plan.slots)},

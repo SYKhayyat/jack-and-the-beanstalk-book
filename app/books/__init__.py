@@ -96,6 +96,9 @@ class SeedScene:
     compose: Mapping[str, str] = field(default_factory=dict)
     #: A named exception to the plate's default stage; "" for the default.
     staging: str = ""
+    #: False for a page the star is not in (the wolf reaches the cottage
+    #: first): the picture is drawn from `cast` alone.
+    star_in_picture: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,6 +204,8 @@ def seed_from_mapping(data: Mapping[str, Any], source: str = "<seed>") -> StoryS
 
     cover_table = _table(data, "cover", source)
     cover = _scene(cover_table, source, "cover")
+    if not cover.star_in_picture:
+        raise SeedError(f"{source}: the cover always shows the star")
     _check_no_look_restated(cover, cast, source, "cover")
 
     raw_pages = data.get("pages")
@@ -232,7 +237,8 @@ def seed_from_mapping(data: Mapping[str, Any], source: str = "<seed>") -> StoryS
         story_text = _text(raw, "story", f"{source} page {page_key}")
         _check_prose(story_text, source, page_key, allowed)
         _check_prose_is_not_a_prompt(story_text, raw, source, page_key)
-        if len({star, *scene.cast} & photoable) > MAX_REFERENCE_CAST:
+        drawn = picture_cast(star, scene.cast, star_in_picture=scene.star_in_picture)
+        if len(set(drawn) & photoable) > MAX_REFERENCE_CAST:
             raise SeedError(
                 f"{source} page {page_key!r}: casts more than "
                 f"{MAX_REFERENCE_CAST} image-referenced characters"
@@ -367,7 +373,28 @@ def _scene(spec: Mapping[str, Any], where: str, name: str) -> SeedScene:
         cast=tuple(cast_value),
         compose=_compose(spec, where, name),
         staging=_optional_text(spec, "staging", f"{where} {name!r}"),
+        star_in_picture=_star_in_picture(spec, where, name, tuple(cast_value)),
     )
+
+
+def _star_in_picture(
+    spec: Mapping[str, Any], where: str, name: str, cast: tuple[str, ...]
+) -> bool:
+    value = spec.get("star_in_picture", True)
+    if not isinstance(value, bool):
+        raise SeedError(f"{where} {name!r}: star_in_picture must be true or false")
+    if not value and not cast:
+        raise SeedError(f"{where} {name!r}: a page without the star must cast someone")
+    return value
+
+
+def picture_cast(
+    star: str, cast_keys: Iterable[str], *, star_in_picture: bool = True
+) -> tuple[str, ...]:
+    """Everyone drawn on a page, once each: the star first (unless the page
+    leaves them out), then the page's listed cast."""
+    lead = [star] if star_in_picture else []
+    return tuple(key for key in dict.fromkeys([*lead, *cast_keys]) if key)
 
 
 def _compose(spec: Mapping[str, Any], where: str, name: str) -> dict[str, str]:

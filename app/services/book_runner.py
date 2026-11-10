@@ -541,7 +541,7 @@ class BookRunner:
             async def _render_page(page: BookPage) -> _Drawn:
                 page_photos = [name for name in page.cast if name in artwork.characters]
                 photo_only = frozenset(
-                    ([""] if artwork.photo_is_portrait else [])
+                    ([""] if artwork.photo_is_portrait and page.star_in_picture else [])
                     + [
                         n
                         for n in page_photos
@@ -566,6 +566,7 @@ class BookRunner:
                             story=edition,
                             settings=artwork.settings,
                             prompt_name=prompt_name,
+                            supplied_characters=tuple(artwork.characters),
                             retry_faults=faults,
                             retry_findings=findings,
                         )
@@ -582,7 +583,9 @@ class BookRunner:
                     )
 
                 if plate is not None:
-                    references, media_types = _plate_references(artwork, plate, page)
+                    references, media_types = _plate_references(
+                        artwork, plate, page, star=edition.star
+                    )
                 else:
                     references, media_types = _references(artwork, page)
 
@@ -785,6 +788,7 @@ class BookRunner:
                     settings=artwork.settings,
                     prompt_name=record.about.prompt_name,
                     cover=True,
+                    supplied_characters=tuple(artwork.characters),
                     retry_faults=faults,
                     retry_findings=findings,
                 )
@@ -796,7 +800,9 @@ class BookRunner:
             )
 
         if plate is not None:
-            references, media_types = _plate_references(artwork, plate, edition.cover)
+            references, media_types = _plate_references(
+                artwork, plate, edition.cover, star=edition.star
+            )
         else:
             references = [artwork.portrait]
             media_types = [artwork.portrait_media_type]
@@ -1379,7 +1385,13 @@ def _cast_note(page: BookPage, edition: StoryEdition) -> str:
     labels = [
         member.label for key in page.cast if (member := edition.cast.get(key)) is not None
     ]
-    named = ", ".join(["the child", *labels])
+    named = ", ".join(["the child", *labels] if page.star_in_picture else labels)
+    if not page.star_in_picture:
+        return (
+            f"Who may appear in this picture: {named}, and anyone the description "
+            "above names. Nobody else — and NO CHILD: the book's child is not in "
+            "this moment, so a child anywhere in the picture is an extra person."
+        )
     return (
         f"Who may appear in this picture: {named}, and anyone the description above "
         "names. Nobody else. Only the description says who must be visible — "
@@ -1416,27 +1428,28 @@ def _plate_references(
     artwork: _Artwork,
     plate: PlateArt,
     page: BookPage,
+    *,
+    star: str,
 ) -> tuple[list[bytes], list[str]]:
     """The plate first, then one identity anchor per character, in slot order.
 
     The plate is reference 1 because the prompt names it as such: it is the
-    picture that must survive. Each character then contributes its portrait,
-    and its photograph only when the visitor supplied one — the plate holds the
+    picture that must survive. Each character then contributes its portrait —
+    the star's is the book's approved portrait — and the plate holds the
     world, so the page needs fewer anchors than a from-scratch composition.
+    Gemini takes three references, so a two-character page is already full.
 
-    The star's photograph is only sent when it adds information: a book whose
-    source photo is missing uses the portrait for both, and the same picture
-    twice would burn a reference slot for nothing. That cap matters: Gemini
-    takes three references, and a two-character page with the photo is already
-    four.
+    `star` is the edition's star key, never inferred from slot order: a page
+    the star is not in has no star slot, and its first slot (the wolf) must
+    not be sent the child's face. Its slots decide who is drawn, so the star's
+    portrait goes only when a slot names them.
     """
     references = [plate.image]
     media_types = [plate.media_type]
-    cast = [slot.cast_key for slot in plate.slots] or list(page.cast)
-    # The first slot is the star's by construction (`slots_for` lays the star
-    # first), and the star's anchor is the book's approved portrait.
-    star = plate.slots[0].cast_key if plate.slots else ""
-    for cast_key in cast:
+    cast = [slot.cast_key for slot in plate.slots] or (
+        [star, *page.cast] if page.star_in_picture else list(page.cast)
+    )
+    for cast_key in dict.fromkeys(cast):
         if cast_key == star:
             references.append(artwork.portrait)
             media_types.append(artwork.portrait_media_type)
@@ -1453,10 +1466,16 @@ def _references(
     artwork: _Artwork,
     page: BookPage,
 ) -> tuple[list[bytes], list[str]]:
-    """Exactly the reference images for one page, in the order the prompt names."""
-    references = [artwork.portrait]
-    media_types = [artwork.portrait_media_type]
-    if not artwork.photo_is_portrait:
+    """Exactly the reference images for one page, in the order the prompt names.
+
+    A page the child is not in sends no image of the child.
+    """
+    references: list[bytes] = []
+    media_types: list[str] = []
+    if page.star_in_picture:
+        references.append(artwork.portrait)
+        media_types.append(artwork.portrait_media_type)
+    if page.star_in_picture and not artwork.photo_is_portrait:
         # The same picture twice is a wasted reference slot.
         references.append(artwork.photo)
         media_types.append(artwork.photo_media_type)

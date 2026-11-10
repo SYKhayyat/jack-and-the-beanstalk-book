@@ -18,7 +18,7 @@ from sqlalchemy import func, inspect, select, text, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
-from app.books import SEEDS, SeedError, StorySeed, load_seed, seed_paths
+from app.books import SEEDS, SeedError, StorySeed, load_seed, picture_cast, seed_paths
 from app.db import (
     Base,
     BookRow,
@@ -98,12 +98,8 @@ def books(engine: Engine) -> DatabaseBookStore:
 
 
 def cast_on(seed: StorySeed, page_number: int) -> list[str]:
-    listed = (
-        seed.cover.cast
-        if page_number == COVER_PAGE
-        else seed.pages[page_number - 1].scene.cast
-    )
-    return list(dict.fromkeys([seed.star, *listed]))
+    scene = seed.cover if page_number == COVER_PAGE else seed.pages[page_number - 1].scene
+    return list(picture_cast(seed.star, scene.cast, star_in_picture=scene.star_in_picture))
 
 
 def slots_for(cast: list[str]) -> list[Slot]:

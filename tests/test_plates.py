@@ -101,10 +101,10 @@ def test_all_the_plates_share_one_palette_and_one_style() -> None:
 @pytest.mark.parametrize("story", SEEDS, ids=lambda seed: seed.key)
 def test_every_plate_has_one_slot_per_character_in_the_art_box(story: StorySeed) -> None:
     """T5.4's input: the plate's slots are exactly the page's cast."""
-    pages = {page.number: page.scene.cast for page in story.pages}
+    pages = {page.number: page.scene for page in story.pages}
     for plan in plate_plans(story):
         expected = (
-            page_cast(story, story.cover.cast)
+            page_cast(story, story.cover)
             if plan.page_number == COVER_PAGE
             else page_cast(story, pages[plan.page_number])
         )
