@@ -4,39 +4,51 @@
 {% block header_title %}<span class="header-title">Plate review</span>{% endblock %}
 {% block main_class %}page admin{% endblock %}
 {% block content %}
-  <nav class="breadcrumb admin-nav"><a href="/admin/status">Status</a> · <a href="/admin/plates" aria-current="page">Plates</a> · <a href="/">The shelf</a></nav>
+  {% include "_admin_nav.html" %}
 
-  <section class="card admin-intro">
-    <h1>Plates</h1>
-    <p class="field-help">
-      A story's pages are painted empty once — the place, the props and the light,
-      with nobody in them and no lettering, and each one is approved here. When every
-      page of a story has an approved plate, that set is a template version, and new
-      books of the story are made on it. The start gate below decides whether a story
-      may start books before it has one.
-    </p>
-  </section>
+  <header class="admin-head">
+    <div>
+      <p class="admin-eyebrow">The plate workshop</p>
+      <h1>Stories &amp; plates</h1>
+      <p class="admin-lede">
+        Each page of a story is painted empty once — the place, the props and the
+        light, with nobody in them and no lettering — and approved here. A complete
+        approved set is a template version; new books are drawn on it. The start gate
+        decides whether a story may begin books before it has one.
+      </p>
+    </div>
+  </header>
 
   <ul class="admin-stories">
     {% for story in stories %}
-    <li class="card">
-      <h2><a href="/admin/plates/{{ story.key }}">{{ story.title }}</a></h2>
+    <li class="card admin-story-card">
+      <div class="admin-card-head">
+        <h2><a href="/admin/plates/{{ story.key }}">{{ story.title }}</a></h2>
+        {% if story.seeded %}
+        <span class="admin-state{% if story.approved == page_total %} is-good{% endif %}">{{ story.approved }} of {{ page_total }} plates approved</span>
+        {% endif %}
+      </div>
       {% if story.seeded %}
-      <p class="admin-progress">
-        {{ story.approved }} of {{ page_total }} plates approved{% if story.version %}
-        · template version {{ story.version }}{% else %} · no complete version yet{% endif %}
+      <div class="admin-progress-track" role="progressbar" aria-label="Plates approved" aria-valuemin="0" aria-valuemax="{{ page_total }}" aria-valuenow="{{ story.approved }}">
+        <span style="width: {{ (100 * story.approved / page_total) | round(1) }}%"></span>
+      </div>
+      <p class="field-help">
+        {% if story.version %}Template version {{ story.version }} is live.{% else %}There is no complete version yet.{% endif %}
+        {% if story.drafts %}{{ story.drafts }} draft plate(s) waiting for review.{% else %}No drafts waiting.{% endif %}
       </p>
-      <p class="field-help">{{ story.drafts }} draft plate(s) waiting for review.</p>
-      <form class="admin-gate" method="post" action="/admin/plates/{{ story.key }}/gate">
-        <label>
-          <input type="checkbox" name="required" value="on" {% if story.requires_template %}checked{% endif %}>
-          Only start books on approved plates
-        </label>
-        <button type="submit" class="button">Save</button>
-        <p class="field-help" data-gate-state>
-          {% if story.can_start %}New books of this story can start now.{% else %}New books are held back: the shelf says “{{ not_ready }}”{% endif %}
-        </p>
-      </form>
+      <div class="admin-story-actions">
+        <a class="button primary" href="/admin/plates/{{ story.key }}">Open the contact sheet →</a>
+        <form class="admin-gate" method="post" action="/admin/plates/{{ story.key }}/gate">
+          <label class="admin-check">
+            <input type="checkbox" name="required" value="on" {% if story.requires_template %}checked{% endif %}>
+            Only start books on approved plates
+          </label>
+          <button type="submit" class="button">Save the gate</button>
+        </form>
+      </div>
+      <p class="field-help" data-gate-state>
+        {% if story.can_start %}New books of this story can start now.{% else %}New books are held back: the shelf says “{{ not_ready }}”{% endif %}
+      </p>
       {% else %}
       <p class="inline-message error">This story is not seeded yet. Run <code>make seed</code> first.</p>
       {% endif %}

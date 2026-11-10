@@ -4,9 +4,19 @@
 {% block header_title %}<span class="header-title">Plate review</span>{% endblock %}
 {% block main_class %}page admin{% endblock %}
 {% block content %}
+  {% include "_admin_nav.html" %}
   <nav class="breadcrumb"><a href="/admin/plates/{{ story.key }}">← {{ story.title }} plates</a></nav>
 
-  <h1>{{ page.label }}</h1>
+  <header class="admin-head">
+    <div>
+      <p class="admin-eyebrow">Plate review</p>
+      <h1>{{ page.label }}</h1>
+    </div>
+    <div class="admin-head-actions admin-page-step">
+      {% if prev_page is not none %}<a class="button" href="/admin/plates/{{ story.key }}/{{ prev_page }}">← Previous</a>{% endif %}
+      {% if next_page is not none %}<a class="button" href="/admin/plates/{{ story.key }}/{{ next_page }}">Next →</a>{% endif %}
+    </div>
+  </header>
   {% if error %}
   <p class="inline-message error" role="status">{{ error }}</p>
   {% endif %}

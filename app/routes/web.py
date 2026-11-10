@@ -314,10 +314,16 @@ def page_chrome(
     wallet_visible = bool(owner)
     balance = container.wallet.balance_cents(owner) if wallet_visible else 0
     wallet_enabled = payments_enabled and wallet_visible
+    is_operator = bool(
+        session
+        and container.settings.is_operator_identity(sub=session.sub, email=session.email)
+    )
     return {
         "auth_enabled": container.settings.auth_enabled,
         "signed_in": session is not None,
         "user_name": session.name if session else "",
+        "user_initials": _initials(session.name or session.email) if session else "",
+        "is_operator": is_operator,
         "provider": container.provider_status(),
         "library_enabled": bool(owner),
         "books": container.book_store.list_for_owner(owner) if owner else [],
@@ -391,6 +397,9 @@ def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
         "cover_title": None,
         "cover_subtitle": "",
         "cover_sha256": None,
+        #: Every finished cover this person has of this story, newest first.
+        #: The shelf card turns through them; the first is also `cover_url`.
+        "covers": [],
     }
     if state != "fresh":
         return card
@@ -401,6 +410,17 @@ def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
         card.update(state="drawing", href=f"/books/{drawing.book_id}")
     elif finished is not None:
         card["state"] = "finished"
+    card["covers"] = [
+        {
+            "url": book.cover_url,
+            "title": book.title,
+            "subtitle": book.subtitle,
+            "book_id": book.book_id,
+            "sha256": book.cover_sha256,
+        }
+        for book in books
+        if book.cover_url
+    ]
     newest = next((book for book in books if book.cover_url), None)
     if newest is not None:
         card.update(
@@ -410,6 +430,16 @@ def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
             cover_sha256=newest.cover_sha256,
         )
     return card
+
+
+def _initials(name: str) -> str:
+    """Two letters for the header avatar; a star when there is no name."""
+    parts = [part for part in name.replace("@", " ").split() if part]
+    if not parts:
+        return "✦"
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return (parts[0][0] + parts[-1][0]).upper()
 
 
 def _tiles(raw: object, rendered: list[BookPage]) -> list[dict[str, Any]]:

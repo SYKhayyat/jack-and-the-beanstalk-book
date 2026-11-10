@@ -228,9 +228,9 @@ class Settings(BaseSettings):
     operator_sub: str = Field(
         default="",
         description=(
-            "Google `sub` of the one person who may review plates at /admin. "
-            "Empty disables the admin screens entirely: the operator is a named "
-            "account, never 'anybody signed in'."
+            "Who may use /admin: one or more Google `sub` values or account "
+            "emails, comma separated. Empty disables the admin screens entirely: "
+            "the operator is a named account, never 'anybody signed in'."
         ),
     )
     max_upload_mb: int = Field(default=10, ge=1, le=50)
@@ -397,6 +397,35 @@ class Settings(BaseSettings):
             ProviderName.GEMINI: self.gemini_model,
             ProviderName.AGNES: self.agnes_model,
         }.get(self.image_provider, "-")
+
+    @property
+    def operator_ids(self) -> tuple[str, ...]:
+        """The people allowed into /admin: Google subs and/or emails.
+
+        `OPERATOR_SUB` keeps its historical name and takes a comma-separated
+        list. A value containing `@` is matched against the signed-in Google
+        account's email; anything else is matched against its `sub`. Listing an
+        email is the friendlier form — an operator can copy it from the Google
+        account page without decoding an OAuth subject id.
+        """
+        return tuple(part.strip() for part in self.operator_sub.split(",") if part.strip())
+
+    def is_operator_identity(self, *, sub: str = "", email: str = "") -> bool:
+        """Whether this signed-in Google identity is the operator.
+
+        Email comparison ignores case; a Google `sub` is compared exactly. An
+        empty configuration makes nobody the operator — the admin screens then
+        answer their usual 404, so a deployment cannot accidentally open them.
+        """
+        email_folded = email.strip().casefold()
+        sub = sub.strip()
+        for value in self.operator_ids:
+            if "@" in value:
+                if email_folded and value.casefold() == email_folded:
+                    return True
+            elif sub and value == sub:
+                return True
+        return False
 
     @property
     def auth_enabled(self) -> bool:

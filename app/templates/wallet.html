@@ -109,7 +109,7 @@
         <tbody>
           {% for entry in history %}
           <tr>
-            <td class="wallet-when">{{ entry.created_at[:16].replace("T", " ") }}</td>
+            <td class="wallet-when"><time datetime="{{ entry.created_at }}" data-format="date-time">{{ entry.created_at[:16].replace("T", " ") }}</time></td>
             <td>
               {% if entry.book_href %}
               <a href="{{ entry.book_href }}">{{ entry.book_title }}</a>
@@ -141,7 +141,7 @@
         <tbody>
           {% for item in refunds %}
           <tr>
-            <td class="wallet-when">{{ item.created_at[:16].replace("T", " ") }}</td>
+            <td class="wallet-when"><time datetime="{{ item.created_at }}" data-format="date-time">{{ item.created_at[:16].replace("T", " ") }}</time></td>
             <td class="wallet-amount">{{ item.amount_label }}</td>
             <td><span class="wallet-status wallet-status-{{ item.status }}">{{ item.status_label }}</span>{% if item.note %}<span class="wallet-note">{{ item.note }}</span>{% endif %}</td>
           </tr>

@@ -33,13 +33,25 @@
   {% endif %}
 {%- endmacro %}
 {% block content %}
-  <nav class="breadcrumb admin-nav"><a href="/admin/status">← Status</a></nav>
+  {% include "_admin_nav.html" %}
+  <nav class="breadcrumb"><a href="/admin/status">← Overview</a></nav>
 
-  <h1>{{ book.line.title or book.line.story_key }}</h1>
-  <p class="field-help">
-    {{ book.line.book_id }} · {{ book.line.story_key }} · {{ book.line.status }} ·
-    made {{ book.line.created_at.strftime("%Y-%m-%d %H:%M") }} UTC · owner {{ book.line.owner }}
-  </p>
+  <header class="admin-head">
+    <div>
+      <p class="admin-eyebrow">One book</p>
+      <h1>{{ book.line.title or book.line.story_key }}</h1>
+      <p class="admin-meta-chips">
+        <span class="admin-tag">{{ book.line.story_key }}</span>
+        <span class="admin-tag">{{ book.line.status }}</span>
+        <span class="admin-tag">owner · {{ book.line.owner }}</span>
+        <span class="admin-tag">made {{ book.line.created_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+      </p>
+    </div>
+    <div class="admin-head-actions">
+      {% if book.line.status == "complete" %}<a class="button primary" href="/books/{{ book.line.book_id }}">Open the book →</a>{% endif %}
+      <span class="field-help">{{ book.line.book_id }}</span>
+    </div>
+  </header>
   {% if book.error %}<p class="inline-message error">{{ book.error }}</p>{% endif %}
 
   <section class="card">
@@ -151,5 +163,16 @@
     {% else %}
     <p class="field-help">No calls recorded for this book.</p>
     {% endif %}
+  </section>
+
+  <section class="card admin-danger">
+    <div class="admin-card-head">
+      <h2>Remove this book</h2>
+    </div>
+    <p class="field-help">Deletes every picture, the PDF, the portrait and the photographs. This cannot be undone; the visitor's own copy goes with it.</p>
+    <form method="post" action="/admin/books/{{ book.line.book_id }}/delete"
+          data-confirm="Delete {{ book.line.title or book.line.book_id }} and every picture in it? This cannot be undone.">
+      <button type="submit" class="button danger">Delete this book</button>
+    </form>
   </section>
 {% endblock %}
