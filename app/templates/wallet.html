@@ -9,11 +9,18 @@
     <section class="card wallet-balance-panel">
       <h2>Balance</h2>
       <p class="wallet-balance">{{ balance_label }}</p>
+      {% if payments_enabled %}
       <p class="field-help">
         One picture book — the cover, every story page, the About page and the PDF —
         costs {{ price_label }}. The fee is taken when the finished PDF is written,
         so a book that never finishes is never charged.
       </p>
+      {% else %}
+      <p class="field-help">
+        Payments are not configured on this deployment, so books are made without a
+        fee. The balance below is still this account's real ledger.
+      </p>
+      {% endif %}
       {% if payments_enabled and short %}
       <p class="wallet-short">You need {{ price_label }} to start a book. Add money below, or with the + $5 button in the header.</p>
       {% endif %}
@@ -69,7 +76,7 @@
     <section class="card" aria-labelledby="history-heading">
       <div class="wallet-history-head">
         <h2 id="history-heading">Every movement</h2>
-        {% if history_total %}<span class="field-help">{{ history|length }} of {{ history_total }}</span>{% endif %}
+        {% if filters_active %}<span class="field-help">{{ history|length }} of {{ history_total }}</span>{% endif %}
       </div>
 
       {% if history_total %}

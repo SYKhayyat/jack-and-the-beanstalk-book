@@ -197,6 +197,47 @@ def test_a_top_up_from_about_comes_back_to_about(browser) -> None:
     assert "$5.00" in page
 
 
+def test_about_shows_the_price_and_add_money_when_the_balance_is_short(browser) -> None:
+    client, _ = browser
+    page = client.get("/stories/jack_and_the_beanstalk/about").text
+    assert "$0.99" in page
+    assert "Your wallet has $0.00" in page
+    assert "Add $5 to your wallet" in page
+    assert 'form="about-topup"' in page
+    assert 'action="/wallet/topup"' in page
+
+
+def test_about_drops_add_money_once_the_balance_covers_a_book(browser) -> None:
+    client, stripe = browser
+    client.get(f"/wallet/return?session_id={paid_session(stripe, 500)}")
+    page = client.get("/stories/jack_and_the_beanstalk/about").text
+    assert "$0.99" in page
+    assert 'form="about-topup"' not in page
+
+
+def test_about_does_not_state_the_time_when_payments_are_off(
+    settings: Settings, provider
+) -> None:
+    configured = settings.model_copy(
+        update={
+            "google_client_id": "client-id",
+            "google_client_secret": "client-secret",
+            "session_secret": "test-session-secret",
+        }
+    )
+    app = create_app(configured, provider=provider)
+    with TestClient(app) as client:
+        client.app.state.container.user_store.upsert(User(sub=SUB, name="Shai"))
+        token = client.app.state.sessions.issue(
+            SessionKind.GOOGLE, ttl_seconds=3600, sub=SUB, name="Shai"
+        )
+        client.cookies.set(SESSION_COOKIE, token)
+        page = client.get("/stories/jack_and_the_beanstalk/about").text
+        assert "Watch the pictures arrive one by one." in page
+        assert "five minutes" not in page
+        assert "Add $5 to your wallet" not in page
+
+
 def test_an_external_return_path_is_discarded(browser) -> None:
     client, stripe = browser
     client.post(

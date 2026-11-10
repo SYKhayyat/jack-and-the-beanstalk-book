@@ -121,7 +121,7 @@
           {% for item in refunds %}
           <tr>
             <td class="wallet-when">{{ item.created_at[:16].replace("T", " ") }}</td>
-            <td>{{ item.owner }}</td>
+            <td>{{ item.owner_label }}</td>
             <td class="wallet-amount">{{ item.amount_label }}</td>
             <td><span class="wallet-status wallet-status-{{ item.status }}">{{ item.status_label }}</span>{% if item.note %}<span class="wallet-note">{{ item.note }}</span>{% endif %}</td>
             <td>{% if item.pending %}<form method="post" action="/admin/refunds/{{ item.id }}/process"><button type="submit" class="button">Send back</button></form>{% else %}—{% endif %}</td>

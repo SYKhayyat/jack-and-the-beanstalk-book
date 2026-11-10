@@ -106,6 +106,14 @@ async def status_page(
         key=lambda item: (item.status != REFUND_REQUESTED, item.created_at),
         reverse=True,
     )
+    owners = sorted({item.owner for item in refunds})
+    users = await asyncio.gather(
+        *(asyncio.to_thread(container.user_store.get, owner) for owner in owners)
+    )
+    owner_labels = {
+        owner: (user.email or user.name or owner) if user is not None else owner
+        for owner, user in zip(owners, users, strict=True)
+    }
     stories = await asyncio.to_thread(container.templates.stories)
     response = render_admin(
         request,
@@ -123,6 +131,7 @@ async def status_page(
                 {
                     "id": item.id,
                     "owner": item.owner,
+                    "owner_label": owner_labels[item.owner],
                     "amount_label": format_cents(item.amount_cents),
                     "status": item.status,
                     "status_label": _REFUND_LABELS.get(item.status, item.status),

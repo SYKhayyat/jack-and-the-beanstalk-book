@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -117,7 +117,9 @@ def wallet_page(
     wallet = container.wallet
     chrome = page_chrome(container, session, request)
     known_books = {entry.book_id: entry for entry in chrome["books"]}
-    balance = wallet.balance_cents(owner)
+    # The header has already read the balance for this request; reuse it
+    # rather than paying for a second round trip on a database deployment.
+    balance = int(chrome["wallet_balance_cents"])
     refundable = wallet.refundable_cents(owner) if container.payments else 0
     history = wallet.history(owner)
 
@@ -147,7 +149,12 @@ def wallet_page(
         )
 
     kind_filter = kind if kind in _KIND_LABELS else "all"
-    book_filter = book if book in book_options else "all"
+    # A top-up or a refund is not tied to a book; ignore a book filter that a
+    # hand-written URL pairs with one of those kinds.
+    if kind_filter not in ("all", KIND_CHARGE):
+        book_filter = "all"
+    else:
+        book_filter = book if book in book_options else "all"
     shown = [
         row
         for row in rows
@@ -163,8 +170,10 @@ def wallet_page(
             **chrome,
             "balance_cents": balance,
             "balance_label": format_cents(balance),
-            "price_label": format_cents(wallet.price_cents),
-            "short": balance < wallet.price_cents,
+            "price_label": format_cents(wallet.price_cents)
+            if container.payments
+            else "",
+            "short": container.payments is not None and balance < wallet.price_cents,
             "refundable_cents": refundable,
             "refundable_label": format_cents(refundable),
             "amounts": [(cents, format_cents(cents)) for cents in FUNDING_AMOUNTS_CENTS],
@@ -411,7 +420,10 @@ def _safe_next(raw: str) -> str:
     parts = urlsplit(candidate)
     if parts.scheme or parts.netloc or not parts.path.startswith("/"):
         return "/wallet"
-    if parts.path.startswith("//"):
+    # Reject `//host` in any spelling: a browser may decode `%2f` into a
+    # path separator, which would turn a local-looking path into another site.
+    decoded = unquote(parts.path)
+    if decoded.startswith("//") or "\\" in decoded:
         return "/wallet"
     return candidate
 
