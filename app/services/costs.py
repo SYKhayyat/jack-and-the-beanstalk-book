@@ -499,6 +499,7 @@ class MeteredReviewer:
         story_line: str,
         cast: str,
         plate: bytes | None = None,
+        portrait: bytes | None = None,
     ) -> ReviewAnswer:
         started = time.monotonic()
         ok = False
@@ -510,6 +511,7 @@ class MeteredReviewer:
                 story_line=story_line,
                 cast=cast,
                 plate=plate,
+                portrait=portrait,
             )
             ok = True
             return answer
@@ -540,11 +542,13 @@ class MeteredDecisionJudge:
         self._usd_per_million = usd_per_million
         self.name = inner.name
 
-    def decide(self, image: bytes, *, brief: str, cast: str) -> Decision:
+    def decide(
+        self, image: bytes, *, brief: str, cast: str, portrait: bytes | None = None
+    ) -> Decision:
         started = time.monotonic()
         decision: Decision | None = None
         try:
-            decision = self._inner.decide(image, brief=brief, cast=cast)
+            decision = self._inner.decide(image, brief=brief, cast=cast, portrait=portrait)
             return decision
         finally:
             tokens = decision.input_tokens if decision is not None else 0

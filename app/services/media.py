@@ -14,7 +14,15 @@ never claims a type the bytes do not have.
 
 from __future__ import annotations
 
-__all__ = ["extension_for", "image_filename", "media_type_for"]
+import base64
+import io
+
+__all__ = ["extension_for", "image_filename", "jpeg_data_url", "media_type_for"]
+
+#: Pictures sent to a judging model (the reviewer, the decision judge) are at
+#: most this many pixels on their long side. They read composition, people and
+#: lettering, none of which needs more, and the bill is per input token.
+JUDGE_MAX_SIDE = 1024
 
 
 def extension_for(data: bytes) -> str:
@@ -34,3 +42,14 @@ def media_type_for(data: bytes) -> str:
 def image_filename(stem: str, data: bytes) -> str:
     """``stem`` plus the extension the bytes deserve — never a claim."""
     return f"{stem}{extension_for(data)}"
+
+
+def jpeg_data_url(image: bytes, *, max_side: int = JUDGE_MAX_SIDE) -> str:
+    """The picture as an inline JPEG data URL, at most `max_side` on its long side."""
+    from PIL import Image
+
+    picture = Image.open(io.BytesIO(image)).convert("RGB")
+    picture.thumbnail((max_side, max_side))
+    buffer = io.BytesIO()
+    picture.save(buffer, format="JPEG", quality=88)
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")

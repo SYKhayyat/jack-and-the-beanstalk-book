@@ -255,3 +255,34 @@ def test_a_starless_page_from_scratch_says_the_child_is_absent() -> None:
         prompt_name="Sam",
     )
     assert "Sam IS NOT IN THIS PICTURE" in prompt
+
+
+# --- which reference image is whose ----------------------------------------
+
+
+def test_the_edit_names_each_portrait_in_the_order_it_is_sent() -> None:
+    """Image N in the prompt is the Nth reference the runner sends."""
+    page = _red_page("big-ears")
+    slots = slots_for(["red", "wolf", "grandmother"], staging=None)
+    plate = PlateArt(plate_id="p", image=b"plate", media_type="image/png", slots=slots)
+    art = _artwork(grandmother=_reference(b"gran"))
+    references, _ = _plate_references(art, plate, page, star="red")
+    assert references == [b"plate", b"star-portrait", b"portrait-gran"]
+    prompt = _edit("big-ears", slots, supplied_characters=("grandmother",))
+    assert (
+        "image 1 is the empty background plate; image 2 is the portrait of Sam; "
+        "image 3 is the portrait of Grandmother."
+    ) in prompt
+    assert "portrait of The wolf" not in prompt  # no image of the wolf is sent
+
+
+def test_a_starless_edit_names_no_portrait_of_the_child() -> None:
+    slots = slots_for(["wolf"], staging="wolf_in_bed")
+    assert "REFERENCE IMAGES" not in _edit("the-disguise", slots)
+    supplied = _edit(
+        "the-cottage-door",
+        slots_for(["grandmother", "wolf"], staging="door_and_bed"),
+        supplied_characters=("grandmother",),
+    )
+    assert "image 2 is the portrait of Grandmother." in supplied
+    assert "portrait of Sam" not in supplied

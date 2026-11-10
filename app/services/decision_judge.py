@@ -30,17 +30,15 @@ only, never named on a visitor-facing surface.
 
 from __future__ import annotations
 
-import base64
-import io
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol
 
-from PIL import Image
-
+from app.prompt_data import prompt_text
 from app.services.image_providers.base import ProviderError
+from app.services.media import jpeg_data_url
 
 __all__ = [
     "QUESTIONS",
@@ -57,43 +55,13 @@ logger = logging.getLogger(__name__)
 SHOWS_MOMENT = "shows_moment"
 
 #: One yes/no question per thing that can be wrong, keyed by the reviewer's own
-#: fault names, so a decision and a review speak the same vocabulary. The
-#: wording mirrors the review prompt's definitions, including what is NOT a
-#: fault, because a decision model takes the question literally.
-QUESTIONS: Mapping[str, str] = {
-    SHOWS_MOMENT: (
-        "Does the picture show the described moment: the right action and place, "
-        "with the characters doing what the description says?"
-    ),
-    "extra_person": (
-        "Is there a person or character in the picture whom neither the description "
-        "nor the list of who may appear names?"
-    ),
-    "missing_character": (
-        "Is someone the description says is in the picture missing from it?"
-    ),
-    "text_in_image": (
-        "Is there any lettering, writing, sign, label, number or speech bubble "
-        "anywhere in the picture?"
-    ),
-    "deformed": (
-        "Does any figure have extra or missing limbs, extra fingers, fused hands, "
-        "doubled feet, a body that reads as broken, a body or legs passing "
-        "through a chair, table or other solid object, a figure squeezed under a "
-        "table instead of beside it, or a figure floating with nothing under or "
-        "holding it?"
-    ),
-    "collage": (
-        "Is the frame more than one picture: a grid of tiles, panels, a character "
-        "sheet, or the same person shown twice?"
-    ),
-    "frightening": (
-        "Does the picture show blood, a wound, a weapon being used on or pointed at "
-        "someone, an attack in progress, or a child in real terror? A sly or "
-        "toothy cartoon villain does not count, and neither does a tool being "
-        "used for the job the description says (an axe chopping a tree)."
-    ),
-}
+#: fault names. The words are `[decision.questions]` in prompts.toml.
+QUESTIONS: Mapping[str, str] = dict(prompt_text()["decision"]["questions"])
+#: The question that needs the child's portrait beside the picture; it is
+#: left out when there is no portrait to compare against.
+LIKENESS = "likeness"
+if SHOWS_MOMENT not in QUESTIONS or LIKENESS not in QUESTIONS:
+    raise KeyError(f"[decision.questions] needs {SHOWS_MOMENT!r} and {LIKENESS!r}")
 
 #: A picture passes without a reviewer only when it clearly shows the moment...
 ACCEPT_MOMENT = 0.75
@@ -106,11 +74,6 @@ REJECT_FAULT = 0.80
 #: Where a call has to be made without a reviewer (it is down or not set), the
 #: plain halfway line decides.
 COIN = 0.5
-
-#: Pictures are sent at most this many pixels on their long side, as JPEG. The
-#: judge reads composition, people and lettering, none of which needs more, and
-#: the bill is per input token.
-_MAX_SIDE = 1024
 
 
 class Outcome(StrEnum):
@@ -182,8 +145,14 @@ class DecisionJudge(Protocol):
 
     name: str
 
-    def decide(self, image: bytes, *, brief: str, cast: str) -> Decision:
-        """Raises ProviderError when the judge could not answer."""
+    def decide(
+        self, image: bytes, *, brief: str, cast: str, portrait: bytes | None = None
+    ) -> Decision:
+        """Raises ProviderError when the judge could not answer.
+
+        `portrait` is the book's approved portrait of the child, on a page the
+        child is in; with it the judge also answers the likeness question.
+        """
         ...
 
 
@@ -200,23 +169,30 @@ class OpenAIDecisionJudge:
         self._model = model
         self._client = openai.OpenAI(api_key=api_key.strip(), timeout=timeout_seconds)
 
-    def decide(self, image: bytes, *, brief: str, cast: str) -> Decision:
-        text = f"A page of a children's picture book. The picture it must be: {brief}\n{cast}"
+    def decide(
+        self, image: bytes, *, brief: str, cast: str, portrait: bytes | None = None
+    ) -> Decision:
+        words = prompt_text()["decision"]
+        text = str(words["intro"]).format(brief=brief, cast=cast)
+        content: list[Any] = [
+            {"type": "input_text", "text": text},
+            {"type": "input_image", "image_url": jpeg_data_url(image)},
+        ]
+        if portrait is not None:
+            content.append({"type": "input_text", "text": str(words["likeness_intro"])})
+            content.append({"type": "input_image", "image_url": jpeg_data_url(portrait)})
+        asked = {
+            name: question
+            for name, question in QUESTIONS.items()
+            if name != LIKENESS or portrait is not None
+        }
         try:
             response = self._client.decisions.create(
                 model=self._model,
-                input=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "input_text", "text": text},
-                            {"type": "input_image", "image_url": _data_url(image)},
-                        ],
-                    }
-                ],
+                input=[{"role": "user", "content": content}],
                 questions=[
                     {"type": "predicate", "name": name, "instructions": question}
-                    for name, question in QUESTIONS.items()
+                    for name, question in asked.items()
                 ],
             )
         except Exception as exc:  # the SDK raises a wide range of types
@@ -245,12 +221,3 @@ def _decision(payload: Mapping[str, Any], *, model: str) -> Decision:
         input_tokens=int(usage.get("input_tokens") or 0),
         model=model,
     )
-
-
-def _data_url(image: bytes) -> str:
-    """The picture as an inline JPEG, at most `_MAX_SIDE` on its long side."""
-    picture = Image.open(io.BytesIO(image)).convert("RGB")
-    picture.thumbnail((_MAX_SIDE, _MAX_SIDE))
-    buffer = io.BytesIO()
-    picture.save(buffer, format="JPEG", quality=88)
-    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")

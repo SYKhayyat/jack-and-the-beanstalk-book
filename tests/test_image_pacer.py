@@ -101,7 +101,9 @@ class Client:
 
 
 def _provider(images: FlakyImages, monkeypatch: pytest.MonkeyPatch) -> OpenAIImageProvider:
-    monkeypatch.setattr("app.services.image_providers.openai_provider.time.sleep", lambda _: None)
+    monkeypatch.setattr(
+        "app.services.image_providers.openai_provider.time.sleep", lambda _: None
+    )
     provider = OpenAIImageProvider(api_key="k")
     provider._client = Client(images)  # type: ignore[assignment]
     return provider

@@ -406,7 +406,7 @@ class TestCastPortraitPrompt:
 
 
 class TestPhotoWithoutCartoon:
-    """"Next" must never make a cartoon: the photo alone can start a book."""
+    """ "Next" must never make a cartoon: the photo alone can start a book."""
 
     def test_book_starts_from_a_kept_photo_with_no_cartoon_call(
         self, client: TestClient, provider: RecordingProvider

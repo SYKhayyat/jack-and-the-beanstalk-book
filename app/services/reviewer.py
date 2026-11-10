@@ -32,7 +32,6 @@ only, never named on any visitor-facing surface.
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import re
@@ -43,7 +42,7 @@ from typing import Any, Literal, Protocol, TypedDict
 
 from app.prompt_data import prompt_text
 from app.services.image_providers.base import ProviderError
-from app.services.media import media_type_for
+from app.services.media import jpeg_data_url
 
 __all__ = [
     "FAULTS",
@@ -74,6 +73,7 @@ FAULTS: tuple[str, ...] = (
     "wrong_counts",
     "deformed",
     "collage",
+    "likeness",
     "other",
 )
 
@@ -234,6 +234,7 @@ class ImageReviewer(Protocol):
         story_line: str,
         cast: str,
         plate: bytes | None = None,
+        portrait: bytes | None = None,
     ) -> ReviewAnswer:
         """Judge one picture against one page's checklist.
 
@@ -243,6 +244,8 @@ class ImageReviewer(Protocol):
 
         `plate` is the empty background the picture was painted into, when
         there is one. A reviewer that can use it also checks the picture kept it.
+        `portrait` is the book's approved portrait of the child, on a page the
+        child is in; a reviewer that can use it also checks the likeness.
         """
         ...
 
@@ -265,8 +268,9 @@ class UnavailableReviewer:
         story_line: str,
         cast: str,
         plate: bytes | None = None,
+        portrait: bytes | None = None,
     ) -> ReviewAnswer:
-        del image, media_type, page_title, story_line, cast, plate  # nothing is looked at
+        del image, media_type, page_title, story_line, cast, plate, portrait  # unused
         raise ReviewerUnavailable("no reviewer is configured")
 
 
@@ -316,11 +320,12 @@ class GeminiReviewer:
         story_line: str,
         cast: str,
         plate: bytes | None = None,
+        portrait: bytes | None = None,
     ) -> ReviewAnswer:
         instruction = prompt_text()["review"]["instruction"].format(
             page_title=page_title, story_line=story_line, cast=cast
         )
-        del plate  # Gemini is asked the one-picture question only
+        del plate, portrait  # Gemini is asked the one-picture question only
         contents: list[Any] = [
             self._types.Part.from_bytes(data=image, mime_type=media_type),
             self._types.Part.from_text(text=instruction),
@@ -403,29 +408,37 @@ class OpenAIReviewer:
         story_line: str,
         cast: str,
         plate: bytes | None = None,
+        portrait: bytes | None = None,
     ) -> ReviewAnswer:
+        del media_type  # every picture is re-encoded as a JPEG before it is sent
         review = prompt_text()["review"]
         instruction = review["instruction"].format(
             page_title=page_title, story_line=story_line, cast=cast
         )
         content: list[dict[str, Any]] = [
             {"type": "text", "text": instruction},
-            {"type": "image_url", "image_url": {"url": _data_url(image, media_type)}},
+            {"type": "image_url", "image_url": {"url": jpeg_data_url(image)}},
         ]
         if plate is not None:
             content.append({"type": "text", "text": review["plate_rule"]})
             content.append(
                 {
                     "type": "image_url",
-                    "image_url": {"url": _data_url(plate, media_type_for(plate))},
+                    "image_url": {"url": jpeg_data_url(plate)},
                 }
             )
+        if portrait is not None:
+            content.append({"type": "text", "text": review["likeness_rule"]})
+            content.append(
+                {"type": "image_url", "image_url": {"url": jpeg_data_url(portrait)}}
+            )
         logger.info(
-            "review.call model=%s page=%r image_bytes=%d plate=%s",
+            "review.call model=%s page=%r image_bytes=%d plate=%s portrait=%s",
             self._model,
             page_title,
             len(image),
             plate is not None,
+            portrait is not None,
         )
         messages: list[Any] = [{"role": "user", "content": content}]
         try:
@@ -443,10 +456,6 @@ class OpenAIReviewer:
                 ) from None
             raise ProviderError(f"the reviewer could not be reached: {exc}") from None
         return parse_answer(response.choices[0].message.content or "")
-
-
-def _data_url(image: bytes, media_type: str) -> str:
-    return f"data:{media_type};base64," + base64.b64encode(image).decode("ascii")
 
 
 def parse_answer(text: str) -> ReviewAnswer:

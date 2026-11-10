@@ -163,9 +163,11 @@ class ScriptedReviewer:
     answers: list[Any] = field(default_factory=list)
     default: Any = None
     calls: int = 0
+    portraits: list[bytes | None] = field(default_factory=list)
 
-    def review(self, image: bytes, **_: Any) -> Any:
+    def review(self, image: bytes, **kwargs: Any) -> Any:
         self.calls += 1
+        self.portraits.append(kwargs.get("portrait"))
         if not self.answers:
             if self.default is None:
                 raise AssertionError("the loop asked for more reviews than were scripted")
@@ -245,6 +247,7 @@ def attempt_loop(runner: BookRunner, draws: list[bytes] | None = None, **overrid
         "page_title": "the kitchen",
         "story_line": "the mother sends Jack to market",
         "cast_note": "Only these people may be in the picture: the child, and the mother.",
+        "star_in_picture": True,
         "plate": None,
         "artwork": artwork(),
         "draw": draw,
@@ -375,6 +378,7 @@ class TestTheAttemptLoop:
                 page_title="t",
                 story_line="s",
                 cast_note="c",
+                star_in_picture=True,
                 attempt=1,
                 user="-",
             )
@@ -397,6 +401,7 @@ class TestTheAttemptLoop:
                 page_title="t",
                 story_line="s",
                 cast_note="c",
+                star_in_picture=True,
                 attempt=1,
                 user="-",
             )
@@ -416,6 +421,7 @@ class TestTheAttemptLoop:
                 page_title="t",
                 story_line="s",
                 cast_note="c",
+                star_in_picture=True,
                 attempt=1,
                 user="-",
             )
@@ -789,7 +795,7 @@ class TestTheReviewer:
     def test_a_production_deployment_needs_a_reviewer_but_mock_mode_does_not(self) -> None:
         from app.config import Settings
 
-        chosen: dict[str, Any] = {"reviewer_provider": "gemini", "_env_file": None}
+        chosen = {"reviewer_provider": "gemini", "_env_file": None}
         assert Settings(
             app_env="production", image_provider="gemini", **chosen
         ).reviewer_required
@@ -801,13 +807,12 @@ class TestTheReviewer:
     def test_a_reviewer_turned_off_is_never_required_and_never_built(self) -> None:
         from app.config import Settings
 
-        chosen: dict[str, Any] = {
-            "app_env": "production",
-            "image_provider": "openai",
-            "reviewer_provider": "off",
-            "_env_file": None,
-        }
-        settings = Settings(**chosen)
+        settings = Settings(
+            app_env="production",
+            image_provider="openai",
+            reviewer_provider="off",
+            _env_file=None,
+        )
         assert not settings.reviewer_required
         built = build_reviewer(api_key="k", model="m", required=True, provider="off")
         assert isinstance(built, UnavailableReviewer)

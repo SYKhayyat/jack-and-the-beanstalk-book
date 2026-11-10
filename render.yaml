@@ -144,8 +144,14 @@ services:
       - key: MAX_CONCURRENT_GENERATIONS
         value: "4"
 
+      # Per-client abuse brake. A book charges one per picture up front, so keep
+      # this well above a book's size; OPENAI_IMAGES_PER_MINUTE is the real cap.
       - key: MAX_GENERATIONS_PER_MINUTE
-        value: "120"
+        value: "200"
+
+      # OpenAI's image limit is 20 a minute; calls wait here instead of 429ing.
+      - key: OPENAI_IMAGES_PER_MINUTE
+        value: "18"
 
       - key: STORAGE_DIR
         value: /tmp/jack-and-the-beanstalk-book-storage

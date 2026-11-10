@@ -131,7 +131,7 @@ grinning = "A broad grin showing teeth."
 [portrait_backgrounds]
 plain = "BACKGROUND: plain and quiet — an even, untextured field of a single soft neutral tone. Nothing behind the head, no objects, no pattern, no horizon line, no vignette. The face is the only thing in the picture that matters."
 as_uploaded = "BACKGROUND: keep the background of the original photograph, simplified into the art style but recognisably the same place. Keep the face and hairline clearly separated from it."
-soft_colour = "BACKGROUND: a soft, out-of-focus wash of one muted colour with a gentle gradient. Nothing in it is in focus and nothing is in it is a shape."
+soft_colour = "BACKGROUND: a soft, out-of-focus wash of one muted colour with a gentle gradient. Nothing in it is in focus and nothing in it is a shape."
 storybook = "BACKGROUND: a hand-painted storybook backdrop — soft rolling hills, a few distant stylised trees and a warm painted sky, all low-contrast and clearly behind the figure, leaving the face unobstructed."
 
 # How hard to hold the face, keyed by LikenessStrength.
@@ -318,7 +318,7 @@ task = "TASK: Draw page {page_number} of {total_pages} of the picture book \"{bo
 # own cover scene. The title itself is never drawn by the model (the PDF adds
 # it as real text), so the prompt asks for a calm title band instead.
 cover_task = "TASK: Draw the COVER ILLUSTRATION for the picture book \"{book_title}\". The cover stars the same child as every page of the book: {name}. The reference images are the same person: the first is their cartoon portrait, the second is their original photograph. This is the book's front cover, not a story page."
-cover_band = "THE TITLE BAND: leave the upper third of the picture calm and uncluttered — a simple sky or a quiet background with no important faces or objects there — because the book's title is added afterwards, outside this image. Draw no lettering, title or writing of any kind anywhere."
+cover_band = "THE TITLE BAND: leave the upper fifth of the picture calm and uncluttered — a simple sky or a quiet background with no important faces or objects there — because the book's title is added afterwards, outside this image. Draw no lettering, title or writing of any kind anywhere."
 # The whole story, one labelled line per page, so the model knows which line it
 # is illustrating and what the other lines mean. {story_lines} is built from the
 # pages' own `beat` text, so the story is stated once in the catalogue.
@@ -336,12 +336,12 @@ cast_photos_none = "SUPPLIED PHOTOS: none. Every character other than the child 
 reference_images = "REFERENCE IMAGES (in the order supplied): {entries}. Each image belongs only to the character it is named for."
 # The page's feeling (AI assessment: "expression tracks the story beat").
 emotion = "EMOTIONAL BEAT: {emotion}."
+# A page the child is not in (the wolf reaches the cottage first). Every other
+# line of a page prompt is about the child, so this one says outright that they
+# stay out. {name} is the star's name. The edit pass uses the same line.
+star_absent = "{name} IS NOT IN THIS PICTURE: this moment happens where {name} is not, so no child appears anywhere in it — not in the room, not at a window or door, not in the distance. Draw only the characters this page names."
 # The whole frame is the picture: the story text is printed in a margin below
 # the art, never over it, so nothing in the frame has to be kept empty for it.
-# A page the child is not in (the wolf reaches the cottage first). Every other
-# line of this prompt is about the child, so this one says outright that they
-# stay out. {name} is the star's name.
-star_absent = "{name} IS NOT IN THIS PICTURE: this moment happens where {name} is not, so no child appears anywhere in it — not in the room, not at a window or door, not in the distance. Draw only the characters the scene names."
 full_frame = "FRAME: the whole image is the illustration, edge to edge. No part of it is covered by text afterwards, so compose the full frame, with no empty band left for words."
 
 # ---------------------------------------------------------------------------
@@ -360,6 +360,11 @@ full_frame = "FRAME: the whole image is the illustration, edge to edge. No part 
 [book.edit]
 # The task line. {plate_note} says which page this is; the rest is fixed.
 plate_task = "TASK: This is an EDIT of the background plate supplied as the FIRST reference image. The plate already shows this page's place, its props and its light, with nobody in it. Paint the characters named below into it, one into each of the slots listed below, give each one the shadow it casts in this plate's light, and change nothing else."
+# Which reference image is whose, so a portrait is never read as someone else's
+# face. {entries} is one "image N is the portrait of X" per portrait, in the
+# order book_runner sends them (prompts.edit_reference_cast decides both).
+reference_images = "REFERENCE IMAGES, in the order supplied: image 1 is the empty background plate; {entries}. Each portrait belongs only to the character it is named for: draw that character's face and likeness from it, and never give its face to anyone else."
+reference_entry = "image {number} is the portrait of {label}"
 # The one sentence this pass lives or dies on.
 preserve = "KEEP THE PLATE: the background — sky, ground, walls, furniture, trees, clouds, every object, the whole composition, the camera angle, the framing, the palette and the light — must come back exactly as it is in the plate. Do not re-imagine the scene, do not re-light it, do not crop it, do not move, add or remove any object, and do not repaint any area that is not a character's own silhouette and whatever that character necessarily touches, apart from the shadow that character casts. A viewer holding the plate and this picture side by side must see the same place."
 # The moment the page shows. Only what the characters are doing: the place, the
@@ -370,10 +375,10 @@ preserve = "KEEP THE PLATE: the background — sky, ground, walls, furniture, tr
 moment = "THE MOMENT THIS PAGE SHOWS — the place, its props and its light are already in the plate and stay exactly as they are; this is what the characters are doing inside it: {caption}"
 # The star's own action, stated on its own so it is not lost in the caption.
 acting = "WHAT {name} IS DOING: {action}. Pose and act every character for this moment — bodies, hands, heads and faces doing what the moment says. A figure standing still and facing the viewer is wrong unless the moment says so."
-# A page the star is not in: the action without a name, then the line that
-# keeps the child out. Without it the painter puts its hero on every page.
+# A page the star is not in: the action without a name. [book.assembly].star_absent
+# follows it and keeps the child out; without it the painter puts its hero on
+# every page.
 acting_cast = "WHAT HAPPENS: {action}. Pose and act every character for this moment — bodies, hands, heads and faces doing what the moment says. A figure standing still and facing the viewer is wrong unless the moment says so."
-star_absent = "{name} IS NOT IN THIS PICTURE: this moment happens where {name} is not, so no child appears anywhere in it — not in the room, not at a window or door, not in the distance. Only the characters in the slots below are drawn."
 feeling = "THE FEELING: {emotion}."
 # Where each character goes. {slots} is one line per slot.
 slots = "SLOTS (fractions of the whole image, origin top LEFT, measured left to right and top to bottom):\n{slots}"
@@ -454,14 +459,16 @@ background_redrawn = "the background was redrawn instead of kept as it is in the
 # ---------------------------------------------------------------------------
 
 [plate_common]
+# The cover plate's own rule, so every story gets it without writing it into a
+# seed. The layout keeps every cover slot below y=0.24 and the PDF sets the title
+# in the top 22%, but the painter has to be told first.
+title_band = "THE TITLE BAND: the top fifth of the frame stays calm and open — bare sky or plain air with nothing in it, no tower, tree, cloud stack, bird or object — because the book's title is set there afterwards, outside this image."
 places_intro = "THE PLACES AND PROPS ON THIS PAGE (fixed designs, drawn exactly this way wherever they appear):"
 # Where the cast will stand, said in words. Keyed by how many characters the page has.
-clear_space_1 = "CLEAR SPACE: a character will be added later in the middle third of the frame, from about a third of the way down to near the bottom. Keep that area free of furniture and loose props: only open ground, floor, path, cloud or the stalk itself. Arrange everything else to the sides and behind."
+clear_space_1 = "CLEAR SPACE: a character will be added later in the middle third of the frame, from about a third of the way down to near the bottom. Keep that area free of furniture and loose props: only open ground, floor, path or cloud. Arrange everything else to the sides and behind."
 clear_space_2 = "CLEAR SPACE: two characters will be added later, one in the left third of the frame and one in the right third, each from about a third of the way down to near the bottom. Keep both areas free of furniture and loose props: only open ground, floor, path or cloud, with walls far behind. Put furniture and props in the centre of the frame or against the far wall."
 clear_space_3 = "CLEAR SPACE: three characters will be added later across the lower two-thirds of the frame, at the left, the centre and the right. Keep that foreground open: only open ground, floor or path. Put furniture and props against the far wall."
 
-# The plate's half of a story's style: the same look with everything about
-# people taken out, because a plate has nobody in it. Keyed like [styles].
 [plate_common.staging_space]
 # One sentence per staging in app/services/plates.py, saying where its slots fall.
 chase_right = "CLEAR SPACE: two characters will be added later, running to the right: one across the right half of the frame and one across the left half, each from about a third of the way down to near the bottom. Keep both halves free of furniture and loose props: only open ground or path."
@@ -495,6 +502,8 @@ at_the_table = "CLEAR SPACE: a child will be added later sitting on a stool at t
 home_at_dusk = "CLEAR SPACE: a child and a tall man will be added later walking away from the viewer along the path, just left of the middle, in the lower half of the frame. Keep that stretch of path open, with the far gate clear and empty."
 hug_at_the_gate = "CLEAR SPACE: a child and a kneeling woman will be added later hugging on the path in front of the gate, a little left of and across the middle. Keep that stretch of path open."
 
+# The plate's half of a story's style: the same look with everything about
+# people taken out, because a plate has nobody in it. Keyed like [styles].
 [plate_common.styles]
 pixar_like = "Modern 3D animated feature: rounded sculpted forms, soft rim light, smooth shading, warm cinematic colour grading, polished family-film design, with stone, wood, thatch, leaves and cloud all modelled in the same soft rounded way. The same rendering on every page: never 2D ink outlines, a flat cartoon, watercolour, gouache or photographic realism."
 
@@ -527,7 +536,7 @@ page_world = """THE PROPS AND PLACES (fixed designs: whenever one appears it is 
 - The harp: a small golden lap harp about as tall as the child's body from shoulders to waist, with silver strings and a brown leather carrying strap; it sings by itself and nobody plays it. Once {name} has it, {subject} carries it on {possessive} back by that strap.
 - The axe: an old garden axe with a worn wooden handle about as long as the child's arm and a single grey iron head.
 - Milky-White: Milky-White is the family's cow, and she is an animal: an ordinary white dairy cow with a calm, gentle face, a soft pink muzzle, small short horns and a long tufted tail — the same plain white cow, unchanged, on every page she appears. She is never drawn with human features, clothes, hands or a human face."""
-page_rules = ["Milky-White the cow is the same white cow everywhere she appears: a plain white coat, unchanged from page to page, at whatever distance the scene shows her.", "The giant is never a larger copy of the old man: a different age, a different face, a different beard and a different build.", "In the giant's kitchen the giant is so vast that the frame cuts him off: only his boots and legs show, standing on the bare floor beside the chair and rising out of the top of the frame, and his body and face are never in the picture. His boots stand on the floor in the open space beside the chair: never beneath the table, never overlapping or passing through the chair or its legs. The child is small beside the furniture.", "In this tale the world works the same way: a climber's hands grip the beanstalk, every chop of the axe leaves a deep notch in the trunk it is cutting and the axe blade never points at the ground, no hand sinks into the harp's strings, no coins pass through the purse, and the gold is real gold."]
+page_rules = ["Milky-White the cow is the same white cow everywhere she appears: a plain white coat, unchanged from page to page, at whatever distance the scene shows her.", "The giant is never a larger copy of the old man: a different age, a different face, a different beard and a different build.", "In the giant's kitchen, when the giant sits he is drawn whole, seated upright in his high-backed chair facing the viewer, his boots flat on the floor in front of it. When he stands he is so vast that the frame cuts him off: only his boots and legs show, standing on the bare floor beside the chair and rising out of the top of the frame, his body and face out of the picture. Either way his boots are never beneath the table and never overlap or pass through the chair or its legs. The child is small beside the furniture.", "In this tale the world works the same way: a climber's hands grip the beanstalk, every chop of the axe leaves a deep notch in the trunk it is cutting and the axe blade never points at the ground, no hand sinks into the harp's strings, no coins pass through the purse, and the gold is real gold."]
 
 [stories.jack_and_the_beanstalk.places]
 cottage = "the cottage — a small single-storey cottage of grey fieldstone under a golden thatched roof, one tall square stone chimney with a square cap at its left end and no chimney pot, one square window with a wooden shutter to the left of the door and no flower box, a weathered blue-green plank door with an iron handle and a stone step, a vegetable garden in front with a path of flat stones, and a low wooden picket fence with exactly one gate, standing alone at the end of a dirt lane."
@@ -641,7 +650,7 @@ ever-after = ["home_cottage"]
 # str.format, so a literal brace (the JSON example) must be doubled.
 instruction = """You are checking one picture for a children's picture book before it is shown to a child. Judge it the way a careful parent would on a first look at the page: does it show this moment, with the right people, drawn properly, with nothing wrong that a parent or child would notice? Be strict about those; do not hunt for small details.
 
-You are given the picture and a description of the picture it is supposed to be. You are NOT given the child's photograph and you must not guess at likeness — another check covers that.
+You are given the picture and a description of the picture it is supposed to be. Judge likeness only if a portrait of the child is supplied below, and only by comparing against it.
 
 Answer about this page: "{page_title}". The picture it must be: {story_line}
 {cast}
@@ -670,4 +679,46 @@ Set "passed" to false if any fault other than "wrong_counts" or "other" is liste
 # Sent with the plate as a second picture, on a page that was painted into one.
 plate_rule = """The SECOND picture is the empty background plate the first picture was painted into. Compare them. Add the fault "other" and say exactly what changed if the first picture is not the same place as the plate: a different or redrawn background, a prop moved, added or removed, a second copy of an object, a plant or stalk that is not joined to what it grew from in the plate, a different camera angle or light. Only the characters, and the shadows they cast, may differ from the plate."""
 
+# Sent with the book's approved cartoon portrait of the child, on a page the
+# child is in. The portrait is the image that drew the child, so "does not look
+# like it" is a real fault; small drift from angle, expression or distance is not.
+likeness_rule = """The picture right after this sentence is the approved portrait of the book's child, the one every page must show. Add the fault "likeness" if the child in the FIRST picture is clearly a different child from this portrait: a different skin tone, hair colour, hair style or length, face shape or apparent age. A different angle, expression, pose or distance is not a fault, and neither is a face drawn small and simple in a wide shot. Name what differs in the note."""
+
 page_title = "the picture book's page: "
+# Who may appear on the page, said plainly after the description. {named} is the
+# cast's bible labels, the star as "the child". The reviewer and the decision
+# judge read the same sentence. A description can name someone in the
+# background who is in no slot (the wolf between the trees), so the list defers
+# to it rather than calling them extra: a real run failed three good pages that way.
+cast_note = "Who may appear in this picture: {named}, and anyone the description above names. Nobody else. Only the description says who must be visible — someone on this list it does not mention may be absent."
+cast_note_absent = "Who may appear in this picture: {named}, and anyone the description above names. Nobody else — and NO CHILD: the book's child is not in this moment, so a child anywhere in the picture is an extra person."
+
+# ---------------------------------------------------------------------------
+# The decision judge (app/services/decision_judge.py): typed yes/no questions
+# answered with probabilities. Keyed by the reviewer's own fault names, so a
+# decision and a review speak the same vocabulary; shows_moment is the one
+# question whose "yes" is good. The wording mirrors [review].instruction,
+# including what is NOT a fault, because a decision model takes the question
+# literally.
+# ---------------------------------------------------------------------------
+
+[decision]
+# {brief} is the page's caption with the star as "the child"; {cast} is the
+# cast note above.
+intro = "A page of a children's picture book. The picture it must be: {brief}\n{cast}"
+# Added after the intro, with the portrait as the second image, on a page the
+# child is in; the likeness question is asked only then.
+likeness_intro = "The second image is the approved portrait of the book's child; the child in the first image must be this child."
+
+[decision.questions]
+shows_moment = "Does the picture show the described moment: the right action and place, with the characters doing what the description says?"
+extra_person = "Is there a person or character in the picture whom neither the description nor the list of who may appear names?"
+missing_character = "Is someone the description says is in the picture missing from it?"
+text_in_image = "Is there any lettering, writing, sign, label, number or speech bubble anywhere in the picture?"
+face_obscured = "Is the face of a character who should be seen hidden behind something, or cut off by the edge of the frame? A face the description itself turns away (seen from behind, a sleeping head bowed), or a figure the description says the frame cuts off, does not count."
+wrong_counts = "Does the picture clearly show a different number of something than the description states, where the number matters to the story (five beans, three towers)? Small props whose number the description does not state do not count."
+deformed = "Does any figure have extra or missing limbs, extra fingers, fused hands, doubled feet, a body that reads as broken, a body or legs passing through a chair, table or other solid object, a figure squeezed under a table instead of beside it, or a figure floating with nothing under or holding it?"
+# Asked only when the portrait is sent (see likeness_intro).
+likeness = "Is the child in the first image clearly a different child from the portrait in the second image — a different skin tone, hair colour, hair style or length, face shape or apparent age? A different angle, expression, pose or distance does not count, and neither does a face drawn small and simple in a wide shot."
+collage = "Is the frame more than one picture: a grid of tiles, panels, a character sheet, or the same person shown twice?"
+frightening = "Does the picture show blood, a wound, a weapon being used on or pointed at someone, an attack in progress, or a child in real terror? A sly or toothy cartoon villain does not count, and neither does a tool being used for the job the description says (an axe chopping a tree)."

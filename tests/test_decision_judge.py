@@ -11,6 +11,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -54,9 +55,13 @@ class ScriptedJudge:
     name = "scripted-decisions"
     answers: list[Any] = field(default_factory=list)
     calls: int = 0
+    portraits: list[bytes | None] = field(default_factory=list)
 
-    def decide(self, image: bytes, *, brief: str, cast: str) -> Decision:
+    def decide(
+        self, image: bytes, *, brief: str, cast: str, portrait: bytes | None = None
+    ) -> Decision:
         self.calls += 1
+        self.portraits.append(portrait)
         answer = self.answers.pop(0)
         if isinstance(answer, BaseException):
             raise answer
@@ -77,6 +82,7 @@ def judge(reviewer: Any, decisions: list[Any]) -> tuple[Any, ScriptedJudge]:
             page_title="t",
             story_line="the wolf runs ahead",
             cast_note="c",
+            star_in_picture=True,
             attempt=1,
             user="-",
         )
@@ -178,6 +184,7 @@ class TestTheCascade:
                     page_title="t",
                     story_line="the wolf runs ahead",
                     cast_note="c",
+                    star_in_picture=True,
                     attempt=1,
                     user="-",
                 )
@@ -201,6 +208,64 @@ class TestTheCascade:
         )
         assert verdict.tier2_failed is True
         assert verdict.tiers_run == (1,)
+
+
+class TestLikeness:
+    """The approved portrait drew the child, so it is what the child must look like."""
+
+    def _judged(self, *, star_in_picture: bool) -> tuple[ScriptedReviewer, ScriptedJudge]:
+        reviewer = ScriptedReviewer(answers=[said(True, 90)])
+        runner = runner_with(reviewer)
+        scripted = ScriptedJudge(answers=[UNSURE])
+        runner._decision_judge = scripted
+        art = artwork()
+        art.portrait = b"the-approved-portrait"
+        asyncio.run(
+            runner._judge(
+                book_id="book",
+                page_number=7,
+                image=grain(),
+                plate=None,
+                artwork=art,
+                page_title="t",
+                story_line="s",
+                cast_note="c",
+                star_in_picture=star_in_picture,
+                attempt=1,
+                user="-",
+            )
+        )
+        return reviewer, scripted
+
+    def test_a_page_with_the_child_sends_the_portrait_to_both_checks(self) -> None:
+        reviewer, scripted = self._judged(star_in_picture=True)
+        assert scripted.portraits == [b"the-approved-portrait"]
+        assert reviewer.portraits == [b"the-approved-portrait"]
+
+    def test_a_page_without_the_child_sends_no_portrait(self) -> None:
+        reviewer, scripted = self._judged(star_in_picture=False)
+        assert scripted.portraits == [None]
+        assert reviewer.portraits == [None]
+
+    def test_the_likeness_question_is_asked_only_with_a_portrait(self) -> None:
+        from app.services.decision_judge import OpenAIDecisionJudge
+
+        sent: list[dict[str, Any]] = []
+
+        class Decisions:
+            def create(self, **kwargs: Any) -> Any:
+                sent.append(kwargs)
+                raise RuntimeError("stop here")
+
+        judge_ = OpenAIDecisionJudge("test-key-not-real", model="m")
+        judge_._client = Mock(decisions=Decisions())
+        for portrait in (None, grain()):
+            with pytest.raises(ProviderError):
+                judge_.decide(grain(), brief="b", cast="c", portrait=portrait)
+        without, with_ = ({q["name"] for q in call["questions"]} for call in sent)
+        assert "likeness" not in without and "likeness" in with_
+        assert len(sent[0]["input"][0]["content"]) == 2
+        assert len(sent[1]["input"][0]["content"]) == 4
 
 
 class TestReadingTheAnswer:

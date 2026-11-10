@@ -286,18 +286,7 @@ def slots_for(cast_keys: Sequence[str], *, staging: str = "") -> tuple[Slot, ...
 
 
 def _rest(spot: _Spot) -> str:
-    return spot[2] if len(spot) > 2 else ""  # type: ignore[misc]
-
-
-#: The cover's own rule, so every story gets it without remembering to write
-#: it into a seed. The layout keeps every slot below y=0.24 and the review
-#: screen refuses a busy band, but the painter has to be told first.
-_TITLE_BAND = (
-    "THE TITLE BAND: the top fifth of the frame stays calm and open — bare sky "
-    "or plain air with nothing in it, no tower, tree, cloud stack, bird or "
-    "object — because the book's title is set there afterwards, outside this "
-    "image."
-)
+    return spot[2] if len(spot) > 2 else ""
 
 
 def build_plate_prompt(
@@ -324,7 +313,7 @@ def build_plate_prompt(
     ]
     parts.append(_clear_space_sentence(len(page_cast(story, scene)), scene.staging))
     if cover:
-        parts.append(_TITLE_BAND)
+        parts.append(_common()["title_band"])
     parts += [section["empty"], section["no_text"], section["negative"]]
     return "\n\n".join(parts)
 

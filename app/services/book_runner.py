@@ -43,6 +43,7 @@ from app.errors import BookBusy
 from app.models.book import BookPage
 from app.models.settings import CartoonSettings
 from app.models.story import StoryEdition
+from app.prompt_data import prompt_text
 from app.services.book_document import COVER_KEY, COVER_NUMBER, BookDocument
 from app.services.book_store import (
     BookRecord,
@@ -67,6 +68,7 @@ from app.services.prompts import (
     build_cover_prompt,
     build_plate_edit_prompt,
     correction_for,
+    edit_reference_cast,
     render_book_page,
     scene_for,
 )
@@ -612,6 +614,7 @@ class BookRunner:
                     page_title=page.scene.title,
                     story_line=_picture_brief(page, artwork.settings),
                     cast_note=_cast_note(page, edition),
+                    star_in_picture=page.star_in_picture,
                     plate=plate,
                     artwork=artwork,
                     draw=draw,
@@ -826,6 +829,7 @@ class BookRunner:
             page_title=edition.cover.scene.title,
             story_line=_picture_brief(edition.cover, artwork.settings),
             cast_note=_cast_note(edition.cover, edition),
+            star_in_picture=edition.cover.star_in_picture,
             plate=plate,
             artwork=artwork,
             draw=draw,
@@ -848,6 +852,7 @@ class BookRunner:
         page_title: str,
         story_line: str,
         cast_note: str,
+        star_in_picture: bool,
         attempt: int,
         user: str,
     ) -> Verdict:
@@ -896,8 +901,16 @@ class BookRunner:
         if not tier1.passed:
             return verdict
 
+        # The approved portrait is what drew the child, so it is what the
+        # child must look like; a page the child is not in has no likeness.
+        portrait = artwork.portrait if star_in_picture else None
         decision = await self._decide(
-            image, brief=story_line, cast=cast_note, book_id=book_id, page_number=page_number
+            image,
+            brief=story_line,
+            cast=cast_note,
+            portrait=portrait,
+            book_id=book_id,
+            page_number=page_number,
         )
         decided = decision.as_record() if decision is not None else None
         if decision is not None and decision.outcome is Outcome.ACCEPT:
@@ -922,6 +935,7 @@ class BookRunner:
                     story_line=story_line,
                     cast=cast_note,
                     plate=plate.image if plate is not None else None,
+                    portrait=portrait,
                 )
             except ReviewerQuotaSpent as exc:
                 self._reviewer_rests_until = exc.until
@@ -1002,14 +1016,25 @@ class BookRunner:
         return verdict
 
     async def _decide(
-        self, image: bytes, *, brief: str, cast: str, book_id: str, page_number: int
+        self,
+        image: bytes,
+        *,
+        brief: str,
+        cast: str,
+        portrait: bytes | None,
+        book_id: str,
+        page_number: int,
     ) -> Decision | None:
         """The decision model's look at one picture, or None if it could not answer."""
         if self._decision_judge is None:
             return None
         try:
             return await asyncio.to_thread(
-                self._decision_judge.decide, image, brief=brief, cast=cast
+                self._decision_judge.decide,
+                image,
+                brief=brief,
+                cast=cast,
+                portrait=portrait,
             )
         except Exception as exc:
             logger.warning(
@@ -1046,6 +1071,7 @@ class BookRunner:
         page_title: str,
         story_line: str,
         cast_note: str,
+        star_in_picture: bool,
         plate: PlateArt | None,
         artwork: _Artwork,
         draw: Callable[[str], Awaitable[GeneratedImage]],
@@ -1128,6 +1154,7 @@ class BookRunner:
                     page_title=page_title,
                     story_line=story_line,
                     cast_note=cast_note,
+                    star_in_picture=star_in_picture,
                     attempt=attempt,
                     user=user,
                 )
@@ -1386,17 +1413,9 @@ def _cast_note(page: BookPage, edition: StoryEdition) -> str:
         member.label for key in page.cast if (member := edition.cast.get(key)) is not None
     ]
     named = ", ".join(["the child", *labels] if page.star_in_picture else labels)
-    if not page.star_in_picture:
-        return (
-            f"Who may appear in this picture: {named}, and anyone the description "
-            "above names. Nobody else — and NO CHILD: the book's child is not in "
-            "this moment, so a child anywhere in the picture is an extra person."
-        )
-    return (
-        f"Who may appear in this picture: {named}, and anyone the description above "
-        "names. Nobody else. Only the description says who must be visible — "
-        "someone on this list it does not mention may be absent."
-    )
+    review = prompt_text()["review"]
+    key = "cast_note" if page.star_in_picture else "cast_note_absent"
+    return str(review[key]).format(named=named)
 
 
 def _ratio(aspect_ratio: str) -> float | None:
@@ -1446,17 +1465,14 @@ def _plate_references(
     """
     references = [plate.image]
     media_types = [plate.media_type]
-    cast = [slot.cast_key for slot in plate.slots] or (
-        [star, *page.cast] if page.star_in_picture else list(page.cast)
-    )
-    for cast_key in dict.fromkeys(cast):
+    for cast_key in edit_reference_cast(
+        plate.slots, page, star=star, supplied=artwork.characters
+    ):
         if cast_key == star:
             references.append(artwork.portrait)
             media_types.append(artwork.portrait_media_type)
             continue
-        character = artwork.characters.get(cast_key)
-        if character is None:
-            continue
+        character = artwork.characters[cast_key]
         references.append(character.portrait)
         media_types.append(character.portrait_media_type)
     return references, media_types

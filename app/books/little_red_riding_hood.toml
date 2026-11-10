@@ -33,7 +33,7 @@ subject_action = "standing on the path with the basket on one arm, turning to lo
 environment = "the edge of the wood: a winding dirt path, tall trees with deep green leaves, a small stone cottage with a blue door and a curl of smoke in the distance, open sky above"
 time_of_day = "early morning, soft golden light from the left, a pale blue sky"
 camera = "wide storybook shot at a child's height, the open path in the lower right of the frame, the wood rising behind and open sky above"
-must_include = ["{name} in the red hood with the covered basket", "the winding path into the tall wood", "the small cottage with the blue door and its curl of smoke", "the grey wolf in the green coat, far away between the trees", "the upper third calm and uncluttered"]
+must_include = ["{name} in the red hood with the covered basket", "the winding path into the tall wood", "the small cottage with the blue door and its curl of smoke", "the grey wolf in the green coat, far away between the trees", "the upper fifth calm and uncluttered"]
 must_avoid = ["lettering, a title, a logo or a caption of any kind", "the wolf close to the child or showing teeth", "any other person", "a face in the title band", "a weapon", "blood"]
 
 # The character bible. The star's face comes from the upload; the red cloak is
@@ -89,7 +89,7 @@ staging = "hood_and_basket"
 story = "The morning was bright when {name} set out. {Possessive} mother packed a basket with bread, honey and a little cake. They were for Grandmother, who lived on the other side of the wood. {name} put on {possessive} red hood and took the basket by the handle. 'Go straight there,' said {possessive} mother. 'Do not stop to talk to anyone.'"
 beat = "{name}'s mother packs a basket for Grandmother and warns {object} to go straight there."
 emotion = "warm care: the mother serious and loving, {name} listening with the basket in both hands"
-caption = "In a warm cottage kitchen in the morning, {name}'s mother ties the red hood at {possessive} throat and sets a covered basket in {possessive} hands: bread, a jar of honey and a little cake for Grandmother. The mother leans down, one hand on {name}'s shoulder, her face loving and serious. The same cottage kitchen as the rest of the book: stone hearth on the left, worn oak table in the middle, shelves and cupboard behind."
+caption = "In a warm cottage kitchen in the morning, {name}'s mother ties the red hood at {possessive} throat and sets a covered basket in {possessive} hands: bread, a jar of honey and a little cake for Grandmother. The mother leans down, one hand on {name}'s shoulder, her face loving and serious."
 subject_action = "standing by the table holding the basket with both hands while {possessive} mother ties the red hood, looking up at her"
 environment = "the cottage kitchen: a stone hearth with copper pots on the left wall, a worn oak table with two stools in the middle, open shelves and a cupboard on the back wall, a window on the right wall, morning light"
 time_of_day = "early morning, clear soft daylight through the window, a low fire in the hearth"
@@ -104,7 +104,7 @@ cast = []
 staging = "away_to_the_smoke"
 story = "At the edge of the wood, the path was soft with old leaves. Birds sang in the tall trees, and the sun made small gold coins on the ground. {name} held the basket with both hands and walked along the path, humming a little tune. Far away, Grandmother's chimney smoke rose above the trees."
 beat = "{name} walks along the leaf-soft path into the wood, humming."
-emotion = "easy happiness: {name} walking with a small smile, eyes on the path and the birds"
+emotion = "easy happiness, shown in the body since the face is turned away: {name} walking with a light, bouncing step, head tilted up towards the birds, the basket swinging gently"
 caption = "Seen from behind, {name} walks away from us along a winding leaf-covered path deeper into a tall green wood, the red hood bright against the browns and greens, the covered basket on one arm. Ahead, far beyond the trees, a thin curl of smoke rises from Grandmother's chimney: {name} is walking towards it. Sunlight falls in small gold patches through the leaves. Birds perch on branches above."
 subject_action = "seen from behind, walking away from the viewer along the path towards the chimney smoke ahead, one hand on the basket handle, head tilted up towards the birds, mid-step"
 environment = "the wood path: tall trees on both sides, old leaves on the ground, ferns and small flowers, a winding dirt track, distant treetops with a curl of chimney smoke beyond"
@@ -225,7 +225,7 @@ subject_action = "Grandmother sitting up in bed under the quilt, surprised; the 
 environment = "Grandmother's one-room cottage: the tall wooden cupboard open, the bed with the patchwork quilt, the small table with a jug and candle, the stone hearth, the window with half-drawn curtains"
 time_of_day = "late morning, soft curtained light, a low fire"
 camera = "interior medium-wide shot from the corner, the open cupboard and the bed both in frame, clear floor between them"
-must_include = ["Grandmother in her lace cap and lavender shawl stepping into the tall cupboard", "the grey wolf in the green coat holding the cupboard door", "the bed with the patchwork quilt behind them", "the wolf's calm face and raised paw", "no one being hurt"]
+must_include = ["Grandmother in her lace cap and lavender shawl sitting up in the bed under the patchwork quilt", "the grey wolf in the green coat standing on the floor, pointing at the open tall cupboard", "the tall wooden cupboard with its door open", "the wolf's calm face and raised paw", "no one being hurt"]
 must_avoid = ["the child in this picture", "the wolf biting, scratching or grabbing Grandmother", "Grandmother in pain or on the floor", "lettering or writing anywhere", "a weapon or blood"]
 
 [[pages]]
@@ -234,15 +234,15 @@ title = "The disguise"
 cast = ["wolf"]
 staging = "wolf_in_bed"
 star_in_picture = false
-story = "The wolf pulled the white cap down over his ears and wrapped the shawl around his shoulders. He pulled the blanket up to his chin. In the warm, dark room, with the curtains half closed, he looked almost like Grandmother. He waited, and his yellow eyes shone in the dim light."
+story = "The wolf pulled the white cap down over his ears and wrapped the shawl around his shoulders. He got into her bed and pulled up the blanket. In the warm, dark room, with the curtains half closed, he looked almost like Grandmother. He waited, and his bright eyes shone in the dim light."
 beat = "The wolf puts on Grandmother's cap and shawl and waits in her bed."
 emotion = "sly patience: the wolf tucked up in bed, a small pleased smile, eyes bright in the dim room"
-caption = "The grey wolf in the green coat sits up in Grandmother's wooden bed under the patchwork quilt, wearing her white lace cap pulled down over his ears and her lavender shawl around his shoulders. The blanket is up to his chin. His amber eyes shine in the dim, warm room. The tall cupboard is closed in the background, and the curtains are half drawn."
-subject_action = "sitting up in bed with the blanket to his chin, paws on the quilt, wearing the cap and shawl, waiting"
+caption = "The grey wolf in the green coat sits up in Grandmother's wooden bed under the patchwork quilt, wearing her white lace cap pulled down over his ears and her lavender shawl around his shoulders. The quilt is pulled up to his chest, with the shawl showing above it. His amber eyes shine in the dim, warm room. The tall cupboard is closed in the background, and the curtains are half drawn."
+subject_action = "sitting up in bed with the quilt to his chest and the shawl showing above it, paws on the quilt, wearing the cap and shawl, waiting"
 environment = "Grandmother's one-room cottage, dim and warm: the bed and patchwork quilt, the closed tall cupboard, the small table with a jug and candle, the hearth, the window with half-drawn curtains"
 time_of_day = "late morning, dim curtained light, a low fire"
 camera = "medium shot from the foot of the bed, the bed and the patchwork quilt centred, the curtained window behind"
-must_include = ["the grey wolf in Grandmother's white lace cap and lavender shawl", "the patchwork quilt up to his chin", "the closed tall wooden cupboard behind", "the wolf's amber eyes bright in the dim room", "the wolf's sly, pleased smile"]
+must_include = ["the grey wolf in Grandmother's white lace cap and lavender shawl", "the patchwork quilt up to his chest, the lavender shawl showing above it", "the closed tall wooden cupboard behind", "the wolf's amber eyes bright in the dim room", "the wolf's sly, pleased smile"]
 must_avoid = ["the child in this picture", "Grandmother in this picture", "the wolf showing teeth or snarling", "lettering or writing anywhere", "a weapon or blood"]
 
 [[pages]]
@@ -338,7 +338,7 @@ subject_action = "the woodcutter in the doorway pointing firmly away; the wolf r
 environment = "Grandmother's cottage door and small garden: the open blue door, the bed with the quilt inside, the garden path, the low fence and the wood beyond"
 time_of_day = "late morning, bright sun through the open door"
 camera = "wide shot from the garden, the cottage front and the open doorway filled by the woodcutter, the clear path in the foreground"
-must_include = ["the woodcutter standing tall in the doorway with one arm out", "the wolf running away, still wearing the lace cap and shawl", "the open blue door filled by the woodcutter", "{name} in the red hood safe behind the woodcutter", "the child's figure keeps a natural head-to-body ratio"]
+must_include = ["the woodcutter standing tall in the doorway with one arm out", "the wolf running away, still wearing the lace cap and shawl", "the open blue door filled by the woodcutter", "{name} in the red hood safe by the garden fence at the left, watching", "the child's figure keeps a natural head-to-body ratio"]
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "anyone hitting, kicking or hurting the wolf", "the wolf biting or snarling", "a weapon in anyone's hand", "blood"]
 
 [[pages]]

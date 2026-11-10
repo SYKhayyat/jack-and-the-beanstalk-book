@@ -801,11 +801,18 @@ def build_plate_edit_prompt(
             no reviewer looked, or on a redraw the owner asked for.
     """
     edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
+    assembly = cast("Mapping[str, str]", _BOOK["assembly"])
     subs = _substitutions(settings, prompt_name)
     scene = page.formatted(subs).scene
     emotion = page.emotion.format(**subs) if page.emotion else ""
     lines = [
         edit["plate_task"],
+        _reference_line(
+            edit_reference_cast(slots, page, star=story.star, supplied=supplied_characters),
+            story,
+            star=story.star,
+            prompt_name=prompt_name,
+        ),
         edit["preserve"],
         edit["moment"].format(caption=scene.caption),
         (
@@ -813,7 +820,7 @@ def build_plate_edit_prompt(
             if page.star_in_picture
             else edit["acting_cast"].format(action=scene.subject_action)
         ),
-        "" if page.star_in_picture else edit["star_absent"].format(name=prompt_name),
+        "" if page.star_in_picture else assembly["star_absent"].format(name=prompt_name),
         edit["feeling"].format(emotion=emotion) if emotion else "",
         edit["cast_identity"],
         _slot_block(slots, story, cover=cover),
@@ -835,6 +842,43 @@ def build_plate_edit_prompt(
         lines.append(edit["cover_band"])
     lines += [edit["no_text"], edit["negative"]]
     return _join_sections(lines)
+
+
+def edit_reference_cast(
+    slots: Sequence[Slot],
+    page: BookPage,
+    *,
+    star: str,
+    supplied: Iterable[str],
+) -> list[str]:
+    """The cast keys whose portrait follows the plate, in the order sent.
+
+    One function decides this for both the references the edit call carries
+    and the prompt line that names them, so image N is always the character
+    the prompt says it is. The plate's slots decide who is drawn; a plate
+    without slots falls back to the page's cast. The star's portrait always
+    exists; anyone else has one only when the visitor uploaded a photo.
+    """
+    keys = [slot.cast_key for slot in slots] or (
+        [star, *page.cast] if page.star_in_picture else list(page.cast)
+    )
+    have = {star, *supplied}
+    return [key for key in dict.fromkeys(keys) if key in have]
+
+
+def _reference_line(
+    keys: Sequence[str], story: StoryEdition, *, star: str, prompt_name: str
+) -> str:
+    """Name each reference image after the plate, or nothing if there are none."""
+    if not keys:
+        return ""
+    edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
+    entries = []
+    for number, key in enumerate(keys, start=2):
+        member = story.cast.get(key)
+        label = prompt_name if key == star else (member.label if member else key)
+        entries.append(edit["reference_entry"].format(number=number, label=label))
+    return edit["reference_images"].format(entries="; ".join(entries))
 
 
 def _slot_block(slots: Sequence[Slot], story: StoryEdition, *, cover: bool) -> str:

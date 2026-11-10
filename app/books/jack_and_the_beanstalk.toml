@@ -43,8 +43,8 @@ caption = "The cover of a picture book: the child stands in the cottage garden i
 subject_action = "standing in the garden in the foreground, looking up at the beanstalk, full of wonder and courage, hands loose at the sides"
 environment = "the cottage garden as fixed in the props and places: the little thatched cottage on the left, the beanstalk rising from its ring of grey stones on the right and climbing into a soft bank of low cloud that hides its top just below the upper fifth of the frame, the picket fence and gate, green fields beyond, a wide clear sky"
 time_of_day = "a bright morning, warm golden light from the left, a pale blue sky"
-camera = "wide storybook shot at a child's height from the garden, the empty path in the lower foreground leading in, the beanstalk rising on the right, the upper third of the frame calm and open"
-must_include = ["{name} in the garden looking up at the beanstalk", "the towering beanstalk rising into the low cloud with broad leaves", "the little cottage with its golden thatched roof and blue-green door", "the garden gate and the ring of grey stones", "the upper third calm and uncluttered"]
+camera = "wide storybook shot at a child's height from the garden, the empty path in the lower foreground leading in, the beanstalk rising on the right, the upper fifth of the frame calm and open"
+must_include = ["{name} in the garden looking up at the beanstalk", "the towering beanstalk rising into the low cloud with broad leaves", "the little cottage with its golden thatched roof and blue-green door", "the garden gate and the ring of grey stones", "the upper fifth calm and uncluttered"]
 must_avoid = ["lettering, a title, a logo or a caption of any kind", "a face in the title band", "any other person", "the giant", "Milky-White the cow", "the hen or the harp"]
 
 # The cow, the hen and the harp are not here: they cannot be given a photograph,
@@ -137,7 +137,7 @@ camera = "eye-level medium shot at table height, both faces clearly readable, th
 key = "the-trade"
 title = "The trade"
 cast = ["old_man"]
-caption = "Five beans, said the old man, for one cow. On the dirt road to market, {name} walks towards the right of the frame holding Milky-White's rope, when a kindly old man steps out from the hedgerow ahead on the right to meet {object}. He holds out his open palm, flat and face up at the height of her chest, and exactly five beans rest ON the skin of that palm in one single row across it, side by side with a small gap between each so all five can be counted; every bean touches his palm, none is in the air — five and only five: one speckled red, one blue-grey, one deep green, one golden-tan, one dark violet, real seeds with mottled skins and no glow. His palm holds nothing else: not four beans, not six, no sixth bean anywhere."
+caption = "Five beans, said the old man, for one cow. On the dirt road to market, {name} walks towards the right of the frame holding Milky-White's rope, when a kindly old man steps out from the hedgerow ahead on the right to meet {object}. He holds out his open palm, flat and face up at the height of {possessive} chest, and exactly five beans rest ON the skin of that palm in one single row across it, side by side with a small gap between each so all five can be counted; every bean touches his palm, none is in the air — five and only five: one speckled red, one blue-grey, one deep green, one golden-tan, one dark violet, real seeds with mottled skins and no glow. His palm holds nothing else: not four beans, not six, no sixth bean anywhere."
 subject_action = "three-quarter view from behind one shoulder, {name} leaning forward to look into the old man's open palm, holding the cow's rope in one hand, the fingers wrapped round it"
 environment = "a dusty dirt road leading away to the right through green fields towards the far-off market, a hedgerow beside the road, low stone walls, a few round trees, puffy clouds, and Milky-White the plain white cow standing at the left of the road, drawn as part of the road — the same white cow as in the yard"
 time_of_day = "late morning, clear sky, the light gentle"
@@ -326,28 +326,28 @@ beat = "Back in the giant's kitchen, {name} finds a hen that lays golden eggs."
 emotion = "hushed, careful tenderness: {name} gentle and quiet, eyes shining at the golden egg"
 
 [pages.compose]
-environment = "the giant's kitchen as fixed in the props and places, seen from its right-hand corner: the wooden perch over its nest of straw in the foreground, the giant asleep in his chair far behind, the hearth glowing on the far left wall"
-camera = "medium shot low to the floor in the corner, {name}, the hen and the golden egg clear in the foreground, the giant asleep in his chair, small and soft in the background"
+environment = "the giant's kitchen as fixed in the props and places: the great table and the high-backed chair on the left with the giant asleep in it, bare floor in the middle, the wooden perch on the right with the plump brown hen on top and the golden egg in the straw beneath her, the hearth glowing on the left wall"
+camera = "wide interior shot low near the floor, the giant asleep in his chair on the left and fully in frame, {name} small at the foot of the perch on the right, the hen and the golden egg clearly readable above {object}"
 
 [[pages]]
 key = "the-singing-harp"
 title = "The singing harp"
 cast = ["giant"]
 staging = "harp_by_the_chair"
-caption = "Beside the hen stood a harp that sang all by itself. Right beside the giant's chair, {name} takes hold of the golden harp's leather strap with one hand to pull it over {possessive} shoulder, the plump brown hen tucked under {possessive} other arm. Soft ribbons of light-like music curl from the harp's silver strings, though nobody touches them. The giant is stirring but still seated in his great high-backed chair facing the viewer, his head lifting a little from his chest, his eyes still shut, his boots flat on the floor in front of the chair; he is not looking at {name}. {name} is tiny beside him: the top of {possessive} head would not reach his chair seat."
+caption = "By the great table stood a harp that sang all by itself. Right beside the giant's chair, {name} takes hold of the golden harp's leather strap with one hand to pull it over {possessive} shoulder, the plump brown hen tucked under {possessive} other arm. Soft ribbons of light-like music curl from the harp's silver strings, though nobody touches them. The giant is stirring but still seated in his great high-backed chair facing the viewer, his head lifting a little from his chest, his eyes still shut, his boots flat on the floor in front of the chair; he is not looking at {name}. {name} is tiny beside him: the top of {possessive} head would not reach his chair seat."
 subject_action = "standing on the floor just beside the harp, one hand gripping the harp's leather strap to pull it over {possessive} shoulder, the plump brown hen tucked under the other arm, glancing up at the stirring giant"
 environment = "the giant's kitchen as fixed in the props and places: the great table and the high-backed chair on the left, bare floor in the middle, the small golden harp with its silver strings and leather strap standing on the stone floor right beside the leg of the great table, not near the perch, the empty perch on the right over its nest of straw with one gleaming golden egg in it, the great door at the right edge"
 time_of_day = "midday, a shaft of daylight through the high narrow window, firelight from the hearth"
 camera = "wide interior shot low near the floor, well back from the furniture, nothing overhead: the table and the great chair on the left with the harp beside the table leg, bare floor in the middle, the perch on the right"
 must_include = ["the small golden lap harp with silver strings, its strap going over {name}'s shoulder", "soft visible ribbons of music curling from the harp with nobody playing it", "the plump brown hen under {name}'s arm", "the giant seated in his great chair facing the viewer, stirring, head lifting from his chest, eyes still shut, not looking at {name}, boots flat on the floor in front of the chair, never under the table, never standing", "{name} so small beside the giant that {possessive} head would not reach his chair seat", "the child's figure keeps a natural head-to-body ratio"]
-must_avoid = ["an enlarged head, oversized face or close-up of {name}", "anyone's fingers on the harp strings", "a hand passing through the strings", "a harp bigger or smaller than it is in the plate", "the harp moved from where it stands in the plate","the giant awake, standing, or looking at {name}", "a second harp", "the giant's legs passing through the chair", "anyone else in the kitchen", "the giant under the table", "the giant's legs passing through the chair or its legs", "Milky-White the cow"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "anyone's fingers on the harp strings", "a hand passing through the strings", "a harp bigger or smaller than it is in the plate", "the harp moved from where it stands in the plate", "the giant awake, standing, or looking at {name}", "a second harp", "anyone else in the kitchen", "the giant under the table", "the giant's legs passing through the chair or its legs", "Milky-White the cow"]
 story = "By the great table stood a little golden harp with silver strings. As {name} came near, it began to sing all by itself, so sweet that the whole kitchen seemed to listen. {name} put the harp on {possessive} back, with its strap over one shoulder. But behind {object}, in the great chair, the giant began to move."
 beat = "{name} finds a golden harp that sings all by itself, and the giant stirs."
 emotion = "delighted wonder turning to alarm: {name} smiling at the music, then glancing back with sudden worry"
 
 [pages.compose]
 environment = "the giant's kitchen as fixed in the props and places, from the middle of the floor beside the great table's leg: the small golden harp with its silver strings and strap, the straw nest, the giant stirring in his chair across the room, the hearth glowing on the left"
-camera = "medium-wide interior shot from the corner, {name} and the shining harp in the foreground, the stirring giant seated in his chair, small and soft across the room behind"
+camera = "medium-wide interior shot from the middle of the floor, {name} and the shining harp beside the great table in the foreground, the stirring giant seated in his chair, small and soft across the room behind"
 
 [[pages]]
 key = "fee-fi-fo-fum"
@@ -363,7 +363,7 @@ must_include = ["only the giant's enormous boots and legs standing on clear floo
 must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant reaching for, grabbing or looking at {name}", "the giant close to {name}", "raised fists", "blood, injury or anything gruesome", "anyone else in the kitchen", "the giant under the table", "the giant's legs passing through the chair or its legs", "Milky-White the cow"]
 story = "“Fee-fi-fo-fum!” roared the giant, and the whole kitchen shook. “I smell a child in my castle!” {name} pressed flat against the wall by the door. The hen was under one arm and the harp upon {possessive} back. {Possessive} heart was pounding like a drum. The giant rose from his chair and sniffed the air, and turned his great head this way, and then that."
 beat = "The giant wakes and roars, sniffing for the child hidden in his kitchen."
-emotion = "real fear: {name} wide-eyed and pale, mouth open, one hand clapped over it, hair standing on end; the giant suspicious and puzzled, sniffing"
+emotion = "real fear: {name} wide-eyed and pale, mouth open, one hand clapped over it, hair standing on end; the giant's planted boots and long shadow turned away towards the hearth, searching"
 
 [pages.compose]
 environment = "the giant's kitchen as fixed in the props and places: the giant standing by his chair and the great table across the room, the hearth's orange glow behind him, his long shadow across the floor, the great door beside {name}"
@@ -473,7 +473,7 @@ key = "the-golden-eggs"
 title = "The golden eggs"
 cast = ["mother"]
 caption = "The hen laid golden eggs, the harp sang, and they were never hungry again. In the cottage kitchen, {name} and {possessive} mother sit together at the worn oak table, smiling, while the small golden harp sends soft ribbons of music into the warm air and the hen sits proudly on her golden eggs."
-subject_action = "sitting at the table beside {possessive} mother, both smiling at the hen and her golden eggs, the harp singing on the shelf"
+subject_action = "sitting at the table beside {possessive} mother, both smiling at the hen and her golden eggs, the harp singing on the wall beside the shelf"
 environment = "the cottage kitchen as fixed in the props and places, now comfortable: a straw nest by the hearth on the left with the plump brown hen in it and three gleaming golden eggs beside her, the small golden harp hanging on the wall beside the shelf, the shelves full of bread and jars of honey, a bright fire in the hearth, the worn oak table"
 time_of_day = "a later evening, warm lamp and firelight, cosy golden shadows"
 camera = "eye-level medium-wide shot across the kitchen from the window side, the nest and the hen by the hearth on the left, the table in the middle, the harp on the wall by the shelf"
@@ -484,8 +484,8 @@ beat = "The hen lays golden eggs and the harp sings, so the family never goes hu
 emotion = "warm contentment: {name} and {possessive} mother smiling softly, at ease"
 
 [pages.compose]
-environment = "the cottage kitchen as fixed in the props and places, now comfortable: a straw nest by the hearth on the left with the hen and three golden eggs, the small golden harp on a shelf with ribbons of music, the shelves full of bread and jars, a bright fire, the worn oak table"
-camera = "eye-level medium-wide shot across the kitchen, the hen and eggs by the hearth, {name} and the mother at the table, the harp on its shelf"
+environment = "the cottage kitchen as fixed in the props and places, now comfortable: a straw nest by the hearth on the left with the hen and three golden eggs, the small golden harp hanging on the wall beside the shelf with ribbons of music, the shelves full of bread and jars, a bright fire, the worn oak table"
+camera = "eye-level medium-wide shot across the kitchen, the hen and eggs by the hearth, {name} and the mother at the table, the harp on the wall by the shelf"
 
 [[pages]]
 key = "riches-and-pride"
