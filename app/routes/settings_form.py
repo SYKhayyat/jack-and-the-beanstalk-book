@@ -22,7 +22,6 @@ from app.models.settings import (
     HairStyle,
     LikenessStrength,
     Outfit,
-    PhotoGender,
     PortraitBackground,
     SkinTone,
 )
@@ -39,7 +38,13 @@ def cartoon_settings_from_form(
     candidates: int = Form(1, ge=1, le=3),
     apparent_age: str = Form(ApparentAge.AS_UPLOADED),
     character_gender: str = Form(CharacterGender.MATCH),
-    photo_gender: str = Form(PhotoGender.BOY),
+    photo_gender: str = Form(
+        "",
+        description=(
+            "`boy` or `girl`: who the star is. Required, with no default, because "
+            "it picks the story's he or she and the default name."
+        ),
+    ),
     skin_tone: str = Form(SkinTone.AS_UPLOADED),
     hair_style: str = Form(HairStyle.AS_UPLOADED),
     hair_color: str = Form(HairColour.AS_UPLOADED),
@@ -54,9 +59,17 @@ def cartoon_settings_from_form(
     the 1..10 range, so a bad value fails here with a 422 naming the field
     rather than deep inside the prompt builder.
 
+    There is deliberately no default for `photo_gender`: a default of "boy"
+    once meant every girl's book called her "he", because nobody changed it.
+
     Raises:
-        InvalidSettings: if any submitted value is out of range or unknown.
+        InvalidSettings: if any submitted value is out of range or unknown, or
+            `photo_gender` is missing.
     """
+    if not photo_gender:
+        raise InvalidSettings(
+            "Say whether the star is a boy or a girl first: the story's he or she follows it."
+        )
     try:
         return CartoonSettings.model_validate(
             {

@@ -44,6 +44,7 @@ OPERATOR = "operator-sub"
 def _portrait(client: TestClient, story: str, character: str = "") -> str:
     form: dict[str, object] = {
         "story": story,
+        "photo_gender": "boy",
         "photo": ("p.png", make_photo_bytes(), "image/png"),
     }
     if character:
@@ -131,6 +132,7 @@ class TestRedIsABook:
             **multipart(
                 {
                     "story": RED_KEY,
+                    "photo_gender": "boy",
                     "photo": ("w.png", make_photo_bytes(), "image/png"),
                     "character": "wolf",
                 }
@@ -303,7 +305,11 @@ class TestTheStartGate:
         portrait = client.post(
             "/api/cartoonify",
             **multipart(
-                {"story": RED_KEY, "photo": ("p.png", make_photo_bytes(), "image/png")}
+                {
+                    "story": RED_KEY,
+                    "photo_gender": "girl",
+                    "photo": ("p.png", make_photo_bytes(), "image/png"),
+                }
             ),
         )
         assert portrait.status_code == 409

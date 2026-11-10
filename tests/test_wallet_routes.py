@@ -258,7 +258,7 @@ def test_with_nothing_in_the_wallet_a_book_is_refused_before_it_renders(browser)
     portrait = client.post(
         "/api/cartoonify",
         files={"photo": ("me.png", make_photo_bytes(), "image/png")},
-        data={"story": "jack_and_the_beanstalk"},
+        data={"story": "jack_and_the_beanstalk", "photo_gender": "boy"},
     )
     assert portrait.status_code == 201, portrait.text
     response = client.post(
@@ -278,12 +278,13 @@ def test_a_funded_book_is_charged_when_its_pdf_is_written(browser) -> None:
     portrait = client.post(
         "/api/cartoonify",
         files={"photo": ("me.png", make_photo_bytes(), "image/png")},
-        data={"story": "jack_and_the_beanstalk"},
+        data={"story": "jack_and_the_beanstalk", "photo_gender": "boy"},
     )
     start = client.post(
         "/api/book/start",
         data={
             "story": "jack_and_the_beanstalk",
+            "photo_gender": "boy",
             "generation_id": portrait.json()["generation_id"],
         },
     )

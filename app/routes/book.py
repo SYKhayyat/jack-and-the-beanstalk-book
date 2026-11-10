@@ -64,6 +64,7 @@ from app.services.book_store import BookRecord, BookStatus, BookSummary
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import book_name_for, render_book_page
 from app.services.storage import Draft
+from app.services.story_settings import story_rules
 from app.services.wallet import format_cents
 
 __all__ = ["books_router", "router", "stories_router"]
@@ -248,7 +249,7 @@ async def start_book(
             "That portrait was made for a book character, not the book's star. "
             "Make the star's portrait from the child's own photo."
         )
-    settings = _with_page_shape(draft.settings, aspect_ratio)
+    settings = _with_page_shape(draft.settings, aspect_ratio, edition)
     about = _about_from_form(
         edition, child_name, about_name, about_age, about_title, details, settings, about_photo
     )
@@ -726,23 +727,33 @@ def _about_from_form(
         raise InvalidSettings(f"The About page details did not validate: {exc}") from exc
 
 
-def _with_page_shape(settings: CartoonSettings, aspect_ratio: str) -> CartoonSettings:
-    """The star's settings with the book-wide page shape substituted.
+def _with_page_shape(
+    settings: CartoonSettings, aspect_ratio: str, edition: StoryEdition
+) -> CartoonSettings:
+    """The star's settings with the book-wide page shape and the story's rules applied.
 
     The page shape is chosen once for the whole book, on the About screen, so
     it overrides whatever shape the star's portrait draft was made with. A
-    blank value keeps the draft's own shape (older clients send none).
+    blank value keeps the draft's own shape (older clients send none). A
+    plated story has one shape, its plates': asking for another is refused
+    rather than quietly ignored. The story's rules are applied again here
+    because plates may have been approved since the portrait was drawn.
     """
-    if not aspect_ratio:
-        return settings
-    try:
-        shape = AspectRatio(aspect_ratio)
-    except ValueError as exc:
-        raise InvalidSettings(
-            f"Unknown page shape {aspect_ratio!r}. "
-            f"Valid values: {', '.join(ratio.value for ratio in AspectRatio)}."
-        ) from exc
-    return settings.model_copy(update={"aspect_ratio": shape})
+    rules = story_rules(edition)
+    if aspect_ratio:
+        try:
+            shape = AspectRatio(aspect_ratio)
+        except ValueError as exc:
+            raise InvalidSettings(
+                f"Unknown page shape {aspect_ratio!r}. "
+                f"Valid values: {', '.join(ratio.value for ratio in AspectRatio)}."
+            ) from exc
+        if rules.page_shape is not None and shape != rules.page_shape:
+            raise InvalidSettings(
+                "This story's pictures are painted landscape, so its pages are landscape."
+            )
+        settings = settings.model_copy(update={"aspect_ratio": shape})
+    return rules.fit(settings)
 
 
 def _character_references(

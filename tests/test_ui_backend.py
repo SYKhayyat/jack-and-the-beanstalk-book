@@ -34,6 +34,7 @@ BOOK_PAGES = JACK.pages
 def _comic(client: TestClient, **fields: object) -> dict[str, object]:
     form: dict[str, object] = {
         "story": "jack_and_the_beanstalk",
+        "photo_gender": "boy",
         "photo": ("me.png", make_photo_bytes(), "image/png"),
         **fields,
     }

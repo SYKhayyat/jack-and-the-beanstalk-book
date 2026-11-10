@@ -35,7 +35,7 @@ from app.config import Settings, get_settings  # noqa: E402
 from app.db import build_engine, prepare_database  # noqa: E402
 from app.services.image_providers.base import ImageProvider, ImageRequest  # noqa: E402
 from app.services.image_providers.registry import build_provider  # noqa: E402
-from app.services.plates import PlatePlan, plate_plans  # noqa: E402
+from app.services.plates import PLATE_SHAPE, PlatePlan, plate_plans  # noqa: E402
 from app.services.template_store import TemplateError, TemplateStore  # noqa: E402
 
 __all__ = ["ContactSheetError", "main", "run"]
@@ -130,7 +130,7 @@ def build_contact_sheet(painted: Sequence[tuple[PlatePlan, bytes]]) -> bytes:
 
 
 def _request_for(plan: PlatePlan) -> ImageRequest:
-    return ImageRequest(prompt=plan.prompt, aspect_ratio="4:3", label="plate")
+    return ImageRequest(prompt=plan.prompt, aspect_ratio=str(PLATE_SHAPE), label="plate")
 
 
 def _confirm(provider: ImageProvider, calls: int, *, assume_yes: bool) -> bool:

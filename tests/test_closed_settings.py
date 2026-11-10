@@ -179,13 +179,14 @@ class TestPageUsesLabels:
     def test_free_text_is_only_the_names_title_and_about(self, client: TestClient) -> None:
         # The closed enums are the injection surface; free typing is allowed
         # exactly at the identity fields, which go to the PDF, never to a prompt.
-        # The studio has none at all: every setting there is a closed choice.
+        # The studio's one is the star's name, asked first; every setting
+        # there is a closed choice.
         studio = client.get(STUDIO).text
-        assert not re.findall(r'<input type="text"', studio)
+        assert re.findall(r'<input type="text"[^>]*id="([a-z-]+)"', studio) == ["star-name"]
         assert "<textarea" not in studio
         body = client.get(ABOUT).text
         text_inputs = re.findall(r'<input type="text"[^>]*name="([a-z_]+)"', body)
-        assert sorted(text_inputs) == ["about_name", "about_title"]
+        assert sorted(text_inputs) == ["about_title"]
         textareas = re.findall(r'<textarea[^>]*name="([a-z_]+)"', body)
         assert textareas == ["details"]
 

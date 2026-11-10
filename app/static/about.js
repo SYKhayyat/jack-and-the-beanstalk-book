@@ -1,6 +1,8 @@
-/* The About screen: the words for the last page, the picture it shows, the
-   page shape, and the one button that starts the book. Every field is
-   optional; the only thing that can stop the book is a missing star comic. */
+/* The About screen, the last step: the words for the last page, the picture
+   it shows, the page shape (when the story leaves it open), and the one
+   button that starts the book. The name was asked first, in the studio, and
+   is read from the same draft. Every field is optional; the only thing that
+   can stop the book is a missing star portrait. */
 
 import { createStudioClient } from "./api.js";
 import { chosenId, forgetDraft, loadDraft, saveDraft } from "./studio-draft.js";
@@ -11,8 +13,9 @@ const draft = loadDraft(story);
 const form = document.getElementById("about-form");
 const button = document.getElementById("make-book");
 const headlineName = document.getElementById("about-headline-name");
+const NAMES = JSON.parse(document.body.dataset.names || "{}");
 const message = document.getElementById("about-message");
-const TEXT_FIELDS = ["about_name", "about_age", "about_title", "details"];
+const TEXT_FIELDS = ["about_age", "about_title", "details"];
 let starting = false;
 
 restoreFields();
@@ -39,6 +42,7 @@ function restoreFields() {
   for (const name of TEXT_FIELDS) {
     if (saved[name] !== undefined) field(name).value = saved[name];
   }
+  if (saved.details) document.getElementById("about-more").open = true;
   for (const name of ["about_photo", "aspect_ratio"]) {
     if (!saved[name]) continue;
     const radio = form.querySelector(`input[name="${name}"][value="${saved[name]}"]`);
@@ -46,8 +50,13 @@ function restoreFields() {
   }
 }
 
+function starName() {
+  return (draft.about?.about_name || "").trim();
+}
+
 function rememberFields() {
-  const about = {};
+  // The name belongs to the studio's first step; keep it as it is.
+  const about = { about_name: draft.about?.about_name || "" };
   for (const name of TEXT_FIELDS) about[name] = field(name).value;
   for (const name of ["about_photo", "aspect_ratio"]) {
     about[name] = form.querySelector(`input[name="${name}"]:checked`)?.value || "";
@@ -57,8 +66,10 @@ function rememberFields() {
 }
 
 function renderHeadline() {
-  const name = field("about_name").value.trim();
-  headlineName.textContent = name || "the star";
+  const gender = draft.sections.star?.photoGender;
+  const name = starName() || (gender && NAMES[gender]) || "the star";
+  headlineName.textContent = name;
+  for (const node of form.querySelectorAll('[data-role="star-name"]')) node.textContent = name;
 }
 
 /* "Star: ready · Mother: drawn from the story" — what goes into the book. */
@@ -102,8 +113,8 @@ async function startBook() {
   const body = new FormData();
   body.append("story", story);
   body.append("generation_id", starId);
-  const name = field("about_name").value.trim();
-  // One name on this screen: the story and the About page both use it.
+  const name = starName();
+  // One name for the book: the story and the About page both use it.
   if (name) {
     body.append("child_name", name);
     body.append("about_name", name);

@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from markupsafe import escape
 
 from app.models import CartoonSettings, PageFault, RejectionReason
+from app.services.story_settings import story_rules
 from app.stories import NOT_READY, shelf
 from tests.helpers import jack, make_photo_bytes, multipart
 
@@ -330,7 +331,7 @@ def test_every_section_offers_camera_upload_and_a_comic(studio_html: str) -> Non
         assert re.search(r'class="review hidden"', section)
         assert section.count('name="reason"') == len(RejectionReason)
         assert 'data-action="advanced"' in section
-        assert "Adjust the look" in section
+        assert "Fine-tune the look" in section
 
 
 def test_the_camera_and_the_look_are_real_dialogs(studio_html: str) -> None:
@@ -364,12 +365,13 @@ def test_every_portrait_setting_lives_behind_adjust_the_look(studio_html: str) -
     parser = _InsideDialog()
     parser.feed(studio_html)
     # Book-wide or identity choices live elsewhere: the page shape on the About
-    # screen, the photo's gender beside the star's photo; the book has no
-    # separate character_gender.
+    # screen, boy or girl on the name step; the book has no separate
+    # character_gender. What the story decides (its style) is not offered.
     expected = set(CartoonSettings.model_fields) - {
         "aspect_ratio",
         "photo_gender",
         "character_gender",
+        *story_rules(JACK).locked,
     }
     assert parser.names == expected
     assert "one_step" not in studio_html, "make-it-in-one-go is gone"
@@ -377,9 +379,8 @@ def test_every_portrait_setting_lives_behind_adjust_the_look(studio_html: str) -
 
 
 def test_the_look_defaults_match_the_server(studio_html: str) -> None:
-    defaults = CartoonSettings()
+    defaults = story_rules(JACK).defaults()
     for name, value in (
-        ("cartoon_style", defaults.cartoon_style),
         ("cartoon_intensity", defaults.cartoon_intensity),
         ("likeness_strength", defaults.likeness_strength),
         ("portrait_background", defaults.portrait_background),
@@ -523,7 +524,7 @@ def test_the_generation_response_does_not_name_the_backend(
     response = client.post(
         "/api/cartoonify",
         files={"photo": ("me.png", photo, "image/png")},
-        data={"story": "jack_and_the_beanstalk", "aspect_ratio": "4:3"},
+        data={"story": "jack_and_the_beanstalk", "photo_gender": "boy", "aspect_ratio": "4:3"},
     )
     assert response.status_code == 201
     assert "provider" not in response.json()

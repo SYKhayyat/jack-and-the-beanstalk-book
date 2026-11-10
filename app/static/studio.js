@@ -1,5 +1,12 @@
-/* The studio: one section per character, each filled, drawn and folded on its
-   own. Nothing in one section blocks another; only the star is required.
+/* The studio: the first three steps of making a book, one decision each.
+
+     #name     the star's name (with the cover it goes on) and boy or girl
+     #photo    the star's photo and storybook portrait
+     #friends  optional faces for the rest of the cast
+
+   The step lives in the URL hash, so Back and a reload land where you were.
+   A step is only reachable once the one before it is done. Within a step,
+   each character section is filled, drawn and folded on its own.
 
    State that must survive a refresh (chosen draft ids, settings, folds) goes
    through studio-draft.js into localStorage. Photos stay in memory for this
@@ -34,14 +41,22 @@ const sectionEls = new Map(
   Array.from(document.querySelectorAll(".character[data-section]"), (el) => [el.dataset.section, el]),
 );
 
+const STEPS = Array.from(document.querySelectorAll(".step[data-step]"), (el) => el.dataset.step);
+const nameInput = document.getElementById("star-name");
+const coverPreview = document.getElementById("cover-preview");
+const NAMES = JSON.parse(coverPreview.dataset.names || "{}");
+
 for (const [key, el] of sectionEls) {
   wireSection(key, el);
   void restoreSection(key, el);
 }
+wireNameStep();
+wireSteps();
 wireCamera();
 wireAdvanced();
 wireFooter();
 renderFooter();
+showStep(stepFromHash(), { initial: true });
 
 /* --- small helpers --------------------------------------------------------- */
 
@@ -86,7 +101,8 @@ function friendlyError(error, fallback) {
 /* --- one section ----------------------------------------------------------- */
 
 function wireSection(key, el) {
-  el.querySelector(".character-toggle").addEventListener("click", () => {
+  // The star has a step of its own and never folds; the cast sections do.
+  el.querySelector(".character-toggle")?.addEventListener("click", () => {
     setCollapsed(key, !isCollapsed(el));
   });
   action(el, "camera").addEventListener("click", () => void openCamera(key));
@@ -108,12 +124,117 @@ function wireSection(key, el) {
     void makeComic(key, reasons);
   });
   action(el, "advanced").addEventListener("click", () => openAdvanced(key));
-  for (const radio of el.querySelectorAll('[data-role="gender"] input')) {
+  action(el, "again").addEventListener("click", () => void makeComic(key));
+  action(el, "love")?.addEventListener("click", () => {
+    if (STEPS.includes("friends")) location.hash = "friends";
+    else window.location.assign(document.getElementById("studio-next").href);
+  });
+}
+
+/* --- step 1: name and boy/girl ---------------------------------------------- */
+
+function starName() {
+  return (draft.about?.about_name || "").trim();
+}
+
+/* What a blank name becomes: Jack or Jane, Red. */
+function shownName() {
+  const gender = starGender();
+  return starName() || (gender ? NAMES[gender] : "") || "the star";
+}
+
+function wireNameStep() {
+  nameInput.value = draft.about?.about_name || "";
+  const saved = draft.sections.star?.photoGender;
+  if (saved) {
+    const radio = document.querySelector(`input[name="photo_gender-star"][value="${saved}"]`);
+    if (radio) radio.checked = true;
+  }
+  nameInput.addEventListener("input", () => {
+    draft.about = { ...(draft.about || {}), about_name: nameInput.value };
+    persist();
+    renderNameStep();
+  });
+  for (const radio of document.querySelectorAll('input[name="photo_gender-star"]')) {
     radio.addEventListener("change", () => {
-      sectionData(key).photoGender = radio.value;
+      sectionData("star").photoGender = radio.value;
       persist();
+      renderNameStep();
     });
   }
+  renderNameStep();
+}
+
+function renderNameStep() {
+  const gender = starGender();
+  const name = shownName();
+  const lockup = coverPreview.querySelector(".book-cover-lockup");
+  const title = lockup.querySelector(".book-cover-title");
+  const byline = lockup.querySelector(".book-cover-byline");
+  const coverName = starName() || (gender ? NAMES[gender] : "") || "";
+  if (coverName) {
+    title.textContent = coverPreview.dataset.title.replaceAll("{name}", coverName);
+    if (byline) byline.textContent = coverPreview.dataset.byline.replaceAll("{name}", coverName);
+  }
+  const help = document.getElementById("star-name-help");
+  help.textContent =
+    !starName() && gender
+      ? `Leave it blank and the book calls them ${NAMES[gender]}.`
+      : "It goes on the cover and through the story.";
+  document.getElementById("name-next").disabled = !gender;
+  for (const node of document.querySelectorAll('[data-role="star-name"]')) node.textContent = name;
+  const love = action(sectionEls.get("star"), "love");
+  if (love) {
+    love.firstChild.textContent = `That's ${gender === "girl" ? "her" : gender === "boy" ? "him" : "them"}! `;
+  }
+}
+
+/* --- steps ------------------------------------------------------------------ */
+
+function stepFromHash() {
+  const key = location.hash.replace("#", "");
+  return STEPS.includes(key) ? key : null;
+}
+
+/* The furthest step the visitor may be on right now. */
+function reachable(step) {
+  if (step === "name") return true;
+  if (!starGender()) return false;
+  if (step === "photo") return true;
+  return Boolean(draft.sections.star?.chosenId);
+}
+
+function firstUnfinished() {
+  if (!starGender()) return "name";
+  if (!draft.sections.star?.chosenId) return "photo";
+  return STEPS.includes("friends") ? "friends" : "photo";
+}
+
+function showStep(wanted, { initial = false } = {}) {
+  let step = wanted || (initial ? firstUnfinished() : "name");
+  if (!reachable(step)) step = firstUnfinished();
+  for (const el of document.querySelectorAll(".step[data-step]")) {
+    el.classList.toggle("hidden", el.dataset.step !== step);
+  }
+  for (const item of document.querySelectorAll("#steps [data-step-key]")) {
+    if (item.dataset.stepKey === step) item.setAttribute("aria-current", "step");
+    else item.removeAttribute("aria-current");
+  }
+  if (location.hash.replace("#", "") !== step) history.replaceState(null, "", `#${step}`);
+  if (!initial) {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    document.querySelector(`.step[data-step="${step}"] h1`)?.focus({ preventScroll: true });
+  }
+}
+
+function wireSteps() {
+  window.addEventListener("hashchange", () => showStep(stepFromHash()));
+  for (const button of document.querySelectorAll("[data-go]")) {
+    button.addEventListener("click", () => {
+      location.hash = button.dataset.go;
+    });
+  }
+  for (const heading of document.querySelectorAll(".step h1")) heading.tabIndex = -1;
 }
 
 function isCollapsed(el) {
@@ -122,19 +243,17 @@ function isCollapsed(el) {
 
 function setCollapsed(key, collapsed) {
   const el = sectionEls.get(key);
+  const toggle = el.querySelector(".character-toggle");
+  if (!toggle) return;
   part(el, "body").classList.toggle("hidden", collapsed);
-  el.querySelector(".character-toggle").setAttribute("aria-expanded", String(!collapsed));
+  toggle.setAttribute("aria-expanded", String(!collapsed));
   sectionData(key).collapsed = collapsed;
   persist();
 }
 
 async function restoreSection(key, el) {
   const data = draft.sections[key] || {};
-  if (data.photoGender) {
-    const radio = el.querySelector(`[data-role="gender"] input[value="${data.photoGender}"]`);
-    if (radio) radio.checked = true;
-  }
-  if (typeof data.collapsed === "boolean") {
+  if (typeof data.collapsed === "boolean" && key !== "star") {
     part(el, "body").classList.toggle("hidden", data.collapsed);
     el.querySelector(".character-toggle").setAttribute("aria-expanded", String(!data.collapsed));
   }
@@ -180,15 +299,19 @@ function renderSection(key) {
   part(el, "comic-empty").classList.toggle("hidden", Boolean(comicUrl));
   if (comicUrl) comicImg.src = comicUrl;
 
+  // Once a portrait exists the happy path leads ("That's her!"); drawing it
+  // again, which costs another picture, folds away under "Not quite right?".
   const comicButton = action(el, "comic");
   comicButton.disabled = busy.has(key) || !hasPhoto;
-  comicButton.textContent = busy.has(key)
-    ? "Drawing…"
-    : comicUrl
-      ? "Draw it again"
-      : "Make the comic";
+  comicButton.textContent = busy.has(key) ? "Drawing…" : "Draw the portrait";
+  comicButton.classList.toggle("hidden", Boolean(comicUrl) && !busy.has(key));
+  const love = action(el, "love");
+  if (love) love.classList.toggle("hidden", !comicUrl || busy.has(key));
   action(el, "retry").disabled = busy.has(key);
-  part(el, "review").classList.toggle("hidden", !comicUrl);
+  action(el, "again").disabled = busy.has(key);
+  const review = part(el, "review");
+  review.classList.toggle("hidden", !comicUrl || busy.has(key));
+  if (!comicUrl) review.open = false;
   part(el, "comic-frame").classList.toggle("is-drawing", busy.has(key));
 
   renderTakes(key);
@@ -238,9 +361,10 @@ function renderTakes(key) {
 function renderSummary(key) {
   const el = sectionEls.get(key);
   const settings = { ...DEFAULT_SETTINGS, ...(draft.sections[key]?.settings || {}) };
-  const style = advancedForm.querySelector(`#adv-cartoon_style option[value="${settings.cartoon_style}"]`);
-  const takes = Number(settings.candidates) || 1;
-  part(el, "summary").textContent = `· ${style ? style.textContent : "Default style"} · ${takes} take${takes === 1 ? "" : "s"}`;
+  const changed = Object.keys(DEFAULT_SETTINGS).filter((name) => settings[name] !== DEFAULT_SETTINGS[name]);
+  part(el, "summary").textContent = changed.length
+    ? `· ${changed.length} change${changed.length === 1 ? "" : "s"}`
+    : "";
 }
 
 /* --- photos ---------------------------------------------------------------- */
@@ -259,7 +383,7 @@ async function acceptPhoto(key, blob) {
     }
     expired.delete(key);
     persist();
-    showMessage(key, prepared.scaled ? "Photo shrunk to fit — now make the comic." : "Now make the comic.");
+    showMessage(key, prepared.scaled ? "Photo shrunk to fit. Now draw the portrait." : "Now draw the portrait.");
     renderSection(key);
     renderFooter();
   } catch (error) {
@@ -328,7 +452,7 @@ function cameraOpenMessage(error) {
   return "The camera didn't open — uploading a photo still works.";
 }
 
-/* --- comics ---------------------------------------------------------------- */
+/* --- portraits ------------------------------------------------------------- */
 
 function settingsBody(key) {
   const settings = { ...DEFAULT_SETTINGS, ...(draft.sections[key]?.settings || {}) };
@@ -338,17 +462,21 @@ function settingsBody(key) {
   return body;
 }
 
+/* The boy/girl answer from step 1, or null: there is deliberately no default. */
 function starGender() {
-  const checked = sectionEls.get("star")?.querySelector('[data-role="gender"] input:checked');
-  return checked ? checked.value : "boy";
+  return draft.sections.star?.photoGender || null;
 }
 
 async function makeComic(key, reasons = []) {
   if (busy.has(key)) return;
+  if (!starGender()) {
+    location.hash = "name";
+    return;
+  }
   const data = sectionData(key);
   busy.add(key);
   renderSection(key);
-  showMessage(key, reasons.length ? "Drawing it again, with those fixes…" : "Drawing the comic — this takes a little while…");
+  showMessage(key, reasons.length ? "Drawing it again, with those fixes…" : "Drawing the portrait. This takes a little while…");
   try {
     let photo = photos.get(key);
     if (!photo && data.generationId) photo = await api.draftPhoto(data.generationId);
@@ -378,7 +506,7 @@ async function makeComic(key, reasons = []) {
       goSignIn();
       return;
     }
-    showMessage(key, friendlyError(error, "The comic didn't come out — try again."), true);
+    showMessage(key, friendlyError(error, "The portrait didn't come out. Try again."), true);
   } finally {
     busy.delete(key);
     renderSection(key);
@@ -432,7 +560,8 @@ function fillSettingsForm(settings) {
 function openAdvanced(key) {
   advancedTarget = key;
   const name = label(key);
-  document.getElementById("advanced-title").textContent = `${name}'s look`;
+  document.getElementById("advanced-title").textContent =
+    key === "star" ? `${shownName()}'s look` : `${name}'s look`;
   fillSettingsForm({ ...DEFAULT_SETTINGS, ...(draft.sections[key]?.settings || {}) });
   advancedDialog.showModal();
 }
@@ -445,7 +574,7 @@ function wireAdvanced() {
     sectionData(key).settings = readSettingsForm();
     persist();
     renderSummary(key);
-    showMessage(key, draft.sections[key].chosenId ? "Saved — draw it again to see the new look." : "Saved.");
+    showMessage(key, draft.sections[key].chosenId ? "Saved. Draw it again to see the new look." : "Saved.");
   });
 }
 
@@ -455,14 +584,13 @@ function wireFooter() {
   document.getElementById("studio-next").addEventListener("click", (event) => {
     if (event.currentTarget.getAttribute("aria-disabled") !== "true") return;
     event.preventDefault();
-    setCollapsed("star", false);
-    showMessage("star", "The book needs the star's comic first — add a photo and make the comic.", true);
-    sectionEls.get("star").scrollIntoView({ behavior: "smooth", block: "start" });
+    location.hash = "photo";
+    showMessage("star", "The book needs the star's portrait first: add a photo and draw it.", true);
   });
   document.getElementById("studio-start-over").addEventListener("click", () => {
-    if (!window.confirm("Start over? This forgets every photo and comic in this studio.")) return;
+    if (!window.confirm("Start over? This forgets every photo and portrait in this studio.")) return;
     forgetDraft(story);
-    window.location.reload();
+    window.location.assign(window.location.pathname);
   });
 }
 
@@ -476,9 +604,11 @@ function renderFooter() {
   const starReady = Boolean(draft.sections.star?.chosenId) && !busy.has("star");
   const next = document.getElementById("studio-next");
   next.setAttribute("aria-disabled", String(!starReady));
+  const photoNext = document.getElementById("photo-next");
+  if (photoNext) photoNext.disabled = !starReady;
   const summary = document.getElementById("studio-summary");
   if (!starReady) {
-    summary.textContent = "Add the star's photo and make the comic to go on.";
+    summary.textContent = "";
     return;
   }
   const portraits = `${ready.length} portrait${ready.length === 1 ? "" : "s"} ready`;

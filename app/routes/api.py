@@ -41,6 +41,7 @@ from app.services.concurrency import GateTimeout
 from app.services.images import InvalidImage, decode_upload
 from app.services.pipeline import UnknownGeneration
 from app.services.storage import Draft, candidate_url, draft_urls
+from app.services.story_settings import story_rules
 
 SettingsDep = Annotated[CartoonSettings, Depends(cartoon_settings_from_form)]
 
@@ -121,6 +122,9 @@ async def cartoonify(
         raise InvalidSettings(
             f"There is no character slot for {cast_key!r} — it cannot be given a photo."
         )
+    # What the story decides (its one style, its costume, the plates' shape)
+    # overrides whatever arrived, so the stored settings say what was drawn.
+    settings = story_rules(edition).fit(settings)
     # Read the upload before billing anything: a missing, oversized or
     # unreadable file never reaches the model, so it must not spend quota.
     raw = await _read_upload(photo, container)

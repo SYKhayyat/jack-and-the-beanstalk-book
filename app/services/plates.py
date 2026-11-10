@@ -27,12 +27,14 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from app.books import PAGE_COUNT, SeedScene, StorySeed
+from app.models.settings import AspectRatio
 from app.prompt_data import prompt_text
 from app.services.template_store import COVER_PAGE, Slot
 
 __all__ = [
     "COVER_KEY",
     "MAX_PLATE_CAST",
+    "PLATE_SHAPE",
     "PlateError",
     "PlatePlan",
     "build_plate_prompt",
@@ -40,6 +42,10 @@ __all__ = [
     "plate_plans",
     "slots_for",
 ]
+
+#: Every plate is painted landscape, so a plated book's pages are landscape too:
+#: a 4:3 stage cannot become a 3:4 page without redrawing the background.
+PLATE_SHAPE = AspectRatio.LANDSCAPE
 
 #: How many characters a plate can hold. The seed validator already caps a page
 #: at the provider's reference limit; this is the layout's own answer.

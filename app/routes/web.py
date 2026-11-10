@@ -23,8 +23,6 @@ from app.dependencies import ContainerDep
 from app.models import (
     ApparentAge,
     AspectRatio,
-    CartoonSettings,
-    CartoonStyle,
     Expression,
     HairColour,
     HairStyle,
@@ -38,11 +36,13 @@ from app.models.book import AboutPhotoChoice, BookPage
 from app.models.feedback import PAGE_FAULT_LABELS, REJECTION_LABELS, PageFault, RejectionReason
 from app.models.labels import choices_for, intensity_label
 from app.models.story import COVER_NUMBER, StoryEdition
+from app.prompt_data import prompt_text
 from app.routes.auth import CurrentSessionDep
 from app.routes.book_access import book_edition
 from app.services.book_store import BookStatus, BookSummary
 from app.services.pictures import picture_set
 from app.services.prompts import render_book_page
+from app.services.story_settings import story_rules
 from app.services.typography import book_text
 from app.services.wallet import format_cents
 from app.stories import NOT_READY, Story, shelf_story
@@ -90,9 +90,15 @@ def shelf(
 def studio(
     story_key: str, request: Request, container: ContainerDep, session: CurrentSessionDep
 ) -> HTMLResponse:
-    """Who's in the story: one collapsible section per character, star first."""
+    """The first three steps: who the star is, their portrait, the story's friends.
+
+    One decision per step (UI.org G2). The name comes first, with the cover it
+    goes on, and the boy/girl answer has no default (Q2). Settings the story
+    decides are not offered at all (U5): the style always, the outfit when the
+    tale has a costume, and the background once the story has plates.
+    """
     story, edition = _startable_or_404(container, story_key)
-    defaults = CartoonSettings()
+    rules = story_rules(edition)
     sections = [
         {"key": "star", "label": "The star", "required": True},
         *(
@@ -100,6 +106,7 @@ def studio(
             for member in edition.photoable_cast
         ),
     ]
+    sample = story.samples[0]
     return _render(
         request,
         "studio.html",
@@ -107,12 +114,19 @@ def studio(
             **page_chrome(container, session),
             "story": story,
             "sections": sections,
-            # A tale whose star wears the story's own costume (the red hood)
-            # has no outfit to choose.
-            "star_costume": bool(edition.star_member.costume),
-            "defaults": defaults,
+            "steps": _steps(edition),
+            "sample_cover": sample,
+            "cover_words": {
+                "title": edition.book_title,
+                "byline": edition.cover_subtitle
+                or str(prompt_text()["book"]["about"]["credit"]).replace(
+                    "{about_name}", "{name}"
+                ),
+                "names": dict(edition.names),
+            },
+            "locked": set(rules.locked),
+            "defaults": rules.defaults(),
             "photo_genders": choices_for(PhotoGender),
-            "styles": choices_for(CartoonStyle),
             "intensities": [(level, intensity_label(level)) for level in range(1, 11)],
             "ages": choices_for(ApparentAge),
             "skin_tones": choices_for(SkinTone),
@@ -132,17 +146,24 @@ def studio(
 def about_screen(
     story_key: str, request: Request, container: ContainerDep, session: CurrentSessionDep
 ) -> HTMLResponse:
-    """The last page is about the star: words, the picture choice, the shape."""
+    """The last step: the words for the last page, its picture, and Make the book.
+
+    The page shape is offered only when the story leaves it open; a plated
+    story's pages are its plates' shape.
+    """
     story, edition = _startable_or_404(container, story_key)
     chrome = page_chrome(container, session)
+    rules = story_rules(edition)
     return _render(
         request,
         "about_page.html",
         {
             **chrome,
             "story": story,
-            "page_shapes": _PAGE_SHAPES,
-            "default_shape": CartoonSettings().aspect_ratio,
+            "steps": _steps(edition),
+            "names": dict(edition.names),
+            "page_shapes": _PAGE_SHAPES if rules.page_shape is None else (),
+            "default_shape": rules.defaults().aspect_ratio,
             "about_photo_choices": _ABOUT_PHOTO_LABELS,
             "cast": [
                 ("star", "Star"),
@@ -153,6 +174,16 @@ def about_screen(
             else "",
         },
     )
+
+
+def _steps(edition: StoryEdition) -> list[tuple[str, str]]:
+    """The making-a-book steps, as (key, label); "friends" only when there are any."""
+    return [
+        ("name", "Name"),
+        ("photo", "Photo"),
+        *([("friends", "Story friends")] if edition.photoable_cast else []),
+        ("make", "Make it"),
+    ]
 
 
 @router.get("/books/{book_id}", response_class=HTMLResponse)

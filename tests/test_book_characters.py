@@ -40,6 +40,7 @@ def _make_portrait(
 ) -> dict[str, object]:
     form: dict[str, object] = {
         "story": "jack_and_the_beanstalk",
+        "photo_gender": "boy",
         "photo": ("child.png", photo, "image/png"),
     }
     if character:
@@ -178,6 +179,7 @@ class TestCharacterValidation:
             **multipart(
                 {
                     "story": "jack_and_the_beanstalk",
+                    "photo_gender": "boy",
                     "photo": ("cow.png", MOTHER_PHOTO, "image/png"),
                     "character": "milky_white",
                 }
@@ -194,6 +196,7 @@ class TestCharacterValidation:
             **multipart(
                 {
                     "story": "jack_and_the_beanstalk",
+                    "photo_gender": "boy",
                     "photo": ("x.png", MOTHER_PHOTO, "image/png"),
                     "character": "dragon",
                 }

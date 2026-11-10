@@ -148,6 +148,7 @@ def generate_form(**overrides: object) -> dict[str, object]:
     form: dict[str, object] = {
         "photo": ("me.png", make_photo_bytes(), "image/png"),
         "story": "jack_and_the_beanstalk",
+        "photo_gender": "boy",
     }
     form.update(overrides)
     return form

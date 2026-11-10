@@ -134,7 +134,11 @@ class TestReferenceMediaTypes:
 
 
 def make_portrait(client: TestClient, **overrides: object) -> dict[str, object]:
-    form: dict[str, object] = {"story": "jack_and_the_beanstalk", "photo": photo_file()}
+    form: dict[str, object] = {
+        "story": "jack_and_the_beanstalk",
+        "photo_gender": "boy",
+        "photo": photo_file(),
+    }
     form.update(overrides)
     response = client.post("/api/cartoonify", **multipart(form))
     assert response.status_code == 201, response.text
@@ -194,7 +198,7 @@ class TestPortraitFeedback:
         contract (repeated scalar parts plus a file) is what matters here.
         """
         _, photo, media = photo_file()
-        fields = [("story", "jack_and_the_beanstalk")]
+        fields = [("story", "jack_and_the_beanstalk"), ("photo_gender", "boy")]
         fields += [("reason", reason) for reason in (reasons or [])]
         return client.post(
             "/api/cartoonify",
@@ -1021,13 +1025,19 @@ class TestQuotaAccounting:
             bad = client.post(
                 "/api/cartoonify",
                 files={"photo": ("bad.png", b"not an image", "image/png")},
-                data={"story": "jack_and_the_beanstalk"},
+                data={"story": "jack_and_the_beanstalk", "photo_gender": "boy"},
             )
             assert bad.status_code == 400
 
             good = client.post(
                 "/api/cartoonify",
-                **multipart({"story": "jack_and_the_beanstalk", "photo": photo_file()}),
+                **multipart(
+                    {
+                        "story": "jack_and_the_beanstalk",
+                        "photo_gender": "boy",
+                        "photo": photo_file(),
+                    }
+                ),
             )
             assert good.status_code == 201, good.text
 

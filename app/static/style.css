@@ -1222,6 +1222,161 @@ legend {
   font-size: 14px;
 }
 
+/* --- studio steps ---------------------------------------------------------------------- */
+/* One decision per screen (UI.org G2): Name → Photo → Story friends → Make it. */
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  counter-reset: none;
+}
+.steps-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0.25em 0.9em 0.25em 0.3em;
+  border-radius: 999px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--ink-soft);
+  font-weight: 600;
+  font-size: 15px;
+  text-decoration: none;
+}
+.steps-num {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink);
+}
+.steps-item[aria-current="step"] .steps-link {
+  border-color: var(--bean);
+  background: #edf6ef;
+  color: var(--bean-dark);
+}
+.steps-item[aria-current="step"] .steps-num {
+  background: var(--bean);
+  color: #fff;
+}
+
+.step h1:focus {
+  outline: none;
+}
+.step-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+}
+.step-actions .button[disabled],
+.step-actions .button[aria-disabled="true"] {
+  opacity: 0.5;
+}
+
+.name-step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+  gap: 28px;
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .name-step {
+    grid-template-columns: 1fr;
+  }
+  .cover-preview {
+    max-width: 360px;
+  }
+}
+.big-field label {
+  display: block;
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+.big-field input {
+  min-height: 60px;
+  font-size: 26px;
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+.gender-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+.gender-cards legend {
+  font-size: 18px;
+}
+.gender-cards .field-help {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.gender-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 72px;
+  border: 3px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+.gender-card:has(input:checked) {
+  border-color: var(--bean);
+  background: #edf6ef;
+}
+.gender-card:has(input:focus-visible) {
+  box-shadow: 0 0 0 3px rgba(79, 143, 192, 0.35);
+}
+.gender-card input {
+  accent-color: var(--bean);
+  width: 20px;
+  height: 20px;
+}
+.cover-preview {
+  margin: 0;
+}
+.cover-preview-note {
+  margin: 8px 0 0;
+  font-size: 15px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+details.review > summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+details.fold {
+  margin: 4px 0 16px;
+}
+details.fold > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--bean-dark);
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
 /* --- modals ----------------------------------------------------------------------------- */
 
 dialog.modal {

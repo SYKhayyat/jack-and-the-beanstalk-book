@@ -1,0 +1,17 @@
+{# The making-a-book progress header, shared by the studio and the About screen.
+   `steps` is [(key, label)]; `current` is the step on screen. The studio's
+   script moves `aria-current` as it changes step; on the About screen the
+   earlier steps are links back into the studio. #}
+{% macro step_header(steps, current, story_key) -%}
+<ol class="steps" id="steps" aria-label="Making your book">
+  {% for key, label in steps %}
+  <li class="steps-item" data-step-key="{{ key }}"{% if key == current %} aria-current="step"{% endif %}>
+    {% if key == "make" %}
+    <a class="steps-link" href="/stories/{{ story_key }}/about"><span class="steps-num">{{ loop.index }}</span> {{ label }}</a>
+    {% else %}
+    <a class="steps-link" href="/stories/{{ story_key }}/studio#{{ key }}"><span class="steps-num">{{ loop.index }}</span> {{ label }}</a>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{%- endmacro %}

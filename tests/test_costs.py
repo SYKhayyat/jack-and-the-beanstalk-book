@@ -223,12 +223,13 @@ def test_the_wallet_shows_the_cost_of_a_book_next_to_its_price(settings: Setting
         portrait = client.post(
             "/api/cartoonify",
             files={"photo": ("me.png", make_photo_bytes(), "image/png")},
-            data={"story": "jack_and_the_beanstalk"},
+            data={"story": "jack_and_the_beanstalk", "photo_gender": "boy"},
         )
         start = client.post(
             "/api/book/start",
             data={
                 "story": "jack_and_the_beanstalk",
+                "photo_gender": "boy",
                 "generation_id": portrait.json()["generation_id"],
             },
         )

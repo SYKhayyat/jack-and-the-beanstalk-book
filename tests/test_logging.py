@@ -43,6 +43,7 @@ def _make_portrait(client: TestClient) -> dict[str, object]:
         **multipart(
             {
                 "story": "jack_and_the_beanstalk",
+                "photo_gender": "boy",
                 "photo": ("me.png", make_photo_bytes(), "image/png"),
             }
         ),

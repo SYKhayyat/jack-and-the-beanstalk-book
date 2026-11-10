@@ -303,6 +303,7 @@ def _start_a_book(client: TestClient) -> str:
         **multipart(
             {
                 "story": JACK_KEY,
+                "photo_gender": "boy",
                 "photo": ("me.png", make_photo_bytes(), "image/png"),
             }
         ),

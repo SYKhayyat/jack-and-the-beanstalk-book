@@ -46,7 +46,7 @@ from app.routes.web import page_chrome
 from app.services.costs import cost_scope
 from app.services.image_providers.base import ImageRequest
 from app.services.pdf import COVER_TITLE_BAND_FRACTION, title_band_report
-from app.services.plates import PlatePlan, plate_plans
+from app.services.plates import PLATE_SHAPE, PlatePlan, plate_plans
 from app.services.template_store import (
     COVER_PAGE,
     PAGE_NUMBERS,
@@ -64,9 +64,6 @@ __all__ = ["operator_or_404", "render_admin", "router"]
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"], include_in_schema=False)
-
-#: One ratio for every plate, the same one `make_plates` paints at.
-_PLATE_ASPECT = "4:3"
 
 #: One lock per story around "pick the next missing page, paint it, store it".
 #: Two tabs (or a reload mid-call) otherwise both read the same missing page and
@@ -421,7 +418,7 @@ def reroll(
     try:
         with cost_scope(purpose="plate"):
             image = container.provider.generate(
-                ImageRequest(prompt=text, aspect_ratio=_PLATE_ASPECT, label="plate")
+                ImageRequest(prompt=text, aspect_ratio=str(PLATE_SHAPE), label="plate")
             )
         plate_id = store.add_plate(
             story_key,
@@ -581,7 +578,7 @@ def _paint_next(
         plan = _plan(seed, number)
         with cost_scope(purpose="plate"):
             image = container.provider.generate(
-                ImageRequest(prompt=plan.prompt, aspect_ratio=_PLATE_ASPECT, label="plate")
+                ImageRequest(prompt=plan.prompt, aspect_ratio=str(PLATE_SHAPE), label="plate")
             )
         try:
             plate_id = store.add_plate(

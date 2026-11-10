@@ -450,6 +450,9 @@ pixar_like = "Modern 3D animated feature: rounded sculpted forms, soft rim light
 
 [stories.jack_and_the_beanstalk]
 style = "pixar_like"
+# The star portrait's expression unless the visitor changes it ([expressions] key).
+# Pages ignore it: a page's face follows its emotional beat.
+star_expression = "focused_determined"
 intro = "TASK: Paint one EMPTY background plate for a page of this picture book: the place, the props and the light the page happens in, with nobody in it. This is not a finished page — a later pass paints the characters into it — so the frame must be a clean, uncluttered stage with one clear patch of ground or floor where a character will stand, and nothing occupying it."
 palette = "ONE PALETTE FOR THE WHOLE BOOK: warm storybook colours — honey gold, sage and deep forest green, weathered stone grey, cream and soft sky blue — at the same saturation and contrast from the cover to the last page. Only the time of day changes across the set: pale gold morning, clear midday, warm evening, blue-violet dusk, then a deep blue night lit by warm lamplight."
 empty = "THE PLATE IS EMPTY OF PEOPLE: no people at all — no child, no grown-up, no crowd of any size, no silhouettes of people, no figures at the edges of the frame, no face, no hand, no foot. The giant is a character and is never in a plate, and nobody is holding anything: no beans in a palm, no rope, no purse hugged in a pair of arms, no axe in a hand. The plain white cow, the plump brown hen and the golden harp belong to the places they stand in, not to the cast: a plate draws one of them only where its own place names it, in exactly the one look the places and props give it, and leaves it out everywhere else. The perch and the straw under it are part of the giant's kitchen."
@@ -516,6 +519,8 @@ riches-and-pride = ["cottage", "ring", "stump", "hen", "harp"]
 
 [stories.little_red_riding_hood]
 style = "pixar_like"
+# The star portrait's expression unless the visitor changes it ([expressions] key).
+star_expression = "curious"
 intro = "TASK: Paint one EMPTY background plate for a page of this picture book: the place, the props and the light the page happens in, with nobody in it. This is not a finished page — a later pass paints the characters into it — so the frame must be a clean, uncluttered stage with one clear patch of path, floor or grass where a character will stand, and nothing occupying it."
 palette = "ONE PALETTE FOR THE WHOLE BOOK: warm storybook colours — moss and leaf green, honey gold, cream and soft brown — at the same saturation and contrast from the cover to the last page. Apart from the small wild flowers at the fork and in the clearing, nothing in a plate is bright red: the red in this book is the child's cloak, and the cloak arrives with the character. Only the time of day changes across the set: pale gold morning, bright midday in the wood, warm afternoon sun through leaves, blue-green dusk, then a deep night softened by lantern light."
 empty = "THE PLATE IS EMPTY OF PEOPLE: no people at all — no child, no grown-up, no crowd of any size, no silhouettes of people, no figures at the edges of the frame, no face, no hand, no foot, and no red hood anywhere. No wolf either: the wolf is a character, and the edit pass paints him in. Nothing a character brings belongs in the plate: no basket, no armful of flowers, no bread, no honey, no cake, no cups on the table. Everything else belongs to the place."
