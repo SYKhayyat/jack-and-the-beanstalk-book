@@ -131,6 +131,19 @@ class DatabaseWalletStore(WalletStore):
             )
         return [_refund(row) for row in rows]
 
+    def all_refunds(self, *, limit: int = 100) -> list[RefundRequest]:
+        with self._engine.connect() as conn:
+            rows = (
+                conn.execute(
+                    select(WalletRefundRow)
+                    .order_by(WalletRefundRow.created_at.desc(), WalletRefundRow.id.desc())
+                    .limit(max(1, min(limit, 500)))
+                )
+                .mappings()
+                .all()
+            )
+        return [_refund(row) for row in rows]
+
     def save_refund(self, request: RefundRequest) -> None:
         with self._engine.begin() as conn:
             conn.execute(

@@ -16,8 +16,17 @@
       {% block header_title %}{% endblock %}
       <div class="header-actions">
         {% if library_enabled %}{% include "_books_drawer.html" %}{% endif %}
-        {% if wallet_enabled %}
-        <a class="pill wallet-pill" href="/wallet" aria-label="Wallet, balance {{ wallet_balance }}"><span class="coin" aria-hidden="true"></span>{{ wallet_balance }}</a>
+        {% if wallet_visible %}
+        <div class="wallet-chip">
+          <a class="pill wallet-pill" href="/wallet" aria-label="Wallet, balance {{ wallet_balance }}"><span class="coin" aria-hidden="true"></span>{{ wallet_balance }}</a>
+          {% if payments_enabled %}
+          <form class="wallet-quick-add" method="post" action="/wallet/topup">
+            <input type="hidden" name="amount_cents" value="500">
+            <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+            <button type="submit" class="pill wallet-add" aria-label="Add $5 to your wallet" title="Add $5 to your wallet">+ $5</button>
+          </form>
+          {% endif %}
+        </div>
         {% endif %}
         {% if auth_enabled and signed_in %}
         <form class="signout" method="post" action="/logout">
@@ -32,6 +41,7 @@
   </header>
 
   <main id="main" class="{% block main_class %}page{% endblock %}">
+    {% if flash %}<p class="flash" role="status" aria-live="polite">{{ flash }}</p>{% endif %}
     {% block content %}{% endblock %}
   </main>
 

@@ -29,7 +29,7 @@
     <span class="story-card-body">
       <span class="story-title">{{ story.title }}</span>
       <span class="story-blurb">{{ story.blurb }}</span>
-      <span class="story-meta">20 pages and a cover · their name on it</span>
+      <span class="story-meta">{% if price_label %}{{ price_label }} · {% endif %}20 pages and a cover · their name on it</span>
       {% if card.state == "waiting" %}<span class="story-note">{{ not_ready }}</span>{% endif %}
       {% if not signed_out %}
       <span class="button{% if card.state not in ("soon", "waiting") %} primary{% endif %} story-action" data-card-action>{{ labels[card.state] }}{% if card.state in ("fresh", "finished") %} <span aria-hidden="true">→</span>{% endif %}</span>

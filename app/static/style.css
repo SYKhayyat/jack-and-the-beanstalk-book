@@ -304,6 +304,30 @@ button.button {
   background: var(--marigold);
   box-shadow: inset 0 0 0 2px #d98a1d;
 }
+.wallet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.wallet-quick-add {
+  margin: 0;
+  display: inline-flex;
+}
+.wallet-quick-add .wallet-add {
+  min-height: 40px;
+  padding: 0.3em 0.8em;
+  border-color: var(--bean);
+  background: var(--bean);
+  color: #fff;
+  font-size: 14px;
+}
+.wallet-quick-add .wallet-add:hover {
+  border-color: var(--bean-dark);
+  background: var(--bean-dark);
+}
+.wallet-pill {
+  font-variant-numeric: tabular-nums;
+}
 .demo-ribbon {
   margin: 0;
   padding: 4px var(--gutter);
@@ -457,6 +481,15 @@ button.button {
 }
 .inline-message.error {
   color: var(--berry-dark);
+}
+.flash {
+  margin: 0 0 20px;
+  padding: 10px 16px;
+  border: 2px solid #f1d3a0;
+  border-radius: var(--radius-input);
+  background: var(--marigold-soft);
+  color: #7a4a06;
+  font-size: 15px;
 }
 
 /* --- book covers ------------------------------------------------------------------- */
@@ -1554,6 +1587,15 @@ dialog.modal form {
   color: var(--ink-soft);
   max-width: 40ch;
 }
+.fee-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.fee-copy .button {
+  min-height: 38px;
+}
 .missing-star {
   background: #fbe9ec;
   border: 2px solid #f1c7cf;
@@ -2172,6 +2214,107 @@ body.in-story-time {
   white-space: nowrap;
   color: var(--ink-soft);
 }
+.wallet-short {
+  margin: 0;
+  color: var(--berry-dark);
+  font-weight: 600;
+}
+.wallet-history-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.wallet-history-head h2 {
+  margin-bottom: 8px;
+}
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0.3em 0.85em;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.chip:hover {
+  border-color: var(--bean);
+}
+.chip.is-active {
+  border-color: var(--bean);
+  background: var(--bean);
+  color: #fff;
+}
+.wallet-book-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+.wallet-book-filter label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.wallet-book-filter select {
+  min-height: 40px;
+  padding: 0.35em 0.7em;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-input);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+}
+.wallet-clear {
+  display: inline-block;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+.wallet-kind {
+  display: block;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.wallet-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 13px;
+}
+.wallet-status-requested {
+  border-color: #f1d3a0;
+  background: var(--marigold-soft);
+  color: #7a4a06;
+}
+.wallet-status-processed {
+  border-color: #bcd9c2;
+  background: #e6f2e8;
+  color: var(--bean-dark);
+}
+.wallet-status-failed {
+  border-color: #f1c7cf;
+  background: #fbe9ec;
+  color: var(--berry-dark);
+}
+.wallet-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
 
 /* --- motion ------------------------------------------------------------------------------------ */
 
@@ -2493,7 +2636,7 @@ body.in-story-time {
   color: var(--ink-soft);
 }
 
-/* --- the cost panel (wallet) ---------------------------------------------------- */
+/* --- the cost panel (operator only) --------------------------------------------- */
 .cost-compare {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

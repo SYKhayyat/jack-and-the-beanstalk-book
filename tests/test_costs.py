@@ -9,8 +9,9 @@ The claims, each one a thing the cost panel would get wrong without it:
   free, OpenAI is priced from its published table, an override wins, and an
   unknown backend is *unpriced*, never silently free.
 * A failed call is logged (as a failure, at no cost) and still raised.
-* The wallet shows the average cost of a finished book next to the $0.99 price,
-  and each book charge says what that book cost to make.
+* The operator status page shows the average cost of a finished book next to
+  the $0.99 price; the visitor's wallet shows the price but none of the API
+  spend.
 * The attempt record reaches the reader: the poll and the book page carry how
   many tries each picture took.
 """
@@ -44,7 +45,7 @@ from app.services.image_providers.base import (
 from tests.helpers import RecordingProvider, make_photo_bytes
 from tests.test_plate_import_and_edit import _approved_plates, _start_a_book
 from tests.test_review_loop import PLAN_COUNT, ABigPainter, ScriptedReviewer, said
-from tests.test_wallet_routes import FakeStripe, paid_session, wallet_app
+from tests.test_wallet_routes import SUB, FakeStripe, paid_session, wallet_app
 
 IMAGE_USD = 0.01
 REVIEW_USD = 0.001
@@ -216,9 +217,12 @@ class TestTheMeter:
         assert summary.books_measured == 0
 
 
-def test_the_wallet_shows_the_cost_of_a_book_next_to_its_price(settings: Settings) -> None:
+def test_the_operator_sees_the_cost_of_a_book_next_to_its_price(settings: Settings) -> None:
     stripe = FakeStripe()
-    with wallet_app(priced(settings), RecordingProvider(), stripe) as (client, _):
+    with wallet_app(priced(settings), RecordingProvider(), stripe, operator_sub=SUB) as (
+        client,
+        _,
+    ):
         client.get(f"/wallet/return?session_id={paid_session(stripe, 1000)}")
         portrait = client.post(
             "/api/cartoonify",
@@ -236,13 +240,18 @@ def test_the_wallet_shows_the_cost_of_a_book_next_to_its_price(settings: Setting
         assert start.status_code == 201, start.text
         assert wait_for(client, start.json()["book_id"])["status"] == "complete"
 
-        page = client.get("/wallet").text
         ledger: CostLedger = client.app.state.container.costs  # type: ignore[attr-defined]
         average = ledger.summary().average_book_microusd
         assert average > 0
         figure = f"${average / 1e6:.4f}"
+
+        wallet = client.get("/wallet").text
+        assert "What a book costs to make" not in wallet
+        assert "average API spend" not in wallet
+        assert "This book cost" not in wallet
+
+        page = client.get("/admin/status").text
         assert "What a book costs to make" in page
         assert "average API spend per finished book" in page
         assert figure in page
         assert "$0.99" in page
-        assert f"This book cost {figure} in API calls to make." in page

@@ -674,7 +674,8 @@ def _require_funds(container: Container, user_id: str | None) -> None:
         return
     raise PaymentRequired(
         f"One picture book costs {format_cents(price)} and your wallet has "
-        f"{format_cents(balance)}. Top it up on your wallet page, then start the book again."
+        f"{format_cents(balance)}. Add money with the + $5 button in the header, "
+        "or on your wallet page, then start the book again."
     )
 
 
