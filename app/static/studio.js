@@ -5,8 +5,9 @@
      #friends  optional faces for the rest of the cast
 
    The step lives in the URL hash, so Back and a reload land where you were.
-   #photo and #friends open once the star has a name and boy or girl; the
-   portrait can be drawn in either order, but the book waits for it. Within a step,
+   #photo and #friends open once the star has a name and boy or girl. Drawing
+   a portrait is optional too: "Make the book" needs only the star's photo,
+   and draws (first take) every portrait still waiting. Within a step,
    each character section is filled, drawn and folded on its own.
 
    State that must survive a refresh (chosen draft ids, settings, folds) goes
@@ -28,6 +29,7 @@ const photos = new Map(); // section key -> prepared Blob, this visit only
 const objectUrls = new Map();
 const busy = new Set();
 const expired = new Set();
+let leaving = false; // drawing what is left, then on to the book
 
 const cameraDialog = document.getElementById("camera-dialog");
 const camera = createCameraSource(document.getElementById("camera-video"));
@@ -383,7 +385,7 @@ async function acceptPhoto(key, blob) {
     }
     expired.delete(key);
     persist();
-    showMessage(key, prepared.scaled ? "Photo shrunk to fit. Now draw the portrait." : "Now draw the portrait.");
+    showMessage(key, prepared.scaled ? "Photo shrunk to fit. Draw the portrait to check it, or just go on." : "Draw the portrait to check it, or just go on.");
     renderSection(key);
     renderFooter();
   } catch (error) {
@@ -467,11 +469,12 @@ function starGender() {
   return draft.sections.star?.photoGender || null;
 }
 
+/* Draws the section's portrait; true once it has one. */
 async function makeComic(key, reasons = []) {
-  if (busy.has(key)) return;
+  if (busy.has(key)) return false;
   if (!starGender()) {
     location.hash = "name";
-    return;
+    return false;
   }
   const data = sectionData(key);
   busy.add(key);
@@ -501,12 +504,14 @@ async function makeComic(key, reasons = []) {
       key,
       data.candidateUrls.length > 1 ? "Pick the take you like best." : "",
     );
+    return true;
   } catch (error) {
     if (error.status === 401) {
       goSignIn();
-      return;
+      return false;
     }
     showMessage(key, friendlyError(error, "The portrait didn't come out. Try again."), true);
+    return false;
   } finally {
     busy.delete(key);
     renderSection(key);
@@ -580,12 +585,25 @@ function wireAdvanced() {
 
 /* --- the footer -------------------------------------------------------------- */
 
+/* A section with a photo this visit but no portrait yet: drawn on the way out. */
+function undrawn() {
+  return Array.from(sectionEls.keys()).filter((key) => photos.has(key) && !draft.sections[key]?.chosenId);
+}
+
 function wireFooter() {
   document.getElementById("studio-next").addEventListener("click", (event) => {
-    if (event.currentTarget.getAttribute("aria-disabled") !== "true") return;
+    const next = event.currentTarget;
+    if (next.getAttribute("aria-disabled") === "true") {
+      event.preventDefault();
+      if (busy.size) return;
+      location.hash = "photo";
+      showMessage("star", "The book needs a photo of the star first.", true);
+      return;
+    }
+    const waiting = undrawn();
+    if (!waiting.length) return;
     event.preventDefault();
-    location.hash = "photo";
-    showMessage("star", "The book needs the star's portrait first: add a photo and draw it.", true);
+    void drawThenGo(next.href, waiting);
   });
   document.getElementById("studio-start-over").addEventListener("click", () => {
     if (!window.confirm("Start over? This forgets every photo and portrait in this studio.")) return;
@@ -594,22 +612,39 @@ function wireFooter() {
   });
 }
 
+/* One at a time, star first, so the rate limit is never hit by a burst. */
+async function drawThenGo(href, keys) {
+  leaving = true;
+  for (const key of keys) {
+    const ok = await makeComic(key);
+    if (!ok) {
+      leaving = false;
+      renderFooter();
+      setCollapsed(key, false);
+      location.hash = key === "star" ? "photo" : "friends";
+      return;
+    }
+  }
+  window.location.assign(href);
+}
+
 function renderFooter() {
   const ready = [];
   const skipped = [];
   for (const [key, el] of sectionEls) {
-    if (draft.sections[key]?.chosenId) ready.push(key);
+    if (draft.sections[key]?.chosenId || photos.has(key)) ready.push(key);
     else if (el.dataset.required !== "true") skipped.push(key);
   }
-  const starReady = Boolean(draft.sections.star?.chosenId) && !busy.has("star");
+  const starReady = Boolean(draft.sections.star?.chosenId || photos.has("star")) && !busy.size;
   const next = document.getElementById("studio-next");
   next.setAttribute("aria-disabled", String(!starReady));
+  next.firstChild.textContent = leaving ? "Drawing the portraits… " : "Next: make the book ";
   const summary = document.getElementById("studio-summary");
   if (!starReady) {
     summary.textContent = "";
     return;
   }
-  const portraits = `${ready.length} portrait${ready.length === 1 ? "" : "s"} ready`;
+  const portraits = `${ready.length} face${ready.length === 1 ? "" : "s"} added`;
   summary.textContent = skipped.length
     ? `${portraits} · ${skipped.length} optional character${skipped.length === 1 ? "" : "s"} drawn from the story`
     : portraits;
