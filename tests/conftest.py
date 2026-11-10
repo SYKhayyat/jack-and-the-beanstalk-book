@@ -30,7 +30,7 @@ from app.db import build_engine, prepare_database
 from app.main import create_app
 from app.services.image_providers.base import ImageProvider
 from app.services.template_store import TemplateStore
-from tests.helpers import RecordingProvider, make_photo_bytes
+from tests.helpers import RecordingProvider, isolated_settings, make_photo_bytes
 
 # `Settings` reads `.env` by default. A developer's real `.env` (Google
 # credentials, a database URL) must never leak into a test run or change what
@@ -88,23 +88,7 @@ def engine(tmp_path: Path, schema_template: Path) -> Iterator[Engine]:
 
 @pytest.fixture
 def settings(tmp_path: Path, seeded_template: Path) -> Settings:
-    """Isolated settings: a throwaway storage dir and its own empty database.
-
-    `DATABASE_URL` stays empty on purpose — that is local development's real
-    configuration — so every test boots the SQLite path the app ships with.
-    """
-    storage = tmp_path / "storage"
-    storage.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(seeded_template, storage / "app.sqlite3")
-    return Settings(
-        image_provider="mock",  # type: ignore[arg-type]
-        gemini_api_key="",
-        app_env="test",
-        storage_dir=tmp_path / "storage",
-        # A 20-page book plus a portrait, a cover and an edit is more than the
-        # production brake's 30 calls a minute; tests must not wait for it.
-        max_generations_per_minute=1000,
-    )
+    return isolated_settings(tmp_path, seeded_template)
 
 
 @pytest.fixture

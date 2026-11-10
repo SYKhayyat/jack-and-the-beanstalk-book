@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 from functools import lru_cache
+from pathlib import Path
 
 from PIL import Image
 from sqlalchemy.engine import Engine
 
 from app.books import SEEDS
+from app.config import Settings
 from app.models.story import StoryEdition
 from app.services.image_providers.base import (
     GeneratedImage,
@@ -168,3 +171,23 @@ def edition_in(store: object, story_key: str = JACK_KEY) -> StoryEdition:
     if story_key not in per_engine:
         per_engine[story_key] = stored_edition(engine, story_key)
     return per_engine[story_key]
+
+
+def isolated_settings(root: Path, seeded_template: Path) -> Settings:
+    """Isolated settings under `root`: a throwaway storage dir and its own database.
+
+    `DATABASE_URL` stays empty on purpose — that is local development's real
+    configuration — so every test boots the SQLite path the app ships with.
+    """
+    storage = root / "storage"
+    storage.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(seeded_template, storage / "app.sqlite3")
+    return Settings(
+        image_provider="mock",  # type: ignore[arg-type]
+        gemini_api_key="",
+        app_env="test",
+        storage_dir=storage,
+        # A 20-page book plus a portrait, a cover and an edit is more than the
+        # production brake's 30 calls a minute; tests must not wait for it.
+        max_generations_per_minute=1000,
+    )

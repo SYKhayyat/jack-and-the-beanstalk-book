@@ -42,7 +42,7 @@ from app.services.image_providers.base import (
     ImageRequest,
     ProviderError,
 )
-from tests.helpers import RecordingProvider, make_photo_bytes
+from tests.helpers import RecordingProvider, isolated_settings, make_photo_bytes
 from tests.test_plate_import_and_edit import _approved_plates, _start_a_book
 from tests.test_review_loop import PLAN_COUNT, ABigPainter, ScriptedReviewer, said
 from tests.test_wallet_routes import SUB, FakeStripe, paid_session, wallet_app
@@ -76,8 +76,11 @@ def calls_of(client: TestClient) -> list[ApiCallRow]:
 class TestABookIsCostedCallByCall:
     """A reviewed book with one redraw, through the real start route."""
 
-    @pytest.fixture
-    def book(self, settings: Settings, tmp_path: Path):
+    @pytest.fixture(scope="class")
+    def book(self, tmp_path_factory: pytest.TempPathFactory, seeded_template: Path):
+        """One costed book for the class: every test here only reads it."""
+        tmp_path = tmp_path_factory.mktemp("costed")
+        settings = isolated_settings(tmp_path, seeded_template)
         reviewer = ScriptedReviewer(
             answers=[said(False, 20, ("text_in_image",))], default=said(True, 95)
         )

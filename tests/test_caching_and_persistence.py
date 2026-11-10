@@ -9,8 +9,10 @@ it (which would mean paying for the pictures a second time).
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -72,32 +74,43 @@ def _redraw(client: TestClient, book_id: str, page_number: int) -> None:
     assert _wait(client, book_id)["status"] == "complete"
 
 
+@pytest.fixture(scope="module")
+def owned_book(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestClient, str]]:
+    """One finished book, signed in as its owner, for the tests that only read it.
+
+    Drawing a 21-picture book apiece just to check a response header was most
+    of this module's run time. None of these tests changes the book or who is
+    signed in.
+    """
+    with _google_client(tmp_path_factory.mktemp("owned")) as client:
+        _sign_in(client, "owner-1")
+        yield client, _completed(client)
+
+
 class TestRevalidatingAPicture:
-    def test_a_page_carries_a_content_tag(self, tmp_path: Path) -> None:
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _completed(client)
-            url = client.get(f"/api/book/{book_id}").json()["pages"][1]["url"]
+    def test_a_page_carries_a_content_tag(self, owned_book: tuple[TestClient, str]) -> None:
+        client, book_id = owned_book
+        url = client.get(f"/api/book/{book_id}").json()["pages"][1]["url"]
 
-            first = client.get(url)
-            assert first.status_code == 200
-            body = first.content
-            assert first.headers["etag"] == f'"{hashlib.sha256(body).hexdigest()}"'
-            # Private to this reader, and revalidated rather than reused blind.
-            assert first.headers["cache-control"] == "private, max-age=0, must-revalidate"
-            assert first.headers["x-content-type-options"] == "nosniff"
+        first = client.get(url)
+        assert first.status_code == 200
+        body = first.content
+        assert first.headers["etag"] == f'"{hashlib.sha256(body).hexdigest()}"'
+        # Private to this reader, and revalidated rather than reused blind.
+        assert first.headers["cache-control"] == "private, max-age=0, must-revalidate"
+        assert first.headers["x-content-type-options"] == "nosniff"
 
-    def test_a_picture_the_client_already_has_costs_no_bytes(self, tmp_path: Path) -> None:
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _completed(client)
-            url = client.get(f"/api/book/{book_id}").json()["pages"][1]["url"]
+    def test_a_picture_the_client_already_has_costs_no_bytes(
+        self, owned_book: tuple[TestClient, str]
+    ) -> None:
+        client, book_id = owned_book
+        url = client.get(f"/api/book/{book_id}").json()["pages"][1]["url"]
 
-            tag = client.get(url).headers["etag"]
-            again = client.get(url, headers={"If-None-Match": tag})
-            assert again.status_code == 304
-            assert again.content == b""
-            assert again.headers["etag"] == tag
+        tag = client.get(url).headers["etag"]
+        again = client.get(url, headers={"If-None-Match": tag})
+        assert again.status_code == 304
+        assert again.content == b""
+        assert again.headers["etag"] == tag
 
     def test_a_redrawn_page_is_not_served_from_the_old_copy(self, tmp_path: Path) -> None:
         """The tag is the hash, so new bytes mean a new tag and a fresh 200."""
@@ -116,55 +129,51 @@ class TestRevalidatingAPicture:
             assert after.headers["etag"] != before
             assert after.headers["etag"] == f'"{hashlib.sha256(after.content).hexdigest()}"'
 
-    def test_a_wildcard_tag_is_honoured(self, tmp_path: Path) -> None:
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _completed(client)
-            url = client.get(f"/api/book/{book_id}").json()["pages"][2]["url"]
-            assert client.get(url, headers={"If-None-Match": "*"}).status_code == 304
+    def test_a_wildcard_tag_is_honoured(self, owned_book: tuple[TestClient, str]) -> None:
+        client, book_id = owned_book
+        url = client.get(f"/api/book/{book_id}").json()["pages"][2]["url"]
+        assert client.get(url, headers={"If-None-Match": "*"}).status_code == 304
 
-    def test_a_list_of_tags_is_understood(self, tmp_path: Path) -> None:
+    def test_a_list_of_tags_is_understood(self, owned_book: tuple[TestClient, str]) -> None:
         """Browsers send every copy they hold: one match is enough."""
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _completed(client)
-            url = client.get(f"/api/book/{book_id}").json()["pages"][3]["url"]
-            tag = client.get(url).headers["etag"]
-            listed = f'"some-older-copy", W/{tag}, "another"'
-            assert client.get(url, headers={"If-None-Match": listed}).status_code == 304
+        client, book_id = owned_book
+        url = client.get(f"/api/book/{book_id}").json()["pages"][3]["url"]
+        tag = client.get(url).headers["etag"]
+        listed = f'"some-older-copy", W/{tag}, "another"'
+        assert client.get(url, headers={"If-None-Match": listed}).status_code == 304
 
-    def test_the_cover_and_the_portrait_are_tagged_too(self, tmp_path: Path) -> None:
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _completed(client)
-            for suffix in ("cover", "portrait"):
-                url = f"/book-media/{book_id}/{suffix}"
-                first = client.get(url)
-                assert first.status_code == 200, suffix
-                assert first.headers.get("etag"), suffix
-                again = client.get(url, headers={"If-None-Match": first.headers["etag"]})
-                assert again.status_code == 304, suffix
+    def test_the_cover_and_the_portrait_are_tagged_too(
+        self, owned_book: tuple[TestClient, str]
+    ) -> None:
+        client, book_id = owned_book
+        for suffix in ("cover", "portrait"):
+            url = f"/book-media/{book_id}/{suffix}"
+            first = client.get(url)
+            assert first.status_code == 200, suffix
+            assert first.headers.get("etag"), suffix
+            again = client.get(url, headers={"If-None-Match": first.headers["etag"]})
+            assert again.status_code == 304, suffix
 
-    def test_the_childs_photograph_is_never_cached_by_the_device(self, tmp_path: Path) -> None:
+    def test_the_childs_photograph_is_never_cached_by_the_device(
+        self, owned_book: tuple[TestClient, str]
+    ) -> None:
         """An illustration may be revalidated; the real photograph never stays."""
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _completed(client)
-            photo = client.get(f"/book-media/{book_id}/photo")
-            assert photo.status_code == 200
-            assert photo.headers["cache-control"] == "private, no-store"
-            assert "etag" not in photo.headers
+        client, book_id = owned_book
+        photo = client.get(f"/book-media/{book_id}/photo")
+        assert photo.status_code == 200
+        assert photo.headers["cache-control"] == "private, no-store"
+        assert "etag" not in photo.headers
 
-    def test_downloading_the_portrait_is_always_a_file(self, tmp_path: Path) -> None:
+    def test_downloading_the_portrait_is_always_a_file(
+        self, owned_book: tuple[TestClient, str]
+    ) -> None:
         """`?download=1` is a request for the file, never for a 304."""
-        with _google_client(tmp_path) as client:
-            _sign_in(client, "owner-1")
-            book_id = _completed(client)
-            url = f"/book-media/{book_id}/portrait"
-            tag = client.get(url).headers["etag"]
-            download = client.get(f"{url}?download=1", headers={"If-None-Match": tag})
-            assert download.status_code == 200
-            assert "attachment" in download.headers["content-disposition"]
+        client, book_id = owned_book
+        url = f"/book-media/{book_id}/portrait"
+        tag = client.get(url).headers["etag"]
+        download = client.get(f"{url}?download=1", headers={"If-None-Match": tag})
+        assert download.status_code == 200
+        assert "attachment" in download.headers["content-disposition"]
 
 
 class TestABookOutlivesTheProcess:

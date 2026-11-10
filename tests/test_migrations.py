@@ -22,12 +22,20 @@ import sys
 from pathlib import Path
 
 import pytest
+from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import MetaData, create_engine
+from sqlalchemy.pool import NullPool
 
 from app.config import Settings
-from app.db import Base, build_engine, local_database_url, prepare_database
+from app.db import (
+    Base,
+    build_engine,
+    local_database_url,
+    normalise_database_url,
+    prepare_database,
+)
 from app.models.book import AboutMe
 from app.services.book_store import BookStatus
 from app.services.db_book_store import DatabaseBookStore
@@ -40,14 +48,13 @@ TABLES = sorted(name for name in Base.metadata.tables if name != VERSION_TABLE)
 
 
 def migrate(database_url: str) -> None:
-    """Run `alembic upgrade head` against `database_url`, as `make migrate` does."""
-    alembic(database_url, "upgrade", "head")
+    """Run `alembic upgrade head` in a subprocess, exactly as `make migrate` does.
 
-
-def alembic(database_url: str, *arguments: str) -> None:
-    """Run one Alembic command against `database_url` in a subprocess."""
+    The one real command-line run: it proves `DATABASE_URL` and alembic.ini's
+    own setup still work. Every other step goes through `alembic` below.
+    """
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", *arguments],
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=ROOT,
         env={**os.environ, "DATABASE_URL": database_url},
         capture_output=True,
@@ -55,6 +62,21 @@ def alembic(database_url: str, *arguments: str) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr or result.stdout
+
+
+def alembic(database_url: str, action: str, revision: str) -> None:
+    """Run one Alembic upgrade or downgrade against `database_url`, in process.
+
+    Through the engine hand-over the app's own boot uses (`prepare_database`),
+    so a step costs a migration, not a fresh interpreter importing the app.
+    """
+    engine = create_engine(normalise_database_url(database_url), poolclass=NullPool)
+    try:
+        config = Config(str(ROOT / "alembic.ini"))
+        config.attributes["engine"] = engine
+        {"upgrade": command.upgrade, "downgrade": command.downgrade}[action](config, revision)
+    finally:
+        engine.dispose()
 
 
 def describe(metadata: MetaData, *, affinity: bool = False) -> dict[str, dict[str, object]]:

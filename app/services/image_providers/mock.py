@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import io
 import textwrap
+from functools import cache
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -47,16 +48,8 @@ class MockImageProvider(ImageProvider):
         primary = _PALETTE[seed[0] % len(_PALETTE)]
         secondary = _PALETTE[seed[1] % len(_PALETTE)]
 
-        image = Image.new("RGB", _CANVAS, primary)
+        image = _wash(primary, secondary)
         draw = ImageDraw.Draw(image, "RGBA")
-
-        # Soft diagonal wash so the two pipeline steps look visually distinct.
-        for step in range(_CANVAS[1]):
-            ratio = step / _CANVAS[1]
-            colour = tuple(
-                int(primary[i] + (secondary[i] - primary[i]) * ratio) for i in range(3)
-            )
-            draw.line([(0, step), (_CANVAS[0], step)], fill=colour)
 
         self._draw_figure(draw, seed)
         # Plain words on the placeholder: the visitor sees this picture, so it
@@ -72,7 +65,7 @@ class MockImageProvider(ImageProvider):
         )
 
         buffer = io.BytesIO()
-        image.save(buffer, format="PNG", optimize=True)
+        image.save(buffer, format="PNG", compress_level=1)
         return GeneratedImage(data=buffer.getvalue(), media_type="image/png", model="mock-v1")
 
     @staticmethod
@@ -113,6 +106,22 @@ class MockImageProvider(ImageProvider):
             draw.text((84, top + index * 28), line, fill=(255, 255, 255, 255), font=font)
 
 
+def _wash(primary: tuple[int, int, int], secondary: tuple[int, int, int]) -> Image.Image:
+    """A top-to-bottom blend of the two colours, so the two pipeline steps differ.
+
+    Pillow's own gradient blended in C: a placeholder is drawn for every page
+    of every demo book, so it must cost next to nothing.
+    """
+    return Image.composite(
+        Image.new("RGB", _CANVAS, secondary), Image.new("RGB", _CANVAS, primary), _wash_mask()
+    )
+
+
+@cache
+def _wash_mask() -> Image.Image:
+    return Image.linear_gradient("L").resize(_CANVAS)
+
+
 def _extract_caption(prompt: str) -> str:
     """Pull the scene caption out of a prompt, falling back to its first sentence.
 
@@ -137,6 +146,7 @@ def _banner(
     )
 
 
+@cache
 def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     """A scalable font when Pillow can provide one, else its bitmap default."""
     try:

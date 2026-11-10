@@ -11,8 +11,8 @@ install: ## Create the venv and install everything
 dev: ## Run with reload in mock mode (no API key, no database server needed)
 	$(VENV)/bin/uvicorn app.main:create_app --factory --reload --port 8000
 
-test: ## Run the suite with coverage
-	$(VENV)/bin/python -m pytest --cov=app --cov-report=term-missing
+test: ## Run the suite in parallel, with coverage
+	$(VENV)/bin/python -m pytest -n auto --dist loadscope --cov=app --cov-report=term-missing
 
 test-fast: ## Run the suite in parallel, without coverage (the inner loop)
 	$(VENV)/bin/python -m pytest -n auto --dist loadscope
