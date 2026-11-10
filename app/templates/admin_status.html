@@ -36,9 +36,9 @@
       <span class="admin-tile-note">{{ ever.books }} in the record</span>
     </a>
     <a class="admin-tile" href="#review-heading">
-      <span class="admin-tile-figure">{{ week.reviewed }}<span class="admin-tile-of"> / {{ week.pictures }}</span></span>
+      <span class="admin-tile-figure">{{ week.reviewed }}</span>
       <span class="admin-tile-label">pictures checked this week</span>
-      <span class="admin-tile-note">tier 1 always; tier 2 when the reviewer is on</span>
+      <span class="admin-tile-note">{{ week.pictures }} drawn · tier 1 always; tier 2 when on</span>
     </a>
     <a class="admin-tile{% if week.best_effort %} is-bad{% endif %}" href="#review-heading">
       <span class="admin-tile-figure">{{ week.best_effort }}</span>
@@ -68,7 +68,7 @@
             </span>
           </div>
           <span class="admin-state{% if story.can_start %} is-good{% else %} is-bad{% endif %}">
-            {{ "ready" if story.can_start else "held back" }}
+            {{ "open" if story.can_start else "held back" }}
           </span>
           <a class="button" href="/admin/plates/{{ story.key }}">Plates</a>
         </li>
