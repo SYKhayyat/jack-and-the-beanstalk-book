@@ -125,10 +125,12 @@ class Settings(BaseSettings):
     )
     reviewer_provider: str = Field(
         default="openai",
-        pattern="^(gemini|openai)$",
+        pattern="^(off|gemini|openai)$",
         description=(
-            "Which vision model checks each picture: openai (gpt-6-luna; uses "
-            "OPENAI_API_KEY and is shown the plate as well), or gemini."
+            "Which vision model checks each picture after the decision judge: "
+            "openai (the default: gpt-6-luna; uses OPENAI_API_KEY and is shown "
+            "the plate as well), gemini, or off (the decision judge and tier 1 "
+            "decide alone)."
         ),
     )
     reviewer_model: str = Field(
@@ -399,14 +401,19 @@ class Settings(BaseSettings):
 
     @property
     def reviewer_required(self) -> bool:
-        """Whether a missing reviewer is a start-up error (T9.6).
+        """Whether a missing reviewer key is a start-up error (T9.6).
 
-        Required in production, where shipping unreviewed pictures is the risk
-        the whole tier exists to stop. Off in development, test and mock mode,
-        where every verdict is stamped `tiers_run: [1]` and said so in the log
-        rather than dressed up as a review.
+        Only once a reviewer is chosen (`REVIEWER_PROVIDER` not off), and only
+        in production: a deployment that asked for a reviewer must not quietly
+        run without one. Off in development, test and mock mode, where every
+        verdict is stamped `tiers_run: [1]` and said so in the log rather than
+        dressed up as a review.
         """
-        return self.is_production and self.image_provider is not ProviderName.MOCK
+        return (
+            self.reviewer_provider != "off"
+            and self.is_production
+            and self.image_provider is not ProviderName.MOCK
+        )
 
     @property
     def effective_database_url(self) -> str:

@@ -20,6 +20,8 @@ from dataclasses import dataclass
 
 from PIL import Image
 
+from app.transcoding import transcoding
+
 __all__ = [
     "DISPLAY_WIDTHS",
     "THUMB_WIDTH",
@@ -110,12 +112,13 @@ def encode_variant(data: bytes, width: int) -> bytes:
     """
     if width not in VARIANT_WIDTHS:
         raise ValueError(f"no variant is {width} px wide")
-    with Image.open(io.BytesIO(data)) as opened:
-        image = opened.convert("RGB")
-    if image.width > width:
-        height = max(1, round(image.height * width / image.width))
-        image = image.resize((width, height), Image.Resampling.LANCZOS)
-    buffer = io.BytesIO()
     quality = _THUMB_QUALITY if width == THUMB_WIDTH else _WEBP_QUALITY
-    image.save(buffer, format="WEBP", quality=quality, method=4)
+    buffer = io.BytesIO()
+    with transcoding():
+        with Image.open(io.BytesIO(data)) as opened:
+            image = opened.convert("RGB")
+        if image.width > width:
+            height = max(1, round(image.height * width / image.width))
+            image = image.resize((width, height), Image.Resampling.LANCZOS)
+        image.save(buffer, format="WEBP", quality=quality, method=4)
     return buffer.getvalue()

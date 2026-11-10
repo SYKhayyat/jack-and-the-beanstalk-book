@@ -33,9 +33,16 @@ USER appuser
 # PDF embeds) across them fragments memory that is never handed back. On the
 # 512 MiB free plan that bloat alone OOM-killed the instance mid-render; the
 # same workload measured 302 MiB resident by default and ~160 MiB with 2.
+# MALLOC_MMAP_THRESHOLD_: glibc otherwise raises its mmap threshold to 32 MiB
+# after the first large free, so every later decoded picture (4 to 8 MiB) is
+# carved from the heap and its pages are kept after it is freed. Fixed at
+# 1 MiB, a picture's buffer is its own mapping and goes back to the OS when
+# freed: one book with the R2 codec on one CPU measured 380 MiB resident
+# after it finished without this and 258 MiB with it (2026-11-10).
 ENV APP_ENV=production \
     STORAGE_DIR=/app/storage \
-    MALLOC_ARENA_MAX=2
+    MALLOC_ARENA_MAX=2 \
+    MALLOC_MMAP_THRESHOLD_=1048576
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \

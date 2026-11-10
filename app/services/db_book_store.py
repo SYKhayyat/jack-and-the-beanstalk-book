@@ -33,6 +33,7 @@ from sqlalchemy import insert as sa_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
+from app.blobs import stash
 from app.db import (
     BookCharacterRow,
     BookPageRow,
@@ -393,11 +394,12 @@ class DatabaseBookStore(BookStore):
     # --- artefacts -------------------------------------------------------------
 
     def save_portrait(self, book_id: str, data: bytes) -> None:
+        stored = stash(data)
         with self._engine.begin() as conn:
             conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id)
-                .values(portrait=data, portrait_sha256=_sha(data), updated_at=_now())
+                .values(portrait=stored, portrait_sha256=_sha(data), updated_at=_now())
             )
 
     def read_portrait(self, book_id: str) -> bytes | None:
@@ -407,11 +409,12 @@ class DatabaseBookStore(BookStore):
             ).scalar_one_or_none()
 
     def save_source_photo(self, book_id: str, data: bytes) -> None:
+        stored = stash(data)
         with self._engine.begin() as conn:
             conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id)
-                .values(source_photo=data, updated_at=_now())
+                .values(source_photo=stored, updated_at=_now())
             )
 
     def update_identity(
@@ -422,14 +425,15 @@ class DatabaseBookStore(BookStore):
         photo: bytes,
         settings: CartoonSettings,
     ) -> None:
+        stored_portrait, stored_photo = stash(portrait), stash(photo)
         with self._engine.begin() as conn:
             conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id)
                 .values(
-                    portrait=portrait,
+                    portrait=stored_portrait,
                     portrait_sha256=_sha(portrait),
-                    source_photo=photo,
+                    source_photo=stored_photo,
                     settings=settings.model_dump(mode="json"),
                     updated_at=_now(),
                 )
@@ -442,12 +446,16 @@ class DatabaseBookStore(BookStore):
             ).scalar_one_or_none()
 
     def save_cover(self, book_id: str, data: bytes) -> None:
+        stored = stash(data)
         with self._engine.begin() as conn:
             conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id)
                 .values(
-                    cover=data, cover_sha256=_sha(data), cover_review=null(), updated_at=_now()
+                    cover=stored,
+                    cover_sha256=_sha(data),
+                    cover_review=null(),
+                    updated_at=_now(),
                 )
             )
 
@@ -490,6 +498,9 @@ class DatabaseBookStore(BookStore):
             ).scalar_one_or_none()
 
     def save_characters(self, book_id: str, characters: dict[str, CharacterReference]) -> None:
+        stored = {
+            key: (stash(ref.portrait), stash(ref.photo)) for key, ref in characters.items()
+        }
         with self._engine.begin() as conn:
             conn.execute(delete(BookCharacterRow).where(BookCharacterRow.book_id == book_id))
             for key, ref in characters.items():
@@ -497,15 +508,16 @@ class DatabaseBookStore(BookStore):
                     sa_insert(BookCharacterRow).values(
                         book_id=book_id,
                         cast_key=key,
-                        portrait=ref.portrait,
+                        portrait=stored[key][0],
                         portrait_media_type=ref.portrait_media_type,
-                        photo=ref.photo,
+                        photo=stored[key][1],
                         photo_media_type=ref.photo_media_type,
                         **_character_record(ref),
                     )
                 )
 
     def save_character(self, book_id: str, key: str, ref: CharacterReference) -> None:
+        portrait, photo = stash(ref.portrait), stash(ref.photo)
         with self._engine.begin() as conn:
             conn.execute(
                 delete(BookCharacterRow).where(
@@ -517,9 +529,9 @@ class DatabaseBookStore(BookStore):
                 sa_insert(BookCharacterRow).values(
                     book_id=book_id,
                     cast_key=key,
-                    portrait=ref.portrait,
+                    portrait=portrait,
                     portrait_media_type=ref.portrait_media_type,
-                    photo=ref.photo,
+                    photo=photo,
                     photo_media_type=ref.photo_media_type,
                     **_character_record(ref),
                 )
@@ -550,6 +562,7 @@ class DatabaseBookStore(BookStore):
         """Persist one page's art. Raises on a bad page number, never on disk."""
         if page_number < 1:
             raise ValueError("page_number counts from 1")
+        stored = stash(data)
         with self._engine.begin() as conn:
             conn.execute(
                 delete(BookPageRow).where(
@@ -560,7 +573,7 @@ class DatabaseBookStore(BookStore):
                 sa_insert(BookPageRow).values(
                     book_id=book_id,
                     page_number=page_number,
-                    image=data,
+                    image=stored,
                     media_type=media_type_for(data),
                     image_sha256=_sha(data),
                 )
@@ -657,6 +670,7 @@ class DatabaseBookStore(BookStore):
         insert collides on the key, and its copy is the same picture, so the
         collision is the answer rather than an error.
         """
+        stored = stash(data)
         try:
             with self._engine.begin() as conn:
                 conn.execute(
@@ -672,7 +686,7 @@ class DatabaseBookStore(BookStore):
                         slot=slot,
                         width=width,
                         source_sha256=source_sha256,
-                        image=data,
+                        image=stored,
                         media_type=VARIANT_MEDIA_TYPE,
                     )
                 )
@@ -708,11 +722,12 @@ class DatabaseBookStore(BookStore):
         return json.dumps({"prompts": prompts}, indent=2).encode()
 
     def save_pdf(self, book_id: str, data: bytes) -> None:
+        stored = stash(data)
         with self._engine.begin() as conn:
             conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id)
-                .values(pdf=data, updated_at=_now())
+                .values(pdf=stored, updated_at=_now())
             )
 
     def read_pdf(self, book_id: str) -> bytes | None:

@@ -39,6 +39,7 @@ from app.services.pictures import (
     page_slot,
     short_version,
 )
+from app.single_flight import KeyedLocks
 
 __all__ = ["router"]
 
@@ -46,6 +47,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/book-media", tags=["book-media"])
 
+#: One screen copy made at a time per picture and width (see app.single_flight).
+_variant_locks = KeyedLocks()
 _WIDTHS_LISTED = ", ".join(str(width) for width in sorted(VARIANT_WIDTHS))
 
 
@@ -220,13 +223,7 @@ def _sized(
     data = store.read_variant(book_id, slot, width, sha)
     outcome = "stored"
     if data is None:
-        original = store.read_picture(book_id, slot)
-        if original is None:
-            raise BookNotReady("That picture is not ready yet — poll the book's status.")
-        sha = hashlib.sha256(original).hexdigest()
-        data = encode_variant(original, width)
-        store.save_variant(book_id, slot, width, sha, data)
-        outcome = "encoded"
+        data, outcome = _make_variant(store, book_id, slot, width, sha)
     logger.info(
         "book.picture user=%s book=%s slot=%s width=%d bytes=%d outcome=%s",
         user_id(session) or "-",
@@ -237,6 +234,25 @@ def _sized(
         outcome,
     )
     return versioned_picture(data, media_type=VARIANT_MEDIA_TYPE, etag=etag, immutable=current)
+
+
+def _make_variant(
+    store: BookStore, book_id: str, slot: str, width: int, sha: str
+) -> tuple[bytes, str]:
+    """Encode the missing copy once, however many requests ask at the same time.
+
+    A request that waited on the lock finds the copy the first one saved.
+    """
+    with _variant_locks.hold((book_id, slot, width, sha)):
+        made = store.read_variant(book_id, slot, width, sha)
+        if made is not None:
+            return made, "stored"
+        original = store.read_picture(book_id, slot)
+        if original is None:
+            raise BookNotReady("That picture is not ready yet — poll the book's status.")
+        data = encode_variant(original, width)
+        store.save_variant(book_id, slot, width, hashlib.sha256(original).hexdigest(), data)
+        return data, "encoded"
 
 
 @router.get("/{book_id}/prompts.json")

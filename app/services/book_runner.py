@@ -61,7 +61,6 @@ from app.services.image_providers.base import (
 )
 from app.services.image_review import review_image
 from app.services.media import media_type_for
-from app.services.pdf import PageArt
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import (
     build_book_page_prompt,
@@ -133,6 +132,18 @@ class _Attempts:
     verdicts: tuple[dict[str, Any], ...]
     chosen: int
     best_effort: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _Drawn:
+    """A finished page as the job keeps it: its formatted text and its size.
+
+    Not the picture: that is saved the moment it is chosen, and holding all
+    nineteen until the PDF was built is what filled a 512 MB server.
+    """
+
+    page: BookPage
+    size: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -527,11 +538,15 @@ class BookRunner:
                     stages.pop(page_number, None)
                 await paint()
 
-            async def _render_page(page: BookPage) -> PageArt:
+            async def _render_page(page: BookPage) -> _Drawn:
                 page_photos = [name for name in page.cast if name in artwork.characters]
                 photo_only = frozenset(
                     ([""] if artwork.photo_is_portrait else [])
-                    + [n for n in page_photos if artwork.characters[n].photo == artwork.characters[n].portrait]
+                    + [
+                        n
+                        for n in page_photos
+                        if artwork.characters[n].photo == artwork.characters[n].portrait
+                    ]
                 )
                 plate = artwork.plates.get(page.number)
 
@@ -611,12 +626,14 @@ class BookRunner:
                     len(references),
                 )
                 await mark(page.number, "done")
-                return PageArt(
-                    image=attempts.image,
+                # Only the size is kept: the picture is in the store, and the
+                # PDF reads it back from there (BookDocument.assemble).
+                return _Drawn(
                     page=render_book_page(page, artwork.settings, prompt_name=prompt_name),
+                    size=len(attempts.image),
                 )
 
-            async def run_page(page: BookPage) -> PageArt:
+            async def run_page(page: BookPage) -> _Drawn:
                 page_started = monotonic()
                 try:
                     art = await _render_page(page)
@@ -650,7 +667,7 @@ class BookRunner:
                     mode,
                     prompt_chars,
                     references,
-                    len(art.image),
+                    art.size,
                     (monotonic() - page_started) * 1000,
                 )
                 return art
@@ -661,7 +678,7 @@ class BookRunner:
                     record, edition, artwork, page_charge, mark, set_stage
                 )
             to_render = [page for page in pages if page.number in target]
-            rendered: dict[int, PageArt] = {}
+            rendered: dict[int, BookPage] = {}
             if to_render:
                 results = await asyncio.gather(
                     *(run_page(page) for page in to_render), return_exceptions=True
@@ -670,7 +687,7 @@ class BookRunner:
                 if fatal:
                     raise fatal[0]
                 rendered = {
-                    cast("PageArt", result).page.number: cast("PageArt", result)
+                    cast("_Drawn", result).page.number: cast("_Drawn", result).page
                     for result in results
                 }
 

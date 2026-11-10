@@ -519,11 +519,14 @@ def build_reviewer(
         required: True in production, where a missing key must fail at boot
             rather than quietly ship unreviewed pictures (T9.6).
         timeout_seconds: One review's budget.
-        provider: "gemini" or "openai"; `api_key` is that provider's key.
+        provider: "off", "gemini" or "openai"; `api_key` is that provider's key.
+            Off is the stand-in whatever the key: no picture is sent anywhere.
 
     Raises:
         ReviewerUnavailable: no key and `required`.
     """
+    if provider == "off":
+        return UnavailableReviewer()
     if api_key.strip() and provider == "openai":
         return OpenAIReviewer(api_key, model=model, timeout_seconds=timeout_seconds)
     if api_key.strip():

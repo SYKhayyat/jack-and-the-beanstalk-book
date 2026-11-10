@@ -138,9 +138,11 @@ services:
         value: "600"
 
       # Admission control. Beyond this, requests queue and then get 429 rather
-      # than fanning out into more billable calls.
+      # than fanning out into more billable calls. 4, not more: each picture in
+      # flight holds its bytes and a decode, and 8 at once ran the 512 MB free
+      # instance out of memory (2026-11-10).
       - key: MAX_CONCURRENT_GENERATIONS
-        value: "12"
+        value: "4"
 
       - key: MAX_GENERATIONS_PER_MINUTE
         value: "120"

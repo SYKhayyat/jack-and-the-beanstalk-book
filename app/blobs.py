@@ -41,6 +41,8 @@ from PIL import Image
 from sqlalchemy import LargeBinary
 from sqlalchemy.types import TypeDecorator
 
+from app.transcoding import transcoding
+
 if TYPE_CHECKING:
     from app.config import Settings
 
@@ -54,6 +56,7 @@ __all__ = [
     "is_pointer",
     "same_content",
     "set_blob_store",
+    "stash",
 ]
 
 logger = logging.getLogger(__name__)
@@ -66,6 +69,10 @@ _RAW = ".bin"
 #: Decoded bytes kept in the process, so a plate read for every page of a book
 #: is fetched and decoded once, not once per page.
 _CACHE_BYTES = 48 * 1024 * 1024
+#: Effort 1 of 6: a third of the time of the default effort for about 2% more
+#: bytes on an illustration, and on a server with a fraction of a CPU the time
+#: is what matters (see `app.transcoding`).
+_LOSSLESS: dict[str, Any] = {"lossless": True, "quality": 50, "method": 1, "exact": True}
 
 
 class ObjectClient(Protocol):
@@ -136,7 +143,7 @@ class _Codec:
     def decode(key: str, stored: bytes) -> bytes:
         if not key.endswith(_WEBP):
             return stored
-        with Image.open(io.BytesIO(stored)) as image:
+        with transcoding(), Image.open(io.BytesIO(stored)) as image:
             image.load()
             out = io.BytesIO()
             image.save(out, format="PNG", compress_level=1)
@@ -168,12 +175,12 @@ def _lossless_webp(data: bytes) -> bytes | None:
     if not data.startswith(b"\x89PNG\r\n\x1a\n"):
         return None
     try:
-        with Image.open(io.BytesIO(data)) as source:
+        with transcoding(), Image.open(io.BytesIO(data)) as source:
             source.load()
             if source.mode not in ("RGB", "RGBA", "L", "LA"):
                 source = source.convert("RGBA" if "A" in source.getbands() else "RGB")
             out = io.BytesIO()
-            source.save(out, format="WEBP", lossless=True, quality=100, method=4, exact=True)
+            source.save(out, format="WEBP", **_LOSSLESS)
             packed = out.getvalue()
             if len(packed) >= len(data):
                 return None
@@ -285,6 +292,21 @@ def set_blob_store(store: BlobStore | None) -> None:
 
 def blob_store() -> BlobStore | None:
     return _store
+
+
+def stash(data: bytes) -> bytes:
+    """Put the bytes in the blob store now and return the pointer to write.
+
+    Call it before opening the transaction that writes the row. `BlobRef`
+    would otherwise encode and upload while binding the statement, holding a
+    database connection (and, on SQLite, the write lock) for the many seconds
+    a lossless encode and an upload take. A pointer passes through `BlobRef`
+    untouched. With no store installed the bytes are returned as they are.
+    """
+    store = _store
+    if store is None or is_pointer(data):
+        return data
+    return store.put(bytes(data))
 
 
 class BlobRef(TypeDecorator[bytes]):

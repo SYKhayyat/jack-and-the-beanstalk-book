@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
+from functools import partial
 
 from app.models.book import AboutPhotoChoice, BookPage
 from app.models.story import COVER_NUMBER
@@ -43,28 +44,26 @@ class BookDocument:
         record: BookRecord,
         rendered_pages: Sequence[BookPage],
         progress: Mapping[int, str],
-        rendered: Mapping[int, PageArt] | None = None,
+        rendered: Mapping[int, BookPage] | None = None,
         *,
         subtitle: str = "",
     ) -> int:
         """Build the PDF from every page on disk, then publish complete.
 
         `subtitle` is the line under the cover title ("starring Ava"), from
-        the book's edition. `rendered` carries the pages this job just drew,
-        so a full render does not re-format every page a third time just to
-        assemble them. Pages an
-        edit did not touch are read back from the store.
+        the book's edition. `rendered` carries the page text this job just
+        formatted, so a full render does not format every page a third time
+        just to assemble them. Every picture is read back from the store as
+        its page is drawn, never held for the whole book.
         """
-        arts: list[PageArt] = []
         fresh = rendered or {}
-        for page in rendered_pages:
-            if page.number in fresh:
-                arts.append(fresh[page.number])
-                continue
-            image = self._book_store.read_page(record.book_id, page.number)
-            if image is None:
-                raise ValueError(f"Page {page.number} is missing; cannot assemble the book.")
-            arts.append(PageArt(image=image, page=page))
+        arts = [
+            PageArt(
+                image=partial(self._page_image, record.book_id, page.number),
+                page=fresh.get(page.number, page),
+            )
+            for page in rendered_pages
+        ]
         cover = self._book_store.read_cover(record.book_id)
         # The child's approved portrait is framed on the About page.
         portrait = self._book_store.read_portrait(record.book_id)
@@ -104,6 +103,12 @@ class BookDocument:
             },
         )
         return len(pdf_bytes)
+
+    def _page_image(self, book_id: str, page_number: int) -> bytes:
+        image = self._book_store.read_page(book_id, page_number)
+        if image is None:
+            raise ValueError(f"Page {page_number} is missing; cannot assemble the book.")
+        return image
 
     def stored_progress(self, book_id: str) -> dict[int, str]:
         """Which pages the stored status already calls done."""

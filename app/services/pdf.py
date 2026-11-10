@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import io
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -100,13 +100,25 @@ _EMBED_JPEG_QUALITY = 85
 
 
 class PageArt:
-    """One finished page: the art bytes plus the story line to set beneath it."""
+    """One finished page: the art plus the story line to set beneath it.
 
-    __slots__ = ("image", "page")
+    `image` is the bytes, or a function that reads them. A finished book's
+    pages are read from the store one at a time as the PDF is drawn, so
+    assembling a nineteen-page book holds one full-size picture rather than
+    all of them (each a megabyte or two, and a 512 MB server).
+    """
 
-    def __init__(self, image: bytes, page: BookPage) -> None:
-        self.image = image
+    __slots__ = ("_image", "page")
+
+    def __init__(self, image: bytes | Callable[[], bytes], page: BookPage) -> None:
+        self._image = image
         self.page = page
+
+    @property
+    def image(self) -> bytes:
+        """The art's bytes; a lazy page is read again on every access."""
+        source = self._image
+        return source if isinstance(source, bytes) else source()
 
 
 @dataclass(frozen=True, slots=True)

@@ -789,9 +789,28 @@ class TestTheReviewer:
     def test_a_production_deployment_needs_a_reviewer_but_mock_mode_does_not(self) -> None:
         from app.config import Settings
 
-        assert Settings(app_env="production", image_provider="gemini").reviewer_required
-        assert not Settings(app_env="development", image_provider="gemini").reviewer_required
-        assert not Settings(app_env="production").reviewer_required
+        chosen: dict[str, Any] = {"reviewer_provider": "gemini", "_env_file": None}
+        assert Settings(
+            app_env="production", image_provider="gemini", **chosen
+        ).reviewer_required
+        assert not Settings(
+            app_env="development", image_provider="gemini", **chosen
+        ).reviewer_required
+        assert not Settings(app_env="production", **chosen).reviewer_required
+
+    def test_a_reviewer_turned_off_is_never_required_and_never_built(self) -> None:
+        from app.config import Settings
+
+        chosen: dict[str, Any] = {
+            "app_env": "production",
+            "image_provider": "openai",
+            "reviewer_provider": "off",
+            "_env_file": None,
+        }
+        settings = Settings(**chosen)
+        assert not settings.reviewer_required
+        built = build_reviewer(api_key="k", model="m", required=True, provider="off")
+        assert isinstance(built, UnavailableReviewer)
 
 
 # --- the loop, through the real HTTP flow --------------------------------------
