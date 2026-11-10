@@ -119,7 +119,7 @@
     <div class="step-actions">
       <button type="button" class="link-button" data-go="name">← Back</button>
       {% if sections|length > 1 %}
-      <button type="button" class="button primary big" id="photo-next" data-go="friends" disabled>Next: story friends <span aria-hidden="true">→</span></button>
+      <button type="button" class="button primary big" id="photo-next" data-go="friends">Next: story friends <span aria-hidden="true">→</span></button>
       {% else %}
       <a class="button primary big" id="studio-next" href="/stories/{{ story.key }}/about" aria-disabled="true">Next: make the book <span aria-hidden="true">→</span></a>
       {% endif %}

@@ -5,7 +5,7 @@
    card a picture only: the sign-in button is the way in. #}
 {% from "_cover.html" import book_cover %}
 {% set story = card.story %}
-{% set card_index = loop.index0 if loop is defined else 0 %}
+{% set card_index = card_index | default(0) %}
 {% set labels = {"fresh": "Start this book", "drawing": "Being drawn…", "finished": "Make another", "waiting": "Not ready yet", "soon": "Coming soon"} %}
 <article class="story-card state-{{ card.state }}" data-story="{{ story.key }}" data-state="{{ card.state }}">
   {% if card.href and not signed_out %}

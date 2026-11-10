@@ -5,7 +5,8 @@
      #friends  optional faces for the rest of the cast
 
    The step lives in the URL hash, so Back and a reload land where you were.
-   A step is only reachable once the one before it is done. Within a step,
+   #photo and #friends open once the star has a name and boy or girl; the
+   portrait can be drawn in either order, but the book waits for it. Within a step,
    each character section is filled, drawn and folded on its own.
 
    State that must survive a refresh (chosen draft ids, settings, folds) goes
@@ -200,8 +201,7 @@ function stepFromHash() {
 function reachable(step) {
   if (step === "name") return true;
   if (!starGender()) return false;
-  if (step === "photo") return true;
-  return Boolean(draft.sections.star?.chosenId);
+  return true;
 }
 
 function firstUnfinished() {
@@ -604,8 +604,6 @@ function renderFooter() {
   const starReady = Boolean(draft.sections.star?.chosenId) && !busy.has("star");
   const next = document.getElementById("studio-next");
   next.setAttribute("aria-disabled", String(!starReady));
-  const photoNext = document.getElementById("photo-next");
-  if (photoNext) photoNext.disabled = !starReady;
   const summary = document.getElementById("studio-summary");
   if (!starReady) {
     summary.textContent = "";

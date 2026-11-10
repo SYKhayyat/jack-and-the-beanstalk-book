@@ -7,11 +7,10 @@
    before .is-prev, so CSS can stack a deck or cross-fade over an opaque
    cover. Autoplay pauses only while the pointer is actually over the deck
    (never because a dot received focus, which used to strand it paused after
-   a click), while the tab is hidden, and never starts for someone who asked
-   for reduced motion. data-offset (ms) delays the first turn so cards on a
+   a click) and while the tab is hidden. Someone who asked for reduced motion
+   still gets the turn, but the CSS makes it an instant swap, not a fade
+   (a carousel that never moves read as broken). data-offset (ms) delays the first turn so cards on a
    shelf turn out of step. */
-
-const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 for (const root of document.querySelectorAll("[data-carousel]")) {
   setUp(root);
@@ -52,7 +51,7 @@ function setUp(root) {
   };
   const start = () => {
     stop();
-    if (paused || reducedMotion.matches || document.hidden) return;
+    if (paused || document.hidden) return;
     timer = window.setInterval(() => show(current + 1), interval);
   };
   const go = (index) => {
@@ -81,7 +80,6 @@ function setUp(root) {
     start();
   });
   document.addEventListener("visibilitychange", start);
-  reducedMotion.addEventListener?.("change", start);
 
   /* Cards on one shelf start out of step, so they never all turn at once. */
   const offset = Number(root.dataset.offset) || 0;

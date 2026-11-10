@@ -11,6 +11,7 @@
 
   <section class="shelf-cards" aria-label="Books you can make">
     {% for card in cards %}
+      {% set card_index = loop.index0 %}
       {% include "_story_card.html" %}
     {% endfor %}
   </section>
