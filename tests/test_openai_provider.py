@@ -7,10 +7,12 @@ app is also the best-tested one.
 from __future__ import annotations
 
 import base64
+import io
 from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+from PIL import Image
 
 from app.config import Settings
 from app.services.image_providers.base import (
@@ -21,10 +23,11 @@ from app.services.image_providers.base import (
 )
 from app.services.image_providers.openai_provider import (
     QUALITIES,
+    REFERENCE_MAX_EDGE,
     OpenAIImageProvider,
     size_for_aspect_ratio,
 )
-from tests.helpers import tiny_png_bytes
+from tests.helpers import make_photo_bytes, tiny_png_bytes
 
 PNG = tiny_png_bytes()
 B64 = base64.b64encode(PNG).decode()
@@ -334,3 +337,32 @@ class TestTokenUsage:
         response = FakeResponse(data=[FakeItem(b64_json=B64)] * 3, usage=usage)
         images = build(FakeImages(response)).generate_candidates(req(), 3)
         assert {image.usage for image in images} == {TokenUsage(4, 6, 600)}
+
+
+class TestReferenceSize:
+    """References go up at most REFERENCE_MAX_EDGE on the long edge: fewer input tokens."""
+
+    def _sent(self, data: bytes, media_type: str = "image/png") -> Any:
+        images = FakeImages(FakeResponse([FakeItem(b64_json=B64)]))
+        build(images).generate(
+            ImageRequest(
+                prompt="p", reference_images=(data,), reference_media_types=(media_type,)
+            )
+        )
+        return images.calls[0]["image"]
+
+    def test_a_large_reference_is_scaled_to_the_cap_keeping_its_shape(self) -> None:
+        upload = self._sent(make_photo_bytes((1536, 1024)), "image/jpeg")
+        assert upload.name == "reference-0.png"
+        with Image.open(upload) as sent:
+            assert sent.size == (REFERENCE_MAX_EDGE, round(REFERENCE_MAX_EDGE * 2 / 3))
+
+    def test_a_small_reference_is_sent_untouched(self) -> None:
+        small = make_photo_bytes((800, 600))
+        assert self._sent(small).read() == small
+
+    def test_transparency_survives_the_resize(self) -> None:
+        buffer = io.BytesIO()
+        Image.new("RGBA", (2048, 2048), (0, 0, 0, 0)).save(buffer, format="PNG")
+        with Image.open(self._sent(buffer.getvalue())) as sent:
+            assert sent.mode == "RGBA"
