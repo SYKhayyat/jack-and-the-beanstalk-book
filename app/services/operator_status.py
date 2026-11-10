@@ -67,6 +67,10 @@ class ReviewHealth:
     tier2_unavailable: int
     #: Attempts tier 2 actually looked at.
     tier2_ran: int
+    #: Attempts the decision model settled on its own (no reviewer call).
+    settled_by_decision: int
+    #: Attempts the reviewer's verdict decided.
+    decided_by_reviewer: int
     faults: tuple[tuple[str, int], ...]
     #: (book, page) of finished pictures that must have a verdict and do not.
     unreviewed: tuple[tuple[str, int], ...]
@@ -117,6 +121,10 @@ class BookAttempt:
     requested: tuple[str, ...]
     tier2_unavailable: bool
     chosen: bool
+    #: "decision" or "reviewer": whose verdict this was; "" before the cascade.
+    judged_by: str = ""
+    #: The decision model's "shows the moment" probability, when it looked.
+    moment: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +190,7 @@ def review_health(engine: Engine, *, since: datetime | None = None) -> ReviewHea
     faults: Counter[str] = Counter()
     providers: Counter[str] = Counter()
     pictures = reviewed = first = redrawn = kept = unavailable = ran = 0
+    settled = by_reviewer = 0
     for review, best_effort in records:
         pictures += 1
         verdicts = list(review or [])
@@ -200,6 +209,10 @@ def review_health(engine: Engine, *, since: datetime | None = None) -> ReviewHea
                 unavailable += 1
             if 2 in verdict.get("tiers_run", []):
                 ran += 1
+            if verdict.get("judged_by") == "decision" and not verdict.get("note"):
+                settled += 1
+            elif verdict.get("judged_by") == "reviewer":
+                by_reviewer += 1
             if verdict.get("provider"):
                 providers[f"{verdict['provider']} · {verdict.get('model', '?')}"] += 1
     wanted = set(ids) if since is not None else None
@@ -212,6 +225,8 @@ def review_health(engine: Engine, *, since: datetime | None = None) -> ReviewHea
         best_effort=kept,
         tier2_unavailable=unavailable,
         tier2_ran=ran,
+        settled_by_decision=settled,
+        decided_by_reviewer=by_reviewer,
         faults=tuple(faults.most_common()),
         unreviewed=tuple(item for item in missing if wanted is None or item[0] in wanted),
         providers=tuple(providers.most_common()),
@@ -417,6 +432,8 @@ def _picture(
                 requested=tuple(str(item) for item in verdict.get("requested", [])),
                 tier2_unavailable=bool(verdict.get("tier2_failed")),
                 chosen=int(verdict.get("attempt", index + 1)) == chosen,
+                judged_by=str(verdict.get("judged_by", "")),
+                moment=_moment(verdict),
             )
             for index, verdict in enumerate(verdicts)
         ),
@@ -426,3 +443,11 @@ def _picture(
 def count_books(engine: Engine) -> int:
     with engine.connect() as conn:
         return int(conn.execute(select(func.count()).select_from(BookRow)).scalar_one())
+
+
+def _moment(verdict: Mapping[str, Any]) -> float | None:
+    decision = verdict.get("decision")
+    if not isinstance(decision, Mapping):
+        return None
+    value = (decision.get("probabilities") or {}).get("shows_moment")
+    return float(value) if isinstance(value, (int, float)) else None

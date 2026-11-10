@@ -11,6 +11,8 @@
   <tr><th scope="row">Redrawn at least once</th><td class="wallet-amount">{{ h.redrawn }}</td></tr>
   <tr><th scope="row">Kept as best effort (never passed)</th><td class="wallet-amount{% if h.best_effort %} admin-bad{% endif %}">{{ h.best_effort }}</td></tr>
   <tr><th scope="row">Attempts the reviewer judged</th><td class="wallet-amount">{{ h.tier2_ran }}</td></tr>
+  <tr><th scope="row">Attempts the decision judge settled alone</th><td class="wallet-amount">{{ h.settled_by_decision }}</td></tr>
+  <tr><th scope="row">Attempts the reviewer decided</th><td class="wallet-amount">{{ h.decided_by_reviewer }}</td></tr>
   <tr><th scope="row">Attempts the reviewer could not judge</th><td class="wallet-amount{% if h.tier2_unavailable %} admin-bad{% endif %}">{{ h.tier2_unavailable }}</td></tr>
   <tr><th scope="row">Finished pictures with no verdict</th><td class="wallet-amount{% if h.unreviewed %} admin-bad{% endif %}">{{ h.unreviewed | length }}</td></tr>
 {%- endmacro %}
@@ -42,7 +44,7 @@
 
   <section class="card" aria-labelledby="review-heading">
     <h2 id="review-heading">The review loop</h2>
-    <p class="field-help">Every picture is checked by tier 1 (free: blank, wrong shape, a grid of tiles, the plate redrawn) and then by the reviewer. A picture the reviewer could not judge is kept on tier 1 alone and counted here.</p>
+    <p class="field-help">Every picture is checked by tier 1 (free: blank, wrong shape, a grid of tiles, the plate redrawn) and then by the reviewer. A decision model looks first and settles the pictures it is sure about; the unsure ones go to the reviewer. A picture neither could judge is kept on tier 1 alone and counted here.</p>
     <div class="admin-columns">
       <table class="wallet-table admin-kv">
         <caption class="field-help">Last 7 days</caption>

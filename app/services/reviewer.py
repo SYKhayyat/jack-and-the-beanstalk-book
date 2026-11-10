@@ -133,8 +133,15 @@ class Verdict:
         tiers_run: tuple[int, ...] = (1,),
         note: str = "",
         tier2_failed: bool = False,
+        judged_by: str = "",
+        decision: dict[str, Any] | None = None,
     ) -> None:
         self.attempt = attempt
+        #: "decision" or "reviewer": which check's verdict this is. "" when
+        #: tier 2 did not run.
+        self.judged_by = judged_by
+        #: The decision model's answers, when it looked (`decision_judge.py`).
+        self.decision = decision
         self.passed = passed
         self.score = score
         self.faults = faults
@@ -154,6 +161,8 @@ class Verdict:
             "faults": list(self.faults),
             "note": self.note,
             **({"tier2_failed": True} if self.tier2_failed else {}),
+            **({"judged_by": self.judged_by} if self.judged_by else {}),
+            **({"decision": self.decision} if self.decision is not None else {}),
         }
 
 

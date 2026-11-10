@@ -214,6 +214,7 @@ def runner_with(reviewer: Any, attempts: int = MAX_PAGE_ATTEMPTS) -> BookRunner:
     runner._page_attempts = attempts
     runner._provider = Mock(name="provider")
     runner._provider.name = "big-painter"
+    runner._decision_judge = None
     return runner
 
 

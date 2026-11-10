@@ -603,7 +603,7 @@ Report exactly one JSON object and nothing else, in this shape:
 - "extra_person": someone is present whom neither the description nor the list above names
 - "text_in_image": any lettering, sign, caption, label, number, speech bubble or writing of any kind
 - "face_obscured": a face is hidden, cut off at the frame edge, or turned away in a way that loses the character
-- "frightening": blood, a wound, a weapon being used or pointed at someone, an attack in progress, or a child shown in real terror. A tool lying about (a woodcutter's axe in a stump) is not a weapon. The story's villain (a wolf, a giant) may look sly, cross or toothy in a friendly cartoon way; that alone is not frightening
+- "frightening": blood, a wound, a weapon being used or pointed at someone, an attack in progress, or a child shown in real terror. A tool lying about, or used for the job the description says (an axe chopping a tree), is not a weapon. The story's villain (a wolf, a giant) may look sly, cross or toothy in a friendly cartoon way; that alone is not frightening
 - "wrong_counts": a number the description states and the story depends on (five beans, three bears) is clearly wrong
 - "deformed": extra or missing limbs, extra fingers, fused hands, doubled feet, or a body that reads as broken
 - "collage": more than one picture in the frame — a grid of tiles, panels, a storyboard, a character sheet, or the same person shown more than once

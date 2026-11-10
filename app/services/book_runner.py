@@ -51,6 +51,7 @@ from app.services.book_store import (
 )
 from app.services.concurrency import ConcurrencyGate, GateTimeout, Slot
 from app.services.costs import cost_scope
+from app.services.decision_judge import COIN, Decision, DecisionJudge, Outcome
 from app.services.image_providers.base import GeneratedImage, ImageProvider, ImageRequest
 from app.services.image_review import review_image
 from app.services.media import media_type_for
@@ -158,6 +159,7 @@ class BookRunner:
         page_timeout_seconds: int,
         wallet: Wallet | None = None,
         reviewer: ImageReviewer | None = None,
+        decision_judge: DecisionJudge | None = None,
         page_attempts: int = MAX_PAGE_ATTEMPTS,
     ) -> None:
         self._provider = provider
@@ -165,6 +167,8 @@ class BookRunner:
         # (tests that predate the loop); the stand-in is used instead so every
         # verdict is stamped `tiers_run: [1]` rather than claiming a review.
         self._reviewer: ImageReviewer = reviewer or UnavailableReviewer()
+        # The confident first look (`decision_judge.py`); None when not configured.
+        self._decision_judge = decision_judge
         # A placeholder provider cannot improve on a second try: there is no
         # model to steer, so a retry would be three identical placeholders and
         # three claimed attempts. One attempt, and a verdict that says so.
@@ -186,6 +190,11 @@ class BookRunner:
     def reviewer_name(self) -> str:
         """Which tier-2 reviewer judges pictures; "off" when none does."""
         return self._reviewer.name
+
+    @property
+    def decision_judge_name(self) -> str:
+        """Which decision model looks first; "off" when none does."""
+        return self._decision_judge.name if self._decision_judge is not None else "off"
 
     @property
     def page_attempts(self) -> int:
@@ -800,9 +809,15 @@ class BookRunner:
         the plate only adds tier 1's two edit checks. A composed page is where
         a weak model goes most wrong, so it is the last one to wave through.
 
-        A tier-2 failure is *recorded*, not raised: a reviewer outage must never
-        cost a parent a finished book (T10.2). The verdict then says tier 1 only
-        ran for this image, so nothing downstream mistakes it for a review.
+        Tier 2 is a cascade (see `decision_judge.py`): a decision model looks
+        first and a picture it is confidently happy with passes there, with no
+        reviewer call. Every other picture goes to the reviewer, whose verdict
+        decides and whose words steer the redraw. When the reviewer cannot
+        answer, the decision decides alone; when neither can, tier 1 stands.
+
+        A tier-2 failure is *recorded*, not raised: an outage must never cost a
+        parent a finished book (T10.2). Only when neither check could look does
+        the verdict say tier 1 alone ran, so nothing mistakes it for a review.
         """
         tier1 = review_image(
             image,
@@ -826,65 +841,132 @@ class BookRunner:
                 ",".join(tier1.faults),
                 tier1.score,
             )
-        if not tier1.passed or self._reviewer.name == "off":
+        if not tier1.passed:
             return verdict
 
-        try:
-            answer: ReviewAnswer = await asyncio.to_thread(
-                self._reviewer.review,
-                image,
-                media_type=media_type_for(image),
-                page_title=page_title,
-                story_line=story_line,
-                cast=cast_note,
-            )
-        except Exception as exc:
-            logger.warning(
-                "book.review user=%s book=%s page=%d attempt=%d tier=2 "
-                "outcome=unavailable error=%s",
-                user,
-                book_id,
-                page_number,
-                attempt,
-                f"{type(exc).__name__}: {exc}",
-            )
+        decision = await self._decide(
+            image, brief=story_line, cast=cast_note, book_id=book_id, page_number=page_number
+        )
+        decided = decision.as_record() if decision is not None else None
+        if decision is not None and decision.outcome is Outcome.ACCEPT:
+            # Confidently good: no reviewer call is spent on it.
             return Verdict(
                 attempt=attempt,
-                passed=tier1.passed,
-                score=tier1.score,
-                faults=tuple(tier1.faults),
-                note="tier 2 did not run",
-                tier2_failed=True,
+                passed=True,
+                score=min(decision.score, tier1.score),
+                tiers_run=(1, 2),
+                judged_by="decision",
+                decision=decided,
             )
 
-        # The code applies the pass rule, not the model's own `passed`: a serious
-        # fault fails the picture whatever the model concluded ("passed, but
-        # there is lettering in the sky" is not a pass), and a minor one alone
-        # (three cups, not two) does not fail a picture that scores well.
-        passed = verdict_passes(answer.score, answer.faults)
-        # The two tiers' scores answer different questions, so the combined
-        # score is the stricter one: a page is only as good as its worst check.
-        score = min(answer.score, tier1.score)
-        faults = answer.faults
-        if not passed:
-            logger.warning(
-                "book.review user=%s book=%s page=%d attempt=%d tier=2 "
-                "faults=%s score=%d outcome=failed note=%r",
-                user,
-                book_id,
-                page_number,
-                attempt,
-                ",".join(faults) or "-",
-                score,
-                answer.note,
+        answer: ReviewAnswer | None = None
+        if self._reviewer.name != "off":
+            try:
+                answer = await asyncio.to_thread(
+                    self._reviewer.review,
+                    image,
+                    media_type=media_type_for(image),
+                    page_title=page_title,
+                    story_line=story_line,
+                    cast=cast_note,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "book.review user=%s book=%s page=%d attempt=%d tier=2 "
+                    "outcome=unavailable error=%s",
+                    user,
+                    book_id,
+                    page_number,
+                    attempt,
+                    f"{type(exc).__name__}: {exc}",
+                )
+
+        if answer is None:
+            if decision is None:
+                # Neither vision check could look: tier 1 alone, and said so.
+                return Verdict(
+                    attempt=attempt,
+                    passed=tier1.passed,
+                    score=tier1.score,
+                    faults=tuple(tier1.faults),
+                    note="tier 2 did not run",
+                    tier2_failed=True,
+                )
+            # The reviewer is down or not set: the decision makes the call on
+            # its own, a confident rejection as it is, an unsure one at halfway.
+            faults = decision.faults(COIN)
+            passed = decision.outcome is not Outcome.REJECT and not faults
+            verdict = Verdict(
+                attempt=attempt,
+                passed=passed,
+                score=min(decision.score, tier1.score),
+                faults=faults,
+                tiers_run=(1, 2),
+                judged_by="decision",
+                decision=decided,
             )
-        return Verdict(
+            self._log_failed(verdict, user, book_id, page_number)
+            return verdict
+
+        # The reviewer decides whenever it answered, the decision's confident
+        # rejections included: on real pages (2026-11-09) the decision model
+        # rejected two pictures the reviewer rightly called perfect, and a
+        # reviewer asked anyway costs nothing extra to believe. The code applies
+        # the pass rule, not the model's own `passed`: a serious fault fails the
+        # picture whatever the model concluded, and a minor one alone (three
+        # cups, not two) does not fail a picture that scores well.
+        faults = answer.faults
+        passed = verdict_passes(answer.score, answer.faults)
+        judged_by = "reviewer"
+        # The checks' scores answer different questions, so the combined score
+        # is the strictest: a page is only as good as its worst check.
+        verdict = Verdict(
             attempt=attempt,
             passed=passed,
-            score=score,
+            score=min(answer.score, tier1.score),
             faults=faults,
             tiers_run=(1, 2),
             note=answer.note,
+            judged_by=judged_by,
+            decision=decided,
+        )
+        self._log_failed(verdict, user, book_id, page_number)
+        return verdict
+
+    async def _decide(
+        self, image: bytes, *, brief: str, cast: str, book_id: str, page_number: int
+    ) -> Decision | None:
+        """The decision model's look at one picture, or None if it could not answer."""
+        if self._decision_judge is None:
+            return None
+        try:
+            return await asyncio.to_thread(
+                self._decision_judge.decide, image, brief=brief, cast=cast
+            )
+        except Exception as exc:
+            logger.warning(
+                "book.decision book=%s page=%d outcome=unavailable error=%s",
+                book_id,
+                page_number,
+                f"{type(exc).__name__}: {exc}",
+            )
+            return None
+
+    @staticmethod
+    def _log_failed(verdict: Verdict, user: str, book_id: str, page_number: int) -> None:
+        if verdict.passed:
+            return
+        logger.warning(
+            "book.review user=%s book=%s page=%d attempt=%d tier=2 by=%s "
+            "faults=%s score=%d outcome=failed note=%r",
+            user,
+            book_id,
+            page_number,
+            verdict.attempt,
+            verdict.judged_by,
+            ",".join(verdict.faults) or "-",
+            verdict.score,
+            verdict.note,
         )
 
     async def _draw_until_pass(

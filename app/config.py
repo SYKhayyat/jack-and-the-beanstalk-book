@@ -126,6 +126,24 @@ class Settings(BaseSettings):
             "passes is kept and marked best-effort rather than retried forever."
         ),
     )
+    decision_judge: bool = Field(
+        default=True,
+        description=(
+            "Let a decision model (OpenAI's Decisions API, JEV-style) look at every "
+            "picture first: confidently good pictures pass without a reviewer call, "
+            "confidently bad ones fail, and only unsure ones go to the reviewer. Needs "
+            "OPENAI_API_KEY; off in mock mode."
+        ),
+    )
+    decision_judge_model: str = Field(
+        default="gpt-6-luna",
+        description="The decision model. gpt-6-luna is the one the Decisions API serves.",
+    )
+    decision_judge_usd_per_million_tokens: float = Field(
+        default=0.10,
+        ge=0,
+        description="The decision model's price per million input tokens (output is free).",
+    )
     reviewer_timeout_seconds: int = Field(
         default=90,
         ge=5,
@@ -321,6 +339,15 @@ class Settings(BaseSettings):
         that already has `GEMINI_API_KEY` for images needs no second key.
         """
         return self.reviewer_api_key.strip() or self.gemini_api_key.strip()
+
+    @property
+    def decision_judge_enabled(self) -> bool:
+        """Whether the decision model looks first: asked for, keyed, and not mock."""
+        return (
+            self.decision_judge
+            and bool(self.openai_api_key.strip())
+            and self.image_provider is not ProviderName.MOCK
+        )
 
     @property
     def reviewer_required(self) -> bool:

@@ -21,6 +21,7 @@ from app.services.book_store import BookStore
 from app.services.concurrency import ConcurrencyGate
 from app.services.costs import (
     CostLedger,
+    MeteredDecisionJudge,
     MeteredProvider,
     image_call_price,
     metered_reviewer,
@@ -28,6 +29,7 @@ from app.services.costs import (
 )
 from app.services.db_book_store import DatabaseBookStore
 from app.services.db_wallet_store import DatabaseWalletStore
+from app.services.decision_judge import DecisionJudge, OpenAIDecisionJudge
 from app.services.image_providers.base import ImageProvider
 from app.services.image_providers.registry import build_provider
 from app.services.payments import PaymentProvider, StripePaymentProvider
@@ -105,8 +107,10 @@ def build_container(
     provider: ImageProvider | None = None,
     payments: PaymentProvider | None = None,
     reviewer: ImageReviewer | None = None,
+    decision_judge: DecisionJudge | None = None,
 ) -> Container:
-    """Construct the graph. Pass `provider`/`payments`/`reviewer` to override (tests do)."""
+    """Construct the graph. Pass `provider`/`payments`/`reviewer`/`decision_judge`
+    to override (tests do)."""
     unmetered = provider or build_provider(settings)
     resolved_payments: PaymentProvider | None = payments
     if resolved_payments is None and settings.payments_enabled:
@@ -174,6 +178,20 @@ def build_container(
                 ),
                 costs,
                 review_call_price(settings),
+            ),
+            decision_judge=decision_judge
+            or (
+                MeteredDecisionJudge(
+                    OpenAIDecisionJudge(
+                        settings.openai_api_key,
+                        model=settings.decision_judge_model,
+                        timeout_seconds=settings.reviewer_timeout_seconds,
+                    ),
+                    costs,
+                    settings.decision_judge_usd_per_million_tokens,
+                )
+                if settings.decision_judge_enabled
+                else None
             ),
             page_attempts=settings.page_attempts,
         ),

@@ -43,6 +43,7 @@ from sqlalchemy.engine import Engine
 from app.config import ProviderName, Settings
 from app.db import ApiCallRow, BookRow
 from app.models.story import COVER_NUMBER
+from app.services.decision_judge import Decision, DecisionJudge
 from app.services.image_providers.base import GeneratedImage, ImageProvider, ImageRequest
 from app.services.reviewer import ImageReviewer, ReviewAnswer
 
@@ -52,6 +53,7 @@ __all__ = [
     "CostLedger",
     "CostScope",
     "CostSummary",
+    "MeteredDecisionJudge",
     "MeteredProvider",
     "MeteredReviewer",
     "cost_scope",
@@ -438,6 +440,40 @@ class MeteredReviewer:
                 images=0,
                 ok=ok,
                 cost_microusd=_micros(self._price.usd),
+                duration_ms=round((time.monotonic() - started) * 1000),
+            )
+
+
+class MeteredDecisionJudge:
+    """The decision judge, with every call written to the ledger at its token price.
+
+    Priced from the input tokens the call reports, since that is how the
+    Decisions API bills (output is free); a failed call is logged at $0.
+    """
+
+    def __init__(
+        self, inner: DecisionJudge, ledger: CostLedger, usd_per_million: float
+    ) -> None:
+        self._inner = inner
+        self._ledger = ledger
+        self._usd_per_million = usd_per_million
+        self.name = inner.name
+
+    def decide(self, image: bytes, *, brief: str, cast: str) -> Decision:
+        started = time.monotonic()
+        decision: Decision | None = None
+        try:
+            decision = self._inner.decide(image, brief=brief, cast=cast)
+            return decision
+        finally:
+            tokens = decision.input_tokens if decision is not None else 0
+            self._ledger.record(
+                kind="review",
+                provider="decisions",
+                model=decision.model if decision is not None else "",
+                images=0,
+                ok=decision is not None,
+                cost_microusd=round(tokens * self._usd_per_million),
                 duration_ms=round((time.monotonic() - started) * 1000),
             )
 

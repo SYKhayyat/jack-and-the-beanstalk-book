@@ -176,6 +176,15 @@ def _backends(container: Container) -> list[tuple[str, str]]:
             if reviewer == "off"
             else f"{reviewer} · {settings.reviewer_model}",
         ),
+        (
+            "Decision judge (first look)",
+            "OFF — every picture goes to the reviewer"
+            if container.book_runner.decision_judge_name == "off"
+            else (
+                f"{container.book_runner.decision_judge_name}"
+                f" · {settings.decision_judge_model}"
+            ),
+        ),
         ("Tries per picture", str(container.book_runner.page_attempts)),
         ("Concurrent image calls", str(container.gate.limit)),
         ("Image calls per client per minute", str(settings.max_generations_per_minute)),

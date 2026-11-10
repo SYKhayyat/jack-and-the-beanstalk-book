@@ -101,13 +101,14 @@
           <h3>{{ picture.label }}{% if picture.best_effort %} <span class="admin-tag admin-bad">best effort</span>{% endif %}</h3>
           {% if picture.attempts %}
           <table class="wallet-table admin-compact">
-            <thead><tr><th scope="col">Try</th><th scope="col">Verdict</th><th scope="col">Tiers</th><th scope="col">Faults</th><th scope="col">The reviewer said</th><th scope="col">Asked for</th><th scope="col">Drawn by</th></tr></thead>
+            <thead><tr><th scope="col">Try</th><th scope="col">Verdict</th><th scope="col">Tiers · by</th><th scope="col">Moment</th><th scope="col">Faults</th><th scope="col">The reviewer said</th><th scope="col">Asked for</th><th scope="col">Drawn by</th></tr></thead>
             <tbody>
               {% for attempt in picture.attempts %}
               <tr{% if attempt.chosen %} class="admin-chosen"{% endif %}>
                 <td>{{ attempt.attempt }}{% if attempt.chosen %} ✓{% endif %}</td>
                 <td>{% if attempt.passed %}passed{% else %}<span class="admin-bad">failed</span>{% endif %} · {{ attempt.score }}</td>
-                <td>{{ attempt.tiers }}{% if attempt.tier2_unavailable %} <span class="admin-bad">(reviewer down)</span>{% endif %}</td>
+                <td>{{ attempt.tiers }}{% if attempt.judged_by %} · {{ attempt.judged_by }}{% endif %}{% if attempt.tier2_unavailable %} <span class="admin-bad">(reviewer down)</span>{% endif %}</td>
+                <td>{% if attempt.moment is not none %}{{ "%.2f" | format(attempt.moment) }}{% else %}—{% endif %}</td>
                 <td>{{ attempt.faults | join(", ") or "—" }}</td>
                 <td>{{ attempt.note or "—" }}</td>
                 <td>{{ attempt.requested | join(", ") or "—" }}</td>

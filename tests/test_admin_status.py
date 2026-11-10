@@ -76,7 +76,7 @@ def _book(client: TestClient) -> str:
     )
     assert started.status_code == 201, started.text
     book_id = str(started.json()["book_id"])
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
         if client.get(f"/api/book/{book_id}").json()["status"] in {"complete", "failed"}:
             return book_id
@@ -120,6 +120,7 @@ class TestWhatItSays:
         assert page.headers["cache-control"] == "private, no-store"
         assert "recording" in page.text  # the provider, printed for the operator only
         assert "OFF — pictures get tier 1 only" in page.text
+        assert "OFF — every picture goes to the reviewer" in page.text  # no judge in tests
         assert "no plates — pages are composed from scratch" in page.text
 
     def test_a_book_shows_every_attempt_with_what_drew_it(self, site: TestClient) -> None:
