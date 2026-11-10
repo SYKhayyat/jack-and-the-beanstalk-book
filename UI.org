@@ -175,6 +175,28 @@ Kids will be watching. Make the 3 minutes a show (U10), not a progress bar:
   button.
 
 ** TODO G4 [#A] The reader should feel like a book, not a slideshow
+Your three specifics, all visible on the live book:
+1. *The text isn't on the page.* It's a =<figcaption>= in a white strip under
+   the art (=.spread-story=), so the picture and the words read as two
+   separate things: a photo with a caption. In a picture book the words are
+   *part of the page*. Options that still keep text off faces (the rule in
+   to-do.md): a facing text page in a two-page spread; text set on a calm
+   region of the art (the plates' top band already exists for the cover title,
+   and plates could reserve a text area per page); or the art bleeding to the
+   page edges with a parchment panel inset over a quiet corner. The PDF and the
+   web reader should share the same layout.
+2. *Random whitespace.* The 4:3 art is centred inside a wider frame
+   (=.spread-art=), leaving cream bars left and right, then card padding,
+   then the white text strip, then the frame's border and shadow. Nothing
+   bleeds. Make the page one surface sized to the art's aspect (art full-bleed
+   to the page edge), and the page itself sized to the viewport so nothing
+   sits under the fold.
+3. *Terrible font.* Story text uses =--font= (=ui-sans-serif, system-ui=…), the
+   same face as buttons and form labels, at ~18 px. Literata is already loaded
+   (headings only). Use a book face for the story (Literata, or a rounder
+   children's-book serif like Andika/Atkinson for early readers) at 22–26 px
+   with generous leading, a drop cap on page 1, and real typographic quotes
+   ('Go straight there' is set with straight ASCII apostrophes today).
 - Two-page spreads on wide screens (art left, text right on a cream "paper"
   page in Literata at 20–22 px, a drop cap on page 1). Single page on phones.
 - Page-curl or slide-with-shadow turn; swipe on touch (already wired).
