@@ -25,7 +25,7 @@
       <div class="admin-card-head">
         <h2><a href="/admin/plates/{{ story.key }}">{{ story.title }}</a></h2>
         {% if story.seeded %}
-        <span class="admin-state{% if story.approved == page_total %} is-good{% endif %}">{{ story.approved }} of {{ page_total }} approved</span>
+        <span class="admin-state{% if story.approved == page_total %} is-good{% endif %}">{{ story.approved }} of {{ page_total }} plates approved</span>
         {% endif %}
       </div>
       {% if story.seeded %}
@@ -33,7 +33,7 @@
         <span style="width: {{ (100 * story.approved / page_total) | round(1) }}%"></span>
       </div>
       <p class="field-help">
-        {% if story.version %}Template version {{ story.version }} is live.{% else %}No complete version yet.{% endif %}
+        {% if story.version %}Template version {{ story.version }} is live.{% else %}There is no complete version yet.{% endif %}
         {% if story.drafts %}{{ story.drafts }} draft plate(s) waiting for review.{% else %}No drafts waiting.{% endif %}
       </p>
       <div class="admin-story-actions">
