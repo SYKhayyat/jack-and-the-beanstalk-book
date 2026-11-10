@@ -69,7 +69,7 @@
         <tbody>
           {% for entry in history %}
           <tr>
-            <td class="wallet-when">{{ entry.created_at[:16].replace("T", " ") }}</td>
+            <td class="wallet-when"><time datetime="{{ entry.created_at }}" data-format="date-time">{{ entry.created_at[:16].replace("T", " ") }}</time></td>
             <td>{{ entry.description }}{% if entry.made_for %}<span class="wallet-made-for">This book cost {{ entry.made_for }} in API calls to make.</span>{% endif %}</td>
             <td class="wallet-amount{% if entry.credit %} credit{% endif %}">{{ entry.amount_label }}</td>
           </tr>
@@ -121,7 +121,7 @@
         <tbody>
           {% for item in refunds %}
           <tr>
-            <td class="wallet-when">{{ item.created_at[:16].replace("T", " ") }}</td>
+            <td class="wallet-when"><time datetime="{{ item.created_at }}" data-format="date-time">{{ item.created_at[:16].replace("T", " ") }}</time></td>
             <td class="wallet-amount">{{ item.amount_label }}</td>
             <td>{{ item.status }}{% if item.note %} — {{ item.note }}{% endif %}</td>
           </tr>

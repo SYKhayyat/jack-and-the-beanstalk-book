@@ -9,15 +9,18 @@
                                    the portrait history behind each face
     /admin/books/{id}/art/{n}      the picture on page n (0 is the cover)
 
-The same gate as the plate screens: `OPERATOR_SUB` names one Google account and
-everybody else gets the 404 an unknown URL gets. This is the only place the
-image provider's and the reviewer's names are printed; no visitor surface
-carries them.
+The same gate as the plate screens: `OPERATOR_SUB` names the Google account(s)
+who may come in — by OAuth subject id or account email, comma separated — and
+everybody else gets the 404 an unknown URL gets. The overview also carries the
+one destructive action: removing a book the visitor can no longer reach. This
+is the only place the image provider's and the reviewer's names are printed; no
+visitor surface carries them.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -27,11 +30,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from app.config import ProviderName
 from app.container import Container
 from app.dependencies import ContainerDep
-from app.routes.admin import operator_or_404, render_admin
+from app.routes.admin import admin_chrome, operator_or_404, render_admin
 from app.routes.auth import CurrentSessionDep
 from app.routes.book_access import no_store
 from app.routes.wallet import cost_panel
-from app.routes.web import page_chrome
 from app.services.costs import image_call_price
 from app.services.media import media_type_for
 from app.services.operator_status import (
@@ -44,6 +46,8 @@ from app.services.operator_status import (
 __all__ = ["router"]
 
 router = APIRouter(prefix="/admin", tags=["admin"], include_in_schema=False)
+
+logger = logging.getLogger(__name__)
 
 #: The window the headline review numbers cover. Long enough to hold a few days
 #: of books, short enough that a fix shows up in the numbers the day after.
@@ -76,7 +80,7 @@ async def status_page(
         request,
         "admin_status.html",
         {
-            **page_chrome(container, session),
+            **admin_chrome(container, session, "/admin/status"),
             "backends": _backends(container),
             "stories": stories,
             "week": week,
@@ -123,7 +127,7 @@ async def book_page(
         request,
         "admin_book.html",
         {
-            **page_chrome(container, session),
+            **admin_chrome(container, session, "/admin/status"),
             "book": detail,
             "portrait_history": history,
             "cast_history": cast_history,
@@ -133,6 +137,25 @@ async def book_page(
     )
     response.headers["Cache-Control"] = "private, no-store"
     return response
+
+
+@router.post("/books/{book_id}/delete")
+async def delete_book(
+    book_id: str, container: ContainerDep, session: CurrentSessionDep
+) -> RedirectResponse:
+    """Remove a book and every picture in it.
+
+    The visitor's own delete exists on the book page; this is the operator's,
+    for the copy that cannot be reached any more (a failed book, an abandoned
+    session, a test book left on the live site). It is deliberately behind the
+    same identity gate as everything else here.
+    """
+    operator = operator_or_404(container, session)
+    if container.book_store.load_record(book_id) is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    await asyncio.to_thread(container.book_store.delete, book_id)
+    logger.info("admin.book_deleted book=%s operator=%s", book_id, operator)
+    return RedirectResponse("/admin/status", status_code=303)
 
 
 @router.get("/books/{book_id}/art/{number}")

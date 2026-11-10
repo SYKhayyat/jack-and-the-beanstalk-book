@@ -4,9 +4,21 @@
 {% block header_title %}<span class="header-title">Plate review</span>{% endblock %}
 {% block main_class %}page admin{% endblock %}
 {% block content %}
+  {% include "_admin_nav.html" %}
   <nav class="breadcrumb"><a href="/admin/plates">← All stories</a></nav>
 
-  <h1>{{ story.title }}</h1>
+  <header class="admin-head">
+    <div>
+      <p class="admin-eyebrow">Contact sheet</p>
+      <h1>{{ story.title }}</h1>
+    </div>
+    <div class="admin-head-actions">
+      <a class="button" href="/admin/status">Overview</a>
+    </div>
+  </header>
+  <div class="admin-progress-track" role="progressbar" aria-label="Plates painted" aria-valuemin="0" aria-valuemax="{{ page_total }}" aria-valuenow="{{ painted_count }}">
+    <span style="width: {{ (100 * painted_count / page_total) | round(1) }}%"></span>
+  </div>
   {% if painted_page is not none %}
   <p class="inline-message" role="status">Painted page {{ painted_page }}.</p>
   {% elif finished %}
@@ -20,6 +32,15 @@
     band is the strip its title sits over. Open a page to approve it, or type what
     should change and press <strong>Paint again</strong> for one more try.
   </p>
+  <details class="admin-help">
+    <summary>How to review a story</summary>
+    <ol class="admin-help-list">
+      <li><strong>Paint</strong> every missing page. One image call each; stopping and starting again picks up where it left off.</li>
+      <li><strong>Open a tile</strong> and approve the best candidate. A plate is never overwritten — a new try waits beside it.</li>
+      <li><strong>Fix one thing</strong> by typing what should change ("warmer light", "the path on the right"), then paint again.</li>
+      <li><strong>Turn the start gate on</strong> once every page is approved; that set becomes the template new books are drawn on.</li>
+    </ol>
+  </details>
 
   <form class="admin-paint" method="post" action="/admin/plates/{{ story.key }}/paint"
         data-paint data-story="{{ story.key }}">

@@ -1,10 +1,11 @@
 {# One shelf card. `card` carries story, state (fresh/drawing/finished/waiting/soon),
-   href, and the person's own newest cover (`cover_url`, `cover_title`) when
-   they have one. Without one the card cycles through the story's finished
-   sample covers. `signed_out` makes the card a picture only: the sign-in
-   button is the way in. #}
+   href, and every finished cover the person has of that story (`covers`,
+   newest first), so the card turns through their own books. Without one it
+   cycles through the story's finished sample covers. `signed_out` makes the
+   card a picture only: the sign-in button is the way in. #}
 {% from "_cover.html" import book_cover %}
 {% set story = card.story %}
+{% set card_index = loop.index0 if loop is defined else 0 %}
 {% set labels = {"fresh": "Start this book", "drawing": "Being drawn…", "finished": "Make another", "waiting": "Not ready yet", "soon": "Coming soon"} %}
 <article class="story-card state-{{ card.state }}" data-story="{{ story.key }}" data-state="{{ card.state }}">
   {% if card.href and not signed_out %}
@@ -12,12 +13,16 @@
   {% else %}
   <div class="story-card-link" {% if card.state in ("soon", "waiting") %}aria-disabled="true"{% endif %}>
   {% endif %}
-    {% if card.cover_url and not signed_out %}
-    <span class="story-card-art">
-      {{ book_cover(card.cover_url, card.cover_title or story.title, card.cover_subtitle, alt="Your latest cover: " ~ (card.cover_title or story.title) ~ (", " ~ card.cover_subtitle if card.cover_subtitle else "")) }}
+    {% if card.covers and not signed_out %}
+    <span class="story-card-art fader" data-carousel data-interval="5200" data-offset="{{ card_index * 2600 }}">
+      {% for cover in card.covers %}
+      <span class="fader-slide{% if loop.first %} is-active{% endif %}" data-slide {% if not loop.first %}aria-hidden="true"{% endif %}>
+        {{ book_cover(cover.url, cover.title or story.title, cover.subtitle, alt="Your cover: " ~ (cover.title or story.title) ~ (", " ~ cover.subtitle if cover.subtitle else ""), lazy=not loop.first) }}
+      </span>
+      {% endfor %}
     </span>
     {% else %}
-    <span class="story-card-art fader" data-carousel data-interval="5200" data-offset="{{ ((loop.index0 if loop is defined else 0) * 2600) }}">
+    <span class="story-card-art fader" data-carousel data-interval="5200" data-offset="{{ card_index * 2600 }}">
       {% for sample in story.samples %}
       <span class="fader-slide{% if loop.first %} is-active{% endif %}" data-slide {% if not loop.first %}aria-hidden="true"{% endif %}>
         {{ book_cover(sample.url, sample.title, sample.byline, alt="A sample cover: " ~ sample.title ~ ", " ~ sample.byline, lazy=not loop.first) }}

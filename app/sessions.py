@@ -57,6 +57,9 @@ class Session:
     # The person's display name, carried so a page can greet them without a
     # lookup on every render.
     name: str = ""
+    # The Google account's email, carried so /admin can recognise an operator
+    # listed by address rather than by OAuth subject id.
+    email: str = ""
 
     @property
     def user_id(self) -> str | None:
@@ -84,14 +87,19 @@ class SessionCodec:
         ttl_seconds: int,
         sub: str = "",
         name: str = "",
+        email: str = "",
     ) -> str:
         """Mint a cookie value: an expiry, the payload that justifies it, a signature."""
         expiry = int(time.time()) + ttl_seconds
-        payload = _encode({"kind": kind, "sub": sub, "name": name, "exp": expiry})
+        payload = _encode(
+            {"kind": kind, "sub": sub, "name": name, "email": email, "exp": expiry}
+        )
         return f"{payload}.{self._sign(payload)}"
 
-    def issue_google(self, *, sub: str, name: str, ttl_seconds: int) -> str:
-        return self.issue(SessionKind.GOOGLE, ttl_seconds=ttl_seconds, sub=sub, name=name)
+    def issue_google(self, *, sub: str, name: str, ttl_seconds: int, email: str = "") -> str:
+        return self.issue(
+            SessionKind.GOOGLE, ttl_seconds=ttl_seconds, sub=sub, name=name, email=email
+        )
 
     def issue_password(self, *, ttl_seconds: int) -> str:
         return self.issue(SessionKind.PASSWORD, ttl_seconds=ttl_seconds)
@@ -131,6 +139,7 @@ class SessionCodec:
             expires_at=expiry,
             sub=str(payload.get("sub", "")),
             name=str(payload.get("name", "")),
+            email=str(payload.get("email", "")),
         )
 
     # --- the short-lived state the OAuth round trip needs ----------------------

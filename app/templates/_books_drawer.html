@@ -15,7 +15,7 @@
             <strong>{{ item.title or "Untitled book" }}</strong>
             {% if item.subtitle %}<span class="drawer-subtitle">{{ item.subtitle }}</span>{% endif %}
             <span class="drawer-meta">
-              {% if item.status == "complete" %}finished {{ item.updated_at|short_date }} · {{ item.page_count or 21 }} pictures
+              {% if item.status == "complete" %}finished <time datetime="{{ item.updated_at }}" data-format="day-month">{{ item.updated_at|short_date }}</time> · {{ item.page_count or 21 }} pictures
               {% elif item.status == "failed" %}stopped · {{ item.pages_done }} of {{ item.page_count or 20 }}
               {% else %}<span class="dot" aria-hidden="true"></span>being drawn · {{ item.pages_done }} of {{ item.page_count or 20 }}{% endif %}
             </span>

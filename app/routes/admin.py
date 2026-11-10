@@ -11,9 +11,11 @@ decides whether a book of that story may start before its plates are all
 approved. Off, books are drawn from the words and looks alone; on, a story with
 no complete template version is "not ready yet" on the shelf and refuses a start.
 
-The gate is an identity, not a role: `OPERATOR_SUB` names one Google account,
-and every route answers 404 to anybody else — the same answer an unknown URL
-gives, so `/admin` neither confirms that it exists nor hints at what it holds.
+The gate is an identity, not a role: `OPERATOR_SUB` names the Google account(s)
+who may come in — one or more OAuth subject ids or account emails, comma
+separated — and every route answers 404 to anybody else. That 404 is the same
+answer an unknown URL gives, so `/admin` neither confirms that it exists nor
+hints at what it holds.
 
 Every write goes through `TemplateStore`; this module owns no SQL. The one rule
 it adds in front of the store is the cover's title-band check (T1.5): a plate
@@ -90,15 +92,44 @@ TemplateDep = Annotated[TemplateStore, Depends(get_templates)]
 
 
 def operator_or_404(container: Container, session: CurrentSessionDep) -> str:
-    """The operator's sub, or a 404 for everyone else.
+    """The operator's name, or a 404 for everyone else.
+
+    `OPERATOR_SUB` may list Google subject ids and/or account emails; either
+    matches. The returned value is what a plate records as its approver: the
+    sub when the sub was named (the long-standing behaviour, and what the
+    tests pin), otherwise the email that was named.
 
     Deliberately indistinguishable from a missing page: a 403 would tell a
     signed-in visitor that a review screen exists and who may use it.
     """
-    operator = container.settings.operator_sub
-    if not operator or session is None or session.sub != operator:
+    settings = container.settings
+    if session is None:
         raise HTTPException(status_code=404, detail="Not Found")
-    return operator
+    if session.sub and session.sub in settings.operator_ids:
+        return session.sub
+    if session.email and settings.is_operator_identity(email=session.email):
+        return session.email
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+#: The operator's own navigation. One list, so every admin screen agrees.
+ADMIN_TABS: tuple[tuple[str, str], ...] = (
+    ("/admin/status", "Overview"),
+    ("/admin/plates", "Stories & plates"),
+    ("/", "Back to the shelf"),
+)
+
+
+def admin_chrome(
+    container: Container, session: CurrentSessionDep, current: str
+) -> dict[str, Any]:
+    """Shared page chrome plus the operator navigation and who they are."""
+    return {
+        **page_chrome(container, session),
+        "admin_tabs": ADMIN_TABS,
+        "admin_current": current,
+        "admin_operator": (session.email or session.name or session.sub) if session else "",
+    }
 
 
 def _seed_or_404(story_key: str) -> StorySeed:
@@ -189,7 +220,7 @@ def plate_index(
         request,
         "admin_plates.html",
         {
-            **page_chrome(container, session),
+            **admin_chrome(container, session, "/admin/plates"),
             "stories": stories,
             "page_total": len(PAGE_NUMBERS),
         },
@@ -246,7 +277,7 @@ def contact_sheet(
         request,
         "admin_plate_sheet.html",
         {
-            **page_chrome(container, session),
+            **admin_chrome(container, session, "/admin/plates"),
             "story": seed,
             "tiles": tiles,
             "version": version.number if version else None,
@@ -307,7 +338,7 @@ def page_review(
         request,
         "admin_plate_review.html",
         {
-            **page_chrome(container, session),
+            **admin_chrome(container, session, "/admin/plates"),
             "story": seed,
             "page": {
                 "number": page_number,
@@ -319,6 +350,8 @@ def page_review(
             "candidates": candidates,
             "plan": {"prompt": plan.prompt, "slots": _slot_rows(plan.slots)},
             "band_percent": f"{COVER_TITLE_BAND_FRACTION * 100:.2f}",
+            "prev_page": page_number - 1 if page_number > min(PAGE_NUMBERS) else None,
+            "next_page": page_number + 1 if page_number < max(PAGE_NUMBERS) else None,
             "error": error,
         },
     )

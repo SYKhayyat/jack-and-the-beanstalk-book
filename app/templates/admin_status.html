@@ -1,5 +1,5 @@
 {% extends "_layout.html" %}
-{% block title %}Status — Storybook Studio{% endblock %}
+{% block title %}Overview — Storybook Studio{% endblock %}
 {% block body_attrs %}data-page="admin"{% endblock %}
 {% block header_title %}<span class="header-title">Operator</span>{% endblock %}
 {% block main_class %}page admin{% endblock %}
@@ -15,12 +15,93 @@
   <tr><th scope="row">Finished pictures with no verdict</th><td class="wallet-amount{% if h.unreviewed %} admin-bad{% endif %}">{{ h.unreviewed | length }}</td></tr>
 {%- endmacro %}
 {% block content %}
-  <nav class="breadcrumb admin-nav"><a href="/admin/status" aria-current="page">Status</a> · <a href="/admin/plates">Plates</a> · <a href="/">The shelf</a></nav>
+  {% include "_admin_nav.html" %}
 
-  <h1>Status</h1>
+  <header class="admin-head">
+    <div>
+      <p class="admin-eyebrow">The workshop</p>
+      <h1>Everything, at a glance</h1>
+      <p class="admin-lede">Books, pictures, plates, money and the live backends — in one place. Everything here is read-only unless a card says otherwise.</p>
+    </div>
+    <div class="admin-head-actions">
+      <a class="button primary" href="/admin/plates">Review plates <span aria-hidden="true">→</span></a>
+      <a class="button" href="/">See the shelf</a>
+    </div>
+  </header>
 
-  <section class="card" aria-labelledby="backends-heading">
-    <h2 id="backends-heading">What is live</h2>
+  <section class="admin-tiles" aria-label="At a glance">
+    <a class="admin-tile" href="#review-heading">
+      <span class="admin-tile-figure">{{ week.books }}</span>
+      <span class="admin-tile-label">books this week</span>
+      <span class="admin-tile-note">{{ ever.books }} in the record</span>
+    </a>
+    <a class="admin-tile" href="#review-heading">
+      <span class="admin-tile-figure">{{ week.reviewed }}<span class="admin-tile-of"> / {{ week.pictures }}</span></span>
+      <span class="admin-tile-label">pictures checked this week</span>
+      <span class="admin-tile-note">tier 1 always; tier 2 when the reviewer is on</span>
+    </a>
+    <a class="admin-tile{% if week.best_effort %} is-bad{% endif %}" href="#review-heading">
+      <span class="admin-tile-figure">{{ week.best_effort }}</span>
+      <span class="admin-tile-label">kept as best effort</span>
+      <span class="admin-tile-note">never passed, kept after the last try</span>
+    </a>
+    <a class="admin-tile{% if week.unreviewed %} is-bad{% endif %}" href="#review-heading">
+      <span class="admin-tile-figure">{{ week.unreviewed | length }}</span>
+      <span class="admin-tile-label">finished pictures with no verdict</span>
+      <span class="admin-tile-note">should always be zero</span>
+    </a>
+  </section>
+
+  <div class="admin-quick">
+    <section class="card admin-quick-card" aria-labelledby="stories-heading">
+      <div class="admin-card-head">
+        <h2 id="stories-heading">Stories and plates</h2>
+        <a class="admin-card-link" href="/admin/plates">Open the plate workshop →</a>
+      </div>
+      <ul class="admin-story-list">
+        {% for story in stories %}
+        <li>
+          <div class="admin-story-main">
+            <strong>{{ story.title }}</strong>
+            <span class="field-help">
+              {% if story.version_number %}plates approved · template version {{ story.version_number }}{% else %}<span class="admin-bad">no plates — pages are composed from scratch</span>{% endif %}
+            </span>
+          </div>
+          <span class="admin-state{% if story.can_start %} is-good{% else %} is-bad{% endif %}">
+            {{ "ready" if story.can_start else "held back" }}
+          </span>
+          <a class="button" href="/admin/plates/{{ story.key }}">Plates</a>
+        </li>
+        {% else %}
+        <li><p class="field-help">No stories are seeded yet.</p></li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="card admin-quick-card" aria-labelledby="access-heading">
+      <div class="admin-card-head">
+        <h2 id="access-heading">Who can be here</h2>
+      </div>
+      <p class="field-help">
+        You are recognised because this Google account is named by
+        <code>OPERATOR_SUB</code>. Anybody else who signs in gets the same 404 an
+        unknown URL gets — the admin screens never advertise themselves.
+      </p>
+      <p class="field-help">
+        To add or change the operator, list one or more Google subject ids or
+        account emails, comma separated, in the deployment's environment. An
+        email is easiest to copy from the Google account page.
+      </p>
+      <p class="admin-code"><code>OPERATOR_SUB=you@example.com</code></p>
+      {% if admin_operator %}<p class="field-help">Signed in as <strong>{{ admin_operator }}</strong>.</p>{% endif %}
+    </section>
+  </div>
+
+  <section class="card" id="backends-heading-card" aria-labelledby="backends-heading">
+    <div class="admin-card-head">
+      <h2 id="backends-heading">What is live</h2>
+      <span class="field-help">The only screen that names the provider and reviewer</span>
+    </div>
     <table class="wallet-table admin-kv">
       <tbody>
         {% for label, value in backends %}
@@ -41,7 +122,10 @@
   </section>
 
   <section class="card" aria-labelledby="review-heading">
-    <h2 id="review-heading">The review loop</h2>
+    <div class="admin-card-head">
+      <h2 id="review-heading">The review loop</h2>
+      <span class="field-help">Are pictures actually being checked?</span>
+    </div>
     <p class="field-help">Every picture is checked by tier 1 (free: blank, wrong shape, a grid of tiles, the plate redrawn) and then by the reviewer. A picture the reviewer could not judge is kept on tier 1 alone and counted here.</p>
     <div class="admin-columns">
       <table class="wallet-table admin-kv">
@@ -75,8 +159,11 @@
     {% endif %}
   </section>
 
-  <section class="card" aria-labelledby="books-heading">
-    <h2 id="books-heading">Recent books</h2>
+  <section class="card" id="books-heading-card" aria-labelledby="books-heading">
+    <div class="admin-card-head">
+      <h2 id="books-heading">Recent books</h2>
+      <span class="field-help">Open a book to see every attempt behind every picture</span>
+    </div>
     {% if books %}
     <div class="admin-scroll">
       <table class="wallet-table">
@@ -89,7 +176,7 @@
             <td class="wallet-when">{{ book.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
             <td><a href="/admin/books/{{ book.book_id }}">{{ book.title or book.story_key }}</a></td>
             <td>{{ book.owner }}</td>
-            <td>{{ book.status }}</td>
+            <td><span class="admin-state{% if book.status == "complete" %} is-good{% elif book.status == "failed" %} is-bad{% endif %}">{{ book.status }}</span></td>
             <td>{{ "yes" if book.plated else "no" }}</td>
             <td class="wallet-amount">{{ book.pictures }}</td>
             <td class="wallet-amount">{{ book.attempts }}</td>
@@ -107,7 +194,10 @@
   </section>
 
   <section class="card" aria-labelledby="cost-heading">
-    <h2 id="cost-heading">What a book costs to make</h2>
+    <div class="admin-card-head">
+      <h2 id="cost-heading">What a book costs to make</h2>
+      <span class="field-help">Operator data — never shown on a customer page</span>
+    </div>
     {% if costs.books %}
     <div class="cost-compare">
       <p><span class="cost-figure">{{ costs.average }}</span><span class="cost-caption">average API spend per finished book</span></p>
@@ -133,7 +223,9 @@
   </section>
 
   <section class="card" aria-labelledby="calls-heading">
-    <h2 id="calls-heading">Recent model calls</h2>
+    <div class="admin-card-head">
+      <h2 id="calls-heading">Recent model calls</h2>
+    </div>
     {% if calls %}
     <div class="admin-scroll">
       <table class="wallet-table">
@@ -162,7 +254,9 @@
   </section>
 
   <section class="card" aria-labelledby="portraits-heading">
-    <h2 id="portraits-heading">Recent portraits in the studio</h2>
+    <div class="admin-card-head">
+      <h2 id="portraits-heading">Recent portraits in the studio</h2>
+    </div>
     {% if portraits %}
     <div class="admin-scroll">
       <table class="wallet-table">

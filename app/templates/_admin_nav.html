@@ -1,0 +1,14 @@
+{# The operator's bar, identical on every admin screen. The account is printed
+   so it is obvious *which* identity was recognised — the same Google account
+   named by OPERATOR_SUB, or one of the emails listed there. #}
+<nav class="admin-bar" aria-label="Operator navigation">
+  <span class="admin-badge"><span aria-hidden="true">✦</span> Operator</span>
+  <ul class="admin-tabs">
+    {% for href, label in admin_tabs %}
+    <li>
+      <a href="{{ href }}"{% if href == admin_current %} aria-current="page"{% endif %}>{{ label }}</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if admin_operator %}<span class="admin-who" title="The signed-in identity recognised as the operator">{{ admin_operator }}</span>{% endif %}
+</nav>

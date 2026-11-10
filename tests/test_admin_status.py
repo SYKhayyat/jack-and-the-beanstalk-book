@@ -21,6 +21,7 @@ from app.sessions import SESSION_COOKIE
 from tests.helpers import JACK_KEY, RecordingProvider, make_photo_bytes
 
 OPERATOR = "operator-sub"
+OPERATOR_EMAIL = "the-operator@example.com"
 VISITOR = "somebody-else"
 
 
@@ -36,7 +37,7 @@ def operator_settings(tmp_path: Path, schema_template: Path) -> Settings:
         google_client_id="cid",
         google_client_secret="cs",
         session_secret="session-secret",
-        operator_sub=OPERATOR,
+        operator_sub=f"{OPERATOR}, {OPERATOR_EMAIL}",
     )
 
 
@@ -47,12 +48,13 @@ def site(operator_settings: Settings, provider: RecordingProvider) -> Iterator[T
         yield client
 
 
-def _sign_in(client: TestClient, sub: str) -> None:
+def _sign_in(client: TestClient, sub: str, *, email: str | None = None) -> None:
+    address = email or f"{sub}@example.com"
     client.app.state.container.user_store.upsert(  # type: ignore[attr-defined]
-        User(sub=sub, name=sub, email=f"{sub}@example.com")
+        User(sub=sub, name=sub, email=address)
     )
     token = client.app.state.sessions.issue_google(  # type: ignore[attr-defined]
-        sub=sub, name=sub, ttl_seconds=3600
+        sub=sub, name=sub, email=address, ttl_seconds=3600
     )
     client.cookies.set(SESSION_COOKIE, token)
 
@@ -108,6 +110,41 @@ class TestWhoMaySeeIt:
         book_id = _book(site)
         _sign_in(site, VISITOR)
         assert site.get(f"/admin/books/{book_id}/art/1").status_code == 404
+
+
+class TestWhoCountsAsTheOperator:
+    def test_an_account_listed_by_email_is_the_operator(self, site: TestClient) -> None:
+        """`OPERATOR_SUB` takes emails too, so nobody has to decode a OAuth sub."""
+        _sign_in(site, VISITOR, email=OPERATOR_EMAIL)
+        page = site.get("/admin/status")
+        assert page.status_code == 200
+        assert "the-operator@example.com" in page.text
+
+    def test_an_email_nobody_listed_is_a_404(self, site: TestClient) -> None:
+        _sign_in(site, VISITOR, email="not-the-operator@example.com")
+        assert site.get("/admin/status").status_code == 404
+
+    def test_the_operator_gets_a_way_in_and_a_visitor_does_not(self, site: TestClient) -> None:
+        _sign_in(site, OPERATOR)
+        assert 'href="/admin"' in site.get("/").text
+        _sign_in(site, VISITOR)
+        assert 'href="/admin"' not in site.get("/").text
+
+    def test_the_operator_can_remove_a_book(self, site: TestClient) -> None:
+        """The delete the visitor has, available for the copies they cannot reach."""
+        _sign_in(site, OPERATOR)
+        book_id = _book(site)
+        response = site.post(f"/admin/books/{book_id}/delete", follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/admin/status"
+        assert site.app.state.container.book_store.load_record(book_id) is None  # type: ignore[attr-defined]
+
+    def test_the_workshop_says_what_it_can_do(self, site: TestClient) -> None:
+        _sign_in(site, OPERATOR)
+        page = site.get("/admin/status").text
+        assert "Everything, at a glance" in page
+        assert "Review plates" in page
+        assert "OPERATOR_SUB" in page
 
 
 class TestWhatItSays:

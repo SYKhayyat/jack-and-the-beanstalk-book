@@ -326,6 +326,7 @@ def google_callback(
         sessions.issue_google(
             sub=user.sub,
             name=user.name or user.email,
+            email=user.email,
             ttl_seconds=gate.session_max_age_seconds,
         ),
         max_age_seconds=gate.session_max_age_seconds,

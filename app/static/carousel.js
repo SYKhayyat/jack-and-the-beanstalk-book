@@ -5,10 +5,11 @@
    [data-carousel-dot="i"] controls. data-interval sets the autoplay pace in
    milliseconds. The slide after the active one is marked .is-next and the one
    before .is-prev, so CSS can stack a deck or cross-fade over an opaque
-   cover. Autoplay pauses while the pointer or focus is inside, while the tab
-   is hidden, and never starts for someone who asked for reduced motion.
-   data-offset (ms) delays the first turn so cards on a shelf turn out of
-   step. */
+   cover. Autoplay pauses only while the pointer is actually over the deck
+   (never because a dot received focus, which used to strand it paused after
+   a click), while the tab is hidden, and never starts for someone who asked
+   for reduced motion. data-offset (ms) delays the first turn so cards on a
+   shelf turn out of step. */
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -67,14 +68,18 @@ function setUp(root) {
     if (event.key === "ArrowRight") go(current + 1);
   });
 
-  const pause = (value) => () => {
-    paused = value;
+  /* Hover is the only pointer pause. Focus deliberately does not pause: a
+     click on a dot or arrow focuses a button inside the deck, and tying the
+     timer to focus left the landing carousel stuck after one click. A
+     pointer resting on the deck still holds it, as it should. */
+  root.addEventListener("pointerenter", () => {
+    paused = true;
+    stop();
+  });
+  root.addEventListener("pointerleave", () => {
+    paused = false;
     start();
-  };
-  root.addEventListener("pointerenter", pause(true));
-  root.addEventListener("pointerleave", pause(false));
-  root.addEventListener("focusin", pause(true));
-  root.addEventListener("focusout", pause(false));
+  });
   document.addEventListener("visibilitychange", start);
   reducedMotion.addEventListener?.("change", start);
 

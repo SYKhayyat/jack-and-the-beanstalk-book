@@ -588,7 +588,41 @@ setting added without its wording raises `KeyError` at startup rather than
 sending a prompt with a hole in it. `app/services/prompts.py` only decides which
 lines apply and how they are joined.
 
-## Reviewing plates (operator only)
+## The operator's workshop (/admin)
+
+### How an admin signs in and is recognised
+
+There are no admin accounts, passwords or roles. The operator is a **named
+Google identity** listed in `OPERATOR_SUB`:
+
+```bash
+# one or more Google subs and/or emails, comma separated
+OPERATOR_SUB=you@example.com
+```
+
+1. Sign in with that Google account the normal way (`Continue with Google`).
+2. The header then shows an **Operator** link in the account menu, and
+   `/admin` opens.
+3. Any other signed-in visitor gets the same plain **404** an unknown URL
+   gets — the admin screens never confirm that they exist or who may use them.
+
+An email is matched case-insensitively; a Google `sub` is matched exactly.
+Empty `OPERATOR_SUB` means nobody is the operator. A password-only deployment
+(local development without a Google client) has no operator identity, so its
+admin screens stay closed; point a local Google client at the app if you need
+to exercise them. The recognition is deliberately not a stored role: changing
+the environment is the only way to add or remove an operator.
+
+### The overview
+
+`/admin/status` is the dashboard: books and pictures this week, how much of the
+review loop actually ran, every story's plate and gate state, recent books and
+model calls, recent studio portraits, and what a book costs to make. The plate
+workshop is one click away, and a book can be opened attempt by attempt. The
+operator can also **delete** a book from its detail page — the copy a visitor
+can no longer reach.
+
+### Reviewing plates
 
 Every story page is painted once as an empty **plate** — the place, the props
 and the light, with nobody in it and no lettering — and approved by the
@@ -600,10 +634,10 @@ The app loads the story seeds into the database at every boot (unchanged seeds
 write nothing); `make seed` does the same for a database you are preparing
 ahead of a deploy.
 
-Signed in as the operator — set `OPERATOR_SUB` to your Google `sub` —
-open `/admin/plates` and press **Paint missing plates** on a story. It paints
-21 draft plates (cover plus twenty pages), one image call each, and the button
-shows which page it just finished; the same command from a terminal is
+Signed in as the operator, open `/admin/plates` and press **Paint missing
+plates** on a story. It paints 21 draft plates (cover plus twenty pages), one
+image call each, and the button shows which page it just finished; the same
+command from a terminal is
 
 ```bash
 .venv/bin/python -m app.scripts.make_plates --story little_red_riding_hood
@@ -636,8 +670,8 @@ Approving is idempotent and records the operator and the timestamp. Approving
 the last missing page — or replacing an approved plate — writes a new template
 version; books already started keep the version they pinned. Plate images and
 prompts live in the database, never in the repo, and every action is logged
-with the request id and without image bytes. Anybody who is not `OPERATOR_SUB`
-gets the same 404 an unknown URL gives.
+with the request id and without image bytes. Anybody not listed in
+`OPERATOR_SUB` gets the same 404 an unknown URL gives.
 
 ### Painting the plates somewhere else
 
@@ -1121,7 +1155,7 @@ A failed call is logged at no cost.
 | `APP_PASSWORD` | *(empty)* | The local-dev fallback: shared password required when no Google client is configured. Both unset means the app is open. |
 | `APP_SESSION_MAX_AGE_DAYS` | `7` | How long one successful sign-in stays valid. Rotating `SESSION_SECRET` invalidates every session. |
 | `APP_LOGIN_MAX_ATTEMPTS` | `8` | Wrong passwords per client before a 15-minute lockout. |
-| `OPERATOR_SUB` | *(empty)* | The Google `sub` of the one person who may review plates at `/admin`. Empty disables the admin screens. |
+| `OPERATOR_SUB` | *(empty)* | Who may use `/admin`: comma-separated Google `sub` values and/or account emails. Empty disables the admin screens. |
 | `MAX_UPLOAD_MB` | `10` | Enforced before decoding |
 | `GENERATION_TIMEOUT_SECONDS` | `600` | One budget per request: queue + model call. Also applied to the provider's HTTP client. |
 | `MAX_CONCURRENT_GENERATIONS` | `2` | Admission control per process. Beyond this, requests queue and then get 429. |
