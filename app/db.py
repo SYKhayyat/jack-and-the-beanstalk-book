@@ -125,6 +125,11 @@ class BookRow(Base):
     source_photo: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     cover: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     pdf: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    #: Hex SHA-256 of `cover` and of `portrait`, written with them. The version
+    #: in a picture's URL, so the browser may keep it for good (P1), and the
+    #: answer to "has this picture changed?" without reading its bytes.
+    cover_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    portrait_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     #: Which story this is. Not a foreign key: books made before stories were
     #: data have no `stories` row to point at, and the pin below is the strong
     #: link for every book made on a template.
@@ -181,6 +186,30 @@ class BookPageRow(Base):
     best_effort: Mapped[bool] = mapped_column(Boolean, default=False)
     #: Hex SHA-256 of `image`, written with it (T13's ETag).
     image_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class PictureVariantRow(Base):
+    """A smaller copy of one of a book's pictures, made for the screen (P1, P2).
+
+    The stored picture is the provider's full-size PNG, which the PDF wants;
+    a phone turning pages does not. A variant is made the first time a width
+    is asked for and kept here, keyed by the picture it was made from: when
+    the picture is redrawn its hash changes, and the next request replaces the
+    stale copy instead of serving it.
+    """
+
+    __tablename__ = "picture_variants"
+
+    book_id: Mapped[str] = mapped_column(
+        ForeignKey("books.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: "cover", "portrait" or "page-<n>".
+    slot: Mapped[str] = mapped_column(String(16), primary_key=True)
+    width: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: The hash of the picture this copy was made from.
+    source_sha256: Mapped[str] = mapped_column(String(64))
+    image: Mapped[bytes] = mapped_column(LargeBinary)
+    media_type: Mapped[str] = mapped_column(String(50))
 
 
 class BookCharacterRow(Base):

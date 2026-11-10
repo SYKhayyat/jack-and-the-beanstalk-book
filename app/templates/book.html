@@ -1,36 +1,73 @@
 {% extends "_layout.html" %}
 {% block title %}{{ title }}{% if subtitle %}, {{ subtitle }}{% endif %}{% endblock %}
-{% block body_attrs %}data-page="book" data-book-id="{{ book.book_id }}" data-book-status="{{ status }}" data-book-title="{{ title }}" data-book-story="{{ book.story_key }}" data-max-upload-mb="{{ max_upload_mb }}" data-max-attempts="{{ max_attempts }}"{% endblock %}
+{% from "_cover.html" import book_cover %}
+{% block body_attrs %}data-page="book" data-book-id="{{ book.book_id }}" data-book-status="{{ status }}" data-book-title="{{ title }}" data-book-subtitle="{{ subtitle }}" data-book-story="{{ book.story_key }}" data-book-gender="{{ book_gender }}" data-max-upload-mb="{{ max_upload_mb }}" data-max-attempts="{{ max_attempts }}"{% endblock %}
 {% block header_title %}<span class="header-title">{{ title }}{% if subtitle %} <em class="header-subtitle">{{ subtitle }}</em>{% endif %}</span>{% endblock %}
 {% block main_class %}page book-screen{% endblock %}
 {% block content %}
-  <section class="stage" aria-label="The book">
-    <button type="button" class="turn turn-back" id="turn-back" aria-label="Previous page"><span aria-hidden="true">←</span><span class="turn-label">back</span></button>
-    <div class="book-slot" id="book-slot" tabindex="0" aria-roledescription="book" aria-label="{{ title }} — use the arrow keys to turn the pages">
-      {% for tile in tiles %}
-      <figure class="spread{% if tile.number == 0 %} is-cover{% endif %}" id="spread-{{ loop.index0 }}" data-spread="{{ loop.index0 }}" data-number="{{ tile.number }}" data-status="{{ tile.status }}" data-attempts="{{ tile.attempts }}" data-chosen-attempt="{{ tile.chosen_attempt }}" data-best-effort="{{ 'true' if tile.best_effort else 'false' }}" hidden>
-        <span class="spread-art">
-          {% if tile.url %}
-          <img src="{{ tile.url }}" alt="{{ tile.label }}: {{ tile.title }}" loading="{{ 'eager' if loop.first else 'lazy' }}">
-          {% else %}
-          <span class="spread-waiting"><span class="pencil" aria-hidden="true"></span><span data-role="waiting-text">{{ "This one didn't make it." if tile.status == "failed" else "being drawn…" }}</span></span>
+  {#- The book, laid out as the PDF is: every page one surface, the art to its
+      edges and the words set on the page in the book's face. On a wide, short
+      screen a page opens as a spread (art left, words right); everywhere else
+      the words sit beneath the art, exactly as printed. reader-layout.js sizes
+      it to the window so nothing is under the fold. #}
+  <section class="reader" id="reader" aria-label="The book" data-layout="stacked" style="--art-ratio: {{ art_ratio }}">
+    <div class="reader-book">
+      <button type="button" class="turn turn-back" id="turn-back" aria-label="Previous page"><span aria-hidden="true">‹</span></button>
+      <div class="book-slot" id="book-slot" tabindex="0" aria-roledescription="book" aria-label="{{ title }} — use the arrow keys to turn the pages">
+        {% for tile in tiles %}
+        {% set is_cover = tile.number == 0 %}
+        <article class="spread leaf{% if is_cover %} is-cover{% endif %}" id="spread-{{ loop.index0 }}" data-spread="{{ loop.index0 }}" data-number="{{ tile.number }}" data-status="{{ tile.status }}" data-attempts="{{ tile.attempts }}" data-chosen-attempt="{{ tile.chosen_attempt }}" data-best-effort="{{ 'true' if tile.best_effort else 'false' }}" hidden>
+          <div class="leaf-art spread-art">
+            {% if tile.url and is_cover %}
+            {{ book_cover(tile.src, title, subtitle, srcset=tile.srcset, alt="The cover: " ~ title ~ (", " ~ subtitle if subtitle else ""), lazy=false, extra_class="leaf-cover") }}
+            {% elif tile.url %}
+            <img src="{{ tile.src }}"{% if tile.srcset %} srcset="{{ tile.srcset }}" sizes="(min-width: 900px) 50vw, 100vw"{% endif %} alt="{{ tile.label }}: {{ tile.title }}" decoding="async" loading="{{ 'eager' if loop.first else 'lazy' }}">
+            {% else %}
+            <span class="spread-waiting"><span class="pencil" aria-hidden="true"></span><span data-role="waiting-text">{{ "This one didn't make it." if tile.status == "failed" else "being drawn…" }}</span>{% if is_cover %}<span class="waiting-title">{{ title }}</span>{% endif %}</span>
+            {% endif %}
+          </div>
+          {% if not is_cover %}
+          <div class="leaf-text">
+            <p class="spread-story story-text{% if tile.number == 1 %} drop-cap{% endif %}">{{ tile.story }}</p>
+            <span class="folio" aria-hidden="true">{{ tile.number + 1 }}</span>
+          </div>
           {% endif %}
-        </span>
-        {% if tile.story %}<figcaption class="spread-story">{{ tile.story }}</figcaption>{% endif %}
-      </figure>
-      {% endfor %}
-      <article class="spread about-spread" id="spread-{{ tiles|length }}" data-spread="{{ tiles|length }}" data-number="about" data-status="{{ 'done' if status == 'complete' else 'pending' }}" hidden>
-        <h2>{{ about_heading }}</h2>
-        <div class="about-frames">
-          {% for image in about_images %}<span class="about-frame"><img src="{{ image.url }}" alt="{{ image.alt }}" loading="lazy"></span>{% endfor %}
-        </div>
-        {% for sentence in about_sentences %}<p>{{ sentence }}</p>{% endfor %}
-        <p class="the-end">The End</p>
-      </article>
+        </article>
+        {% endfor %}
+        <article class="spread leaf about-spread" id="spread-{{ tiles|length }}" data-spread="{{ tiles|length }}" data-number="about" data-status="{{ 'done' if status == 'complete' else 'pending' }}" hidden>
+          <div class="leaf-art about-art">
+            <div class="about-frames">
+              {% for image in about_images %}<span class="about-frame"><img src="{{ image.url }}"{% if image.srcset %} srcset="{{ image.srcset }}" sizes="240px"{% endif %} alt="{{ image.alt }}" loading="lazy" decoding="async"></span>{% endfor %}
+            </div>
+          </div>
+          <div class="leaf-text about-text">
+            <h2>{{ about_heading }}</h2>
+            {% for sentence in about_sentences %}<p class="story-text">{{ sentence }}</p>{% endfor %}
+            <p class="the-end">The End</p>
+          </div>
+        </article>
+      </div>
+      <button type="button" class="turn turn-next" id="turn-next" aria-label="Next page"><span aria-hidden="true">›</span></button>
     </div>
-    <button type="button" class="turn turn-next" id="turn-next" aria-label="Next page"><span aria-hidden="true">→</span><span class="turn-label">next</span></button>
+    <div class="reader-bar">
+      <span class="reader-where"><span id="page-label">Cover</span> <span class="attempt-chip hidden" id="attempt-chip"></span></span>
+      <span class="reader-tools">
+        <button type="button" class="tool-button" id="read-aloud" aria-pressed="false" hidden><span aria-hidden="true">🔊</span> <span data-role="label">Read to me</span></button>
+        <button type="button" class="tool-button" id="page-sound" aria-pressed="false" title="A soft page-turn sound"><span aria-hidden="true">♪</span> <span data-role="label">Sound off</span></button>
+        <button type="button" class="tool-button" id="story-time" aria-pressed="false"><span aria-hidden="true">⛶</span> <span data-role="label">Story time</span></button>
+      </span>
+    </div>
   </section>
-  <p class="stage-hint"><span id="page-label">Cover</span> · click or swipe to turn the page</p>
+
+  <section class="finished-block{% if status != 'complete' %} hidden{% endif %}" id="finished-block" aria-label="Your book is ready">
+    <p class="finished-title"><span aria-hidden="true">✨</span> Your book is ready.</p>
+    <div class="finished-actions">
+      <button type="button" class="button primary big" id="read-book">Read it from the start</button>
+      <a class="button big" id="download-pdf" href="/book-media/{{ book.book_id }}/pdf" download>Download the book (PDF)</a>
+      <a class="button big" id="download-sources" href="{{ sources_url }}" download>Keep the photos and comics (zip)</a>
+    </div>
+    <p class="field-help"><a href="/book-media/{{ book.book_id }}/prompts.json" target="_blank" rel="noopener">See exactly what the artist was asked to draw</a></p>
+  </section>
 
   <section class="progress-block{% if status == 'complete' %} hidden{% endif %}" id="progress-block" aria-label="Progress">
     <div class="progress-track" role="progressbar" aria-label="Pictures drawn" aria-valuemin="0" aria-valuemax="{{ tiles|length }}" aria-valuenow="{{ done_count }}" id="progress-track">
@@ -39,32 +76,29 @@
     <p class="progress-caption" id="progress-caption" role="status" aria-live="polite">
       {% if status == "failed" %}{{ done_count }} of {{ tiles|length }} pictures — this book stopped early.{% else %}Your book is being drawn. {{ done_count }} of {{ tiles|length }} pictures drawn.{% endif %}
     </p>
-    <ol class="page-map" id="page-map">
-      {% for tile in tiles %}
-      <li><button type="button" class="map-tile {{ tile.status }}" data-goto="{{ loop.index0 }}" data-attempts="{{ tile.attempts }}" data-chosen-attempt="{{ tile.chosen_attempt }}" data-best-effort="{{ 'true' if tile.best_effort else 'false' }}" aria-label="{{ tile.label }}, {{ tile.status }}">
-        {% if tile.url %}<img src="{{ tile.url }}" alt="" loading="lazy">{% endif %}
-        <span class="map-number">{{ tile.short }}</span>
-      </button></li>
-      {% endfor %}
-    </ol>
     <div class="failed-row{% if status != 'failed' %} hidden{% endif %}" id="failed-row">
       <p class="inline-message error" id="failed-message">{{ error or "Some pictures didn't make it." }}</p>
       <button type="button" class="button primary" id="finish-book">Finish this book</button>
     </div>
   </section>
 
-  <section class="finished-block{% if status != 'complete' %} hidden{% endif %}" id="finished-block" aria-label="Your book is ready">
-    <p class="finished-title"><span aria-hidden="true">✨</span> Your book is ready.</p>
-    <div class="finished-actions">
-      <a class="button primary big" id="download-pdf" href="/book-media/{{ book.book_id }}/pdf" download>Download the book (PDF)</a>
-      <a class="button big" id="download-sources" href="{{ sources_url }}" download>Keep the photos and comics (zip)</a>
-    </div>
-    <p class="field-help"><a href="/book-media/{{ book.book_id }}/prompts.json" target="_blank" rel="noopener">See exactly what the artist was asked to draw</a></p>
-  </section>
+  {#- Every page at a glance: open while the book is drawn, folded away into a
+      page picker once it is finished (U9). #}
+  <details class="page-picker" id="page-picker"{% if status != 'complete' %} open{% endif %}>
+    <summary>All {{ story_pages }} pages and the cover</summary>
+    <ol class="page-map" id="page-map">
+      {% for tile in tiles %}
+      <li><button type="button" class="map-tile {{ tile.status }}" data-goto="{{ loop.index0 }}" data-attempts="{{ tile.attempts }}" data-chosen-attempt="{{ tile.chosen_attempt }}" data-best-effort="{{ 'true' if tile.best_effort else 'false' }}" aria-label="{{ tile.label }}, {{ tile.status }}">
+        {% if tile.url %}<img src="{{ tile.thumb }}" alt="" loading="lazy" decoding="async">{% endif %}
+        <span class="map-number">{{ tile.short }}</span>
+      </button></li>
+      {% endfor %}
+    </ol>
+  </details>
 
   <section class="edit-strip{% if status not in ('complete', 'failed') %} hidden{% endif %}" id="edit-strip" aria-labelledby="edit-title">
     <h2 id="edit-title">Edit this book</h2>
-    <p class="field-help">Changes are included — the book's fee was taken once.</p>
+    <p class="field-help">{{ edit_note }}</p>
     <div class="edit-actions">
       <button type="button" class="button" id="edit-page">Redraw this page</button>
       <button type="button" class="button" id="edit-cover">Redraw the cover</button>

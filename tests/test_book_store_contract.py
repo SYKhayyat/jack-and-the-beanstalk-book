@@ -106,7 +106,11 @@ def test_status_round_trips_with_its_extra_fields(store: BookStore) -> None:
     status = store.load_status(book_id)
     assert status is not None
     assert status["status"] == BookStatus.RENDERING
-    assert status["pages"] == pages
+    # Everything stored survives; a finished picture also gains its screen URLs.
+    assert [
+        {key: entry[key] for key in sent}
+        for entry, sent in zip(status["pages"], pages, strict=True)
+    ] == pages
     assert status["title"] == "Jack's Book"
     assert status["phase"] == "pages"
     assert status["total_pages"] == 20

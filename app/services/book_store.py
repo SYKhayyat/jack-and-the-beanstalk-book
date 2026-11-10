@@ -36,6 +36,7 @@ from typing import Any
 from app.models.book import AboutMe
 from app.models.settings import CartoonSettings
 from app.models.story import StoryEdition
+from app.services.pictures import slot_page
 
 __all__ = [
     "BookRecord",
@@ -95,6 +96,8 @@ class BookSummary:
     #: The line under the title for a tale that names its star there
     #: ("starring Ava"); "" when the title already carries the name.
     subtitle: str = ""
+    #: The cover's content hash, for its sized and versioned URLs.
+    cover_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,6 +317,39 @@ class BookStore:
         Read without the image, so a browser revalidating a page costs one small
         query instead of shipping a megabyte it already has.
         """
+        raise NotImplementedError
+
+    # --- pictures on screen (P1, P2) -------------------------------------------
+    # A "slot" names one of a book's pictures: "cover", "portrait" or "page-<n>"
+    # (`app.services.pictures.page_slot`).
+
+    def picture_sha(self, book_id: str, slot: str) -> str | None:
+        """The stored hash of the picture in `slot`, read without its bytes.
+
+        None when the picture does not exist yet (or the slot is not one).
+        """
+        raise NotImplementedError
+
+    def read_picture(self, book_id: str, slot: str) -> bytes | None:
+        """The full-size picture in `slot`, as stored."""
+        if slot == "cover":
+            return self.read_cover(book_id)
+        if slot == "portrait":
+            return self.read_portrait(book_id)
+        number = slot_page(slot)
+        return self.read_page(book_id, number) if number is not None else None
+
+    def read_variant(
+        self, book_id: str, slot: str, width: int, source_sha256: str
+    ) -> bytes | None:
+        """The screen-sized copy of `slot` at `width`, if one was made from
+        exactly this picture; a copy of a since-redrawn picture is None."""
+        raise NotImplementedError
+
+    def save_variant(
+        self, book_id: str, slot: str, width: int, source_sha256: str, data: bytes
+    ) -> None:
+        """Keep a screen-sized copy, replacing any older one for that slot and width."""
         raise NotImplementedError
 
     def save_prompts(self, book_id: str, prompts: list[dict[str, str]]) -> None:

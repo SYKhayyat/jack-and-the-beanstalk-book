@@ -1409,88 +1409,211 @@ dialog.modal form {
 
 /* --- the book ------------------------------------------------------------------------------ */
 
-.stage {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) 72px;
-  gap: 12px;
-  align-items: center;
+/* The reader is a book, not a slideshow (G4). Every page is one surface: the
+   art to its edges, the words set on the same paper in the book's face, and a
+   folio at the foot, as the PDF prints it. reader-layout.js measures the
+   window and writes --page-w, --art-h, --band-h and --story-size, and picks
+   data-layout: "stacked" (words under the art) or "spread" (art left, words
+   right). Before it runs, the stacked page simply takes the column's width. */
+
+.book-screen {
+  --page-paper: #faf6ec; /* the PDF's PAPER_RGB */
+  --page-ink: #403020; /* the PDF's _INK */
+  --page-gold: #b88e40; /* the PDF's _GOLD */
 }
-.turn {
+.reader {
+  --page-w: min(100%, 760px);
+  --story-size: 21px;
+  position: relative;
+  margin: 0 auto 8px;
+}
+.reader-book {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  height: 88px;
-  border: 2px solid var(--line);
-  border-radius: var(--radius-card);
-  background: var(--card);
-  font: inherit;
-  font-size: 22px;
-  color: var(--ink);
-  cursor: pointer;
-}
-.turn:hover:not(:disabled) {
-  border-color: var(--bean);
-}
-.turn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-.turn-label {
-  font-size: 13px;
-  color: var(--ink-soft);
+  justify-content: center;
+  padding: 0 56px;
 }
 .book-slot {
   position: relative;
-  max-width: 760px;
-  width: 100%;
-  margin: 0 auto;
-  background: var(--card);
-  border: 2px solid var(--line);
-  border-radius: 6px 18px 18px 6px;
-  box-shadow: inset 10px 0 12px -10px rgba(35, 33, 44, 0.25), var(--shadow);
   cursor: pointer;
   touch-action: pan-y;
-  perspective: 1400px;
+  perspective: 2200px;
   user-select: none;
+  outline: none;
 }
-.spread {
+.book-slot:focus-visible {
+  outline: 3px solid var(--sky);
+  outline-offset: 6px;
+  border-radius: 4px;
+}
+.leaf {
+  position: relative;
+  width: var(--page-w);
   margin: 0;
-  padding: 16px;
+  background: var(--page-paper);
+  border-radius: 3px 8px 8px 3px;
+  box-shadow: var(--shadow-book);
+  overflow: hidden;
   transform-origin: left center;
+  backface-visibility: hidden;
 }
-.spread.turn-forward {
-  animation: turn-forward 240ms var(--ease);
+/* The spine: a soft crease down the binding edge of every page. */
+.leaf::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 18px;
+  background: linear-gradient(90deg, rgba(64, 48, 32, 0.16), rgba(64, 48, 32, 0));
+  pointer-events: none;
 }
-.spread.turn-back {
-  animation: turn-back 240ms var(--ease);
+.leaf[hidden] {
+  display: none !important;
 }
-.spread-art {
+.leaf.is-turning {
+  position: absolute;
+  inset: 0 auto auto 0;
+  z-index: 2;
+}
+.leaf.is-beneath {
+  z-index: 1;
+}
+.leaf-art {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 240px;
-  border-radius: 10px;
+  width: 100%;
+  aspect-ratio: var(--art-ratio, 4 / 3);
   overflow: hidden;
-  background: var(--paper);
+  background: var(--marigold-soft);
 }
-.spread-art img {
-  width: auto;
-  max-width: 100%;
-  height: auto;
-  max-height: 62vh;
+.reader[style*="--art-h"] .leaf-art {
+  aspect-ratio: auto;
+  height: var(--art-h);
 }
-.spread-art.landed img {
-  animation: land 240ms var(--ease);
+.leaf-art > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
+.leaf-art.landed > img,
+.leaf-art.landed > .book-cover {
+  animation: land 420ms var(--ease);
+}
+.leaf-cover {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.leaf-text {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 7.5% calc(var(--story-size) * 1.6);
+  min-height: var(--band-h, auto);
+  border-top: 2px solid var(--page-gold);
+  color: var(--page-ink);
+  font-family: var(--font-display);
+}
+.story-text {
+  margin: calc(var(--story-size) * 0.9) 0 0;
+  font-size: var(--story-size);
+  line-height: 1.5;
+  text-align: center;
+  text-wrap: pretty;
+  hyphens: manual;
+}
+.story-text .sentence {
+  border-radius: 4px;
+  transition: background-color 160ms var(--ease);
+}
+.story-text .sentence.speaking {
+  background: rgba(242, 166, 59, 0.32);
+  box-shadow: 0 0 0 3px rgba(242, 166, 59, 0.32);
+}
+/* The story's first letter, as a picture book opens. */
+.story-text.drop-cap::first-letter {
+  float: left;
+  margin: 0.06em 0.08em 0 0;
+  font-size: 3.1em;
+  line-height: 0.82;
+  font-weight: 700;
+  color: var(--bean-dark);
+}
+.story-text.drop-cap {
+  text-align: left;
+}
+.folio {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--story-size) * 0.45);
+  text-align: center;
+  font-style: italic;
+  font-size: 13px;
+  color: var(--page-gold);
+}
+.text-measure {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  min-height: 0;
+  border: 0;
+  padding: 0;
+}
+.text-measure .story-text {
+  margin: 0;
+}
+
+/* Spread: the book lies open, the picture on the left page, the words on the right. */
+.reader[data-layout="spread"] .leaf:not(.is-cover) {
+  display: grid;
+  grid-template-columns: var(--page-w) var(--page-w);
+  width: calc(var(--page-w) * 2);
+  height: var(--art-h);
+}
+.reader[data-layout="spread"] .leaf:not(.is-cover)::before {
+  /* the gutter where the two pages meet */
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 calc(var(--page-w) - 14px);
+  width: 28px;
+  background: linear-gradient(90deg, rgba(64, 48, 32, 0), rgba(64, 48, 32, 0.18) 50%, rgba(64, 48, 32, 0));
+  z-index: 1;
+  pointer-events: none;
+}
+.reader[data-layout="spread"] .leaf-text {
+  min-height: 0;
+  height: var(--art-h);
+  border-top: 0;
+  padding-top: calc(var(--story-size) * 0.4);
+}
+.reader[data-layout="spread"] .story-text {
+  text-align: left;
+}
+
 .spread-waiting {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  color: var(--ink-soft);
-  aspect-ratio: 4 / 3;
   justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  color: var(--ink-soft);
+}
+.waiting-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: center;
+  padding: 0 12%;
 }
 .spread[data-status="failed"] .spread-waiting {
   color: var(--berry-dark);
@@ -1506,10 +1629,139 @@ dialog.modal form {
   animation: none;
   background: var(--berry);
 }
+
+/* The About page: the framed portrait where a picture would be. */
+.about-spread {
+  cursor: default;
+}
+.about-art {
+  background: var(--page-paper);
+}
+.about-frames {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6%;
+  width: 100%;
+  height: 100%;
+  padding: 6%;
+}
+.about-frame {
+  width: min(44%, 260px);
+  padding: 2.5%;
+  background: #fdf3df;
+  border: 6px solid #c99a2e;
+  border-radius: 4px;
+}
+.about-frame img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+.about-text {
+  text-align: center;
+}
+.about-text h2 {
+  margin: calc(var(--story-size) * 0.8) 0 0;
+  font-size: calc(var(--story-size) * 1.2);
+}
+.about-text .story-text {
+  margin-top: calc(var(--story-size) * 0.5);
+  font-size: calc(var(--story-size) * 0.9);
+  text-align: center;
+}
+.the-end {
+  margin: calc(var(--story-size) * 0.8) 0 0;
+  font-style: italic;
+  color: var(--page-gold);
+  font-size: calc(var(--story-size) * 1.05);
+}
+
+/* Turning: round buttons in the margins of the book. */
+.turn {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-top: -22px;
+  padding: 0;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  font: inherit;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--ink);
+  cursor: pointer;
+}
+.turn-back {
+  left: 4px;
+}
+.turn-next {
+  right: 4px;
+}
+.turn:hover:not(:disabled) {
+  border-color: var(--bean);
+}
+.turn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.reader-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  max-width: calc(var(--page-w) * 2);
+  margin: 14px auto 0;
+  padding: 0 56px;
+  font-size: 15px;
+  color: var(--ink);
+}
+.reader[data-layout="stacked"] .reader-bar {
+  max-width: calc(var(--page-w) + 112px);
+}
+.reader-where {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+.reader-tools {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tool-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.tool-button[aria-pressed="true"] {
+  border-color: var(--bean);
+  background: #e7f1ea;
+  color: var(--bean-dark);
+}
+.tool-button[hidden] {
+  display: none;
+}
 .attempt-chip {
-  display: table;
-  margin: 8px auto 0;
-  padding: 2px 10px;
+  padding: 1px 10px;
   border-radius: 999px;
   font-size: 13px;
   font-weight: 600;
@@ -1531,58 +1783,78 @@ dialog.modal form {
   background: #fbe9ec;
   color: var(--berry-dark);
 }
-.spread-story {
-  margin-top: 14px;
-  font-size: 18px;
-  text-align: center;
-  padding: 0 8px;
-}
-.about-spread {
-  text-align: center;
-  padding: 28px 24px;
-  cursor: default;
-}
-.about-frames {
+
+/* Story time: the book alone, filling the screen. */
+.reader.story-time {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
   display: flex;
+  flex-direction: column;
   justify-content: center;
-  gap: 20px;
-  margin: 16px 0;
-  flex-wrap: wrap;
+  margin: 0;
+  padding: 12px 0;
+  background: #2b2433;
 }
-.about-frame {
-  width: min(220px, 40%);
-  padding: 8px;
-  background: #fdf3df;
-  border: 6px solid #c99a2e;
-  border-radius: 4px;
+.reader.story-time .reader-bar {
+  color: #f6efe2;
 }
-.about-frame img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
+.reader.story-time .tool-button {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #f6efe2;
 }
-.the-end {
-  margin-top: 20px;
-  font-style: italic;
-  color: #b07d12;
-  font-size: 20px;
+.reader.story-time .tool-button[aria-pressed="true"] {
+  background: rgba(60, 122, 78, 0.5);
 }
-.stage-hint {
-  text-align: center;
-  color: var(--ink-soft);
-  font-size: 14px;
-  margin: 10px 0 24px;
+body.in-story-time {
+  overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .reader-book,
+  .reader-bar {
+    padding: 0;
+  }
+  .reader[data-layout="stacked"] .reader-bar {
+    max-width: none;
+  }
+  /* On a phone the buttons sit on the picture's edges; swiping works too. */
+  .turn {
+    top: calc(var(--art-h, 50vw) / 2);
+    width: 38px;
+    height: 38px;
+    margin-top: -19px;
+    background: rgba(255, 255, 255, 0.82);
+    font-size: 24px;
+  }
+  .turn-back {
+    left: 6px;
+  }
+  .turn-next {
+    right: 6px;
+  }
+}
+
+.confetti {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
 }
 
 .progress-block,
 .finished-block,
-.edit-strip {
+.edit-strip,
+.page-picker {
   background: var(--card);
   border: 2px solid var(--line);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow);
   padding: 20px;
-  margin-bottom: 20px;
+  margin: 20px 0;
 }
 .progress-track {
   height: 12px;
@@ -1598,14 +1870,21 @@ dialog.modal form {
   transition: width 400ms var(--ease);
 }
 .progress-caption {
-  margin: 10px 0 14px;
+  margin: 10px 0 0;
+}
+.page-picker > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.page-picker[open] > summary {
+  margin-bottom: 14px;
 }
 .page-map {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
   gap: 6px;
 }
 .map-tile {
@@ -1688,6 +1967,7 @@ dialog.modal form {
   margin: 0;
 }
 .finished-title {
+  margin-top: 0;
   font-size: 22px;
   font-weight: 700;
   color: var(--bean-dark);
@@ -1755,18 +2035,6 @@ dialog.modal form {
   from {
     opacity: 0;
     transform: translateY(6px);
-  }
-}
-@keyframes turn-forward {
-  from {
-    opacity: 0.2;
-    transform: rotateY(-18deg);
-  }
-}
-@keyframes turn-back {
-  from {
-    opacity: 0.2;
-    transform: rotateY(18deg);
   }
 }
 @keyframes scribble {

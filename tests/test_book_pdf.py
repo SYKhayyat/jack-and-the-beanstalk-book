@@ -11,6 +11,7 @@ from pypdf import PdfReader
 
 from app.models.book import AboutMe
 from app.services.pdf import PageArt, build_book_pdf
+from app.services.typography import book_text
 from tests.helpers import jack
 
 #: Jack's tale exactly as a new book is made from it (its seed's edition).
@@ -124,7 +125,8 @@ class TestAssembly:
         reader = PdfReader(io.BytesIO(book_bytes))
         texts = [(page.extract_text() or "").replace("\n", " ") for page in reader.pages]
         for page in BOOK_PAGES:
-            opening = page.story.split("{name}")[0].split("{possessive}")[0].strip()
+            # The PDF sets the story's punctuation typographically (curly quotes).
+            opening = book_text(page.story.split("{name}")[0].split("{possessive}")[0].strip())
             opening = opening[:40]
             assert any(opening in text for text in texts), page.key
 

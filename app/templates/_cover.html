@@ -1,10 +1,11 @@
 {# A finished book cover as the PDF sets it: full-bleed art, the title in cream
    over a soft darkening of the sky, and the subtitle or credit line beneath. The words are
    real text, so they stay crisp at any size and read out to a screen reader
-   through the image's alt. #}
-{% macro book_cover(src, title, byline="", alt="", lazy=true) -%}
-<figure class="book-cover">
-  <img src="{{ src }}" alt="{{ alt or title }}" decoding="async"{% if lazy %} loading="lazy"{% endif %}>
+   through the image's alt. `srcset`/`sizes` let a book's own cover arrive at
+   screen size (`picture_set`); `extra_class` lets the reader size it to the page. #}
+{% macro book_cover(src, title, byline="", alt="", lazy=true, srcset="", sizes="", extra_class="") -%}
+<figure class="book-cover{% if extra_class %} {{ extra_class }}{% endif %}">
+  <img src="{{ src }}"{% if srcset %} srcset="{{ srcset }}" sizes="{{ sizes or '(min-width: 900px) 50vw, 100vw' }}"{% endif %} alt="{{ alt or title }}" decoding="async"{% if lazy %} loading="lazy"{% endif %}>
   <figcaption class="book-cover-lockup" aria-hidden="true">
     <span class="book-cover-title">{{ title }}</span>
     {% if byline %}<span class="book-cover-byline">{{ byline }}</span>{% endif %}

@@ -337,7 +337,10 @@ def test_a_mid_render_book_is_reaped_on_restart(store: DatabaseBookStore) -> Non
     assert status is not None
     assert status["status"] == BookStatus.FAILED
     assert "restarted" in str(status["error"])
-    assert status["pages"] == pages  # the finished page stays visible
+    # The finished page stays visible: everything stored survives, and the read
+    # adds its sized, versioned URLs (`_with_picture_records`).
+    assert [{key: entry[key] for key in pages[0]} for entry in status["pages"]] == pages
+    assert "?w=1600&v=" in status["pages"][0]["src"]
     assert store.read_page(book_id, 1) == b"kept"
 
     # The second reap has nothing left to do.

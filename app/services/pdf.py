@@ -36,6 +36,7 @@ from PIL import Image, ImageStat, UnidentifiedImageError
 
 from app.models.book import AboutMe, AboutPhotoChoice, BookPage
 from app.prompt_data import prompt_text
+from app.services.typography import book_text
 
 __all__ = [
     "COVER_TITLE_BAND_FRACTION",
@@ -226,7 +227,9 @@ def build_book_pdf(
         raise ValueError("A book needs at least one page.")
 
     art_width, art_height = _page_shape(pages[0].image)
-    layout = book_template(art_width, art_height, [entry.page.story for entry in pages])
+    layout = book_template(
+        art_width, art_height, [book_text(entry.page.story) for entry in pages]
+    )
 
     pdf = FPDF(unit="pt", format=(layout.page_width, layout.page_height))
     pdf.set_auto_page_break(False)
@@ -349,7 +352,7 @@ def _draw_page(pdf: FPDF, entry: PageArt, layout: TemplateGeometry, number: int)
     pdf.set_line_width(1.6)
     pdf.line(0, layout.text_band_top, pdf.w, layout.text_band_top)
 
-    story = entry.page.story
+    story = book_text(entry.page.story)
     if story.strip():
         lines = _wrap(story, _FAMILY, "", layout.font_size, layout.text_width)
         block = len(lines) * layout.line_height
@@ -380,7 +383,7 @@ def draw_about_page(
     pdf.rect(0, 0, width, height, style="F")
     usable = width * (1 - 2 * _SIDE_MARGIN)
 
-    heading, *sentences = about.rendered_about_lines()
+    heading, *sentences = (book_text(line) for line in about.rendered_about_lines())
     pdf.set_text_color(*_INK)
     heading_size = width * 0.05
     while heading_size > 16.0 and _text_width(_FAMILY, "B", heading_size, heading) > usable:

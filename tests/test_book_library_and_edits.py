@@ -39,6 +39,7 @@ PAGE_COUNT = len(BOOK_PAGES)
 def _portrait(client: TestClient, character: str = "") -> dict[str, object]:
     form: dict[str, object] = {
         "story": "jack_and_the_beanstalk",
+        "photo_gender": "boy",
         "photo": ("me.png", make_photo_bytes(), "image/png"),
     }
     if character:
@@ -475,8 +476,8 @@ class TestLibrary:
             assert 'class="drawer-row"' in page.text
             assert 'class="drawer-delete"' in page.text
             assert f'data-delete-book="{book_id}"' in page.text
-        # The count the reader sees: twenty-one drawn pictures (cover + 20).
-        assert "21 pictures" in page.text
+        # One count everywhere (U9): twenty story pages and the cover.
+        assert "20 pages + cover" in page.text
 
     def test_the_downloads_are_private_to_the_book_owner(
         self, completed_library: tuple[TestClient, str]

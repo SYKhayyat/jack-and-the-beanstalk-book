@@ -39,6 +39,7 @@ from app.routes.auth import install_auth_gate
 from app.services.google_oauth import GoogleOAuthClient
 from app.services.image_providers.base import ImageProvider
 from app.services.payments import PaymentProvider
+from app.services.pictures import picture_set
 from app.services.reviewer import ImageReviewer
 from app.sessions import SessionCodec
 from app.stories import NOT_READY, shelf, showcase
@@ -227,6 +228,7 @@ def create_app(
     app.state.templates.env.globals["static_url"] = f"/static/{static_build()}"
     app.state.templates.env.globals["book_retention_days"] = resolved.book_retention_days
     app.state.templates.env.filters["short_date"] = _short_date
+    app.state.templates.env.globals["picture_set"] = picture_set
     app.state.gate = AuthGate(
         password=resolved.app_password,
         session_max_age_seconds=resolved.app_session_max_age_days * 24 * 60 * 60,

@@ -9,11 +9,12 @@ it is private and none of it may be cached by a shared browser or proxy.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import logging
 import zipfile
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.dependencies import ContainerDep
 from app.errors import BookNotReady, UnknownBook
@@ -27,15 +28,25 @@ from app.routes.book_access import (
     not_modified,
     private_cached,
     user_id,
+    versioned_picture,
 )
 from app.services.book_store import BookStore
 from app.services.media import extension_for, media_type_for
+from app.services.pictures import (
+    VARIANT_MEDIA_TYPE,
+    VARIANT_WIDTHS,
+    encode_variant,
+    page_slot,
+    short_version,
+)
 
 __all__ = ["router"]
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/book-media", tags=["book-media"])
+
+_WIDTHS_LISTED = ", ".join(str(width) for width in sorted(VARIANT_WIDTHS))
 
 
 @router.get("/{book_id}/pdf", response_class=Response)
@@ -67,6 +78,8 @@ def book_portrait(
     container: ContainerDep,
     session: CurrentSessionDep,
     download: bool = False,
+    w: int | None = None,
+    v: str | None = None,
 ) -> Response:
     """The approved cartoon portrait every page is anchored on.
 
@@ -75,6 +88,8 @@ def book_portrait(
     304: the reader asked for the file, not for permission to reuse one.
     """
     ensure_book(book_id, user_id(session), container)
+    if w is not None and not download:
+        return _sized(request, container, book_id, "portrait", w, v, session)
     data = container.book_store.read_portrait(book_id)
     if data is None:
         raise UnknownBook("That book has no portrait stored.")
@@ -118,9 +133,16 @@ def book_cover(
     request: Request,
     container: ContainerDep,
     session: CurrentSessionDep,
+    w: int | None = None,
+    v: str | None = None,
 ) -> Response:
-    """The finished cover illustration, as soon as it exists."""
+    """The finished cover illustration, as soon as it exists.
+
+    With `?w=` it is a screen-sized copy instead (see `_sized`).
+    """
     ensure_book(book_id, user_id(session), container)
+    if w is not None:
+        return _sized(request, container, book_id, "cover", w, v, session)
     data = container.book_store.read_cover(book_id)
     if data is None:
         raise BookNotReady("The cover is not ready yet — poll the book's status.")
@@ -134,13 +156,18 @@ def book_page(
     request: Request,
     container: ContainerDep,
     session: CurrentSessionDep,
+    w: int | None = None,
+    v: str | None = None,
 ) -> Response:
     """One page's art, as soon as it exists — the browser shows them landing.
 
     Revalidated by content hash (T13): a redrawn page has new bytes and therefore
     a new tag, and a page that has not changed is a 304 rather than a megabyte.
+    With `?w=` it is a screen-sized copy instead (see `_sized`).
     """
     ensure_book(book_id, user_id(session), container)
+    if w is not None:
+        return _sized(request, container, book_id, page_slot(page_number), w, v, session)
     etag = container.book_store.read_page_etag(book_id, page_number)
     if etag is not None and etag_matches(request, etag):
         # Answered from the stored hash alone: the image is never read out of the
@@ -156,6 +183,60 @@ def book_page(
     if data is None:
         raise BookNotReady("That page is not ready yet — poll the book's status.")
     return private_cached(request, data, media_type=media_type_for(data), etag=etag)
+
+
+def _sized(
+    request: Request,
+    container: ContainerDep,
+    book_id: str,
+    slot: str,
+    width: int,
+    version: str | None,
+    session: CurrentSessionDep,
+) -> Response:
+    """A picture at screen size, as WebP, made once and kept (P1, P2).
+
+    The full-size PNG stays the stored picture (the PDF embeds it); this copy
+    is a tenth of its weight. A URL whose `v` is the picture's current version
+    may be kept by the browser for a year (`versioned_picture`): a redrawn
+    picture has a new hash, so the page links it under a new URL. A URL with
+    an old or missing `v` still gets today's picture, revalidated every time.
+    The copy is made from the bytes whose hash it is filed under, so it can
+    never outlive its picture.
+    """
+    if width not in VARIANT_WIDTHS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"w must be one of {_WIDTHS_LISTED}.",
+        )
+    store = container.book_store
+    sha = store.picture_sha(book_id, slot)
+    if sha is None:
+        raise BookNotReady("That picture is not ready yet — poll the book's status.")
+    current = version == short_version(sha)
+    etag = f"{sha[:32]}-w{width}"
+    if etag_matches(request, etag):
+        return versioned_picture(None, etag=etag, immutable=current)
+    data = store.read_variant(book_id, slot, width, sha)
+    outcome = "stored"
+    if data is None:
+        original = store.read_picture(book_id, slot)
+        if original is None:
+            raise BookNotReady("That picture is not ready yet — poll the book's status.")
+        sha = hashlib.sha256(original).hexdigest()
+        data = encode_variant(original, width)
+        store.save_variant(book_id, slot, width, sha, data)
+        outcome = "encoded"
+    logger.info(
+        "book.picture user=%s book=%s slot=%s width=%d bytes=%d outcome=%s",
+        user_id(session) or "-",
+        book_id,
+        slot,
+        width,
+        len(data),
+        outcome,
+    )
+    return versioned_picture(data, media_type=VARIANT_MEDIA_TYPE, etag=etag, immutable=current)
 
 
 @router.get("/{book_id}/prompts.json")

@@ -31,6 +31,7 @@ from typing import Any, cast
 from sqlalchemy import Connection, delete, null, select, update
 from sqlalchemy import insert as sa_insert
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 
 from app.db import (
     BookCharacterRow,
@@ -38,6 +39,7 @@ from app.db import (
     BookRow,
     BookStoryCharacterRow,
     BookStoryPageRow,
+    PictureVariantRow,
     StoryRow,
 )
 from app.models.book import AboutMe
@@ -52,6 +54,7 @@ from app.services.book_store import (
     page_totals,
 )
 from app.services.media import media_type_for
+from app.services.pictures import VARIANT_MEDIA_TYPE, picture_set, slot_page
 from app.services.template_store import write_pins
 
 __all__ = ["COVER_PAGE", "DatabaseBookStore", "UnreviewedImages", "unreviewed_images"]
@@ -188,7 +191,7 @@ class DatabaseBookStore(BookStore):
                     BookRow.status_payload,
                     BookRow.created_at,
                     BookRow.updated_at,
-                    BookRow.cover,
+                    BookRow.cover_sha256,
                     BookRow.about,
                     StoryRow.cover_subtitle,
                 )
@@ -203,8 +206,9 @@ class DatabaseBookStore(BookStore):
             pages = payload.get("pages", [])
             raw_pages = pages if isinstance(pages, list) else []
             page_list = [page for page in raw_pages if isinstance(page, dict)]
-            cover_url = self.cover_url(row.id) if row.cover is not None else None
-            page_count, done = page_totals(page_list, cover_done=row.cover is not None)
+            has_cover = row.cover_sha256 is not None
+            cover_url = self.cover_url(row.id) if has_cover else None
+            page_count, done = page_totals(page_list, cover_done=has_cover)
             summaries.append(
                 BookSummary(
                     book_id=row.id,
@@ -220,6 +224,7 @@ class DatabaseBookStore(BookStore):
                     if row.status == BookStatus.COMPLETE
                     else None,
                     subtitle=_subtitle(row.cover_subtitle, row.about),
+                    cover_sha256=row.cover_sha256,
                 )
             )
         return summaries
@@ -287,7 +292,9 @@ class DatabaseBookStore(BookStore):
     ) -> None:
         with self._engine.begin() as conn:
             row = conn.execute(
-                select(BookRow.status_payload, BookRow.cover).where(BookRow.id == book_id)
+                select(BookRow.status_payload, BookRow.cover_sha256).where(
+                    BookRow.id == book_id
+                )
             ).one_or_none()
             previous = (
                 dict(row.status_payload)
@@ -296,7 +303,7 @@ class DatabaseBookStore(BookStore):
             )
             if title is None:
                 title = cast("str | None", previous.get("title"))
-            if cover_url is None and row is not None and row.cover is not None:
+            if cover_url is None and row is not None and row.cover_sha256 is not None:
                 cover_url = self.cover_url(book_id)
             if status == BookStatus.COMPLETE:
                 missing = _unreviewed(conn, book_id)
@@ -338,7 +345,7 @@ class DatabaseBookStore(BookStore):
                 # the document was written) still answers in the poll's shape
                 # rather than pretending the book does not exist.
                 return self._status_payload(book_id, row.status, [], row.error)
-            return _with_attempts(conn, book_id, dict(row.status_payload))
+            return _with_picture_records(conn, book_id, dict(row.status_payload))
 
     def load_status_and_owner(
         self, book_id: str
@@ -358,7 +365,7 @@ class DatabaseBookStore(BookStore):
             if row is None:
                 return None, None
             payload = (
-                _with_attempts(conn, book_id, dict(row.status_payload))
+                _with_picture_records(conn, book_id, dict(row.status_payload))
                 if row.status_payload is not None
                 else self._status_payload(book_id, row.status, [], row.error)
             )
@@ -371,7 +378,7 @@ class DatabaseBookStore(BookStore):
             conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id)
-                .values(portrait=data, updated_at=_now())
+                .values(portrait=data, portrait_sha256=_sha(data), updated_at=_now())
             )
 
     def read_portrait(self, book_id: str) -> bytes | None:
@@ -402,6 +409,7 @@ class DatabaseBookStore(BookStore):
                 .where(BookRow.id == book_id)
                 .values(
                     portrait=portrait,
+                    portrait_sha256=_sha(portrait),
                     source_photo=photo,
                     settings=settings.model_dump(mode="json"),
                     updated_at=_now(),
@@ -419,7 +427,9 @@ class DatabaseBookStore(BookStore):
             conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id)
-                .values(cover=data, cover_review=null(), updated_at=_now())
+                .values(
+                    cover=data, cover_sha256=_sha(data), cover_review=null(), updated_at=_now()
+                )
             )
 
     def record_cover_review(
@@ -533,7 +543,7 @@ class DatabaseBookStore(BookStore):
                     page_number=page_number,
                     image=data,
                     media_type=media_type_for(data),
-                    image_sha256=hashlib.sha256(data).hexdigest(),
+                    image_sha256=_sha(data),
                 )
             )
 
@@ -595,6 +605,60 @@ class DatabaseBookStore(BookStore):
                     BookPageRow.book_id == book_id, BookPageRow.page_number == page_number
                 )
             ).scalar_one_or_none()
+
+    def picture_sha(self, book_id: str, slot: str) -> str | None:
+        with self._engine.connect() as conn:
+            if slot in ("cover", "portrait"):
+                column = BookRow.cover_sha256 if slot == "cover" else BookRow.portrait_sha256
+                return conn.execute(
+                    select(column).where(BookRow.id == book_id)
+                ).scalar_one_or_none()
+        number = slot_page(slot)
+        return self.read_page_etag(book_id, number) if number is not None else None
+
+    def read_variant(
+        self, book_id: str, slot: str, width: int, source_sha256: str
+    ) -> bytes | None:
+        with self._engine.connect() as conn:
+            return conn.execute(
+                select(PictureVariantRow.image).where(
+                    PictureVariantRow.book_id == book_id,
+                    PictureVariantRow.slot == slot,
+                    PictureVariantRow.width == width,
+                    PictureVariantRow.source_sha256 == source_sha256,
+                )
+            ).scalar_one_or_none()
+
+    def save_variant(
+        self, book_id: str, slot: str, width: int, source_sha256: str, data: bytes
+    ) -> None:
+        """Replace the slot's copy at this width.
+
+        Two first views of the same page can race to make it; the loser's
+        insert collides on the key, and its copy is the same picture, so the
+        collision is the answer rather than an error.
+        """
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    delete(PictureVariantRow).where(
+                        PictureVariantRow.book_id == book_id,
+                        PictureVariantRow.slot == slot,
+                        PictureVariantRow.width == width,
+                    )
+                )
+                conn.execute(
+                    sa_insert(PictureVariantRow).values(
+                        book_id=book_id,
+                        slot=slot,
+                        width=width,
+                        source_sha256=source_sha256,
+                        image=data,
+                        media_type=VARIANT_MEDIA_TYPE,
+                    )
+                )
+        except IntegrityError:
+            logger.info("book.variant_race book=%s slot=%s width=%d", book_id, slot, width)
 
     def save_prompts(self, book_id: str, prompts: list[dict[str, str]]) -> None:
         with self._engine.begin() as conn:
@@ -729,29 +793,38 @@ class DatabaseBookStore(BookStore):
         return len(stale)
 
 
-def _with_attempts(
+def _with_picture_records(
     conn: Connection, book_id: str, payload: dict[str, object]
 ) -> dict[str, object]:
-    """Stamp each finished picture in the poll document with its attempt record.
+    """Stamp each finished picture in the poll document from its own row.
 
-    The quality loop's attempts live on the page and book rows, written once per
-    picture; the status document is rewritten on every progress tick. Reading
-    them here, from the rows, keeps one source of truth: the badge a visitor
-    sees ("try 2 of 3") is the number the loop stored, never a copy that a later
-    status write could drop. Pictures with no record (made before the loop, or
-    not finished yet) carry no attempt fields at all.
+    Two things live on the page and book rows rather than in the status
+    document, which is rewritten on every progress tick:
+
+    * the quality loop's attempt record — the badge a visitor sees ("try 2 of
+      3") is the number the loop stored, never a copy a later status write
+      could drop. Pictures with no record carry no attempt fields at all;
+    * the picture's hash, as its sized and versioned URLs (`src`, `srcset`,
+      `thumb`; see `app.services.pictures`) — so a redrawn page is announced
+      under a new address the moment its row changes.
     """
     pages = payload.get("pages")
     if not isinstance(pages, list) or not pages:
         return payload
-    records: dict[int, tuple[int, int | None, bool]] = {
-        row.page_number: (row.attempt_count, row.chosen_attempt, row.best_effort)
+    records: dict[int, tuple[int, int | None, bool, str | None]] = {
+        row.page_number: (
+            row.attempt_count,
+            row.chosen_attempt,
+            row.best_effort,
+            row.image_sha256,
+        )
         for row in conn.execute(
             select(
                 BookPageRow.page_number,
                 BookPageRow.attempt_count,
                 BookPageRow.chosen_attempt,
                 BookPageRow.best_effort,
+                BookPageRow.image_sha256,
             ).where(BookPageRow.book_id == book_id)
         )
     }
@@ -760,6 +833,7 @@ def _with_attempts(
             BookRow.cover_attempt_count,
             BookRow.cover_chosen_attempt,
             BookRow.cover_best_effort,
+            BookRow.cover_sha256,
         ).where(BookRow.id == book_id)
     ).one_or_none()
     if cover is not None:
@@ -767,29 +841,34 @@ def _with_attempts(
             cover.cover_attempt_count,
             cover.cover_chosen_attempt,
             cover.cover_best_effort,
+            cover.cover_sha256,
         )
     stamped: list[object] = []
     for entry in pages:
         number = entry.get("number") if isinstance(entry, dict) else None
         record = records.get(number) if isinstance(number, int) else None
-        if record is None or record[0] < 1 or entry.get("status") != "done":
+        if record is None or entry.get("status") != "done":
             stamped.append(entry)
             continue
-        count, chosen, best_effort = record
-        stamped.append(
-            {
-                **entry,
-                "attempts": count,
-                "chosen_attempt": chosen or count,
-                "best_effort": bool(best_effort),
-            }
-        )
+        count, chosen, best_effort, sha = record
+        fields: dict[str, object] = {}
+        url = entry.get("url")
+        if isinstance(url, str) and url:
+            fields.update(picture_set(url, sha).as_dict())
+        if count >= 1:
+            fields.update(
+                attempts=count,
+                chosen_attempt=chosen or count,
+                best_effort=bool(best_effort),
+            )
+        stamped.append({**entry, **fields})
     return {**payload, "pages": stamped}
 
 
 def _delete_book(conn: Connection, book_id: str) -> None:
     """A book and everything that is only its own. The story revisions stay."""
     conn.execute(delete(BookCharacterRow).where(BookCharacterRow.book_id == book_id))
+    conn.execute(delete(PictureVariantRow).where(PictureVariantRow.book_id == book_id))
     conn.execute(delete(BookPageRow).where(BookPageRow.book_id == book_id))
     conn.execute(delete(BookStoryPageRow).where(BookStoryPageRow.book_id == book_id))
     conn.execute(delete(BookStoryCharacterRow).where(BookStoryCharacterRow.book_id == book_id))
@@ -848,6 +927,10 @@ def unreviewed_images(engine: Engine) -> list[tuple[str, int]]:
         ).all()
         found.extend((str(book_id), int(number)) for book_id, number in pages)
     return sorted(found)
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def _now() -> datetime:

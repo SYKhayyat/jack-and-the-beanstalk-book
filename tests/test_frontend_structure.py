@@ -44,6 +44,10 @@ MODULES = (
     "studio.js",
     "about.js",
     "book-live.js",
+    "reader-layout.js",
+    "page-turn.js",
+    "read-aloud.js",
+    "celebrate.js",
     "drawer.js",
 )
 RETIRED = ("book.js", "book-view.js", "book-detail.js", "book-state.js")
@@ -73,6 +77,7 @@ def _book(client: TestClient, **fields: object) -> str:
             {
                 "story": "jack_and_the_beanstalk",
                 "photo": ("me.png", make_photo_bytes(), "image/png"),
+                "photo_gender": "girl",
             }
         ),
     )
@@ -458,7 +463,9 @@ def test_a_finished_book_offers_both_downloads_and_hides_progress(book_html: str
     assert "Keep the photos and comics (zip)" in book_html
     assert "/sources.zip" in book_html
     assert "prompts.json" in book_html
-    assert "Changes are included — the book's fee was taken once." in book_html
+    # No payments in this deployment, so no fee is spoken of (U9).
+    assert "Changes are free" in book_html
+    assert "fee was taken" not in book_html
     # The redraw dialog offers what can be wrong with a page, not a portrait.
     assert book_html.count('name="reason"') == len(PageFault)
     assert 'value="likeness"' in book_html

@@ -14,7 +14,8 @@
   {% endif %}
     {% if card.cover_url and not signed_out %}
     <span class="story-card-art">
-      {{ book_cover(card.cover_url, card.cover_title or story.title, card.cover_subtitle, alt="Your latest cover: " ~ (card.cover_title or story.title) ~ (", " ~ card.cover_subtitle if card.cover_subtitle else "")) }}
+      {% set pic = picture_set(card.cover_url, card.cover_sha256) %}
+      {{ book_cover(pic.src, card.cover_title or story.title, card.cover_subtitle, srcset=pic.srcset, sizes="(min-width: 900px) 420px, 92vw", alt="Your latest cover: " ~ (card.cover_title or story.title) ~ (", " ~ card.cover_subtitle if card.cover_subtitle else "")) }}
     </span>
     {% else %}
     <span class="story-card-art fader" data-carousel data-interval="5200" data-offset="{{ ((loop.index0 if loop is defined else 0) * 2600) }}">
@@ -28,7 +29,7 @@
     <span class="story-card-body">
       <span class="story-title">{{ story.title }}</span>
       <span class="story-blurb">{{ story.blurb }}</span>
-      <span class="story-meta">20 pictures · their name on the cover</span>
+      <span class="story-meta">20 pages and a cover · their name on it</span>
       {% if card.state == "waiting" %}<span class="story-note">{{ not_ready }}</span>{% endif %}
       {% if not signed_out %}
       <span class="button{% if card.state not in ("soon", "waiting") %} primary{% endif %} story-action" data-card-action>{{ labels[card.state] }}{% if card.state in ("fresh", "finished") %} <span aria-hidden="true">→</span>{% endif %}</span>

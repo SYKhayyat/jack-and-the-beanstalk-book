@@ -8,18 +8,28 @@
 import { createBookClient } from "./api.js";
 import { createCameraSource, isTouchDevice } from "./photo.js";
 import { preparePhoto } from "./downscale.js";
+import { createReaderLayout } from "./reader-layout.js";
+import { createPageSound, createPageTurner } from "./page-turn.js";
+import { createReadAloud, speechAvailable } from "./read-aloud.js";
+import { celebrate } from "./celebrate.js";
 
 const POLL_MS = 1500;
 const MAX_QUIET_POLLS = 4;
 const RESTING_AFTER_POLLS = 8; // ~12s without a new picture reads as "frozen"
+const PRELOAD_AHEAD = 2; // pages either side fetched before they are turned to (P3)
+const READ_PAUSE_MS = 900; // the breath between a page read aloud and the next
 
 const body = document.body;
 const bookId = body.dataset.bookId;
 const bookTitle = body.dataset.bookTitle || "this book";
+const bookSubtitle = body.dataset.bookSubtitle || "";
 const bookStory = body.dataset.bookStory;
+const bookGender = body.dataset.bookGender || "";
 const MAX_UPLOAD = Number(body.dataset.maxUploadMb || 10) * 1024 * 1024;
 const api = createBookClient(bookId);
+const CELEBRATE_KEY = `book.celebrate.${bookId}`;
 
+const reader = document.getElementById("reader");
 const slot = document.getElementById("book-slot");
 const spreads = Array.from(slot.querySelectorAll(".spread"));
 const mapTiles = Array.from(document.querySelectorAll(".map-tile"));
@@ -27,17 +37,27 @@ const lastIndex = spreads.length - 1;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const MAX_ATTEMPTS = Number(body.dataset.maxAttempts) || 3;
 
+const layout = createReaderLayout(reader, slot);
+const turner = createPageTurner(slot, { reducedMotion });
+const sound = createPageSound();
+const voice = createReadAloud({ onPageRead: () => readOn() });
+const records = spreads.map((spread) => attemptsFrom(spread.dataset));
+
 let index = 0;
 let status = body.dataset.bookStatus;
 let polling = false;
 let awaitingEdit = false;
+let editing = false; // an edit is redrawing part of a book that was finished
 let lastDone = -1;
 let quietPolls = 0;
 
-spreads.forEach((spread, position) => badgeAttempts(position, attemptsFrom(spread.dataset)));
+spreads.forEach((spread, position) => badgeAttempts(position, records[position]));
+layout.fit();
 show(initialIndex(), { animate: false });
 wireTurning();
+wireTools();
 wireEdits();
+welcomeFinishedBook();
 if (!["complete", "failed"].includes(status)) startPolling();
 
 /* --- turning pages ----------------------------------------------------------- */
@@ -54,12 +74,12 @@ function spreadFromHash() {
   return null;
 }
 
-/* With no page in the URL: the About page of a finished book, otherwise the
-   last picture that has arrived (the cover while nothing has). */
+/* With no page in the URL: a finished book opens on its cover, as a book does
+   (U7); one being drawn opens on the newest picture that has arrived. */
 function initialIndex() {
   const fromHash = spreadFromHash();
   if (fromHash !== null) return fromHash;
-  if (status === "complete") return lastIndex;
+  if (status === "complete") return 0;
   let last = 0;
   spreads.forEach((spread, position) => {
     if (position < lastIndex && spread.dataset.status === "done") last = position;
@@ -75,17 +95,13 @@ function spreadName(position) {
 
 function show(wanted, { animate = true } = {}) {
   const next = Math.max(0, Math.min(lastIndex, wanted));
+  if (next === index && !spreads[next].hidden) return;
+  const previous = spreads[index];
   const direction = next >= index ? "forward" : "back";
   index = next;
-  spreads.forEach((spread, position) => {
-    spread.hidden = position !== index;
-    spread.classList.remove("turn-forward", "turn-back");
-  });
-  if (animate && !reducedMotion) {
-    const current = spreads[index];
-    void current.offsetWidth; // restart the animation
-    current.classList.add(direction === "forward" ? "turn-forward" : "turn-back");
-  }
+  if (animate && previous !== spreads[index]) sound.play();
+  void turner.turn(animate ? previous : null, spreads[index], direction);
+  if (!animate) spreads.forEach((spread, position) => (spread.hidden = position !== index));
   const { hash, label } = spreadName(index);
   document.getElementById("page-label").textContent = label;
   history.replaceState(null, "", `#${hash}`);
@@ -95,22 +111,44 @@ function show(wanted, { animate = true } = {}) {
   // The cover and the About page have their own buttons in the strip, so
   // "Redraw this page" only appears on a story page.
   document.getElementById("edit-page").hidden = index === 0 || index === lastIndex;
+  showAttempts(index);
+  preloadAround(index);
+  if (voice.reading) voice.readLeaf(spreads[index], bookTitle);
+}
+
+/* Hidden pages are lazy, so a page would only start downloading when turned
+   to. Ask for the neighbours now, so the turn shows a picture, not a wait. */
+function preloadAround(position) {
+  for (let step = -PRELOAD_AHEAD; step <= PRELOAD_AHEAD; step += 1) {
+    const spread = spreads[position + step];
+    if (!spread) continue;
+    for (const img of spread.querySelectorAll('img[loading="lazy"]')) img.loading = "eager";
+  }
 }
 
 function wireTurning() {
   document.getElementById("turn-back").addEventListener("click", () => show(index - 1));
   document.getElementById("turn-next").addEventListener("click", () => show(index + 1));
+  // Tap the left third to go back, anywhere else to go on, as with a book.
   slot.addEventListener("click", (event) => {
     if (event.target.closest("a, button")) return;
-    if (!swiped) show(index + 1);
+    if (swiped) return;
+    const box = slot.getBoundingClientRect();
+    show(event.clientX - box.left < box.width / 3 ? index - 1 : index + 1);
   });
   document.addEventListener("keydown", (event) => {
     if (event.target.closest("input, textarea, select, dialog")) return;
-    if (event.key === "ArrowRight") show(index + 1);
-    else if (event.key === "ArrowLeft") show(index - 1);
+    if (event.key === "ArrowRight" || event.key === "PageDown") show(index + 1);
+    else if (event.key === "ArrowLeft" || event.key === "PageUp") show(index - 1);
+    else if (event.key === "Home") show(0);
+    else if (event.key === "End") show(lastIndex);
+    else if (event.key === "Escape" && reader.classList.contains("story-time")) setStoryTime(false);
   });
   for (const tile of mapTiles) {
-    tile.addEventListener("click", () => show(Number(tile.dataset.goto)));
+    tile.addEventListener("click", () => {
+      show(Number(tile.dataset.goto));
+      reader.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+    });
   }
   // A link to #page-7 on this same page (or the back button) moves the book.
   window.addEventListener("hashchange", () => {
@@ -131,6 +169,93 @@ function wireTurning() {
     swiped = true;
     show(dx < 0 ? index + 1 : index - 1);
   });
+}
+
+/* --- reading tools: read to me, page sound, story time ------------------------- */
+
+function setPressed(button, pressed, label) {
+  button.setAttribute("aria-pressed", pressed ? "true" : "false");
+  button.querySelector('[data-role="label"]').textContent = label;
+}
+
+function wireTools() {
+  const readButton = document.getElementById("read-aloud");
+  if (speechAvailable()) {
+    readButton.hidden = false;
+    readButton.addEventListener("click", () => {
+      if (voice.reading) {
+        voice.stop();
+        setPressed(readButton, false, "Read to me");
+        return;
+      }
+      voice.start();
+      setPressed(readButton, true, "Stop reading");
+      voice.readLeaf(spreads[index], bookTitle);
+    });
+  }
+
+  const soundButton = document.getElementById("page-sound");
+  setPressed(soundButton, sound.enabled, sound.enabled ? "Sound on" : "Sound off");
+  soundButton.addEventListener("click", () => {
+    sound.setEnabled(!sound.enabled);
+    setPressed(soundButton, sound.enabled, sound.enabled ? "Sound on" : "Sound off");
+    sound.play();
+  });
+
+  document.getElementById("story-time").addEventListener("click", () => {
+    setStoryTime(!reader.classList.contains("story-time"));
+  });
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && reader.classList.contains("story-time")) setStoryTime(false);
+  });
+
+  document.getElementById("read-book").addEventListener("click", () => {
+    show(1);
+    reader.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+  });
+}
+
+/* Story time: the book fills the screen and the site steps away. Full screen
+   where the browser allows it; a covering layer everywhere else (iPhone). */
+function setStoryTime(on) {
+  reader.classList.toggle("story-time", on);
+  body.classList.toggle("in-story-time", on);
+  setPressed(document.getElementById("story-time"), on, on ? "Leave story time" : "Story time");
+  if (on && reader.requestFullscreen && !document.fullscreenElement) {
+    reader.requestFullscreen().catch(() => {});
+  } else if (!on && document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+  slot.focus({ preventScroll: true });
+  layout.fit();
+}
+
+/* After a page is read aloud: a breath, then the next page; the About page
+   is the end of the story, and the reading stops there. */
+function readOn() {
+  if (index >= lastIndex) {
+    voice.stop();
+    setPressed(document.getElementById("read-aloud"), false, "Read to me");
+    return;
+  }
+  window.setTimeout(() => {
+    if (voice.reading) show(index + 1);
+  }, READ_PAUSE_MS);
+}
+
+/* The book has just finished drawing (the poll reloaded the page and left a
+   note): open it big, on its cover, with confetti, once. */
+function welcomeFinishedBook() {
+  let fresh = false;
+  try {
+    fresh = window.sessionStorage.getItem(CELEBRATE_KEY) === "1";
+    window.sessionStorage.removeItem(CELEBRATE_KEY);
+  } catch {
+    fresh = false;
+  }
+  if (!fresh || status !== "complete") return;
+  window.scrollTo({ top: 0 });
+  celebrate({ reducedMotion });
 }
 
 /* --- live progress ------------------------------------------------------------- */
@@ -186,7 +311,16 @@ function apply(payload) {
 
   if (state === "complete") {
     // The finished book has an About spread and downloads the server renders;
-    // a reload is the honest way to show them. The hash keeps your page.
+    // a reload is the honest way to show them. A book that has just been
+    // drawn opens on its cover with a little celebration; an edit keeps your page.
+    if (!editing) {
+      try {
+        window.sessionStorage.setItem(CELEBRATE_KEY, "1");
+      } catch {
+        // no storage: the book still opens, without the confetti
+      }
+      history.replaceState(null, "", "#cover");
+    }
     window.location.reload();
     return;
   }
@@ -249,28 +383,66 @@ function paint(position, entry) {
     tile.setAttribute("aria-label", `${spreadName(position).label}, ${state}`);
     if (state === "done" && entry.url && !tile.querySelector("img")) {
       const thumb = document.createElement("img");
-      thumb.src = entry.url;
+      thumb.src = entry.thumb || entry.url;
       thumb.alt = "";
+      thumb.decoding = "async";
       tile.prepend(thumb);
     }
   }
-  if (!spread || spread.dataset.status === state) {
-    if (state === "done") badgeAttempts(position, attemptsFrom(entry));
-    return;
+  if (state === "done") {
+    records[position] = attemptsFrom(entry);
+    badgeAttempts(position, records[position]);
+    if (position === index) showAttempts(index);
   }
+  if (!spread || spread.dataset.status === state) return;
   spread.dataset.status = state;
   const art = spread.querySelector(".spread-art");
   if (state === "done" && entry.url) {
-    const img = document.createElement("img");
-    img.src = entry.url;
-    img.alt = `${spreadName(position).label}: ${entry.title || ""}`;
-    art.replaceChildren(img);
+    art.replaceChildren(position === 0 ? coverFigure(entry) : pageImage(position, entry));
+    layout.schedule();
     if (position === index && !reducedMotion) art.classList.add("landed");
-    badgeAttempts(position, attemptsFrom(entry));
   } else {
     const text = art.querySelector('[data-role="waiting-text"]');
     if (text) text.textContent = state === "failed" ? "This one didn't make it." : "being drawn…";
   }
+}
+
+function sizedImage(entry, alt) {
+  const img = document.createElement("img");
+  if (entry.srcset) {
+    img.srcset = entry.srcset;
+    img.sizes = getComputedStyle(reader).getPropertyValue("--page-w").trim() || "100vw";
+  }
+  img.src = entry.src || entry.url;
+  img.alt = alt;
+  img.decoding = "async";
+  return img;
+}
+
+function pageImage(position, entry) {
+  return sizedImage(entry, `${spreadName(position).label}: ${entry.title || ""}`);
+}
+
+/* The cover as the shelf and the PDF set it: the art with the title on it (U8). */
+function coverFigure(entry) {
+  const figure = document.createElement("figure");
+  figure.className = "book-cover leaf-cover";
+  figure.append(sizedImage(entry, `The cover: ${bookTitle}${bookSubtitle ? `, ${bookSubtitle}` : ""}`));
+  const lockup = document.createElement("figcaption");
+  lockup.className = "book-cover-lockup";
+  lockup.setAttribute("aria-hidden", "true");
+  const title = document.createElement("span");
+  title.className = "book-cover-title";
+  title.textContent = bookTitle;
+  lockup.append(title);
+  if (bookSubtitle) {
+    const byline = document.createElement("span");
+    byline.className = "book-cover-byline";
+    byline.textContent = bookSubtitle;
+    lockup.append(byline);
+  }
+  figure.append(lockup);
+  return figure;
 }
 
 /* --- the attempt record -------------------------------------------------------
@@ -295,26 +467,12 @@ function attemptWords({ attempts, chosen, bestEffort }) {
   return `Passed its check on try ${chosen} of ${MAX_ATTEMPTS}`;
 }
 
+/* The tile in the page map carries every picture's record; the bar under the
+   book carries the current page's. Never on the page itself: the page is the
+   book, and the badge is about how it was made. */
 function badgeAttempts(position, record) {
   if (!record.attempts) return;
   const words = attemptWords(record);
-  const tone = record.bestEffort ? "best" : record.attempts > 1 ? "retried" : "first";
-  const spread = spreads[position];
-  const art = spread && spread.querySelector(".spread-art");
-  if (art) {
-    // Under the picture, never on it: a badge is text too, and text must not
-    // cover the story.
-    let chip = spread.querySelector(".attempt-chip");
-    if (!chip) {
-      chip = document.createElement("p");
-      art.after(chip);
-    }
-    chip.className = `attempt-chip ${tone}`;
-    chip.textContent = record.bestEffort
-      ? `Best of ${record.attempts} tries`
-      : `Try ${record.chosen} of ${MAX_ATTEMPTS}`;
-    chip.title = words;
-  }
   const tile = mapTiles[position];
   if (tile) {
     let mark = tile.querySelector(".map-attempts");
@@ -322,11 +480,30 @@ function badgeAttempts(position, record) {
       mark = document.createElement("span");
       tile.append(mark);
     }
-    mark.className = `map-attempts ${tone}`;
+    mark.className = `map-attempts ${attemptTone(record)}`;
     mark.textContent = `${record.attempts}×`;
     mark.title = words;
     tile.setAttribute("aria-label", `${spreadName(position).label}, ${words}`);
   }
+}
+
+function attemptTone(record) {
+  return record.bestEffort ? "best" : record.attempts > 1 ? "retried" : "first";
+}
+
+function showAttempts(position) {
+  const chip = document.getElementById("attempt-chip");
+  const record = records[position];
+  if (!record || !record.attempts) {
+    chip.className = "attempt-chip hidden";
+    chip.textContent = "";
+    return;
+  }
+  chip.className = `attempt-chip ${attemptTone(record)}`;
+  chip.textContent = record.bestEffort
+    ? `Best of ${record.attempts} tries`
+    : `Try ${record.chosen} of ${MAX_ATTEMPTS}`;
+  chip.title = attemptWords(record);
 }
 
 function setProgress(done, total) {
@@ -359,6 +536,7 @@ async function runEdit(form, text) {
     document.getElementById("progress-block").classList.remove("hidden");
     caption(text);
     awaitingEdit = 6;
+    editing = true;
     polling = false;
     startPolling();
   } catch (error) {
@@ -516,6 +694,8 @@ async function replaceFace(key, photo) {
     const portraitForm = new FormData();
     portraitForm.append("photo", prepared.blob, "face.jpg");
     portraitForm.append("story", bookStory);
+    // The portrait is drawn for the star's he or she, whoever's face it is.
+    if (bookGender) portraitForm.append("photo_gender", bookGender);
     // The comic must be drawn for the chosen slot, or the edit refuses it.
     if (key !== "star") portraitForm.append("character", key);
     const portrait = await api.cartoonify(portraitForm);

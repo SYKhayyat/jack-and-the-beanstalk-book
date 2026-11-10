@@ -41,7 +41,9 @@ from app.models.story import COVER_NUMBER, StoryEdition
 from app.routes.auth import CurrentSessionDep
 from app.routes.book_access import book_edition
 from app.services.book_store import BookStatus, BookSummary
+from app.services.pictures import picture_set
 from app.services.prompts import render_book_page
+from app.services.typography import book_text
 from app.services.wallet import format_cents
 from app.stories import NOT_READY, Story, shelf_story
 from app.stories import shelf as shelf_cards
@@ -174,12 +176,13 @@ def book_page(
         for page in edition.pages
     ]
     tiles = _tiles(status_payload.get("pages", []), rendered)
-    heading, *sentences = record.about.rendered_about_lines()
+    heading, *sentences = (book_text(line) for line in record.about.rendered_about_lines())
+    chrome = page_chrome(container, session)
     return _render(
         request,
         "book.html",
         {
-            **page_chrome(container, session),
+            **chrome,
             "current_id": book_id,
             "book": record,
             "title": record.title,
@@ -192,7 +195,20 @@ def book_page(
             "done_count": sum(1 for tile in tiles if tile["status"] == "done"),
             "about_heading": heading,
             "about_sentences": sentences,
-            "about_images": _about_images(book_id, record.about.about_photo),
+            "about_images": _about_images(
+                book_id,
+                record.about.about_photo,
+                container.book_store.picture_sha(book_id, "portrait"),
+            ),
+            # The page's shape, until the first picture says exactly (the
+            # reader measures it); CSS takes "4 / 3".
+            "art_ratio": record.settings.aspect_ratio.value.replace(":", " / "),
+            "book_gender": record.settings.photo_gender.value,
+            "story_pages": len(rendered),
+            # Edits are always free; only a deployment that charges says why.
+            "edit_note": "Changes are included — the book's fee was taken once."
+            if chrome["wallet_enabled"]
+            else "Changes are free: redraw a page, the cover or a face as often as you need.",
             "pdf_url": f"/book-media/{book_id}/pdf" if state == BookStatus.COMPLETE else None,
             "sources_url": f"/book-media/{book_id}/sources.zip",
             "characters": [(member.key, member.label) for member in edition.photoable_cast],
@@ -305,6 +321,7 @@ def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
         "cover_url": None,
         "cover_title": None,
         "cover_subtitle": "",
+        "cover_sha256": None,
     }
     if state != "fresh":
         return card
@@ -321,6 +338,7 @@ def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
             cover_url=newest.cover_url,
             cover_title=newest.title,
             cover_subtitle=newest.subtitle,
+            cover_sha256=newest.cover_sha256,
         )
     return card
 
@@ -350,11 +368,16 @@ def _tiles(raw: object, rendered: list[BookPage]) -> list[dict[str, Any]]:
                 "label": "Cover" if number == COVER_NUMBER else f"Page {number}",
                 "short": "C" if number == COVER_NUMBER else str(number),
                 "title": entry.get("title") or title,
-                "story": entry.get("story", story) or "",
+                "story": book_text(str(entry.get("story", story) or "")),
                 "status": status,
                 "url": entry.get("url") if status == "done" else None,
+                # Sized, versioned URLs (`app.services.pictures`), stamped on
+                # the status document from each picture's row.
+                "src": entry.get("src") or entry.get("url") if status == "done" else None,
+                "srcset": entry.get("srcset") or "" if status == "done" else "",
+                "thumb": entry.get("thumb") or entry.get("url") if status == "done" else None,
                 # The quality loop's record for this picture (see
-                # `_with_attempts`); 0 means none was stored.
+                # `_with_picture_records`); 0 means none was stored.
                 "attempts": _int(entry.get("attempts")),
                 "chosen_attempt": _int(entry.get("chosen_attempt")),
                 "best_effort": bool(entry.get("best_effort")),
@@ -367,9 +390,17 @@ def _int(value: object) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
-def _about_images(book_id: str, choice: AboutPhotoChoice) -> list[dict[str, str]]:
-    photo = {"url": f"/book-media/{book_id}/photo", "alt": "The original photo"}
-    cartoon = {"url": f"/book-media/{book_id}/portrait", "alt": "The cartoon portrait"}
+def _about_images(
+    book_id: str, choice: AboutPhotoChoice, portrait_sha: str | None
+) -> list[dict[str, str]]:
+    """The About page's framed pictures.
+
+    The cartoon is served sized and versioned like every other picture; the
+    photograph stays the untouched original, never cached (`no_store`).
+    """
+    photo = {"url": f"/book-media/{book_id}/photo", "srcset": "", "alt": "The original photo"}
+    portrait = picture_set(f"/book-media/{book_id}/portrait", portrait_sha)
+    cartoon = {"url": portrait.src, "srcset": portrait.srcset, "alt": "The cartoon portrait"}
     if choice == AboutPhotoChoice.BOTH:
         return [photo, cartoon]
     if choice == AboutPhotoChoice.PHOTO:

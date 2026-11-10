@@ -20,7 +20,14 @@ from app.models.story import StoryEdition
 from app.routes.auth import CurrentSessionDep
 from app.services.template_store import NoTemplateVersion, UnknownTemplate
 
-__all__ = ["book_edition", "ensure_book", "new_book_edition", "no_store", "user_id"]
+__all__ = [
+    "book_edition",
+    "ensure_book",
+    "new_book_edition",
+    "no_store",
+    "user_id",
+    "versioned_picture",
+]
 
 
 def new_book_edition(container: ContainerDep, story_key: str) -> StoryEdition:
@@ -106,6 +113,36 @@ def private_cached(
         "X-Content-Type-Options": "nosniff",
     }
     if etag_matches(request, tag):
+        return Response(status_code=304, headers=headers)
+    return Response(content=data, media_type=media_type, headers=headers)
+
+
+#: A year: the longest lifetime browsers honour, and longer than any book lives.
+_IMMUTABLE = "private, max-age=31536000, immutable"
+_REVALIDATE = "private, max-age=0, must-revalidate"
+
+
+def versioned_picture(
+    data: bytes | None,
+    *,
+    etag: str,
+    immutable: bool,
+    media_type: str = "image/webp",
+) -> Response:
+    """A screen-sized picture, or its 304 when `data` is None (P1).
+
+    `immutable` is true only when the URL named the picture's current version:
+    then the browser keeps it for a year and never asks again, because a
+    redrawn picture is linked under a new URL. Still `private`: a shared cache
+    must never hold a picture of somebody's child. An unversioned or stale URL
+    is revalidated on every view, exactly as the full-size picture is.
+    """
+    headers = {
+        "ETag": f'"{etag}"',
+        "Cache-Control": _IMMUTABLE if immutable else _REVALIDATE,
+        "X-Content-Type-Options": "nosniff",
+    }
+    if data is None:
         return Response(status_code=304, headers=headers)
     return Response(content=data, media_type=media_type, headers=headers)
 
