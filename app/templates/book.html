@@ -1,7 +1,7 @@
 {% extends "_layout.html" %}
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{{ title }}{% if subtitle %}, {{ subtitle }}{% endif %}{% endblock %}
 {% block body_attrs %}data-page="book" data-book-id="{{ book.book_id }}" data-book-status="{{ status }}" data-book-title="{{ title }}" data-book-story="{{ book.story_key }}" data-max-upload-mb="{{ max_upload_mb }}" data-max-attempts="{{ max_attempts }}"{% endblock %}
-{% block header_title %}<span class="header-title">{{ title }}</span>{% endblock %}
+{% block header_title %}<span class="header-title">{{ title }}{% if subtitle %} <em class="header-subtitle">{{ subtitle }}</em>{% endif %}</span>{% endblock %}
 {% block main_class %}page book-screen{% endblock %}
 {% block content %}
   <section class="stage" aria-label="The book">
@@ -129,4 +129,4 @@
     </form>
   </dialog>
 {% endblock %}
-{% block scripts %}<script type="module" src="/static/book-live.js"></script>{% endblock %}
+{% block scripts %}<script type="module" src="{{ static_url }}/book-live.js"></script>{% endblock %}

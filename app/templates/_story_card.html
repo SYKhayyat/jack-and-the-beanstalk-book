@@ -14,7 +14,7 @@
   {% endif %}
     {% if card.cover_url and not signed_out %}
     <span class="story-card-art">
-      {{ book_cover(card.cover_url, card.cover_title or story.title, alt="Your latest cover: " ~ (card.cover_title or story.title)) }}
+      {{ book_cover(card.cover_url, card.cover_title or story.title, card.cover_subtitle, alt="Your latest cover: " ~ (card.cover_title or story.title) ~ (", " ~ card.cover_subtitle if card.cover_subtitle else "")) }}
     </span>
     {% else %}
     <span class="story-card-art fader" data-carousel data-interval="5200" data-offset="{{ ((loop.index0 if loop is defined else 0) * 2600) }}">

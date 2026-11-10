@@ -38,6 +38,7 @@ from app.db import (
     BookRow,
     BookStoryCharacterRow,
     BookStoryPageRow,
+    StoryRow,
 )
 from app.models.book import AboutMe
 from app.models.settings import CartoonSettings
@@ -188,7 +189,10 @@ class DatabaseBookStore(BookStore):
                     BookRow.created_at,
                     BookRow.updated_at,
                     BookRow.cover,
+                    BookRow.about,
+                    StoryRow.cover_subtitle,
                 )
+                .outerjoin(StoryRow, StoryRow.key == BookRow.story_key)
                 .where(BookRow.user_id == user_id)
                 .order_by(BookRow.created_at.desc())
                 .limit(limit)
@@ -215,6 +219,7 @@ class DatabaseBookStore(BookStore):
                     pdf_url=self.pdf_url(row.id)
                     if row.status == BookStatus.COMPLETE
                     else None,
+                    subtitle=_subtitle(row.cover_subtitle, row.about),
                 )
             )
         return summaries
@@ -838,3 +843,10 @@ def unreviewed_images(engine: Engine) -> list[tuple[str, int]]:
 
 def _now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _subtitle(template: str | None, about: Mapping[str, Any] | None) -> str:
+    """The story's cover subtitle for this book's star ("starring Ava")."""
+    if not template or about is None:
+        return ""
+    return template.format(name=AboutMe.model_validate(about).prompt_name)

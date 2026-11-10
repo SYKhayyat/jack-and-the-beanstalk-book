@@ -121,6 +121,7 @@ class TestRedIsABook:
         # The tale keeps its name on the cover and names the star beneath it.
         assert "Little Red Riding Hood" in text
         assert "starring Noa" in text
+        assert "starring Noa" in client.get(f"/books/{book_id}").text
         assert "Grandmother" in text
 
     def test_the_wolf_can_never_be_given_a_face(self, client: TestClient) -> None:

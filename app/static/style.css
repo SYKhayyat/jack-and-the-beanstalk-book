@@ -388,6 +388,15 @@ button.button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.drawer-subtitle,
+.header-subtitle {
+  font-family: var(--font-display);
+  font-style: italic;
+  color: var(--ink-soft);
+}
+.drawer-subtitle {
+  font-size: 14px;
+}
 .drawer-meta {
   font-size: 14px;
   color: var(--ink-soft);

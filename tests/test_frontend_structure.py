@@ -205,7 +205,7 @@ def test_each_screen_loads_its_module_and_has_every_id_it_reads(
     html: str = request.getfixturevalue(fixture)
     scripts = re.findall(r"<script\b([^>]*)>(.*?)</script>", html, flags=re.DOTALL)
     assert all(not body.strip() for _attrs, body in scripts), "no inline JavaScript"
-    assert f'type="module" src="/static/{script}"' in html
+    assert re.search(rf'type="module" src="/static/[0-9a-f]{{12}}/{re.escape(script)}"', html)
     missing = _ids_read_by(script) - _rendered_ids(html)
     assert not missing, f"{script} reads ids the page does not render: {missing}"
 
@@ -544,3 +544,21 @@ def test_every_request_that_spends_for_a_book_names_its_story() -> None:
 
 def test_the_book_page_tells_its_script_which_story_it_is(book_html: str) -> None:
     assert 'data-book-story="jack_and_the_beanstalk"' in book_html
+
+
+def test_pages_link_fingerprinted_assets_that_no_cache_can_keep_stale(
+    client: TestClient,
+) -> None:
+    """A CDN that ignores Cache-Control still cannot serve an old stylesheet:
+    the URL itself changes whenever any static file does."""
+    html = client.get("/").text
+    match = re.search(r'href="(/static/[0-9a-f]{12})/style\.css"', html)
+    assert match is not None
+    prefix = match.group(1)
+    css = client.get(f"{prefix}/style.css")
+    assert css.status_code == 200
+    assert "immutable" in css.headers["cache-control"]
+    # A module's relative imports land under the same fingerprint.
+    assert client.get(f"{prefix}/api.js").status_code == 200
+    # The plain path still works, and is still revalidated.
+    assert client.get("/static/style.css").headers["cache-control"] == "no-cache"

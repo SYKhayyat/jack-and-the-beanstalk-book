@@ -183,6 +183,7 @@ def book_page(
             "current_id": book_id,
             "book": record,
             "title": record.title,
+            "subtitle": edition.subtitle_for(record.about.prompt_name),
             "about": record.about,
             "status": state,
             "error": status_payload.get("error") or "",
@@ -298,6 +299,7 @@ def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
         "href": f"/stories/{story.key}/studio" if state == "fresh" else None,
         "cover_url": None,
         "cover_title": None,
+        "cover_subtitle": "",
     }
     if state != "fresh":
         return card
@@ -310,7 +312,11 @@ def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
         card["state"] = "finished"
     newest = next((book for book in books if book.cover_url), None)
     if newest is not None:
-        card.update(cover_url=newest.cover_url, cover_title=newest.title)
+        card.update(
+            cover_url=newest.cover_url,
+            cover_title=newest.title,
+            cover_subtitle=newest.subtitle,
+        )
     return card
 
 

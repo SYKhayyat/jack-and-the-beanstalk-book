@@ -6,7 +6,7 @@
   <title>{% block title %}Storybook Studio{% endblock %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <meta name="description" content="Snap one photo and get a real picture book starring your kid: Jack and the Beanstalk or Little Red Riding Hood, their face on every page.">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="{{ static_url }}/style.css">
 </head>
 <body {% block body_attrs %}{% endblock %}>
   <a class="skip-link" href="#main">Skip to the page</a>
@@ -38,7 +38,7 @@
   <footer class="site-footer">
     <p>Books are kept for {{ book_retention_days }} days.</p>
   </footer>
-  {% if library_enabled %}<script type="module" src="/static/drawer.js"></script>{% endif %}
+  {% if library_enabled %}<script type="module" src="{{ static_url }}/drawer.js"></script>{% endif %}
   {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -86,6 +86,9 @@ class BookSummary:
     pages_done: int
     cover_url: str | None
     pdf_url: str | None
+    #: The line under the title for a tale that names its star there
+    #: ("starring Ava"); "" when the title already carries the name.
+    subtitle: str = ""
 
 
 @dataclass(frozen=True, slots=True)

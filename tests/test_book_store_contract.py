@@ -28,7 +28,7 @@ from app.services.book_store import (
 )
 from app.services.db_book_store import DatabaseBookStore
 from app.services.user_store import DatabaseUserStore, User
-from tests.helpers import edition_in
+from tests.helpers import RED_KEY, edition_in
 
 USER = "contract-user-1"
 ABOUT = AboutMe.model_validate({"prompt_name": "Jack", "about_name": "Jack", "about_age": 8})
@@ -231,6 +231,23 @@ def test_list_for_owner_is_scoped_to_that_person(store: BookStore, engine: Engin
     assert {summary.book_id for summary in summaries} == {"mine-1", "mine-2"}
     assert all(summary.title for summary in summaries)
     assert store.list_for_owner("") == []
+
+
+def test_a_book_of_a_tale_that_names_its_star_below_the_title_lists_that_line(
+    store: BookStore,
+) -> None:
+    store.save_record(
+        edition=edition_in(store, RED_KEY),
+        book_id="red-1",
+        user_id=USER,
+        about=ABOUT,
+        generation_id="gen-red",
+    )
+    seed(store, book_id="jack-1")
+    by_id = {summary.book_id: summary for summary in store.list_for_owner(USER)}
+    assert by_id["red-1"].title == "Little Red Riding Hood"
+    assert by_id["red-1"].subtitle == f"starring {ABOUT.prompt_name}"
+    assert by_id["jack-1"].subtitle == ""
 
 
 def test_find_started_answers_with_a_live_book_and_skips_a_failed_one(

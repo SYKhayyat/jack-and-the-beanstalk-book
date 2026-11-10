@@ -8,6 +8,7 @@ touching global state.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
@@ -59,6 +60,33 @@ def _short_date(stamp: object) -> str:
     except ValueError:
         return str(stamp)
     return f"{moment.day} {moment:%b}"
+
+
+def static_build(directory: Path = STATIC_DIR) -> str:
+    """A fingerprint of every static file: it changes whenever any file does.
+
+    Pages link the stylesheet and scripts under `/static/<build>/`, so each
+    deploy that changes them hands out URLs no cache has ever seen. That is
+    the only fix a cache cannot override: Cloudflare in front of the custom
+    domain applies its own four-hour browser TTL and kept serving the old
+    stylesheet to the new pages, whatever Cache-Control the app sent. A
+    module's relative imports resolve under the same prefix, so a page never
+    mixes one deploy's script with another's.
+    """
+    digest = hashlib.sha256()
+    for path in sorted(p for p in directory.rglob("*") if p.is_file()):
+        digest.update(path.relative_to(directory).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
+
+
+class ImmutableStaticFiles(StaticFiles):
+    """Fingerprinted static files: the URL changes with the content, so keep them."""
+
+    def file_response(self, *args: object, **kwargs: object) -> Response:
+        response = super().file_response(*args, **kwargs)  # type: ignore[arg-type]
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 class RevalidatedStaticFiles(StaticFiles):
@@ -192,6 +220,7 @@ def create_app(
     app.state.templates.env.globals["shelf_stories"] = lambda: shelf(container.templates)
     app.state.templates.env.globals["showcase_covers"] = lambda: showcase(container.templates)
     app.state.templates.env.globals["not_ready"] = NOT_READY
+    app.state.templates.env.globals["static_url"] = f"/static/{static_build()}"
     app.state.templates.env.globals["book_retention_days"] = resolved.book_retention_days
     app.state.templates.env.filters["short_date"] = _short_date
     app.state.gate = AuthGate(
@@ -250,6 +279,13 @@ def create_app(
     # The book face the PDF already bundles, served to the pages too. Mounted
     # under /static so the login page (which is pre-session) can load it.
     app.mount("/static/fonts", RevalidatedStaticFiles(directory=FONTS_DIR), name="fonts")
+    # The fingerprinted path pages link (see `static_build`) comes before the
+    # plain one, which stays for the favicon, the covers and anything typed.
+    app.mount(
+        app.state.templates.env.globals["static_url"],
+        ImmutableStaticFiles(directory=STATIC_DIR),
+        name="static_build",
+    )
     app.mount("/static", RevalidatedStaticFiles(directory=STATIC_DIR), name="static")
 
     @app.middleware("http")
