@@ -170,9 +170,7 @@ def wallet_page(
             **chrome,
             "balance_cents": balance,
             "balance_label": format_cents(balance),
-            "price_label": format_cents(wallet.price_cents)
-            if container.payments
-            else "",
+            "price_label": format_cents(wallet.price_cents) if container.payments else "",
             "short": container.payments is not None and balance < wallet.price_cents,
             "refundable_cents": refundable,
             "refundable_label": format_cents(refundable),
