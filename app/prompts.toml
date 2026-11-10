@@ -615,4 +615,7 @@ Small details are NOT faults: what exactly is inside a basket, how many cups or 
 
 Set "passed" to false if any fault other than "wrong_counts" or "other" is listed, or the score is below 70."""
 
+# Sent with the plate as a second picture, on a page that was painted into one.
+plate_rule = """The SECOND picture is the empty background plate the first picture was painted into. Compare them. Add the fault "other" and say exactly what changed if the first picture is not the same place as the plate: a different or redrawn background, a prop moved, added or removed, a second copy of an object, a plant or stalk that is not joined to what it grew from in the plate, a different camera angle or light. Only the characters, and the shadows they cast, may differ from the plate."""
+
 page_title = "the picture book's page: "

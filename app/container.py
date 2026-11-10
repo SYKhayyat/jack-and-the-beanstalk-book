@@ -171,7 +171,12 @@ def build_container(
             reviewer=metered_reviewer(
                 reviewer
                 or build_reviewer(
-                    api_key=settings.effective_reviewer_key,
+                    api_key=(
+                        settings.openai_api_key
+                        if settings.reviewer_provider == "openai"
+                        else settings.effective_reviewer_key
+                    ),
+                    provider=settings.reviewer_provider,
                     model=settings.reviewer_model,
                     required=settings.reviewer_required,
                     timeout_seconds=settings.reviewer_timeout_seconds,

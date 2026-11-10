@@ -32,6 +32,7 @@ only, never named on any visitor-facing surface.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -42,11 +43,13 @@ from typing import Any, Protocol
 
 from app.prompt_data import prompt_text
 from app.services.image_providers.base import ProviderError
+from app.services.media import media_type_for
 
 __all__ = [
     "FAULTS",
     "MINOR_FAULTS",
     "ImageReviewer",
+    "OpenAIReviewer",
     "ReviewAnswer",
     "ReviewerQuotaSpent",
     "ReviewerUnavailable",
@@ -223,13 +226,23 @@ class ImageReviewer(Protocol):
     name: str
 
     def review(
-        self, image: bytes, *, media_type: str, page_title: str, story_line: str, cast: str
+        self,
+        image: bytes,
+        *,
+        media_type: str,
+        page_title: str,
+        story_line: str,
+        cast: str,
+        plate: bytes | None = None,
     ) -> ReviewAnswer:
         """Judge one picture against one page's checklist.
 
         Raises:
             ProviderError: the model was reached and failed, or answered
                 unparseably. The caller records the failure and carries on.
+
+        `plate` is the empty background the picture was painted into, when
+        there is one. A reviewer that can use it also checks the picture kept it.
         """
         ...
 
@@ -244,9 +257,16 @@ class UnavailableReviewer:
     name = "off"
 
     def review(
-        self, image: bytes, *, media_type: str, page_title: str, story_line: str, cast: str
+        self,
+        image: bytes,
+        *,
+        media_type: str,
+        page_title: str,
+        story_line: str,
+        cast: str,
+        plate: bytes | None = None,
     ) -> ReviewAnswer:
-        del image, media_type, page_title, story_line, cast  # nothing is looked at
+        del image, media_type, page_title, story_line, cast, plate  # nothing is looked at
         raise ReviewerUnavailable("no reviewer is configured")
 
 
@@ -288,11 +308,19 @@ class GeminiReviewer:
         )
 
     def review(
-        self, image: bytes, *, media_type: str, page_title: str, story_line: str, cast: str
+        self,
+        image: bytes,
+        *,
+        media_type: str,
+        page_title: str,
+        story_line: str,
+        cast: str,
+        plate: bytes | None = None,
     ) -> ReviewAnswer:
         instruction = prompt_text()["review"]["instruction"].format(
             page_title=page_title, story_line=story_line, cast=cast
         )
+        del plate  # Gemini is asked the one-picture question only
         contents: list[Any] = [
             self._types.Part.from_bytes(data=image, mime_type=media_type),
             self._types.Part.from_text(text=instruction),
@@ -324,6 +352,82 @@ class GeminiReviewer:
                 self._sleep(pause)
         text = getattr(response, "text", None) or ""
         return parse_answer(text)
+
+
+class OpenAIReviewer:
+    """Tier 2 on a cheap OpenAI vision model, shown the plate as well.
+
+    The picture is sent first and, on a plate page, the empty plate second, with
+    the plate-comparison rule from `[review]` added, so a repainted background,
+    a moved prop or a stalk cut loose from its stump is a fault the reviewer can
+    actually see. One call, one JSON answer, no re-ask of a malformed one.
+    """
+
+    name = "openai"
+
+    def __init__(self, api_key: str, model: str = "gpt-5-nano", timeout_seconds: int = 60):
+        if not api_key.strip():
+            raise ReviewerUnavailable(
+                "OPENAI_API_KEY is not set, so pictures could not be reviewed."
+            )
+        try:
+            import openai
+        except ImportError as exc:  # pragma: no cover - install extras
+            raise ReviewerUnavailable("The 'openai' package is not installed.") from exc
+        self._model = model
+        self._client = openai.OpenAI(api_key=api_key.strip(), timeout=timeout_seconds)
+
+    def review(
+        self,
+        image: bytes,
+        *,
+        media_type: str,
+        page_title: str,
+        story_line: str,
+        cast: str,
+        plate: bytes | None = None,
+    ) -> ReviewAnswer:
+        review = prompt_text()["review"]
+        instruction = review["instruction"].format(
+            page_title=page_title, story_line=story_line, cast=cast
+        )
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": instruction},
+            {"type": "image_url", "image_url": {"url": _data_url(image, media_type)}},
+        ]
+        if plate is not None:
+            content.append({"type": "text", "text": review["plate_rule"]})
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": _data_url(plate, media_type_for(plate))},
+                }
+            )
+        logger.info(
+            "review.call model=%s page=%r image_bytes=%d plate=%s",
+            self._model,
+            page_title,
+            len(image),
+            plate is not None,
+        )
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=[{"role": "user", "content": content}],
+                response_format={"type": "json_object"},
+            )
+        except Exception as exc:  # the SDK raises a wide range of types
+            if "insufficient_quota" in str(exc):
+                until = next_quota_reset(datetime.now(UTC))
+                raise ReviewerQuotaSpent(
+                    "the reviewer's OpenAI quota is spent", until=until
+                ) from None
+            raise ProviderError(f"the reviewer could not be reached: {exc}") from None
+        return parse_answer(response.choices[0].message.content or "")
+
+
+def _data_url(image: bytes, media_type: str) -> str:
+    return f"data:{media_type};base64," + base64.b64encode(image).decode("ascii")
 
 
 def parse_answer(text: str) -> ReviewAnswer:
@@ -381,7 +485,12 @@ def parse_answer(text: str) -> ReviewAnswer:
 
 
 def build_reviewer(
-    *, api_key: str, model: str, required: bool, timeout_seconds: int = 60
+    *,
+    api_key: str,
+    model: str,
+    required: bool,
+    timeout_seconds: int = 60,
+    provider: str = "gemini",
 ) -> ImageReviewer:
     """The reviewer for this process, or the honest stand-in.
 
@@ -391,10 +500,13 @@ def build_reviewer(
         required: True in production, where a missing key must fail at boot
             rather than quietly ship unreviewed pictures (T9.6).
         timeout_seconds: One review's budget.
+        provider: "gemini" or "openai"; `api_key` is that provider's key.
 
     Raises:
         ReviewerUnavailable: no key and `required`.
     """
+    if api_key.strip() and provider == "openai":
+        return OpenAIReviewer(api_key, model=model, timeout_seconds=timeout_seconds)
     if api_key.strip():
         return GeminiReviewer(api_key, model=model, timeout_seconds=timeout_seconds)
     if required:

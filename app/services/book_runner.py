@@ -890,6 +890,7 @@ class BookRunner:
                     page_title=page_title,
                     story_line=story_line,
                     cast=cast_note,
+                    plate=plate.image if plate is not None else None,
                 )
             except ReviewerQuotaSpent as exc:
                 self._reviewer_rests_until = exc.until
@@ -1072,8 +1073,7 @@ class BookRunner:
                     if "moderation_blocked" not in str(exc):
                         raise
                     logger.warning(
-                        "book.page_blocked user=%s book=%s page=%d attempt=%d "
-                        "kept_earlier=%s",
+                        "book.page_blocked user=%s book=%s page=%d attempt=%d kept_earlier=%s",
                         user,
                         book_id,
                         page_number,

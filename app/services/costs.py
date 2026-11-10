@@ -418,7 +418,14 @@ class MeteredReviewer:
         self.name = inner.name
 
     def review(
-        self, image: bytes, *, media_type: str, page_title: str, story_line: str, cast: str
+        self,
+        image: bytes,
+        *,
+        media_type: str,
+        page_title: str,
+        story_line: str,
+        cast: str,
+        plate: bytes | None = None,
     ) -> ReviewAnswer:
         started = time.monotonic()
         ok = False
@@ -429,6 +436,7 @@ class MeteredReviewer:
                 page_title=page_title,
                 story_line=story_line,
                 cast=cast,
+                plate=plate,
             )
             ok = True
             return answer

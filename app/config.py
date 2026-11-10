@@ -112,9 +112,20 @@ class Settings(BaseSettings):
             "start-up error in production."
         ),
     )
+    reviewer_provider: str = Field(
+        default="gemini",
+        pattern="^(gemini|openai)$",
+        description=(
+            "Which vision model checks each picture: gemini, or openai (which "
+            "uses OPENAI_API_KEY and is shown the plate as well)."
+        ),
+    )
     reviewer_model: str = Field(
         default="gemini-3.1-flash-lite",
-        description="Vision model used to check each finished picture.",
+        description=(
+            "Vision model used to check each finished picture. With "
+            "REVIEWER_PROVIDER=openai, an OpenAI model such as gpt-5-nano."
+        ),
     )
     page_attempts: int = Field(
         default=3,
