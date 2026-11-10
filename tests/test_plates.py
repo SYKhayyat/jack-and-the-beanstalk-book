@@ -318,3 +318,24 @@ def test_a_placeholder_provider_asks_nothing(monkeypatch: pytest.MonkeyPatch) ->
 def test_an_unknown_story_names_the_ones_that_exist() -> None:
     with pytest.raises(SystemExit, match="little_red_riding_hood"):
         make_plates.story_for("nope")
+
+
+def test_every_staging_has_its_own_clear_space_sentence() -> None:
+    from app.services import plates
+
+    sentences = plates._common()["staging_space"]
+    assert set(sentences) == set(plates._STAGINGS)
+    for name, sentence in sentences.items():
+        assert sentence.startswith("CLEAR SPACE:"), name
+
+
+def test_a_staged_plate_prompt_uses_its_staging_sentence_not_the_thirds() -> None:
+    from app.services import plates
+
+    story = next(seed for seed in SEEDS if seed.key == "jack_and_the_beanstalk")
+    staged = [page for page in story.pages if page.scene.staging]
+    assert staged
+    for page in staged:
+        prompt = plates.build_plate_prompt(story, page.scene, page_key=page.key)
+        assert plates._common()["staging_space"][page.scene.staging] in prompt, page.key
+        assert "left third of the frame and one in the right third" not in prompt, page.key

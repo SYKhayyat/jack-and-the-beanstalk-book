@@ -95,19 +95,23 @@ _STAGINGS: dict[str, tuple[tuple[tuple[float, float, float, float], str], ...]] 
         ((0.62, 0.30, 0.32, 0.64), "right"),
         ((0.06, 0.30, 0.32, 0.64), "right"),
     ),
-    # The giant's kitchen is seen from the floor, so the giant's slot is only
-    # his legs at the chair and the star is child-sized against the furniture.
+    # The giant's kitchen (plates/_masters/giant-kitchen-wide.jpg) is seen from
+    # low on the floor: the table against the back wall left of centre, the chair
+    # pulled out in front of it (x 0.23-0.49), bare flagstones from there to the
+    # perch (x 0.76) and the door (x 0.88), the wall meeting the floor at y 0.58.
+    # The giant's slot is only his legs on that bare floor beside the chair,
+    # rising out of the top of the frame; the star is child-sized.
     "door_and_chair": (
-        ((0.86, 0.31, 0.12, 0.30), "left"),
-        ((0.38, 0.24, 0.28, 0.38), "toward"),
+        ((0.87, 0.30, 0.12, 0.32), "left"),
+        ((0.50, 0.24, 0.22, 0.38), "toward"),
     ),
     "beside_the_chair": (
-        ((0.62, 0.30, 0.20, 0.42), "left"),
-        ((0.24, 0.24, 0.36, 0.34), "toward"),
+        ((0.64, 0.34, 0.12, 0.32), "left"),
+        ((0.47, 0.24, 0.16, 0.38), "toward"),
     ),
     "chair_and_perch": (
-        ((0.66, 0.36, 0.20, 0.48), "left"),
-        ((0.04, 0.24, 0.44, 0.56), "toward"),
+        ((0.70, 0.30, 0.14, 0.36), "left"),
+        ((0.49, 0.24, 0.19, 0.38), "toward"),
     ),
     # The star low on the stalk, the giant coming down it behind.
     "up_the_stalk": (
@@ -194,7 +198,7 @@ def build_plate_prompt(
         f"TIME OF DAY: {_literal(scene.time_of_day, story.key, 'time_of_day')}",
         f"CAMERA AND FRAMING: {_literal(scene.camera, story.key, 'camera')}",
     ]
-    parts.append(_clear_space_sentence(len(page_cast(story, scene.cast))))
+    parts.append(_clear_space_sentence(len(page_cast(story, scene.cast)), scene.staging))
     if cover:
         parts.append(_TITLE_BAND)
     parts += [section["empty"], section["no_text"], section["negative"]]
@@ -268,7 +272,18 @@ def _places_sentence(section: Mapping[str, Any], story_key: str, page_key: str) 
     return f"{_common()['places_intro']} {designs}"
 
 
-def _clear_space_sentence(cast_size: int) -> str:
+def _clear_space_sentence(cast_size: int, staging: str = "") -> str:
+    """Where the cast will stand, in words that match the slots they get.
+
+    A staged page moves its slots, so it says where they went: telling the
+    painter "left third and right third" over a stage that puts the giant's
+    legs beside a chair is how a plate ends up with furniture in a slot.
+    """
+    if staging:
+        sentences = cast(Mapping[str, str], _common().get("staging_space", {}))
+        if staging not in sentences:
+            raise PlateError(f"[plate_common.staging_space] has no sentence for {staging!r}")
+        return sentences[staging]
     return str(_common()[f"clear_space_{cast_size}"])
 
 
