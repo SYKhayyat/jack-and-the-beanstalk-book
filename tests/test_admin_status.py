@@ -58,7 +58,7 @@ def _sign_in(client: TestClient, sub: str) -> None:
 
 
 def _portrait(client: TestClient, reasons: tuple[str, ...] = ()) -> str:
-    data: dict[str, object] = {"story": JACK_KEY}
+    data: dict[str, object] = {"story": JACK_KEY, "photo_gender": "girl"}
     if reasons:
         data["reason"] = list(reasons)
     response = client.post(

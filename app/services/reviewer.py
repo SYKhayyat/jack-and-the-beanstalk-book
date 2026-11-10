@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -39,6 +40,7 @@ from app.services.image_providers.base import ProviderError
 
 __all__ = [
     "FAULTS",
+    "MINOR_FAULTS",
     "ImageReviewer",
     "ReviewAnswer",
     "ReviewerUnavailable",
@@ -46,6 +48,7 @@ __all__ = [
     "Verdict",
     "build_reviewer",
     "parse_answer",
+    "verdict_passes",
 ]
 
 logger = logging.getLogger(__name__)
@@ -65,9 +68,45 @@ FAULTS: tuple[str, ...] = (
     "other",
 )
 
+#: Faults that are recorded and steer a redraw but do not fail a picture that
+#: otherwise scores well: a reviewer told to be strict lists "three cups, not
+#: two" and "no cake in the basket", and a real run (2026-11-09) failed a good
+#: book on exactly those. Everything else in `FAULTS` fails the picture.
+MINOR_FAULTS: frozenset[str] = frozenset({"wrong_counts", "other"})
+
+
+def verdict_passes(score: int, faults: tuple[str, ...]) -> bool:
+    """The one pass rule: a good enough score and no serious fault."""
+    return score >= PASS_SCORE and not any(fault not in MINOR_FAULTS for fault in faults)
+
+
 #: A score below this fails even when the model lists no fault: "I cannot fault
 #: it but it is not the moment" is a real answer and must not pass.
 PASS_SCORE = 70
+
+#: Waits before re-asking after a transient failure: the free tier's per-minute
+#: quota (429) and "high demand" (503) both clear within seconds to a minute.
+#: Bounded, and only for those: a malformed answer is never re-asked, because
+#: that is how a reviewer quietly doubles its own cost. A failed call is not
+#: billed, so these retries cost nothing; a real run lost 6 of 49 reviews to
+#: them before this existed.
+_TRANSIENT_BACKOFF_SECONDS: tuple[float, ...] = (4.0, 12.0, 30.0)
+
+#: HTTP statuses that mean "try again shortly", not "this request is wrong".
+_TRANSIENT_CODES = frozenset({408, 429, 500, 502, 503, 504})
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """Whether a reviewer error is the service being busy rather than refusing."""
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if isinstance(code, int):
+        return code in _TRANSIENT_CODES
+    text = str(exc)
+    return any(
+        marker in text
+        for marker in ("RESOURCE_EXHAUSTED", "UNAVAILABLE", "DEADLINE_EXCEEDED", "429", "503")
+    )
+
 
 #: Anything the model writes besides one JSON object is not an answer.
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
@@ -164,9 +203,10 @@ class UnavailableReviewer:
 class GeminiReviewer:
     """Tier 2 on a cheap Gemini vision model (T10's recommendation).
 
-    Text-plus-image in, strict JSON out, no retry loop: a second billable call
-    because the first answer was malformed is how a reviewer quietly doubles its
-    own cost.
+    Text-plus-image in, strict JSON out. A malformed answer is never re-asked
+    (a second billable call is how a reviewer quietly doubles its own cost);
+    a busy service (429, 503) is re-asked a bounded number of times, since a
+    failed call is not billed and an outage otherwise passes a picture unjudged.
     """
 
     name = "gemini"
@@ -191,6 +231,7 @@ class GeminiReviewer:
             ) from exc
         self._model = model
         self._types = types
+        self._sleep = time.sleep
         self._client = genai.Client(
             api_key=api_key.strip(),
             http_options=types.HttpOptions(timeout=timeout_seconds * 1000),
@@ -209,12 +250,22 @@ class GeminiReviewer:
         logger.info(
             "review.call model=%s page=%r image_bytes=%d", self._model, page_title, len(image)
         )
-        try:
-            response = self._client.models.generate_content(
-                model=self._model, contents=contents
-            )
-        except Exception as exc:  # the SDK raises a wide range of types
-            raise ProviderError(f"the reviewer could not be reached: {exc}") from None
+        for attempt, pause in enumerate((*_TRANSIENT_BACKOFF_SECONDS, None), start=1):
+            try:
+                response = self._client.models.generate_content(
+                    model=self._model, contents=contents
+                )
+                break
+            except Exception as exc:  # the SDK raises a wide range of types
+                if pause is None or not _is_transient(exc):
+                    raise ProviderError(f"the reviewer could not be reached: {exc}") from None
+                logger.info(
+                    "review.retry attempt=%d wait_s=%.0f error=%s",
+                    attempt,
+                    pause,
+                    str(exc)[:120],
+                )
+                self._sleep(pause)
         text = getattr(response, "text", None) or ""
         return parse_answer(text)
 

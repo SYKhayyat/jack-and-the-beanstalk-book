@@ -280,6 +280,15 @@ def _substitutions(settings: CartoonSettings, name: str) -> dict[str, str]:
     return {"name": name, **pronouns, **capitalised}
 
 
+def scene_for(page: BookPage, settings: CartoonSettings, *, prompt_name: str) -> Scene:
+    """Just the page's scene, its name and pronoun placeholders filled.
+
+    For a caller that needs what the picture shows (the reviewer's brief), not
+    the whole rendered page with its story text.
+    """
+    return page.scene.formatted(_substitutions(settings, prompt_name))
+
+
 def render_book_page(
     page: BookPage, settings: CartoonSettings, *, prompt_name: str
 ) -> BookPage:
@@ -726,50 +735,67 @@ def build_plate_edit_prompt(
     slots: Sequence[Slot],
     *,
     story: StoryEdition,
+    settings: CartoonSettings,
     prompt_name: str,
     cover: bool = False,
     retry_faults: Sequence[str] = (),
     retry_findings: str = "",
 ) -> str:
-    """Prompt for one edit call: paint the cast into an approved plate.
+    """Prompt for one edit call: paint the cast into an approved plate, acting.
 
     The plate is the first reference image and the plate already carries the
-    place, the props, the light and the art style. So this prompt is the exact
-    opposite of `build_book_page_prompt`: it *forbids* re-composition. There is
-    no scene block, no `must_include`/`must_avoid`, no props-and-places sheet
-    and no whole-story context — every one of those is an instruction to draw
-    something, and on an edit an instruction to draw is an instruction to
-    change the plate. What is left is who stands where, in what style, and
-    what must not be touched.
+    place, the props, the light and the art style. So this prompt forbids
+    re-composition: no props-and-places sheet, no camera or lighting lines, no
+    `must_include` list and no whole-story context — each of those is an
+    instruction to draw the *place*, and on an edit that is an instruction to
+    change the plate.
+
+    What it does carry is the moment: the page's caption, what the star is
+    doing, the feeling, and what must not be shown. A real run without it
+    (2026-11-09, OpenAI) came back with every character standing posed in the
+    right place — the wolf upright in a suit beside an empty bed on the page
+    where he lies in it in Grandmother's cap — and the reviewer failed 15 of 21
+    pictures as the wrong moment. The moment is framed as what the characters
+    do *inside* the plate, so it never reads as permission to repaint it.
 
     The star is always first: it is the identity anchor, sent as the second
     reference image, and the slot layout puts it left or centre.
 
     Args:
-        page: The page whose plate is being edited (already formatted).
+        page: The page whose plate is being edited (raw; its name and pronoun
+            placeholders are filled here from `settings`).
         slots: The plate's own slots, in cast order — exactly the ones the
             approved plate declared, so the layout cannot drift between the
             plate and the edit.
         story: The edition, for the bible's labels and looks.
+        settings: The star's settings, for the pronouns the moment is told in.
         prompt_name: The star's name.
         cover: True for page 0, whose title band must stay clear.
         retry_faults: Faults a reviewer found in the previous attempt at this
-            page. Empty on a first attempt. Steers the re-draw at what was
-            wrong, while saying in the same breath that the plate is not among
-            the faults — otherwise a fault list reads as permission to change it.
+            page, or that the owner asked to fix. Empty on a first attempt.
+            Steers the re-draw at what was wrong, while saying in the same
+            breath that the plate is not among the faults — otherwise a fault
+            list reads as permission to change it.
         retry_findings: The reviewer's own description of the previous attempt
             (what is wrong and where), quoted after the fault list. Empty when
             no reviewer looked, or on a redraw the owner asked for.
     """
     edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
+    subs = _substitutions(settings, prompt_name)
+    scene = page.formatted(subs).scene
+    emotion = page.emotion.format(**subs) if page.emotion else ""
     lines = [
         edit["plate_task"],
         edit["preserve"],
+        edit["moment"].format(caption=scene.caption),
+        edit["acting"].format(name=prompt_name, action=scene.subject_action),
+        edit["feeling"].format(emotion=emotion) if emotion else "",
         edit["cast_identity"],
         _slot_block(slots, story, cover=cover),
         _edit_cast_looks(slots, story, prompt_name),
         edit["inherits"],
         edit["no_extras"],
+        _avoid_clause(scene),
     ]
     if retry_faults:
         lines.append(edit["retry_intro"].format(faults=fault_phrases(retry_faults)))
@@ -777,10 +803,6 @@ def build_plate_edit_prompt(
     if cover:
         lines.append(edit["cover_band"])
     lines += [edit["no_text"], edit["negative"]]
-    # `page` is not read: the plate already says where and what this page is,
-    # and a scene block here would be an instruction to redraw it. It stays in
-    # the signature so every page call site reads the same either way.
-    del page
     return _join_sections(lines)
 
 

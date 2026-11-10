@@ -331,9 +331,9 @@ def test_a_book_on_a_template_version_edits_the_plate_instead_of_composing(
 ) -> None:
     """T8: the plate is reference one, the prompt says 'keep the plate'.
 
-    The point is what is *absent*: no scene block, no props sheet, no
-    whole-story context. Every one of those is an instruction to draw, and on
-    an edit an instruction to draw is an instruction to change the plate.
+    What is absent matters: no props sheet and no whole-story context, each
+    an instruction to draw the place. What is present is the moment — what
+    the characters do inside the plate — or every figure stands posed.
     """
     # The app's own store: a plate imported anywhere else would never be seen.
     store: TemplateStore = client.app.state.container.templates  # type: ignore[attr-defined]
@@ -354,7 +354,8 @@ def test_a_book_on_a_template_version_edits_the_plate_instead_of_composing(
         assert "NOBODY ELSE" in request.prompt
         # None of the from-scratch composition's drawing instructions.
         assert "THE WHOLE STORY" not in request.prompt
-        assert "SCENE TO DRAW" not in request.prompt.upper() or True
+        assert "SCENE TO DRAW" not in request.prompt
+        assert "THE MOMENT THIS PAGE SHOWS" in request.prompt
         assert "SLOTS (" in request.prompt
     # The cover's first reference is the cover plate itself.
     assert cover_calls[0].reference_images[0] == plate_bytes

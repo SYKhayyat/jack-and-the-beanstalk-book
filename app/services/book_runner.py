@@ -62,13 +62,14 @@ from app.services.prompts import (
     build_plate_edit_prompt,
     correction_for,
     render_book_page,
+    scene_for,
 )
 from app.services.reviewer import (
-    PASS_SCORE,
     ImageReviewer,
     ReviewAnswer,
     UnavailableReviewer,
     Verdict,
+    verdict_passes,
 )
 from app.services.storage import GenerationStore
 from app.services.template_store import PlateArt, TemplateStore
@@ -514,6 +515,7 @@ class BookRunner:
                             page,
                             plate.slots,
                             story=edition,
+                            settings=artwork.settings,
                             prompt_name=prompt_name,
                             retry_faults=faults,
                             retry_findings=findings,
@@ -555,7 +557,7 @@ class BookRunner:
                     page_number=page.number,
                     user=user,
                     page_title=page.scene.title,
-                    story_line=page.beat or page.emotion or page.scene.title,
+                    story_line=_picture_brief(page, artwork.settings),
                     cast_note=_cast_note(page, edition),
                     plate=plate,
                     artwork=artwork,
@@ -728,6 +730,7 @@ class BookRunner:
                     edition.cover,
                     plate.slots,
                     story=edition,
+                    settings=artwork.settings,
                     prompt_name=record.about.prompt_name,
                     cover=True,
                     retry_faults=faults,
@@ -760,7 +763,7 @@ class BookRunner:
             page_number=COVER_NUMBER,
             user=user,
             page_title=edition.cover.scene.title,
-            story_line=edition.cover.beat or edition.cover.scene.title,
+            story_line=_picture_brief(edition.cover, artwork.settings),
             cast_note=_cast_note(edition.cover, edition),
             plate=plate,
             artwork=artwork,
@@ -854,9 +857,11 @@ class BookRunner:
                 tier2_failed=True,
             )
 
-        # Any named fault fails the picture, whatever the model's own verdict or
-        # score: "passed, but there is lettering in the sky" is not a pass.
-        passed = answer.passed and answer.score >= PASS_SCORE and not answer.faults
+        # The code applies the pass rule, not the model's own `passed`: a serious
+        # fault fails the picture whatever the model concluded ("passed, but
+        # there is lettering in the sky" is not a pass), and a minor one alone
+        # (three cups, not two) does not fail a picture that scores well.
+        passed = verdict_passes(answer.score, answer.faults)
         # The two tiers' scores answer different questions, so the combined
         # score is the stricter one: a page is only as good as its worst check.
         score = min(answer.score, tier1.score)
@@ -1174,6 +1179,22 @@ class BookRunner:
         )
 
 
+#: The star as the reviewer hears of them: never by name (see `reviewer.py`).
+_REVIEWER_STAR = "the child"
+
+
+def _picture_brief(page: BookPage, settings: CartoonSettings) -> str:
+    """What the picture must show, as the reviewer is told it.
+
+    The page's caption — the picture this page is meant to be — not its story
+    sentence. The story sentence narrates ("Mother was waiting by the lantern
+    light") and names people who are not in the frame, which the reviewer then
+    reports as missing. The child is "the child", never their name.
+    """
+    scene = scene_for(page, settings, prompt_name=_REVIEWER_STAR)
+    return scene.caption or scene.title
+
+
 def _cast_note(page: BookPage, edition: StoryEdition) -> str:
     """Who may appear on this page, said plainly, for the reviewer.
 
@@ -1182,20 +1203,21 @@ def _cast_note(page: BookPage, edition: StoryEdition) -> str:
     name, because a reviewer told "this is Emma's book" starts being polite
     about Emma instead of checking the picture. The star is described as "the
     child" for the same reason.
+
+    The page's cast is who stands in its slots; a description can also name
+    someone in the background (the wolf slipping away between the trees, the
+    mother waiting at the gate). Those belong too, so the list defers to the
+    description rather than calling them extra — a real run failed three good
+    pages that way.
     """
-    if not page.cast:
-        return "The child is the only person in this picture."
-    labels = []
-    for key in page.cast:
-        member = edition.cast.get(key)
-        if member is not None:
-            labels.append(member.label)
-    if not labels:
-        return "The child is the only person in this picture."
+    labels = [
+        member.label for key in page.cast if (member := edition.cast.get(key)) is not None
+    ]
+    named = ", ".join(["the child", *labels])
     return (
-        "Only these people may be in the picture: the child, and "
-        + ", ".join(labels)
-        + ". Nobody else."
+        f"Who may appear in this picture: {named}, and anyone the description above "
+        "names. Nobody else. Only the description says who must be visible — "
+        "someone on this list it does not mention may be absent."
     )
 
 

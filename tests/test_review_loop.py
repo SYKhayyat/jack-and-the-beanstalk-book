@@ -40,6 +40,7 @@ from app.services.reviewer import (
     Verdict,
     build_reviewer,
     parse_answer,
+    verdict_passes,
 )
 from app.services.template_store import PlateArt, Slot
 
@@ -397,6 +398,51 @@ class TestTheAttemptLoop:
         )
         assert verdict.passed is False
 
+    def test_a_small_detail_alone_does_not_fail_a_good_picture(self) -> None:
+        """ "Three cups, not two" failed a good book (real run): recorded, not failed."""
+        reviewer = ScriptedReviewer(answers=[said(False, 90, ("wrong_counts",), "three cups")])
+        verdict = asyncio.run(
+            runner_with(reviewer)._judge(
+                book_id="book",
+                page_number=5,
+                image=grain(),
+                plate=None,
+                artwork=artwork(),
+                page_title="t",
+                story_line="s",
+                cast_note="c",
+                attempt=1,
+                user="-",
+            )
+        )
+        assert verdict.passed is True
+        assert verdict.faults == ("wrong_counts",)  # still on the record
+
+    @pytest.mark.parametrize(
+        ("score", "faults", "passes"),
+        [
+            (90, (), True),
+            (69, (), False),
+            (90, ("other",), True),
+            (60, ("other",), False),
+            (95, ("extra_person",), False),
+            (95, ("wrong_counts", "deformed"), False),
+        ],
+    )
+    def test_the_pass_rule(self, score: int, faults: tuple[str, ...], passes: bool) -> None:
+        assert verdict_passes(score, faults) is passes
+
+    def test_someone_the_description_names_is_not_an_extra(self) -> None:
+        """The wolf slipping away in the background belongs, though he has no slot."""
+        from app.services.book_runner import _cast_note
+
+        red = edition_for("little_red_riding_hood")
+        flowers = next(page for page in red.pages if page.number == 6)
+        note = _cast_note(flowers, red)
+        assert "anyone the description above names" in note
+        assert note.startswith("Who may appear in this picture: the child")
+        assert "may be absent" in note
+
     def test_a_contact_sheet_fails_tier_one_for_free(self) -> None:
         """A grid of tiles is caught before a reviewer is paid to look at it."""
         reviewer = ScriptedReviewer(answers=[said(True, 95)])
@@ -488,23 +534,114 @@ class TestTheAttemptLoop:
             a_page(),
             (A_SLOT,),
             story=JACK,
+            settings=CartoonSettings(),
             prompt_name="Jack",
             retry_faults=("text_in_image",),
+            retry_findings='the word "MARKET" is\n painted on the cart',
         )
         assert "there was lettering or writing in the picture" in retry
         # The load-bearing sentence: a fault list reads as permission to redraw
         # unless it says in the same breath that the plate is not one of them.
         assert "must stay as they are in the plate" in retry
+        # The reviewer's words, flattened to one line and quoted as data.
+        assert "in its own words: \"the word 'MARKET' is painted on the cart\"" in retry
         first_try = build_plate_edit_prompt(
-            a_page(), (A_SLOT,), story=JACK, prompt_name="Jack"
+            a_page(), (A_SLOT,), story=JACK, settings=CartoonSettings(), prompt_name="Jack"
         )
         assert "another try" not in first_try
+        assert "in its own words" not in first_try
+
+    def test_the_edit_carries_the_moment_but_keeps_the_plate(self) -> None:
+        """Without the moment every figure stood posed (real run, 2026-11-09)."""
+        red = edition_for("little_red_riding_hood")
+        page = next(page for page in red.pages if page.key == "red-arrives")
+        prompt = build_plate_edit_prompt(
+            page,
+            (A_SLOT,),
+            story=red,
+            settings=CartoonSettings(photo_gender="girl"),
+            prompt_name="Maya",
+        )
+        assert "THE MOMENT THIS PAGE SHOWS" in prompt
+        assert "stay exactly as they are" in prompt  # said before the caption
+        assert "Maya in the red hood steps through the half-open blue door" in prompt
+        assert "WHAT Maya IS DOING: stepping in through the door" in prompt
+        assert "the wolf clearly visible or showing teeth" in prompt  # must_avoid
+        assert "{name}" not in prompt and "{subject}" not in prompt
+        # Still none of the composition's instructions to draw the place.
+        assert "THE WHOLE STORY" not in prompt
+        assert prompt.index("KEEP THE PLATE") < prompt.index("THE MOMENT")
+
+    def test_the_reviewer_is_told_the_picture_not_the_narration(self) -> None:
+        """The story line names people off-frame; the caption is what to judge."""
+        from app.services.book_runner import _picture_brief
+
+        red = edition_for("little_red_riding_hood")
+        page = next(page for page in red.pages if page.key == "red-arrives")
+        brief = _picture_brief(page, CartoonSettings(photo_gender="girl"))
+        assert brief.startswith("the child in the red hood steps through")
+        assert "Maya" not in brief and "{name}" not in brief
 
 
 # --- the reviewer ---------------------------------------------------------------
 
 
 class TestTheReviewer:
+    def test_a_busy_reviewer_is_asked_again_and_a_refusal_is_not(self) -> None:
+        """429/503 clear in seconds and are not billed; a bad answer is never re-asked."""
+        reviewer = GeminiReviewer("k", model="gemini-x")
+        reviewer._sleep = lambda _seconds: None
+        answers: list[Any] = [
+            RuntimeError("429 RESOURCE_EXHAUSTED. quota"),
+            RuntimeError("503 UNAVAILABLE. high demand"),
+            Mock(text='{"passed": true, "score": 90, "faults": [], "note": "ok"}'),
+        ]
+        calls: list[int] = []
+
+        def generate_content(**_: Any) -> Any:
+            calls.append(1)
+            answer = answers.pop(0)
+            if isinstance(answer, BaseException):
+                raise answer
+            return answer
+
+        reviewer._client = Mock()
+        reviewer._client.models.generate_content = generate_content
+        image = _png(Image.new("RGB", (8, 8), "white"))
+        answer = reviewer.review(
+            image, media_type="image/png", page_title="t", story_line="s", cast="c"
+        )
+        assert answer.passed and len(calls) == 3
+
+        calls.clear()
+        answers[:] = [RuntimeError("400 INVALID_ARGUMENT")]
+        with pytest.raises(ProviderError):
+            reviewer.review(
+                image, media_type="image/png", page_title="t", story_line="s", cast="c"
+            )
+        assert len(calls) == 1
+
+    def test_a_reviewer_that_stays_busy_gives_up(self) -> None:
+        reviewer = GeminiReviewer("k", model="gemini-x")
+        reviewer._sleep = lambda _seconds: None
+        calls: list[int] = []
+
+        def generate_content(**_: Any) -> Any:
+            calls.append(1)
+            raise RuntimeError("503 UNAVAILABLE")
+
+        reviewer._client = Mock()
+        reviewer._client.models.generate_content = generate_content
+        with pytest.raises(ProviderError):
+            reviewer.review(
+                _png(Image.new("RGB", (8, 8), "white")),
+                media_type="image/png",
+                page_title="t",
+                story_line="s",
+                cast="c",
+            )
+        assert len(calls) == 4  # the first try plus three bounded retries
+
     def test_a_strict_json_answer_is_read(self) -> None:
         answer = parse_answer('{"passed": true, "score": 80, "faults": [], "note": "fine"}')
         assert answer.passed is True
@@ -610,6 +747,7 @@ class TestTheReviewer:
         assert sent["model"] == "gemini-x"
         assert "Jack climbs into the clouds." in sent["text"]
         assert '{"passed": true, "score": 0' in sent["text"]
+        assert "The picture it must be: Jack climbs into the clouds." in sent["text"]
 
     def test_a_production_deployment_needs_a_reviewer_but_mock_mode_does_not(self) -> None:
         from app.config import Settings

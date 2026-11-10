@@ -358,6 +358,15 @@ full_frame = "FRAME: the whole image is the illustration, edge to edge. No part 
 plate_task = "TASK: This is an EDIT of the background plate supplied as the FIRST reference image. The plate already shows this page's place, its props and its light, with nobody in it. Paint the characters named below into it, one into each of the slots listed below, give each one the shadow it casts in this plate's light, and change nothing else."
 # The one sentence this pass lives or dies on.
 preserve = "KEEP THE PLATE: the background — sky, ground, walls, furniture, trees, clouds, every object, the whole composition, the camera angle, the framing, the palette and the light — must come back exactly as it is in the plate. Do not re-imagine the scene, do not re-light it, do not crop it, do not move, add or remove any object, and do not repaint any area that is not a character's own silhouette and whatever that character necessarily touches, apart from the shadow that character casts. A viewer holding the plate and this picture side by side must see the same place."
+# The moment the page shows. Only what the characters are doing: the place, the
+# props and the light are the plate's, and the sentence says so before the
+# caption, so a caption that names the room is read as "in this room", never as
+# "draw this room". Without it every character stood posed (real run,
+# 2026-11-09). {caption} is the page's scene caption, name and pronouns filled.
+moment = "THE MOMENT THIS PAGE SHOWS — the place, its props and its light are already in the plate and stay exactly as they are; this is what the characters are doing inside it: {caption}"
+# The star's own action, stated on its own so it is not lost in the caption.
+acting = "WHAT {name} IS DOING: {action}. Pose and act every character for this moment — bodies, hands, heads and faces doing what the moment says. A figure standing still and facing the viewer is wrong unless the moment says so."
+feeling = "THE FEELING: {emotion}."
 # Where each character goes. {slots} is one line per slot.
 slots = "SLOTS (fractions of the whole image, origin top LEFT, measured left to right and top to bottom):\n{slots}"
 # One slot, as the loop above writes it. {facing} is a sentence, not a word.
@@ -573,30 +582,32 @@ ever-after = ["home_cottage"]
 # The whole instruction, once per image. {page_title}, {story_line} and
 # {cast} are filled from the page being checked. The text goes through
 # str.format, so a literal brace (the JSON example) must be doubled.
-instruction = """You are checking one picture for a children's picture book before it is shown to a child. Be strict and literal: you are looking for reasons to FAIL, not reasons to approve.
+instruction = """You are checking one picture for a children's picture book before it is shown to a child. Judge it the way a careful parent would on a first look at the page: does it show this moment, with the right people, drawn properly, with nothing wrong that a parent or child would notice? Be strict about those; do not hunt for small details.
 
-You are given the picture and a description of the moment it is supposed to show. You are NOT given the child's photograph and you must not guess at likeness — another check covers that. Judge only what is written in the checklist.
+You are given the picture and a description of the picture it is supposed to be. You are NOT given the child's photograph and you must not guess at likeness — another check covers that.
 
-Answer about this page: "{page_title}". The moment it must show: {story_line}
+Answer about this page: "{page_title}". The picture it must be: {story_line}
 {cast}
 
 Report exactly one JSON object and nothing else, in this shape:
 {{"passed": true, "score": 0, "faults": [], "note": "what is wrong and where"}}
 
 "score" is 0-100: how well the picture shows the moment. "faults" is a list drawn only from these names, and is empty when nothing is wrong:
-- "wrong_moment": the picture does not show the described moment at all
-- "missing_character": a character the moment needs is not in the picture
-- "extra_person": someone is present who is not named above
+- "wrong_moment": the picture does not show the described moment — the wrong action, the wrong place, or the characters doing something else
+- "missing_character": someone the description says is in the picture is not there
+- "extra_person": someone is present whom neither the description nor the list above names
 - "text_in_image": any lettering, sign, caption, label, number, speech bubble or writing of any kind
 - "face_obscured": a face is hidden, cut off at the frame edge, or turned away in a way that loses the character
-- "frightening": anything that would frighten a young child
-- "wrong_counts": the number of a repeated object disagrees with the moment
-- "deformed": extra or missing limbs, or a body that reads as broken
+- "frightening": blood, a wound, a weapon being used or pointed at someone, an attack in progress, or a child shown in real terror. A tool lying about (a woodcutter's axe in a stump) is not a weapon. The story's villain (a wolf, a giant) may look sly, cross or toothy in a friendly cartoon way; that alone is not frightening
+- "wrong_counts": a number the description states and the story depends on (five beans, three bears) is clearly wrong
+- "deformed": extra or missing limbs, extra fingers, fused hands, doubled feet, or a body that reads as broken
 - "collage": more than one picture in the frame — a grid of tiles, panels, a storyboard, a character sheet, or the same person shown more than once
-- "other": anything else that would make this a bad page in a child's picture book; say what in the note
+- "other": something else a parent would notice that makes this a bad page; say what in the note
+
+Small details are NOT faults: what exactly is inside a basket, how many cups or flowers there are, which way a tail points, the exact colour of a prop, or a piece of furniture the description mentions in passing. Do not list them.
 
 "note" is read by the artist who redraws the picture, so make it something they can act on: for every fault, say exactly what is wrong and where in the frame — "a second girl in a red cloak stands at the far right", "the word MARKET is painted on the cart's side", "the grandmother is not in the picture; she should be in the bed", "the picture is a grid of twelve small tiles". Name things by what they look like, never by a guess at who the child is. At most three sentences. When nothing is wrong, one short sentence saying so.
 
-Set "passed" to false if any fault is listed. A picture with no faults and a score of 70 or more has passed."""
+Set "passed" to false if any fault other than "wrong_counts" or "other" is listed, or the score is below 70."""
 
 page_title = "the picture book's page: "
