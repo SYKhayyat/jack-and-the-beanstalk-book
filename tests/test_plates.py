@@ -115,7 +115,8 @@ def test_every_plate_has_one_slot_per_character_in_the_art_box(story: StorySeed)
             assert x + w <= 1 and y + h <= 1, plan.key
             assert 0 < slot.scale <= 1
             # The cover's top 22 % is the title band; a face never sits there.
-            assert y >= 0.22, plan.key
+            if plan.page_number == COVER_PAGE:
+                assert y >= 0.22, plan.key
             assert slot.facing in {"left", "right", "toward", "away"}
 
 

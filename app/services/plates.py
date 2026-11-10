@@ -99,19 +99,41 @@ _STAGINGS: dict[str, tuple[tuple[tuple[float, float, float, float], str], ...]] 
     # low on the floor: the table against the back wall left of centre, the chair
     # pulled out in front of it (x 0.23-0.49), bare flagstones from there to the
     # perch (x 0.76) and the door (x 0.88), the wall meeting the floor at y 0.58.
-    # The giant's slot is only his legs on that bare floor beside the chair,
-    # rising out of the top of the frame; the star is child-sized.
+    # While he sleeps the giant sits IN that chair, slumped over his arms on the
+    # table and facing it (never under the table, never standing); the star is
+    # child-sized.
     "door_and_chair": (
         ((0.87, 0.30, 0.12, 0.32), "left"),
-        ((0.50, 0.24, 0.22, 0.38), "toward"),
+        ((0.20, 0.03, 0.36, 0.60), "left"),
     ),
     "beside_the_chair": (
         ((0.64, 0.34, 0.12, 0.32), "left"),
-        ((0.47, 0.24, 0.16, 0.38), "toward"),
+        ((0.20, 0.03, 0.36, 0.60), "left"),
     ),
     "chair_and_perch": (
         ((0.70, 0.30, 0.14, 0.36), "left"),
-        ((0.49, 0.24, 0.19, 0.38), "toward"),
+        ((0.20, 0.03, 0.36, 0.60), "left"),
+    ),
+    # Awake and on his feet: only his boots and legs, on the bare floor beside the chair.
+    "door_and_standing": (
+        ((0.87, 0.30, 0.12, 0.32), "left"),
+        ((0.50, 0.24, 0.22, 0.38), "toward"),
+    ),
+    # The cottage front at dusk (plate 3): the lit window left of the door, both
+    # small. The mother is only head and shoulders in the window, the star on the step.
+    "window_and_door": (
+        ((0.375, 0.47, 0.06, 0.15), "left"),
+        ((0.235, 0.45, 0.09, 0.11), "toward"),
+    ),
+    # The cloud plain (plate 6): the castle far left, the stalk at the right edge;
+    # the star walks left along the path towards the castle.
+    "toward_the_castle": (
+        ((0.60, 0.50, 0.13, 0.30), "left"),
+    ),
+    # The garden at sunset (plate 16): the stalk's base right of centre, the star
+    # on the grass beside it, swinging the axe into the trunk.
+    "at_the_stalk": (
+        ((0.50, 0.36, 0.12, 0.27), "right"),
     ),
     # The star low on the stalk, the giant coming down it behind.
     "up_the_stalk": (
@@ -121,7 +143,7 @@ _STAGINGS: dict[str, tuple[tuple[tuple[float, float, float, float], str], ...]] 
     # The star at the gate, the giant a speck in the open sky beside the leaning stalk.
     "far_off_fall": (
         ((0.40, 0.52, 0.14, 0.40), "right"),
-        ((0.50, 0.24, 0.05, 0.08), "toward"),
+        ((0.78, 0.40, 0.05, 0.08), "toward"),
     ),
 }
 

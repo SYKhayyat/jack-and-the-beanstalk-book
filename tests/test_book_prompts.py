@@ -508,7 +508,7 @@ def test_page_two_shows_exactly_five_beans() -> None:
     prompt = _prompt(BOOK_PAGES[1], CartoonSettings(), 2)
     assert "holds out his open palm with exactly five beans" in prompt
     assert (
-        "exactly five beans in the old man's open palm — five and only five, "
+        "exactly five beans in the old man's open palm, laid in one row with a gap between each so all five show — five and only five, "
         "one speckled red, one blue-grey, one deep green, one golden-tan, one dark "
         "violet, no sixth bean and no extra bean of any colour" in prompt
     )

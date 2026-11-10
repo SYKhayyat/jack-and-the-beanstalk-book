@@ -52,6 +52,7 @@ def build_provider(settings: Settings) -> ImageProvider:
             model=settings.openai_model,
             quality=settings.openai_quality,
             timeout_seconds=settings.generation_timeout_seconds,
+            images_per_minute=settings.openai_images_per_minute,
         )
     if provider_cls is AgnesImageProvider:
         return AgnesImageProvider(

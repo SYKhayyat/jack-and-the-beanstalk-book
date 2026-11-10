@@ -71,6 +71,17 @@ class Settings(BaseSettings):
         default="low",
         description="OpenAI image quality tier: low, medium, high, xhigh or max.",
     )
+    openai_images_per_minute: int = Field(
+        # OpenAI's image cap is 20 per minute on this account; stay just under.
+        default=18,
+        ge=0,
+        le=10_000,
+        description=(
+            "Images per minute the OpenAI provider may start. Calls wait for room "
+            "instead of being rejected with 429. Set just under your OpenAI "
+            "images-per-minute limit; 0 turns pacing off."
+        ),
+    )
     gemini_model: str = Field(
         # Not gemini-2.5-flash-image: Google deprecated it and scheduled
         # shutdown for 2026-10-02, naming these two as the migration targets.

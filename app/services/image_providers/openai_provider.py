@@ -11,8 +11,11 @@ is the one per-image figure OpenAI publishes — $0.00588 for a 1K output, from
 196 output tokens at $30 per 1M image output tokens. Both model and quality are
 settings, so moving up a tier is an environment change.
 
-No retry loop, like every other provider here: a failed call fails loudly rather
-than quietly spending a second call's worth of money.
+No retry loop for failures, like every other provider here: a failed call fails
+loudly rather than quietly spending a second call's worth of money. The one
+exception is a 429 rate-limit rejection, which is refused before any image is
+made (so unbilled) and is re-sent after the server's `Retry-After`. Calls are
+also paced to `OPENAI_IMAGES_PER_MINUTE` so that rarely happens.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import time
 from typing import Literal, cast, get_args
 
 from app.redaction import redact
@@ -30,6 +34,7 @@ from app.services.image_providers.base import (
     ProviderError,
     ProviderUnavailable,
 )
+from app.services.image_providers.pacer import ImagePacer
 
 __all__ = ["OpenAIImageProvider", "Quality", "size_for_aspect_ratio"]
 
@@ -39,6 +44,27 @@ Quality = Literal["low", "medium", "high", "xhigh", "max", "auto", "standard"]
 QUALITIES: tuple[str, ...] = get_args(Quality)
 
 logger = logging.getLogger(__name__)
+
+# A 429 is rejected before any image is made, so it is free to re-send.
+_RATE_LIMIT_RETRIES = 3
+_MAX_RATE_LIMIT_WAIT = 60.0
+
+
+def _rate_limit_delay(exc: Exception, attempt: int) -> float | None:
+    """Seconds to wait before re-sending after a 429, or None if not retryable.
+
+    Out-of-quota is also a 429 but waiting will not fix it, so it is not retried.
+    """
+    if getattr(exc, "status_code", None) != 429:
+        return None
+    if getattr(exc, "code", None) == "insufficient_quota":
+        return None
+    headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+    try:
+        wait = float(headers.get("retry-after", ""))
+    except (TypeError, ValueError):
+        wait = 5.0 * (2**attempt)
+    return min(max(wait, 1.0), _MAX_RATE_LIMIT_WAIT)
 
 # gpt-image-2.5 accepts custom sizes subject to three documented constraints:
 # both edges a multiple of 16, aspect ratio within 1:3..3:1, and total pixels
@@ -106,6 +132,7 @@ class OpenAIImageProvider(ImageProvider):
         model: str = "gpt-image-2.5-flare",
         quality: str = "low",
         timeout_seconds: int = 600,
+        images_per_minute: int = 0,
     ) -> None:
         # Strip before use: a key pasted into an environment variable often
         # carries a trailing newline, which produces an illegal Authorization
@@ -139,6 +166,9 @@ class OpenAIImageProvider(ImageProvider):
             timeout=timeout_seconds,
             max_retries=0,  # no retry loop around a billable call
         )
+        # Spaces calls under OpenAI's images-per-minute cap, so they wait here
+        # rather than being rejected. 0 turns pacing off.
+        self._pacer = ImagePacer(images_per_minute) if images_per_minute > 0 else None
 
     def health_check(self) -> tuple[bool, str]:
         return True, f"openai ready (model={self._model}, quality={self._quality})"
@@ -178,28 +208,41 @@ class OpenAIImageProvider(ImageProvider):
             size,
         )
 
-        try:
-            response = self._client.images.edit(
-                model=self._model,
-                # A single image is sent bare; several go as a list.
-                image=references[0] if len(references) == 1 else references,
-                prompt=request.prompt,
-                size=size,
-                quality=self._quality,
-                output_format="png",
-                # `input_fidelity` is deliberately omitted: OpenAI documents it
-                # for gpt-image-1 and 1.5 only, and says to omit it for
-                # gpt-image-2 and later. Facial fidelity is carried by the prompt.
-                n=n,
-            )
-        except Exception as exc:  # the SDK raises a wide range of exception types
-            # Redact the key and drop the cause: a transport error can embed the
-            # raw Authorization header, and `from None` stops that original
-            # message (secret included) from being printed in the traceback.
-            detail = redact(str(exc), (self._api_key,))
-            raise ProviderError(f"OpenAI request failed: {detail}") from None
-
-        return response
+        for attempt in range(_RATE_LIMIT_RETRIES + 1):
+            if self._pacer is not None:
+                waited = self._pacer.acquire(n)
+                if waited >= 1:
+                    logger.info("openai.paced label=%s waited=%.1fs", request.label, waited)
+            try:
+                return self._client.images.edit(
+                    model=self._model,
+                    # A single image is sent bare; several go as a list.
+                    image=references[0] if len(references) == 1 else references,
+                    prompt=request.prompt,
+                    size=size,
+                    quality=self._quality,
+                    output_format="png",
+                    # `input_fidelity` is deliberately omitted: OpenAI documents it
+                    # for gpt-image-1 and 1.5 only, and says to omit it for
+                    # gpt-image-2 and later. Facial fidelity is carried by the prompt.
+                    n=n,
+                )
+            except Exception as exc:  # the SDK raises a wide range of exception types
+                delay = _rate_limit_delay(exc, attempt)
+                if delay is not None and attempt < _RATE_LIMIT_RETRIES:
+                    # A rate-limit rejection is refused before generating, so it
+                    # is not billed: waiting and re-sending cannot double-charge.
+                    logger.warning(
+                        "openai.rate_limited label=%s retry_in=%.1fs", request.label, delay
+                    )
+                    time.sleep(delay)
+                    continue
+                # Redact the key and drop the cause: a transport error can embed the
+                # raw Authorization header, and `from None` stops that original
+                # message (secret included) from being printed in the traceback.
+                detail = redact(str(exc), (self._api_key,))
+                raise ProviderError(f"OpenAI request failed: {detail}") from None
+        raise AssertionError("unreachable")  # pragma: no cover
 
     def generate_candidates(self, request: ImageRequest, count: int) -> list[GeneratedImage]:
         """Return `count` alternatives from a single call, via OpenAI's `n`."""
