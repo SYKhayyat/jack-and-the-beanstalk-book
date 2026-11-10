@@ -60,7 +60,9 @@ Fix:
   tier 1 alone. That's fine for availability, but log and count it, and show it
   in the admin view.
 
-** TODO Q2 Gender defaults to "boy", so girls get "he" in the story  [your boy/girl note]
+** DONE Q2 Gender defaults to "boy", so girls get "he" in the story  [your boy/girl note]
+Shipped (a251f2d): boy or girl is asked on the name screen with no default, and the
+server refuses a portrait without it (422).
 - The studio preselects =boy= for every story, including Red Riding Hood
   (=PhotoGender.BOY= default, app/models/settings.py:206).
 - That book's saved settings in prod: ={'photo_gender': 'boy', 'character_gender': 'match'}=.
@@ -76,7 +78,9 @@ dev= / =make migrate= / tests that pick up =.env= would run against prod.
 Use a Neon dev branch (or empty → SQLite) locally, and keep the prod URL only in
 Render.
 
-** TODO Q4 Red's books carry Jack's outfit setting
+** DONE Q4 Red's books carry Jack's outfit setting
+Shipped (a251f2d): a costumed story fixes the outfit to its own (Red's hood) in
+app/services/story_settings.py; the server forces it on every request.
 The look dialog's Outfit defaults to "Storybook tunic and breeches" on Red's
 studio too. Saved settings for that book: ='outfit': 'storybook_tunic'=.
 The page prompts then have to fight the cloak. The outfit (and probably the
@@ -156,7 +160,9 @@ quick low-quality preview. Then a "look inside" of 2–3 page plates with the
 text set in their child's name. Amazon's "Look inside" sells books. People
 commit to a book they can already see.
 
-** TODO G2 One decision per screen, with a visible path
+** DONE G2 One decision per screen, with a visible path
+Shipped (a251f2d): the studio is a step flow (Name → Photo → Story friends → Make
+it) with a shared progress header (_steps.html), one decision per screen.
 Three to four steps with a progress header (Photo → Name → Story friends →
 Make it). Each screen has one big question and one big button. Everything
 optional (look tweaks, cast photos, About details) is folded away with
@@ -250,7 +256,9 @@ Your three specifics, all visible on the live book:
 - A friendly 404 with the wolf.
 
 * UI — make it fun, not a form
-** TODO U1 The studio and About step read as forms  [note 1]
+** DONE U1 The studio and About step read as forms  [note 1]
+Shipped (a251f2d): name first with a live cover, "That's her!/him! →", portrait
+wording, the rejection chips folded under "Not quite right?", About details folded.
 - Look dialog: 13 stacked =<select>=s (Style, Intensity, Age, Skin tone, Hair,
   Hair colour, Outfit, Expression, Likeness, Background, Takes, two checkboxes).
   Nobody choosing a picture-book style wants a dropdown that says "Modern 3D
@@ -301,7 +309,9 @@ them arrive." It also shows when payments are off, i.e. now. Replace with
 something that sells the waiting: "Watch them arrive one by one." On the book
 screen, the progress bar already sets expectations.
 
-** TODO U5 Lock what plates decide  [note 3]
+** DONE U5 Lock what plates decide  [note 3]
+Shipped (a251f2d): plated stories fix the page shape (landscape) and a plain
+portrait background; the dialogs leave locked settings out and the server enforces them.
 Once a story has approved plates, the page shape, the art style, the portrait
 background and "takes" are decided by the plates (a 4:3 plate can't become a
 3:4 page without redrawing the background, and tier 1 then flags
