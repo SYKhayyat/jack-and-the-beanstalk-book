@@ -48,6 +48,7 @@ ensure_venv()
 
 from PIL import Image  # noqa: E402
 
+from app.blobs import install_blob_store  # noqa: E402
 from app.books import SEEDS, StorySeed  # noqa: E402
 from app.config import Settings, get_settings  # noqa: E402
 from app.db import build_engine, prepare_database  # noqa: E402
@@ -279,6 +280,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
     args = build_parser().parse_args(argv)
     resolved = settings or get_settings()
     story = story_for(args.story)
+    install_blob_store(resolved)
     engine = prepare_database(build_engine(resolved.effective_database_url))
     try:
         store = TemplateStore(engine)

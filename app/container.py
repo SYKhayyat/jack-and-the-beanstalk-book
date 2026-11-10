@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.engine import Engine
 
-from app.blobs import R2BlobStore, set_blob_store
+from app.blobs import install_blob_store
 from app.books import SEEDS
 from app.config import Settings
 from app.db import build_engine, persistence_mode, prepare_database
@@ -126,17 +126,7 @@ def build_container(
     # before the first request rather than failing on a missing table.
     # Pictures and PDFs go to R2 when it is configured; the database then
     # holds only pointers. Installed before the engine's first read or write.
-    if settings.r2_enabled:
-        set_blob_store(
-            R2BlobStore.connect(
-                account_id=settings.r2_account_id,
-                bucket=settings.r2_bucket,
-                access_key_id=settings.r2_access_key_id,
-                secret_access_key=settings.r2_secret_access_key,
-            )
-        )
-    else:
-        set_blob_store(None)
+    install_blob_store(settings)
     engine = build_engine(settings.effective_database_url)
     prepare_database(engine)
     # The one provider object every caller uses, so every image call — page,

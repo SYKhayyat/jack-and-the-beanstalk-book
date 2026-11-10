@@ -35,11 +35,14 @@ import logging
 import threading
 from collections import OrderedDict
 from collections.abc import Iterator
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from PIL import Image
 from sqlalchemy import LargeBinary
 from sqlalchemy.types import TypeDecorator
+
+if TYPE_CHECKING:
+    from app.config import Settings
 
 __all__ = [
     "BlobRef",
@@ -312,3 +315,23 @@ class BlobRef(TypeDecorator[bytes]):
                 "(R2_ACCOUNT_ID, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY)"
             )
         return store.get(value)
+
+
+def install_blob_store(settings: Settings) -> None:
+    """Point the process at R2 when it is configured, else at nothing (inline).
+
+    Every entry point that touches the database calls this first — the web app
+    and the command-line scripts alike — so no path can write inline blobs by
+    accident while the app is configured for R2.
+    """
+    if settings.r2_enabled:
+        set_blob_store(
+            R2BlobStore.connect(
+                account_id=settings.r2_account_id,
+                bucket=settings.r2_bucket,
+                access_key_id=settings.r2_access_key_id,
+                secret_access_key=settings.r2_secret_access_key,
+            )
+        )
+    else:
+        set_blob_store(None)
