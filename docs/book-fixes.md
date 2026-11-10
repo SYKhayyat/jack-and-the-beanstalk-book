@@ -17,7 +17,7 @@ staging edit with no render behind it is NOT TESTED.
 | 8 | 14 | much darker for no reason | plate 13 brightened with ImageMagick | story p13 render (2026-11-10) is warmer and only a little darker than p12; owner to judge the look |
 | 9 | 15 | runs away from beanstalk | pinned to the right, side view | FIXED in story p14 render (2026-11-10) |
 | 10 | 16 | giant not on stalk | hands on stem, boots on leaves | FIXED in story p15 render (2026-11-10) |
-| 11 | 17 | axe points down | `at_the_stalk` staging, level swing | STILL BROKEN: swing is level, but in two renders of story p16 the axe head hangs edge-down under the handle |
+| 11 | 17 | axe points down | new moment (owner-approved): axe drawn back over her shoulder between chops, chips on the grass; exactly one axe | FIXED in story p16 render (2026-11-10): one axe, head up behind her head, chips on the grass, hen and harp by the door; the notch in the stalk did not show |
 | 12 | 18 | giant falls wrong way | giant right of stalk, falls the same way | FIXED in story p17 render (2026-11-10) |
 | 12b | 19 | text says "on the step", hen missing | hen dropped from text | FIXED: story p18 text checked (no step, no hen) |
 
@@ -30,9 +30,9 @@ Giant-page notes:
 - Story p13 render: the harp on the child's back did not show.
 - Story p14/p15 renders: the giant reads only about twice the child's size
   (he is set back in depth). Owner to judge.
-- Story p16: rewording the axe pose (head sunk edge-first in a notch) did not
-  help; next idea is a different moment (axe drawn back over her shoulder,
-  notch and chips already in the stalk).
+- Story p16: a mid-swing axe kept hanging edge-down, so the page now shows the
+  wind-up between chops. The first wind-up render drew two axes; "exactly one
+  axe" fixed it.
 
 None of this reaches new books until the stories are re-seeded and the plates
 re-imported/approved (new template version: slots live with the plates).

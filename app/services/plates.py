@@ -141,7 +141,7 @@ _STAGINGS: dict[str, tuple[tuple[tuple[float, float, float, float], str], ...]] 
         ((0.60, 0.50, 0.13, 0.30), "left"),
     ),
     # The garden at sunset (plate 16): the stalk's base right of centre, the star
-    # on the grass beside it, swinging the axe into the trunk.
+    # on the grass beside it, the axe drawn back over a shoulder between chops.
     "at_the_stalk": (
         ((0.50, 0.36, 0.12, 0.27), "right"),
     ),

@@ -703,7 +703,8 @@ def test_age_signature_features_physics_and_mood_reach_every_page() -> None:
         )
         assert "never swapped for a beret, a skullcap or a different hat" in prompt
         assert "anything that falls falls down towards the ground" in prompt
-        assert "the axe blade bites into the trunk it is cutting" in prompt
+        assert "every chop of the axe leaves a deep notch in the trunk" in prompt
+        assert "the axe blade never points at the ground" in prompt
         assert "never a stock neutral smile" in prompt
         assert "colour-graded as one book" in prompt
         assert "Every hand has exactly five fingers" in prompt
