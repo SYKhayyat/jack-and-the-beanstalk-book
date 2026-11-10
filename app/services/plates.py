@@ -114,10 +114,10 @@ _STAGINGS: dict[str, tuple[tuple[tuple[float, float, float, float], str], ...]] 
         ((0.30, 0.42, 0.14, 0.28), "right"),
         ((0.72, 0.22, 0.16, 0.26), "left"),
     ),
-    # The star at the gate, the giant a speck in the distance.
+    # The star at the gate, the giant a speck in the open sky beside the leaning stalk.
     "far_off_fall": (
         ((0.40, 0.52, 0.14, 0.40), "right"),
-        ((0.62, 0.40, 0.05, 0.08), "toward"),
+        ((0.50, 0.24, 0.05, 0.08), "toward"),
     ),
 }
 

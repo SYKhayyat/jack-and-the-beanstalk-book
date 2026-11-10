@@ -431,20 +431,20 @@ key = "the-fall"
 title = "The fall"
 cast = ["giant"]
 staging = "far_off_fall"
-caption = "The beanstalk toppled, and the giant fell with it, far beyond the hills. The cut beanstalk leans away from the cottage and falls to the right in a long sweep down towards the distant fields, its broad leaves tumbling. Far, far away, tiny against the sunset clouds, the giant falls down with it towards the far hills. In the foreground {name} stands safe by the garden gate, the axe lowered in both hands; the flat cut stump sits in its ring of stones beside the cottage."
+caption = "The beanstalk toppled, and the giant fell with it, far beyond the hills. The cut beanstalk, its base still joined to the flat stump, leans over to the right and sweeps up and out of the frame, its broad leaves tumbling. High in the open sky to the left of the stalk, tiny and far away, the giant falls. In the foreground {name} stands safe by the garden gate, the axe lowered in both hands; the flat cut stump sits in its ring of stones beside the cottage."
 subject_action = "standing safe by the garden gate, the axe lowered in both hands, watching the beanstalk and the far-off giant fall away"
-environment = "the cottage garden and the wide sky as fixed in the props and places: the cottage solid and undamaged on the left, the flat cut stump in its ring of stones, the long beanstalk falling away to the right towards the distant fields and hills, a glowing orange sky fading to deep blue"
+environment = "the cottage garden and the wide sky as fixed in the props and places: the cottage solid and undamaged on the left, the flat cut stump in its ring of stones, the beanstalk rising from the stump and leaning away to the right up out of the frame, a glowing orange sky fading to deep blue"
 time_of_day = "just after sunset, a glowing orange sky fading to deep blue"
-camera = "very wide shot from beside the cottage, the falling stalk sweeping down across the frame to the right, the garden and the stump in the lower foreground"
-must_include = ["the cut beanstalk falling downward to the right, away from the cottage", "the giant tiny and far away, falling down with the stalk towards the hills", "the flat cut stump in its ring of stones", "{name} safe by the gate holding the axe", "the child's figure keeps a natural head-to-body ratio"]
-must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant rising, flying or floating up into the sky", "the giant landing, hurt, in pain, frightened or crushed", "the giant buried under rocks or the stalk", "the giant large or close", "blood, injury or anything gruesome", "the cottage damaged", "Milky-White the cow"]
+camera = "very wide shot from beside the cottage, the leaning stalk rising from the stump towards the upper right, the garden in the lower foreground"
+must_include = ["the one cut beanstalk exactly as in the plate, still joined to the flat stump and leaning up and off the frame to the right", "the giant a tiny far-off figure in the open sky beside the stalk", "the flat cut stump in its ring of stones", "{name} safe by the gate holding the axe", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the giant rising, flying or floating up into the sky", "the giant landing, hurt, in pain, frightened or crushed", "the giant buried under rocks or the stalk", "the giant large or close", "a second beanstalk", "the stalk detached from the stump or growing from the bushes", "the stump, stalk or background redrawn differently from the plate", "blood, injury or anything gruesome", "the cottage damaged", "Milky-White the cow"]
 story = "With a crack like thunder, the beanstalk broke. Slowly at first, and then faster and faster, it fell away from the cottage. It came crashing down across the far fields. And the giant came tumbling down with it, down and down, far beyond the hills, and he was never seen again. {name} stood by the gate with the axe in {possessive} hands and watched the sky grow still."
 beat = "The cut beanstalk topples over the far fields, and the giant falls down with it."
 emotion = "awe and relief: {name} wide-eyed, the axe lowered, watching"
 
 [pages.compose]
-environment = "the cottage garden and the wide sky as fixed in the props and places: the cottage solid and undamaged, the flat cut stump in its stone ring, the long beanstalk falling away to the right towards the distant fields and hills, the giant tiny and far away falling with it"
-camera = "very wide shot from beside the cottage, the falling stalk sweeping down across the frame to the right, {name} small at the bottom in true proportion"
+environment = "the cottage garden and the wide sky as fixed in the props and places: the cottage solid and undamaged, the flat cut stump in its stone ring, the beanstalk rising from the stump and leaning away to the right up out of the frame, the giant a tiny far-off figure in the open sky beside the stalk"
+camera = "very wide shot from beside the cottage, the leaning stalk rising from the stump towards the upper right, {name} small at the bottom in true proportion"
 
 [[pages]]
 key = "safe-at-home"
