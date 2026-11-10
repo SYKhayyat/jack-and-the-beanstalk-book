@@ -43,6 +43,56 @@ services:
       # the dashboard once a key is in place.
       - key: IMAGE_PROVIDER
         sync: false
+
+      # Only for IMAGE_PROVIDER=gemini (images need billing, no free tier).
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.1-flash-lite-image
+
+      # Agnes, the free provider that takes the photo. The free tier is rate
+      # limited by resolution, so 1K is the tier that fits a whole book.
+      - key: AGNES_MODEL
+        value: agnes-image-2.5-flash
+      - key: AGNES_SIZE
+        value: 1K
+      - key: AGNES_BASE_URL
+        value: https://apihub.agnes-ai.com/v1
+
+      # The picture reviewer. gpt-6-luna uses OPENAI_API_KEY, so there is no
+      # second key to paste. The Gemini free tier ran out of daily quota
+      # mid-book, which is why it is no longer the default.
+      - key: REVIEWER_PROVIDER
+        value: openai
+      - key: REVIEWER_MODEL
+        value: gpt-6-luna
+      # Only read when REVIEWER_PROVIDER=gemini (empty falls back to GEMINI_API_KEY).
+      - key: REVIEWER_API_KEY
+        sync: false
+      - key: REVIEWER_TIMEOUT_SECONDS
+        value: "90"
+      # Measured price of one review (a picture plus its plate); feeds the
+      # cost ledger.
+      - key: REVIEW_CALL_COST_USD
+        value: "0.0011"
+      # Empty prices images from the provider's published table, so it is not
+      # declared; set it in the dashboard for a model that table does not know.
+      - key: IMAGE_CALL_COST_USD
+        sync: false
+
+      # The decision judge: a first look at every picture on OpenAI's
+      # Decisions API, so confident passes and fails skip the reviewer call.
+      - key: DECISION_JUDGE
+        value: "true"
+      - key: DECISION_JUDGE_MODEL
+        value: gpt-6-luna
+      - key: DECISION_JUDGE_USD_PER_MILLION_TOKENS
+        value: "0.10"
+
+      # Billable tries per page before the best one is kept.
+      - key: PAGE_ATTEMPTS
+        value: "3"
+
       # The shared password in front of the app. LOCAL DEVELOPMENT ONLY:
       # once the Google client below is set, the password is switched off and
       # Google sign-in is the only way in. Leaving both unset makes the app
@@ -62,9 +112,17 @@ services:
       # Must match the redirect URI registered in the console exactly.
       - key: GOOGLE_REDIRECT_URI
         sync: false
+      # Who may open /admin: Google sub values or emails, comma separated.
+      # Empty disables the admin screens. An email, so it stays out of git.
+      - key: OPERATOR_SUB
+        sync: false
       # Signs the session cookie. Set it, or every restart signs everyone out.
       - key: SESSION_SECRET
         sync: false
+      - key: APP_SESSION_MAX_AGE_DAYS
+        value: "7"
+      - key: APP_LOGIN_MAX_ATTEMPTS
+        value: "8"
 
       # Cheapest configuration OpenAI publishes: ~$0.0059 per image call.
       - key: OPENAI_MODEL
@@ -89,6 +147,12 @@ services:
 
       - key: STORAGE_DIR
         value: /tmp/jack-and-the-beanstalk-book-storage
+
+      # Retention: unfinished drafts, and finished books, are deleted after this.
+      - key: DRAFT_RETENTION_HOURS
+        value: "24"
+      - key: BOOK_RETENTION_DAYS
+        value: "7"
 
       # Stripe sandbox secret key (sk_test_...). Set it and wallets turn on:
       # top-ups through Stripe's hosted checkout, 99¢ per finished book, and

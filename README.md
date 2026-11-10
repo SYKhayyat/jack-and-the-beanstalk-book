@@ -803,8 +803,8 @@ pictures nobody looked at. In development, test and mock mode the reviewer is
 off, every verdict says `tiers_run: [1]`, and the log says so.
 
 ```
-REVIEWER_API_KEY=      # empty: falls back to GEMINI_API_KEY
-REVIEWER_MODEL=gemini-3.1-flash-lite
+REVIEWER_PROVIDER=openai   # openai (uses OPENAI_API_KEY) or gemini
+REVIEWER_MODEL=gpt-6-luna  # about $0.0011 a review, ~$0.015 a book
 PAGE_ATTEMPTS=3        # 1-3; every attempt is a billable call
 ```
 
@@ -1143,8 +1143,10 @@ A failed call is logged at no cost.
 | `AGNES_BASE_URL` | `https://apihub.agnes-ai.com/v1` | Change only if the service moves. |
 | `GEMINI_API_KEY` | *(empty)* | Required for `gemini` |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite-image` | Keep it cheap. `gemini-3.1-flash-image` is the higher-quality option. |
-| `REVIEWER_API_KEY` | *(empty)* | The vision reviewer. Empty falls back to `GEMINI_API_KEY`; in production with neither set the app refuses to start. |
-| `REVIEWER_MODEL` | `gemini-3.1-flash-lite` | The vision model every finished picture is checked with. Text and image in, strict JSON out. |
+| `REVIEWER_PROVIDER` | `openai` | `openai` (uses `OPENAI_API_KEY`, sees the plate too) or `gemini`. |
+| `REVIEWER_API_KEY` | *(empty)* | Only for `REVIEWER_PROVIDER=gemini`; empty falls back to `GEMINI_API_KEY`. Ignored by the OpenAI reviewer. |
+| `REVIEWER_MODEL` | `gpt-6-luna` | The vision model every finished picture is checked with. Text and image in, strict JSON out. |
+| `REVIEW_CALL_COST_USD` | *(empty)* | What one review costs, for the cost ledger. `0.0011` for gpt-6-luna. |
 | `REVIEWER_TIMEOUT_SECONDS` | `90` | One review's budget. A timed-out review fails that image, not the book. |
 | `PAGE_ATTEMPTS` | `3` | Billable tries per page before the best is kept (1–3). A page that never passes is kept and marked best-effort. |
 | `APP_ENV` | `development` | `production` raises the log level |

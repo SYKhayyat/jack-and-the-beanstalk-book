@@ -39,7 +39,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol, TypedDict
 
 from app.prompt_data import prompt_text
 from app.services.image_providers.base import ProviderError
@@ -354,6 +354,10 @@ class GeminiReviewer:
         return parse_answer(text)
 
 
+class _ReasoningKwargs(TypedDict, total=False):
+    reasoning_effort: Literal["none"]
+
+
 class OpenAIReviewer:
     """Tier 2 on a cheap OpenAI vision model, shown the plate as well.
 
@@ -365,7 +369,7 @@ class OpenAIReviewer:
 
     name = "openai"
 
-    def __init__(self, api_key: str, model: str = "gpt-5-nano", timeout_seconds: int = 60):
+    def __init__(self, api_key: str, model: str = "gpt-6-luna", timeout_seconds: int = 60):
         if not api_key.strip():
             raise ReviewerUnavailable(
                 "OPENAI_API_KEY is not set, so pictures could not be reviewed."
@@ -376,6 +380,19 @@ class OpenAIReviewer:
             raise ReviewerUnavailable("The 'openai' package is not installed.") from exc
         self._model = model
         self._client = openai.OpenAI(api_key=api_key.strip(), timeout=timeout_seconds)
+
+    def _reasoning_kwargs(self) -> _ReasoningKwargs:
+        """Reasoning effort for the Chat Completions call.
+
+        The GPT-6 family bills reasoning tokens as output and, on Chat
+        Completions, allows tool calling only at `none`. A reviewer answers a
+        checklist; it does not need to think for long, so `none` is both the
+        cheapest and the fastest setting. Older models (gpt-5-nano and below)
+        have no `none` setting and would reject it, so they are left alone.
+        """
+        if self._model.startswith("gpt-6"):
+            return {"reasoning_effort": "none"}
+        return {}
 
     def review(
         self,
@@ -410,11 +427,13 @@ class OpenAIReviewer:
             len(image),
             plate is not None,
         )
+        messages: list[Any] = [{"role": "user", "content": content}]
         try:
             response = self._client.chat.completions.create(
                 model=self._model,
-                messages=[{"role": "user", "content": content}],
+                messages=messages,
                 response_format={"type": "json_object"},
+                **self._reasoning_kwargs(),
             )
         except Exception as exc:  # the SDK raises a wide range of types
             if "insufficient_quota" in str(exc):

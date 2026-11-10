@@ -235,6 +235,24 @@ prompts and the PDF can agree. The gate is a switch rather than a rule because
 plates only change a finished book once the edit pass (T8) lands; until then,
 holding a story back would stop books without making them better.
 
+## 15. The reviewer runs on OpenAI gpt-6-luna, not the free Gemini tier
+
+The tier-2 reviewer ran on a free-tier Gemini key and hit its per-day quota
+mid-book, so the decision judge then decided alone. The reviewer now runs on
+`gpt-6-luna` with the `OPENAI_API_KEY` the app already pays for: no new vendor
+and no new billing. Measured cost is $0.0011 per review (picture plus plate),
+about $0.015 per book of ~22 reviews, against a 99¢ fee.
+
+Rejected: `gpt-5-nano` takes images but is deprecated. TypeSafe JEV is cheaper
+($0.042 per million input tokens, output free, against $0.10 for the Decisions
+API) but means a whole new vendor integration. The Google AI Pro student plan
+does not raise Gemini **API** limits (it covers the Gemini app, Code Assist and
+Notebook); a paid Gemini tier would be a second bill.
+
+On Chat Completions `gpt-6-luna` allows tool calling only at
+`reasoning_effort: "none"`, and a checklist answer needs no reasoning, so the
+reviewer sends `none` for the gpt-6 family and nothing for older models.
+
 ## What is left for you (not done in code)
 
 These need your accounts, your money, or your judgement, so they are documented

@@ -30,8 +30,8 @@ pass below.
       book charge what that book cost to make. Agnes is $0, OpenAI is priced
       from its published per-image table; `IMAGE_CALL_COST_USD` /
       `REVIEW_CALL_COST_USD` cover anything else.
-- [ ] Set `REVIEW_CALL_COST_USD` on Render if the reviewer key is billed (a
-      free-tier Gemini key is $0); until then review calls show as unpriced.
+- [ ] Set `REVIEW_CALL_COST_USD=0.0011` on Render (the blueprint declares it)
+      and paste nothing else for the reviewer: gpt-6-luna uses `OPENAI_API_KEY`.
 - [x] The sandbox key lives only in `.env` (gitignored) and the Render
       dashboard — never in the repo.
 - [ ] Confirm `STRIPE_SECRET_KEY` is set in the Render dashboard.

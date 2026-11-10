@@ -113,18 +113,19 @@ class Settings(BaseSettings):
         ),
     )
     reviewer_provider: str = Field(
-        default="gemini",
+        default="openai",
         pattern="^(gemini|openai)$",
         description=(
-            "Which vision model checks each picture: gemini, or openai (which "
-            "uses OPENAI_API_KEY and is shown the plate as well)."
+            "Which vision model checks each picture: openai (gpt-6-luna; uses "
+            "OPENAI_API_KEY and is shown the plate as well), or gemini."
         ),
     )
     reviewer_model: str = Field(
-        default="gemini-3.1-flash-lite",
+        default="gpt-6-luna",
         description=(
-            "Vision model used to check each finished picture. With "
-            "REVIEWER_PROVIDER=openai, an OpenAI model such as gpt-5-nano."
+            "Vision model used to check each finished picture. gpt-6-luna with "
+            "REVIEWER_PROVIDER=openai; a Gemini model such as "
+            "gemini-3.1-flash-lite with REVIEWER_PROVIDER=gemini."
         ),
     )
     page_attempts: int = Field(
