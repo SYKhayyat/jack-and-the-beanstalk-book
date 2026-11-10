@@ -304,12 +304,9 @@ def draw_cover_page(
     )
 
     # A soft vignette from the top edge down, so the title reads on any sky.
-    steps = 24
-    band = height * 0.40 / steps
-    pdf.set_fill_color(*_SHADOW)
-    for step in range(steps):
-        with pdf.local_context(fill_opacity=0.50 * (1 - step / steps) ** 1.6):
-            pdf.rect(0, step * band, width, band + 0.5, style="F")
+    # One smooth gradient image: stacked translucent strips overlap at their
+    # seams and print as visible lines.
+    pdf.image(io.BytesIO(_vignette_bytes()), x=0, y=0, w=width, h=height * 0.40)
 
     usable = width * (1 - 2 * _SIDE_MARGIN)
     title_size = width * 0.085
@@ -326,6 +323,19 @@ def draw_cover_page(
     credit_size = max(16.0, title_size * 0.42)
     pdf.set_font(_FAMILY, "I", credit_size)
     _shadowed_cell(pdf, credit, top + credit_size * 0.4, credit_size * 1.4, offset=1.2)
+
+
+@lru_cache(maxsize=1)
+def _vignette_bytes() -> bytes:
+    """A dark-to-clear vertical gradient, one pixel per row, for the cover."""
+    rows = 256
+    strip = Image.new("RGBA", (4, rows))
+    for row in range(rows):
+        alpha = round(255 * 0.50 * (1 - row / rows) ** 1.6)
+        strip.paste((*_SHADOW, alpha), (0, row, 4, row + 1))
+    out = io.BytesIO()
+    strip.save(out, format="PNG")
+    return out.getvalue()
 
 
 def _shadowed_cell(
