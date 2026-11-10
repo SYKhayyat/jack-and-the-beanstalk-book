@@ -148,6 +148,10 @@ class WalletStore:
         """This account's refund requests, newest first."""
         raise NotImplementedError
 
+    def all_refunds(self, *, limit: int = 100) -> list[RefundRequest]:
+        """Every account's refund requests, newest first. Operator use only."""
+        raise NotImplementedError
+
     def save_refund(self, request: RefundRequest) -> None:
         raise NotImplementedError
 
@@ -203,6 +207,13 @@ class Wallet:
 
     def refund_requests(self, owner: str) -> list[RefundRequest]:
         return self._store.refunds(owner)
+
+    def all_refund_requests(self, *, limit: int = 100) -> list[RefundRequest]:
+        """Every refund request, for the operator's queue."""
+        return self._store.all_refunds(limit=limit)
+
+    def get_refund(self, refund_id: str) -> RefundRequest | None:
+        return self._store.get_refund(refund_id)
 
     def refundable_cents(self, owner: str) -> int:
         """How much can genuinely go back to the card right now.

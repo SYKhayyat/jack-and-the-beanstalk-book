@@ -89,7 +89,11 @@ class FakeStripe(PaymentProvider):
 
 @contextmanager
 def wallet_app(
-    settings: Settings, provider: ImageProvider, payments: PaymentProvider
+    settings: Settings,
+    provider: ImageProvider,
+    payments: PaymentProvider,
+    *,
+    operator_sub: str = "",
 ) -> Iterator[tuple[TestClient, FakeStripe]]:
     """An app with Google mode on (so sessions carry an identity) and fake Stripe."""
     configured = settings.model_copy(
@@ -97,6 +101,7 @@ def wallet_app(
             "google_client_id": "client-id",
             "google_client_secret": "client-secret",
             "session_secret": "test-session-secret",
+            "operator_sub": operator_sub,
         }
     )
     assert isinstance(payments, FakeStripe)
@@ -147,6 +152,118 @@ def test_the_wallet_page_starts_empty(browser) -> None:
     assert "$0.99" in response.text
     for cents in FUNDING_AMOUNTS_CENTS:
         assert f'value="{cents}"' in response.text
+
+
+def test_the_header_shows_the_balance_and_a_quick_add(browser) -> None:
+    client, _ = browser
+    page = client.get("/wallet").text
+    assert 'aria-label="Wallet, balance $0.00"' in page
+    assert 'aria-label="Add $5 to your wallet"' in page
+    assert 'name="next" value="/wallet"' in page
+
+
+def test_the_shelf_shows_the_price_up_front(browser) -> None:
+    client, _ = browser
+    page = client.get("/").text
+    assert "$0.99 · 20 pictures" in page
+
+
+def test_a_top_up_from_about_comes_back_to_about(browser) -> None:
+    client, stripe = browser
+    response = client.post(
+        "/wallet/topup",
+        data={"amount_cents": 500, "next": "/stories/jack_and_the_beanstalk/about"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    checkout = stripe.checkouts[-1]
+    assert "next=%2Fstories%2Fjack_and_the_beanstalk%2Fabout" in str(checkout["success_url"])
+    assert str(checkout["cancel_url"]).endswith(
+        "/stories/jack_and_the_beanstalk/about?message=cancelled"
+    )
+
+    session_id = paid_session(stripe, 500)
+    returned = client.get(
+        "/wallet/return",
+        params={"session_id": session_id, "next": "/stories/jack_and_the_beanstalk/about"},
+        follow_redirects=False,
+    )
+    assert returned.status_code == 303
+    assert (
+        returned.headers["location"] == "/stories/jack_and_the_beanstalk/about?message=funded"
+    )
+    page = client.get(returned.headers["location"]).text
+    assert "Your top-up arrived" in page
+    assert "$5.00" in page
+
+
+def test_an_external_return_path_is_discarded(browser) -> None:
+    client, stripe = browser
+    client.post(
+        "/wallet/topup",
+        data={"amount_cents": 500, "next": "https://evil.example/x"},
+        follow_redirects=False,
+    )
+    checkout = stripe.checkouts[-1]
+    assert "next=%2Fwallet" in str(checkout["success_url"])
+    assert str(checkout["cancel_url"]).endswith("/wallet?message=cancelled")
+
+    returned = client.get(
+        "/wallet/return",
+        params={"session_id": paid_session(stripe, 500), "next": "https://evil.example/x"},
+        follow_redirects=False,
+    )
+    assert returned.headers["location"] == "/wallet?message=funded"
+
+
+def test_the_ledger_filters_by_type_and_book(browser) -> None:
+    client, _ = browser
+    wallet = client.app.state.container.wallet  # type: ignore[attr-defined]
+    wallet.fund(
+        SUB,
+        amount_cents=1000,
+        session_id="cs_seed",
+        payment_id="pi_seed",
+        description="Top-up — $10.00",
+    )
+    wallet.charge_document(SUB, book_id="book-a", title="Maya and the Beanstalk")
+    wallet.charge_document(SUB, book_id="book-b", title="Maya and the Wolf")
+
+    page = client.get("/wallet?kind=charge").text
+    assert "Maya and the Beanstalk" in page
+    assert "Maya and the Wolf" in page
+    assert "Top-up — $10.00" not in page
+
+    page = client.get("/wallet?kind=funding").text
+    assert "Top-up — $10.00" in page
+    assert "Maya and the Beanstalk" not in page
+
+    page = client.get("/wallet?book=book-a").text
+    assert "Maya and the Beanstalk" in page
+    # The other book stays in the dropdown so it can be selected, but only one
+    # charge row is shown.
+    assert page.count("Book fee") == 1
+    assert "Top-up — $10.00" not in page
+
+
+def test_the_balance_stays_visible_when_payments_are_off(settings: Settings, provider) -> None:
+    configured = settings.model_copy(
+        update={
+            "google_client_id": "client-id",
+            "google_client_secret": "client-secret",
+            "session_secret": "test-session-secret",
+        }
+    )
+    app = create_app(configured, provider=provider)
+    with TestClient(app) as client:
+        client.app.state.container.user_store.upsert(User(sub=SUB, name="Shai"))
+        token = client.app.state.sessions.issue(
+            SessionKind.GOOGLE, ttl_seconds=3600, sub=SUB, name="Shai"
+        )
+        client.cookies.set(SESSION_COOKIE, token)
+        page = client.get("/").text
+        assert 'aria-label="Wallet, balance $0.00"' in page
+        assert "Add $5 to your wallet" not in page
 
 
 def test_a_top_up_sends_the_visitor_to_stripe(browser) -> None:
@@ -227,30 +344,18 @@ def test_an_unknown_session_id_is_a_failure_not_a_credit(browser) -> None:
     assert "$0.00" in client.get("/wallet").text
 
 
-def test_a_refund_goes_back_to_the_card(browser) -> None:
+def test_a_refund_is_requested_and_waits_for_the_operator(browser) -> None:
     client, stripe = browser
     session_id = paid_session(stripe, 1000)
     client.get(f"/wallet/return?session_id={session_id}")
 
     response = client.post("/wallet/refund", follow_redirects=False)
-    assert response.headers["location"].endswith("message=refunded")
-    assert stripe.refunds == [(f"pi_{session_id}", 1000)]
+    assert response.headers["location"].endswith("message=refund_requested")
+    # Asking for the money does not move it through Stripe; the operator does.
+    assert stripe.refunds == []
     page = client.get("/wallet").text
     assert "$0.00" in page
-    assert "processed" in page
-
-
-def test_a_failed_refund_puts_the_money_back(browser) -> None:
-    client, stripe = browser
-    session_id = paid_session(stripe, 1000)
-    client.get(f"/wallet/return?session_id={session_id}")
-    stripe.fail_refund = True
-
-    response = client.post("/wallet/refund", follow_redirects=False)
-    assert response.headers["location"].endswith("message=refund_failed")
-    page = client.get("/wallet").text
-    assert "$10.00" in page
-    assert "failed" in page
+    assert "Waiting for the operator" in page
 
 
 def test_with_nothing_in_the_wallet_a_book_is_refused_before_it_renders(browser) -> None:
@@ -310,3 +415,58 @@ def test_the_wallet_has_no_page_without_an_identity(settings: Settings, provider
     app = create_app(settings, provider=provider)
     with TestClient(app) as client:
         assert client.get("/wallet", follow_redirects=False).status_code == 404
+
+
+def test_the_operator_processes_a_refund_once(settings, provider, stripe) -> None:
+    with wallet_app(settings, provider, stripe, operator_sub=SUB) as (client, fake):
+        session_id = paid_session(fake, 1000)
+        client.get(f"/wallet/return?session_id={session_id}")
+        client.post("/wallet/refund")
+
+        admin = client.get("/admin/status").text
+        assert "Refund requests" in admin
+        assert "Waiting to be sent" in admin
+        refund_id = client.app.state.container.wallet.refund_requests(SUB)[0].id  # type: ignore[attr-defined]
+
+        done = client.post(f"/admin/refunds/{refund_id}/process", follow_redirects=False)
+        assert done.status_code == 303
+        assert done.headers["location"] == "/admin/status?notice=refunded#refunds"
+        assert fake.refunds == [(f"pi_{session_id}", 1000)]
+
+        # A second click cannot send the same money twice.
+        client.post(f"/admin/refunds/{refund_id}/process")
+        assert fake.refunds == [(f"pi_{session_id}", 1000)]
+        page = client.get("/admin/status?notice=refunded").text
+        assert "The refund was sent back to the card." in page
+        assert "Sent back to the card" in page
+
+
+def test_only_the_operator_can_process_a_refund(settings, provider, stripe) -> None:
+    with wallet_app(settings, provider, stripe, operator_sub="someone-else") as (
+        client,
+        fake,
+    ):
+        session_id = paid_session(fake, 1000)
+        client.get(f"/wallet/return?session_id={session_id}")
+        client.post("/wallet/refund")
+        refund_id = client.app.state.container.wallet.refund_requests(SUB)[0].id  # type: ignore[attr-defined]
+        response = client.post(f"/admin/refunds/{refund_id}/process", follow_redirects=False)
+        assert response.status_code == 404
+        assert fake.refunds == []
+
+
+def test_a_failed_operator_refund_puts_the_money_back(settings, provider, stripe) -> None:
+    with wallet_app(settings, provider, stripe, operator_sub=SUB) as (client, fake):
+        session_id = paid_session(fake, 1000)
+        client.get(f"/wallet/return?session_id={session_id}")
+        client.post("/wallet/refund")
+        refund_id = client.app.state.container.wallet.refund_requests(SUB)[0].id  # type: ignore[attr-defined]
+        fake.fail_refund = True
+
+        done = client.post(f"/admin/refunds/{refund_id}/process", follow_redirects=False)
+        assert done.headers["location"] == "/admin/status?notice=refund_failed#refunds"
+        page = client.get("/wallet").text
+        assert "$10.00" in page
+        assert "Failed" in page
+        admin = client.get("/admin/status").text
+        assert "Failed — money returned to the wallet" in admin

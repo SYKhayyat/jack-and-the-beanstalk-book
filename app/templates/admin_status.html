@@ -19,6 +19,8 @@
 
   <h1>Status</h1>
 
+  {% if notice %}<p class="flash" role="status" aria-live="polite">{{ notice }}</p>{% endif %}
+
   <section class="card" aria-labelledby="backends-heading">
     <h2 id="backends-heading">What is live</h2>
     <table class="wallet-table admin-kv">
@@ -103,6 +105,33 @@
     </div>
     {% else %}
     <p class="field-help">No books yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="card" id="refunds" aria-labelledby="refunds-heading">
+    <h2 id="refunds-heading">Refund requests</h2>
+    <p class="field-help">A request takes the money out of the visitor's balance immediately. Sending it back through Stripe is the operator's action; a failed send returns the money to the wallet.</p>
+    {% if refunds %}
+    <div class="admin-scroll">
+      <table class="wallet-table">
+        <thead>
+          <tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">Action</th></tr>
+        </thead>
+        <tbody>
+          {% for item in refunds %}
+          <tr>
+            <td class="wallet-when">{{ item.created_at[:16].replace("T", " ") }}</td>
+            <td>{{ item.owner }}</td>
+            <td class="wallet-amount">{{ item.amount_label }}</td>
+            <td><span class="wallet-status wallet-status-{{ item.status }}">{{ item.status_label }}</span>{% if item.note %}<span class="wallet-note">{{ item.note }}</span>{% endif %}</td>
+            <td>{% if item.pending %}<form method="post" action="/admin/refunds/{{ item.id }}/process"><button type="submit" class="button">Send back</button></form>{% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="field-help">No refund requests.</p>
     {% endif %}
   </section>
 

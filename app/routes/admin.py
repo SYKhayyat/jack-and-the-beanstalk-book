@@ -189,7 +189,7 @@ def plate_index(
         request,
         "admin_plates.html",
         {
-            **page_chrome(container, session),
+            **page_chrome(container, session, request),
             "stories": stories,
             "page_total": len(PAGE_NUMBERS),
         },
@@ -246,7 +246,7 @@ def contact_sheet(
         request,
         "admin_plate_sheet.html",
         {
-            **page_chrome(container, session),
+            **page_chrome(container, session, request),
             "story": seed,
             "tiles": tiles,
             "version": version.number if version else None,
@@ -307,7 +307,7 @@ def page_review(
         request,
         "admin_plate_review.html",
         {
-            **page_chrome(container, session),
+            **page_chrome(container, session, request),
             "story": seed,
             "page": {
                 "number": page_number,

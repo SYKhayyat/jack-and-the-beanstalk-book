@@ -66,13 +66,28 @@ _ABOUT_PHOTO_LABELS = (
 
 _IN_PROGRESS = frozenset({BookStatus.PENDING, BookStatus.RENDERING})
 
+#: What a wallet return may say. A closed set: `message` arrives in a query
+#: string, so it can only select a sentence this app already wrote. Shared by
+#: every screen, because a top-up can start from any screen and return to it.
+WALLET_MESSAGES = {
+    "funded": "Your top-up arrived — the balance is up to date.",
+    "cancelled": "No payment was taken.",
+    "payment_failed": "That payment did not go through. No money was taken.",
+    "payments_off": "Payments are not configured on this deployment.",
+    "refund_requested": (
+        "Your refund request is in. It goes back to the card that paid once "
+        "the operator sends it."
+    ),
+    "nothing_to_refund": "There is nothing to refund right now.",
+}
+
 
 @router.get("/", response_class=HTMLResponse)
 def shelf(
     request: Request, container: ContainerDep, session: CurrentSessionDep
 ) -> HTMLResponse:
     """The shelf: one card per story, each a single big way in."""
-    chrome = page_chrome(container, session)
+    chrome = page_chrome(container, session, request)
     books: list[BookSummary] = chrome["books"]
     return _render(
         request,
@@ -102,7 +117,7 @@ def studio(
         request,
         "studio.html",
         {
-            **page_chrome(container, session),
+            **page_chrome(container, session, request),
             "story": story,
             "sections": sections,
             # A tale whose star wears the story's own costume (the red hood)
@@ -132,7 +147,7 @@ def about_screen(
 ) -> HTMLResponse:
     """The last page is about the star: words, the picture choice, the shape."""
     story, edition = _startable_or_404(container, story_key)
-    chrome = page_chrome(container, session)
+    chrome = page_chrome(container, session, request)
     return _render(
         request,
         "about_page.html",
@@ -146,9 +161,9 @@ def about_screen(
                 ("star", "Star"),
                 *((member.key, member.label) for member in edition.photoable_cast),
             ],
-            "fee_label": format_cents(container.wallet.price_cents)
-            if chrome["wallet_enabled"]
-            else "",
+            "fee_label": chrome["price_label"],
+            "balance_label": chrome["wallet_balance"],
+            "wallet_short": chrome["wallet_short"],
         },
     )
 
@@ -179,7 +194,7 @@ def book_page(
         request,
         "book.html",
         {
-            **page_chrome(container, session),
+            **page_chrome(container, session, request),
             "current_id": book_id,
             "book": record,
             "title": record.title,
@@ -234,15 +249,24 @@ def _render(request: Request, name: str, context: dict[str, Any]) -> HTMLRespons
     return templates.TemplateResponse(request=request, name=name, context=context)
 
 
-def page_chrome(container: ContainerDep, session: CurrentSessionDep) -> dict[str, Any]:
-    """What the header and footer need on every screen.
+def page_chrome(
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    request: Request | None = None,
+) -> dict[str, Any]:
+    """What the header, footer and every screen's money line need.
 
     Google mode files each book under a person, so My books exists there.
     Password/open mode has no identity and deliberately offers no shared pile
-    of everybody's books.
+    of everybody's books. The wallet itself is shown whenever there is a
+    person to show it to, even if payments are off: a visible balance that
+    explains itself beats a disappearing pill nobody can find again.
     """
     owner = (session.user_id if session else None) or ""
-    wallet_enabled = container.payments is not None and bool(owner)
+    payments_enabled = container.payments is not None
+    wallet_visible = bool(owner)
+    balance = container.wallet.balance_cents(owner) if wallet_visible else 0
+    wallet_enabled = payments_enabled and wallet_visible
     return {
         "auth_enabled": container.settings.auth_enabled,
         "signed_in": session is not None,
@@ -250,11 +274,25 @@ def page_chrome(container: ContainerDep, session: CurrentSessionDep) -> dict[str
         "provider": container.provider_status(),
         "library_enabled": bool(owner),
         "books": container.book_store.list_for_owner(owner) if owner else [],
+        # Money is on and this person has a wallet that can be funded.
         "wallet_enabled": wallet_enabled,
-        "wallet_balance": format_cents(container.wallet.balance_cents(owner))
-        if wallet_enabled
+        # The balance pill is visible even when money is off; only the quick
+        # top-up button depends on payments being configured.
+        "wallet_visible": wallet_visible,
+        "payments_enabled": payments_enabled,
+        "wallet_balance": format_cents(balance) if wallet_visible else "",
+        "wallet_balance_cents": balance,
+        "wallet_short": wallet_enabled and balance < container.wallet.price_cents,
+        "price_label": format_cents(container.wallet.price_cents) if wallet_enabled else "",
+        "flash": wallet_message(request.query_params.get("message", ""))
+        if request is not None
         else "",
     }
+
+
+def wallet_message(raw: str) -> str:
+    """One of this app's own wallet sentences, or nothing."""
+    return WALLET_MESSAGES.get(raw, "")
 
 
 def _startable_or_404(container: ContainerDep, key: str) -> tuple[Story, StoryEdition]:

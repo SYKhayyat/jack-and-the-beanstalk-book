@@ -18,6 +18,7 @@ carries them.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -40,14 +41,39 @@ from app.services.operator_status import (
     recent_calls,
     review_health,
 )
+from app.services.wallet import (
+    REFUND_FAILED,
+    REFUND_PROCESSED,
+    REFUND_PROCESSING,
+    REFUND_REQUESTED,
+    WalletError,
+    format_cents,
+)
 
 __all__ = ["router"]
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"], include_in_schema=False)
 
 #: The window the headline review numbers cover. Long enough to hold a few days
 #: of books, short enough that a fix shows up in the numbers the day after.
 _HEALTH_WINDOW = timedelta(days=7)
+
+_REFUND_LABELS = {
+    REFUND_REQUESTED: "Waiting to be sent",
+    REFUND_PROCESSING: "Sending",
+    REFUND_PROCESSED: "Sent back to the card",
+    REFUND_FAILED: "Failed — money returned to the wallet",
+}
+
+#: The only wording a `notice` query parameter may select on the admin page.
+_NOTICES = {
+    "refunded": "The refund was sent back to the card.",
+    "refund_failed": "Stripe refused that refund; the money is back in the wallet.",
+    "payments_off": "Payments are off, so there is no card to refund.",
+    "refund_missing": "That refund request no longer exists.",
+}
 
 
 @router.get("", include_in_schema=False)
@@ -58,25 +84,34 @@ def admin_home(container: ContainerDep, session: CurrentSessionDep) -> RedirectR
 
 @router.get("/status", response_class=HTMLResponse)
 async def status_page(
-    request: Request, container: ContainerDep, session: CurrentSessionDep
+    request: Request,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    notice: str = "",
 ) -> HTMLResponse:
     """Everything the operator checks before trusting the live site."""
     operator_or_404(container, session)
     since = datetime.now(UTC).replace(tzinfo=None) - _HEALTH_WINDOW
     engine = container.engine
-    week, ever, books, calls, portraits = await asyncio.gather(
+    week, ever, books, calls, portraits, refund_queue = await asyncio.gather(
         asyncio.to_thread(review_health, engine, since=since),
         asyncio.to_thread(review_health, engine),
         asyncio.to_thread(recent_books, engine),
         asyncio.to_thread(recent_calls, engine),
         asyncio.to_thread(container.portraits.recent, 30),
+        asyncio.to_thread(container.wallet.all_refund_requests, limit=50),
+    )
+    refunds = sorted(
+        refund_queue,
+        key=lambda item: (item.status != REFUND_REQUESTED, item.created_at),
+        reverse=True,
     )
     stories = await asyncio.to_thread(container.templates.stories)
     response = render_admin(
         request,
         "admin_status.html",
         {
-            **page_chrome(container, session),
+            **page_chrome(container, session, request),
             "backends": _backends(container),
             "stories": stories,
             "week": week,
@@ -84,11 +119,50 @@ async def status_page(
             "books": books,
             "calls": calls,
             "portraits": portraits,
+            "refunds": [
+                {
+                    "id": item.id,
+                    "owner": item.owner,
+                    "amount_label": format_cents(item.amount_cents),
+                    "status": item.status,
+                    "status_label": _REFUND_LABELS.get(item.status, item.status),
+                    "pending": item.status == REFUND_REQUESTED,
+                    "created_at": item.created_at,
+                    "note": item.note,
+                }
+                for item in refunds
+            ],
+            "notice": _NOTICES.get(notice, ""),
             "costs": cost_panel(container, container.wallet.price_cents),
         },
     )
     response.headers["Cache-Control"] = "private, no-store"
     return response
+
+
+@router.post("/refunds/{refund_id}/process")
+async def process_refund(
+    refund_id: str, container: ContainerDep, session: CurrentSessionDep
+) -> RedirectResponse:
+    """Send one queued refund back through Stripe, exactly once."""
+    operator_or_404(container, session)
+    if container.payments is None:
+        return RedirectResponse("/admin/status?notice=payments_off#refunds", status_code=303)
+    request_refund = await asyncio.to_thread(container.wallet.get_refund, refund_id)
+    if request_refund is None:
+        return RedirectResponse("/admin/status?notice=refund_missing#refunds", status_code=303)
+    try:
+        result = await asyncio.to_thread(
+            container.wallet.process_refund,
+            request_refund.owner,
+            refund_id,
+            container.payments,
+        )
+    except WalletError:
+        logger.warning("admin.refund_failed id=%s", refund_id)
+        return RedirectResponse("/admin/status?notice=refund_failed#refunds", status_code=303)
+    notice = "refunded" if result.status == REFUND_PROCESSED else "refund_failed"
+    return RedirectResponse(f"/admin/status?notice={notice}#refunds", status_code=303)
 
 
 @router.get("/books/{book_id}", response_class=HTMLResponse)
@@ -123,7 +197,7 @@ async def book_page(
         request,
         "admin_book.html",
         {
-            **page_chrome(container, session),
+            **page_chrome(container, session, request),
             "book": detail,
             "portrait_history": history,
             "cast_history": cast_history,
