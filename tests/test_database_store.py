@@ -11,6 +11,7 @@ routes.
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -637,3 +638,54 @@ def test_the_same_person_sees_their_book_after_a_restart(tmp_path: Path) -> None
     assert status.json()["pdf_url"].endswith(f"/book-media/{book_id}/pdf")
     assert pdf.status_code == 200
     assert pdf.content == b"%PDF-owned"
+
+
+# --- reads take only what they use (P6) ------------------------------------------
+
+
+def _statements(engine: Any, action: Any) -> list[str]:
+    from sqlalchemy import event
+
+    seen: list[str] = []
+
+    def _record(*args: object) -> None:
+        seen.append(str(args[2]).lower())
+
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        action()
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+    return seen
+
+
+def test_loading_a_record_never_reads_the_book_s_pictures_or_pdf(
+    store: DatabaseBookStore, engine: Any
+) -> None:
+    """Every page view and edit loads the record; the row also holds megabytes."""
+    book_id = _seed(store)
+    store.save_portrait(book_id, b"PNG-PORTRAIT" * 1000)
+    store.save_source_photo(book_id, b"JPG-PHOTO" * 1000)
+    store.save_cover(book_id, b"PNG-COVER" * 1000)
+    store.save_pdf(book_id, b"%PDF-fake" * 1000)
+
+    seen = _statements(engine, lambda: store.load_record(book_id))
+
+    record = store.load_record(book_id)
+    assert record is not None and record.about.prompt_name == "Jack"
+    assert seen, "the record was read"
+    blobs = re.compile(r"books\.(portrait|source_photo|cover|pdf)\b")
+    assert not [s for s in seen if blobs.search(s)], seen
+
+
+def test_building_an_edition_never_reads_reference_images(
+    store: DatabaseBookStore, engine: Any
+) -> None:
+    from app.services.template_store import TemplateStore
+
+    book_id = _seed(store)
+    templates = TemplateStore(engine)
+    seen = _statements(engine, lambda: templates.book_edition(book_id))
+
+    assert seen, "the edition was read from the database"
+    assert not [s for s in seen if "reference_image" in s and "is not null" not in s], seen
