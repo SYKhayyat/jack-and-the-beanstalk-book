@@ -1,0 +1,426 @@
+#+TITLE: Storybook Studio — UI, quality and performance audit
+#+DATE: 2026-11-09
+#+STARTUP: overview
+
+* Your notes (kept as written)
+1. Looks like a form, not fun. Similarly, the top bar loooks like plain HTML.
+2. Subtitles are too light to be read.
+3. Page shape - since we have the paltes, aren't these locked?
+4. The amount of time to book should not be said.
+5. I can't tell how to find my balance, add money, etc.
+6. Check to make sure the reviewer works, since I am using Agnes.ai (admittedly not very good) and it is making utter trash.
+7. Carousel does not go by itself.
+8. Carousel (of books meade by user) once signed in - one for red and one for jack.
+
+* How this audit was done
+- Read the templates, static JS/CSS, the book runner, both review tiers, the
+  config and the DB schema.
+- Walked the *live* site in Chrome while signed in: shelf, "My books", an
+  existing finished book (Red, book f944a510…, made on Agnes), the studio, the look
+  dialog, the About step and the wallet. Then made one new real book on the live
+  site (Red, a real photo of a girl, "girl", name Maya, OpenAI). See [[*Live run][Live run]].
+- Read-only queries against the production Neon DB for saved settings, review
+  data and the cost ledger. Nothing was written to it.
+- Did NOT run =make dev=: the local =.env= has =DATABASE_URL= pointing at the
+  *production* Neon branch (=NEON_BRANCH=main=), so a local dev server would
+  read and write prod data. See [[*Local .env points at the production database][Q3]].
+
+* Fix first (severity order)
+** TODO Q1 The review loop never runs in production  [answers note 6]
+The "quality loop" (tier 1, tier 2, up to 3 tries, best-of-3) is effectively
+dead code on the live site.
+- =BookRunner._judge= (app/services/book_runner.py:781) returns
+  =passed=True, tiers_run=()= when =not artwork.plates=. A book gets plates only
+  through its pinned =template_version_id=
+  (app/services/template_store.py:697).
+- The plate start gate is off (to-do.md: "the start gate stays off until it is
+  seen to keep the plate's background"), so *every* book has
+  =template_version_id = NULL=.
+- Prod DB, read-only: 3 books, all =template_version_id = None=; 56 pages,
+  =sum(attempt_count) = 0=, =count(review) = 0=. The cost ledger has no review
+  calls at all.
+- Result: Agnes' Red book (f944a510…) shipped with pages that are *contact sheets*
+  (grids of 12–20 little tiles of characters and rooms, some with numbers
+  printed in the corners: pages 1, 6, 13). It was never looked at.
+- The wallet and to-do.md say "Every generated image is analysed". That's
+  currently untrue for every book anyone can make.
+Fix:
+- Review every picture whether or not the book has plates. Tier 1 without a plate
+  can still catch blank/dark/wrong aspect. Tier 2 doesn't need a plate at all.
+- Add tier-2 faults for what's actually going wrong: =collage= / =multiple_panels=
+  ("more than one scene, a grid, a character sheet, tiles"). Right now
+  =parse_answer= silently drops any fault name it doesn't know, so the model
+  can't report it. A collage only fails if the model also gives a low score.
+- Tier-1 mechanical check for grids: strong regular vertical/horizontal seams
+  (column/row gradient energy at fixed intervals). That's free and would have
+  caught all of that book's bad pages.
+- Make "was it reviewed" visible to the operator (see Q6), so this can't go
+  dark silently again.
+- Once it runs: a tier-2 *error* (quota, timeout) currently counts as a pass on
+  tier 1 alone. That's fine for availability, but log and count it, and show it
+  in the admin view.
+
+** TODO Q2 Gender defaults to "boy", so girls get "he" in the story  [your boy/girl note]
+- The studio preselects =boy= for every story, including Red Riding Hood
+  (=PhotoGender.BOY= default, app/models/settings.py:206).
+- That book's saved settings in prod: ={'photo_gender': 'boy', 'character_gender': 'match'}=.
+  So the story reads "<name> put on *his* red hood … said *his* mother". Every
+  book in the DB is =boy=, i.e. nobody has ever changed it.
+Fix: no default. The boy/girl choice must be made before "Make the comic"
+enables. Make it big and friendly, not a small radio pair under the heading.
+Also consider a "they" option, since =_PRONOUNS= is already a table.
+
+** TODO Q3 Local .env points at the production database
+=DATABASE_URL= in =.env= is the prod Neon pooler (=NEON_BRANCH=main=). =make
+dev= / =make migrate= / tests that pick up =.env= would run against prod.
+Use a Neon dev branch (or empty → SQLite) locally, and keep the prod URL only in
+Render.
+
+** TODO Q4 Red's books carry Jack's outfit setting
+The look dialog's Outfit defaults to "Storybook tunic and breeches" on Red's
+studio too. Saved settings for that book: ='outfit': 'storybook_tunic'=.
+The page prompts then have to fight the cloak. The outfit (and probably the
+expression, "focused and determined") should come from the story's seed, not a
+global default. Once plates are on, it should be locked (see U5).
+
+** TODO Q5 Page prompts are ~18,000 characters each
+=prompts.json= for that book is 374 KB. Each page prompt is about 17.8 K
+characters (≈4–5 K tokens), and the cover is 12.9 K. The identity block, cast
+sheet, "the world works", AVOID list etc. are repeated in every page.
+- Weak models (Agnes) visibly fail on this: a pile of instructions about many
+  characters with reference images reads like "draw a character sheet", which
+  is exactly the collage they returned.
+- Even on OpenAI, long prompts dilute the page-specific part (moment, camera,
+  beat), which comes *after* ~6 K characters of boilerplate.
+Try: put the page's moment first, cut the shared blocks to their essentials,
+and A/B on Agnes (free) whether collages go away.
+
+** TODO Q6 There's no way to tell which provider is live  [your note on Q2]
+- The wallet says "Images are priced from the active provider (openai)", which
+  is the only place it's visible, and it's visitor-facing. That contradicts the
+  repo's own rule that nothing a visitor can fetch names the provider (README,
+  HANDOFF §0 rule 8). There's a test for /healthz but not for /wallet.
+- Meanwhile the ledger for the finished book is all =agnes= at $0, so the page
+  mixes "openai" with $0.0000 averages and reads as a bug.
+Fix: an operator-only status page (admin already exists for plates):
+provider + model, reviewer on/off + model, plate gate on/off, Stripe on/off,
+concurrency and per-minute limits, last N =api_calls= with provider/cost/ok, and
+review pass/fail counts. Remove the provider name from /wallet.
+
+** TODO Q7 Payments are off on the live site, so you can't add money  [notes 5, and yours]
+- /wallet on the live site: "Payments are not configured on this deployment, so
+  books are made without a fee and this wallet cannot be funded."
+  =STRIPE_SECRET_KEY= isn't set on Render (still unticked in to-do.md).
+- Because =wallet_enabled= requires payments (app/routes/web.py:245), the wallet
+  pill disappears from the header entirely. That's why you couldn't find your
+  balance: there's no link to /wallet anywhere when Stripe is off.
+Fix: set the Stripe test key on Render. Independently, always show the balance
+pill for a signed-in user (it can say "$0.00 · add money"), and put "Add money"
+on the About step next to the fee line when the balance is short. Today the fee
+line just disappears.
+
+** TODO Q8 Settings must be saved for everything, not just the star  [your note]
+What's saved today (prod DB):
+- =books.settings=: the star's full =CartoonSettings= (gender, style, intensity,
+  age, skin, hair, outfit, expression, likeness, background, takes, glasses,
+  facial hair, aspect ratio). Good, that's how Q2 was diagnosed.
+- =book_characters=: only portrait and photo bytes for each cast member. *Not*
+  their gender, look settings, or whether they were photographed or drawn
+  from the story.
+- Not saved anywhere: which portrait take was chosen (of N), the rejection
+  chips ticked on the portrait ("face changed", "too cartoonish"…), the
+  redraw reasons ticked on a page, and which provider/model drew each page (it
+  *is* in =api_calls=, but not tied to the page row).
+Fix: a =settings= JSON per =book_characters= row; store portrait attempts with
+their chips; store redraw reasons with the page's review list; store
+provider/model on each page attempt. Show none of it to the visitor (as you
+said); expose it in the operator view (Q6) and the structured log.
+
+* Make it great (not defects: what would put this in Amazon territory)
+AliExpress *works*: everything is there, but you have to read and decide at
+every step. Amazon feels like it already knows what you want: one obvious next
+action, instant feedback, trust signals, and the thing itself is the hero.
+The studio today is the AliExpress version: correct, complete, all the
+controls. Here's what would move it.
+
+*Headline (agreed in the walkthrough): the finished book does not look like a
+storybook at all.* It's a web slideshow: the picture in a white card, the
+story in the site's UI sans-serif at UI size in a band beneath it, arrow buttons
+labelled "back"/"next", and the site header and footer around it. Fix that
+first; it's G4 below, and it's the payoff of everything else.
+
+** TODO G1 Show the book before they buy it
+The single biggest lever. Right after the portrait is approved and the name is
+typed, show *their* cover: the plate cover with their portrait and name, even a
+quick low-quality preview. Then a "look inside" of 2–3 page plates with the
+text set in their child's name. Amazon's "Look inside" sells books. People
+commit to a book they can already see.
+
+** TODO G2 One decision per screen, with a visible path
+Three to four steps with a progress header (Photo → Name → Story friends →
+Make it). Each screen has one big question and one big button. Everything
+optional (look tweaks, cast photos, About details) is folded away with
+"Add Grandma's face too (optional)". Today the studio screen asks for gender,
+photo, look settings and three cast members at once, and the About screen asks
+for 5 fields, 3 photo choices and 4 page shapes.
+
+** TODO G3 Make the waiting the best part
+Kids will be watching. Make the 3 minutes a show (U10), not a progress bar:
+- Each picture "develops" into its tile (blur → sharp, or paint wiping in).
+- The stage follows the newest picture with its text read out (optional
+  narration with the browser's speech API is nearly free and kids love it).
+- Small story facts while waiting ("Did you know the oldest version of this
+  tale is 1,000 years old?").
+- Done = confetti once, the cover big, and "Read it together" as the main
+  button.
+
+** TODO G4 [#A] The reader should feel like a book, not a slideshow
+- Two-page spreads on wide screens (art left, text right on a cream "paper"
+  page in Literata at 20–22 px, a drop cap on page 1). Single page on phones.
+- Page-curl or slide-with-shadow turn; swipe on touch (already wired).
+- Full-screen "story time" mode: hides the site chrome and fills the screen.
+  Arrow keys, tap the edges.
+- "Read to me": highlight each sentence as it's spoken.
+- The story text today is the UI sans at UI size in a white band. It's the
+  book's voice. Give it the book's typeface.
+
+** TODO G5 Trust and clarity signals (the Amazon part)
+- Price up front on the story card ("$0.99 · 20 pages · ready in about 3
+  minutes" — or no time, per note 4 — but *the price*, always).
+- Balance in the header, always (Q7). One-tap "Add $5" from wherever money is
+  short, and come back to exactly where you were.
+- A sample PDF to download from the landing page without signing in.
+- "Your photos are private and deleted after 7 days." Say it next to the
+  upload button, where the worry happens, not only in the footer.
+- Real reviews/quotes from the feedback study on the landing page.
+
+** TODO G6 Make it giftable and shareable
+- "Share a read-only link" so grandparents can flip through the book (the
+  viewer already works by URL; it needs a signed share token).
+- "Send as a gift": email the link with a note.
+- Print: order a printed hardcover (Lulu/Blurb/Printful APIs). That's the
+  real business and the natural upsell from a $0.99 PDF.
+- A short animated "trailer" (cover + 5 pages, 10 s) for WhatsApp/Instagram.
+
+** TODO G7 Bring them back
+- "Make another" should be one click: same child, same portrait, new story.
+  Today it restarts the studio from scratch (photo again, gender again).
+  Remember the child (with consent) as a profile: "Maya — 2 books".
+- My books as a real bookshelf (covers standing on a shelf, per note 8), not
+  a dropdown list.
+- More stories over time, with "coming soon" cards that people can vote on.
+
+** TODO G8 Little delights
+- The wordmark star twinkles while something is drawing.
+- The portrait card does a little "tada" when it lands.
+- Their name typed into the cover preview updates live, letter by letter.
+- Empty states with illustrations instead of sentences ("Nothing has moved
+  yet").
+- A friendly 404 with the wolf.
+
+* UI — make it fun, not a form
+** TODO U1 The studio and About step read as forms  [note 1]
+- Look dialog: 13 stacked =<select>=s (Style, Intensity, Age, Skin tone, Hair,
+  Hair colour, Outfit, Expression, Likeness, Background, Takes, two checkboxes).
+  Nobody choosing a picture-book style wants a dropdown that says "Modern 3D
+  animated feature".
+  - Style → a row of picture swatches (the same child in each style). You have
+    the plates; one sample per style is a one-off cost.
+  - Most of these are "keep mine" and should be hidden behind "fine-tune" by
+    default. On a plated story, Style/Background/Takes/Shape shouldn't exist
+    (see U5).
+- About step: four text inputs and a textarea on a white card. Make it a
+  conversation: "What's her name?" (big, one field, live preview of the cover
+  title updating as you type: "Little Red Riding Hood, starring Maya"),
+  then "How old?", then "What does she want to be?", with the About page
+  preview filling in beside it.
+- The *name* is the biggest personalisation in the product (it goes on the
+  cover) and it's asked last, labelled optional, with placeholder "Jack or
+  Jane". The placeholder shows on Red's studio too. Ask for the name first,
+  on the studio screen, and show the cover with the name immediately.
+- Portrait result: the primary green button next to a successful portrait is
+  "Draw it again", which costs money, and right under it 12 red-headed
+  "Not quite right?" chips. The happy path ("Love it, next →") is in the sticky
+  footer. Lead with "That's her! →" beside the portrait, and fold the chips
+  behind "Not quite right?".
+- Vocabulary: "comic" (Make the comic / The comic appears here / Comic) for what
+  is a storybook portrait, plus "takes", "plates" and "Likeness: strict". Use
+  "portrait" or "her storybook self".
+
+** TODO U2 The header looks like plain HTML  [note 1]
+Wordmark + grey tagline + a pill + an underlined "Sign out" link in the
+browser's default link blue (#1a0dab-ish underline). Ideas:
+- Give the header a real identity: an illustrated mark (a beanstalk curling
+  into a book), the wordmark in Literata bold, no tagline once signed in.
+- Replace "Sign out" with an avatar (Google gives you one; =users= has the avatar
+  URL) that opens a small menu: My books, Wallet, Sign out.
+- Show the balance pill there always (Q7).
+- Breadcrumb "/ Little Red Riding Hood starring Maya" in grey is easy to miss;
+  on the book page the title belongs on the page, not in the header.
+
+** TODO U3 Muted text is too light  [note 2]
+=--ink-soft: #6b6577= on =--paper: #fff9f0= at 14 px is used for story-meta,
+field-help, stage-hint, footer and the tagline. It technically passes AA, but
+at 14 px on cream it reads faint, as you saw. Darken to about =#4f4a5c= and bump
+help text to 15 px. Never put muted text on the cream background below 15 px.
+
+** TODO U4 Don't state the time  [note 4]
+about_page.html:63 "Twenty-one pictures take about five minutes. You can watch
+them arrive." It also shows when payments are off, i.e. now. Replace with
+something that sells the waiting: "Watch them arrive one by one." On the book
+screen, the progress bar already sets expectations.
+
+** TODO U5 Lock what plates decide  [note 3]
+Once a story has approved plates, the page shape, the art style, the portrait
+background and "takes" are decided by the plates (a 4:3 plate can't become a
+3:4 page without redrawing the background, and tier 1 then flags
+=wrong_aspect= / =background_redrawn=). Today the About step still offers
+Landscape/Square/Portrait/Wide and the look dialog still offers 9 styles.
+- Plated story: hide shape and style; say "Painted in the book's style".
+- Unplated story (now): fine to keep, but default from the story seed.
+
+** TODO U6 Carousels  [notes 7 and 8]
+- Signed-in shelf: as soon as you have a book of a story, that card shows *only
+  your latest cover* (=_story_card.html=: =card.cover_url= wins and the
+  =data-carousel= fader isn't rendered). So it never moves. Per your note 8:
+  rotate *your* books of that story (all of them, newest first), and fall back
+  to the samples only when you have none. One carousel per story card.
+- Landing page carousel: autoplay pauses on =pointerenter= *and* =focusin=
+  (carousel.js:70–76). Clicking a dot or arrow focuses a button inside the
+  carousel, so it stays paused until focus leaves, which on a landing page is
+  often never. A mouse resting over the hero has the same effect. Pause on
+  hover only while hovering, and resume a few seconds after a click instead of
+  tying it to focus.
+- The two story cards are different heights (Red's blurb wraps to two lines),
+  so the "Make another" buttons don't line up. Pin the action to the card's
+  bottom.
+
+** TODO U7 A finished book opens on "The End"
+book-live.js =initialIndex()=: with no hash, a complete book opens on the About
+page (=if (status === "complete") return lastIndex=). Opening a book from "My
+books" lands on "This book stars <name> … The End". Open on the cover.
+
+** TODO U8 The cover in the web viewer has no title
+The shelf card and the landing page overlay the title on the cover
+(=_cover.html=), and so does the PDF. The book viewer shows the bare cover art
+(=book.html=: plain =<img>=). The first thing a parent sees of the book they
+just made is untitled. Use the same =book_cover= macro in the viewer.
+
+** TODO U9 Reading a finished book
+- No page map once the book is complete: =progress-block= is hidden when
+  =status == 'complete'=, and the thumbnail strip goes with it. To reach page
+  14 you press → 14 times. Keep the strip (collapsed) as a page picker.
+- On a 1366×650 laptop the spread plus the story text doesn't fit; the caption
+  sits at the very bottom edge and the "click or swipe" hint is below the fold.
+  Size the art to =min(available height − text block, width)=.
+- The art is letterboxed inside a wider frame, with cream bands left and right
+  of a 4:3 picture. Size the frame to the picture.
+- Page turns are instant swaps with a small CSS animation. This is a picture
+  book: a real page-curl or a slide with a shadow, and a soft page sound
+  (off by default), would do more for "fun" than anything else on this list.
+- "Download the book (PDF)" / "Keep the photos and comics (zip)" / "See exactly
+  what the artist was asked to draw" sit in a plain card. Make the finished
+  moment a moment: confetti once, the cover big, "Read it", "Download",
+  "Print it" (a print-ready size is the obvious upsell).
+- "Edit this book" says "Changes are included — the book's fee was taken once."
+  With payments off no fee was taken. Copy should follow the payments state.
+- "My books" drawer: "finished 10 Nov · 21 pictures" vs "20 pictures" on the
+  other book and "20 pictures" on the story cards. Pick one count (20 story
+  pictures + cover) and use it everywhere.
+
+** TODO U10 The waiting screen is a beige box
+While the cover draws, the stage is an empty cream rectangle with a pencil and
+"being drawn…", and 21 empty dashed tiles. That's the moment of peak
+anticipation. Ideas:
+- Show the approved portrait on the stage straight away ("Maya is getting
+  ready…").
+- Show each page's *text* in its tile before the picture lands, so they can
+  start reading the story while it draws.
+- When a picture lands, animate it flying into its tile; auto-advance the stage
+  to the newest picture unless they've navigated.
+- The caption says "Drawing page 1" while pages 1 and 2 are both drawing. Say
+  "Drawing pages 1 and 2".
+
+** TODO U11 Small things
+- No dark-mode styles; the browser here prefers dark and gets full cream.
+- Wallet "What a book costs to make" (API spend, margin "0% of the price goes
+  on API calls") is operator data on a customer page. Move it to the operator
+  view (Q6).
+- "My books" drawer dates: Red made at 19:32 EST on 9 Nov shows "10 Nov" (UTC).
+  Format in the viewer's timezone.
+
+* Performance
+** TODO P1 Page images are 1.3–1.4 MB PNGs, revalidated on every view
+- =/book-media/<id>/cover= and =/pages/N= are =image/png= at about 1,300–1,400 KB
+  (Agnes) and ~1,950 KB (OpenAI),
+  with =Cache-Control: private, max-age=0, must-revalidate=. A 21-page book is
+  about 28 MB of PNG, and every page turn makes a round trip (~400–800 ms
+  measured).
+- Chrome froze twice while I was on the book page (screenshot capture timed out
+  for 30 s after a scroll). That's consistent with decoding many large PNGs.
+Fix: store/serve JPEG or WebP at display size (≈1200 px wide, ~150 KB). Keep
+the PNG only for the PDF if it needs it. The rows already have =image_sha256=,
+so serve under a content-hashed URL with =max-age=31536000, immutable=.
+
+** TODO P2 Thumbnails download the full image
+The "My books" drawer shows each cover at 44 px wide but downloads the full
+1152×864 cover (1.3 MB) per book. The progress strip tiles do the same for every
+page. Add a =?w=160= thumbnail variant (or a stored thumb).
+
+** TODO P3 Next page isn't preloaded
+Hidden spreads are =loading="lazy"=, so the next page only starts downloading
+when you turn to it. Preload index±1 (and ±2) after each turn.
+
+** TODO P4 Fonts
+Literata ships as two TTFs, 312 KB each, from =/static/fonts/= with
+=Cache-Control: no-cache= (the CSS/JS are fingerprinted, the fonts aren't).
+Convert to WOFF2 subsets (~30–40 KB each), fingerprint them, and cache
+immutable. Preload the bold one; it's the headings.
+
+** TODO P5 Book generation throughput
+- Render: =MAX_CONCURRENT_GENERATIONS=2=, =MAX_GENERATIONS_PER_MINUTE=12=. 21
+  images at ~20–30 s each on OpenAI ≈ 4–5 minutes, and the per-minute cap alone
+  forbids anything under ~2 minutes. The to-do goal is under 60 s.
+- The cover is drawn *alone* before the pages start (=await self._render_cover=
+  then =gather(pages)=), so for its ~20 s one of the two slots sits idle. Put
+  the cover in the same =gather=.
+- To hit 60 s: concurrency ≈ 21 (the provider allows it on a paid key), the
+  per-minute cap per *book* instead of per client, and the review overlapped
+  with the next paint.
+
+** TODO P6 Every book lookup pulls the PDF and photos from the DB
+=DbBookStore.load_record= (app/services/db_book_store.py:135) does
+=select(BookRow)=, which reads every column: =portrait=, =source_photo=,
+=cover= and =pdf= (4.7 MB for the new book). Then it uses only metadata (id,
+about, title, settings…). Any route that loads the record pays several MB from
+Neon (us-west-2) per request. Book page TTFB measured ~720 ms vs ~200 ms for the
+shelf. Select only the needed columns, or mark the =LargeBinary= columns
+=deferred()= in =app/db.py=.
+
+* Live run
+Red Riding Hood, a real photo of a girl (from your Downloads), "girl",
+name Maya, age 11, "a vet", defaults otherwise, landscape. Live site, OpenAI.
+Book =66062105ef064c76a0da5bed43e7c173=.
+| Step                             | Time                         |
+|----------------------------------+------------------------------|
+| Portrait ("Make the comic")      | ~29 s                        |
+| Cover                            | ~20 s (alone, see P5)        |
+| 20 pages at concurrency 2        | ~2 min 20 s                  |
+| PDF assembly                     | ~10 s                        |
+| *Click "Make the book" → done*   | *~2 min 50 s*                |
+What I saw:
+- *Likeness and art are good on OpenAI.* The portrait is clearly her. Pages
+  1, 4, 8, 13 and 18 are on-moment, consistent cast, no text in the art, the
+  wolf in Grandmother's cap on p13. With "girl" set, every pronoun is right.
+  So Q2 really is just the default.
+- *No review ran here either:* every page =attempts=0= (Q1 holds on OpenAI
+  too, so this isn't an Agnes thing).
+- The cover shows no title in the viewer (U8). The UI said "Drawing the
+  cover — 0 of 21" for several seconds after the API already reported the cover
+  done.
+- When the book completed, the page scrolled down to the "Your book is ready"
+  card, away from the book.
+- At 1366×593 the story text on most pages is cut off at the bottom of the
+  window (p18: "…and the blue door stayed" then the fold) (U9).
+- OpenAI pages are ~1.9 MB PNG each; the PDF is 4.7 MB (P1, P6).
+- The "fee" line on the About step showed the time instead (payments off) (U4, Q7).
