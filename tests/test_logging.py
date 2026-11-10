@@ -27,7 +27,7 @@ from app.services.image_providers.base import (
     ImageRequest,
     ProviderError,
 )
-from tests.helpers import jack, make_photo_bytes, multipart
+from tests.helpers import jack, make_photo_bytes, multipart, scene_png_bytes
 
 #: Jack's tale exactly as a new book is made from it (its seed's edition).
 JACK = jack()
@@ -65,7 +65,7 @@ def _start_book(client: TestClient, portrait: dict[str, object]) -> str:
 
 
 def _wait_for_book(client: TestClient, book_id: str) -> dict[str, object]:
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + 60
     last: dict[str, object] = {}
     while time.monotonic() < deadline:
         response = client.get(f"/api/book/{book_id}")
@@ -93,7 +93,7 @@ class FailingPageProvider(ImageProvider):
     def generate(self, request: ImageRequest) -> GeneratedImage:
         if "Draw page 2 of" in request.prompt:
             raise ProviderError("The provider gave up.")
-        return GeneratedImage(data=make_photo_bytes(), media_type="image/png", model="demo-v1")
+        return GeneratedImage(data=scene_png_bytes(), media_type="image/png", model="demo-v1")
 
     def generate_candidates(
         self, request: ImageRequest, count: int = 1

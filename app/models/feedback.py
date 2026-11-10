@@ -22,8 +22,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.prompt_data import prompt_text
 
 __all__ = [
+    "PAGE_FAULT_LABELS",
     "REJECTION_CLAUSES",
     "REJECTION_LABELS",
+    "PageFault",
     "RejectionFeedback",
     "RejectionReason",
 ]
@@ -94,3 +96,40 @@ class RejectionFeedback(BaseModel):
             return ""
         clauses = " ".join(REJECTION_CLAUSES[reason] for reason in self.reasons)
         return f"{_PREAMBLE} {clauses}"
+
+
+class PageFault(StrEnum):
+    """What a parent can say is wrong with one finished page of their book.
+
+    Not the portrait vocabulary above: a page is a scene, and on a page drawn
+    onto a plate the background, the light and the art style are the plate's
+    and must not change. These are the reviewer's own fault names
+    (`app/services/reviewer.py`), plus the one thing only a parent can judge —
+    whether the child still looks like the child — so a ticked chip and a
+    reviewer's finding steer the redraw through the same sentences.
+    """
+
+    LIKENESS = "likeness"
+    WRONG_MOMENT = "wrong_moment"
+    MISSING_CHARACTER = "missing_character"
+    EXTRA_PERSON = "extra_person"
+    TEXT_IN_IMAGE = "text_in_image"
+    DEFORMED = "deformed"
+    FACE_OBSCURED = "face_obscured"
+    FRIGHTENING = "frightening"
+    COLLAGE = "collage"
+    OTHER = "other"
+
+
+PAGE_FAULT_LABELS: dict[PageFault, str] = {
+    PageFault.LIKENESS: "Doesn't look like my child",
+    PageFault.WRONG_MOMENT: "Doesn't show this part of the story",
+    PageFault.MISSING_CHARACTER: "Someone is missing",
+    PageFault.EXTRA_PERSON: "Someone extra is in it",
+    PageFault.TEXT_IN_IMAGE: "There's writing in the picture",
+    PageFault.DEFORMED: "A body or hand looks wrong",
+    PageFault.FACE_OBSCURED: "A face is hidden or cut off",
+    PageFault.FRIGHTENING: "Too scary",
+    PageFault.COLLAGE: "Several little pictures, not one",
+    PageFault.OTHER: "Something else — just try again",
+}

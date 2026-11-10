@@ -70,6 +70,12 @@ class CharacterReference:
     portrait_media_type: str
     photo: bytes
     photo_media_type: str
+    #: The portrait draft the face came from (a `portrait_attempts` id), so the
+    #: operator can follow it back to every attempt and chip. "" when unknown.
+    generation_id: str = ""
+    #: The look this member's portrait was drawn with — their own gender, age
+    #: and style, not the star's. None for rows saved before it was kept.
+    settings: CartoonSettings | None = None
 
 
 @dataclass(frozen=True, slots=True)

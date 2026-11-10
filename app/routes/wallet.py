@@ -128,7 +128,7 @@ def wallet_page(
                 }
                 for entry in history
             ],
-            "costs": _cost_panel(container, wallet.price_cents),
+            "costs": cost_panel(container, wallet.price_cents),
             "refunds": [
                 {
                     "amount_label": format_cents(request_refund.amount_cents),
@@ -263,7 +263,7 @@ async def refund(container: ContainerDep, session: CurrentSessionDep) -> Redirec
     return _back("refunded" if result.status == REFUND_PROCESSED else "refund_failed")
 
 
-def _cost_panel(container: Container, price_cents: int) -> dict[str, object]:
+def cost_panel(container: Container, price_cents: int) -> dict[str, object]:
     """What a book costs to make, against what it is sold for.
 
     Summed from the ledger of every model call this deployment has made; see
@@ -293,7 +293,6 @@ def _cost_panel(container: Container, price_cents: int) -> dict[str, object]:
         "overhead": format_microusd(summary.overhead_microusd),
         "failed_calls": summary.failed_calls,
         "unpriced_calls": summary.unpriced_calls,
-        "provider": container.provider.name,
     }
 
 

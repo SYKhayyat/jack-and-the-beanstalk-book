@@ -269,14 +269,14 @@ def test_the_book_counts_its_cover_and_reports_the_pdf_phase(
 
     def blocking_build(*args, **kwargs):
         assembling.set()
-        release.wait(timeout=15)
+        release.wait(timeout=60)
         return real_build(*args, **kwargs)
 
     monkeypatch.setattr(book_document_module, "build_book_pdf", blocking_build)
 
     async def scenario() -> dict[str, object]:
         await runner.start(record)
-        assert await asyncio.to_thread(assembling.wait, 10.0), "PDF assembly never started"
+        assert await asyncio.to_thread(assembling.wait, 60.0), "PDF assembly never started"
         mid = book_store.load_status(record.book_id) or {}
         release.set()
         await asyncio.gather(*runner._tasks)

@@ -40,6 +40,7 @@ from sqlalchemy import (
     create_engine,
     event,
 )
+from sqlalchemy import true as sa_true
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -150,6 +151,12 @@ class BookRow(Base):
     cover_attempt_count: Mapped[int] = mapped_column(Integer, default=0)
     cover_chosen_attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cover_best_effort: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: Whether every picture must carry a verdict before the book can complete.
+    #: True for every book made since every picture is reviewed; False only for
+    #: books made before that, whose pictures nothing looked at and never will.
+    review_required: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=sa_true()
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
@@ -193,6 +200,51 @@ class BookCharacterRow(Base):
     portrait_media_type: Mapped[str] = mapped_column(String(50))
     photo: Mapped[bytes] = mapped_column(LargeBinary)
     photo_media_type: Mapped[str] = mapped_column(String(50))
+    #: The portrait draft this face came from (`portrait_attempts.id`), which
+    #: leads to every attempt, chip and take behind it. Null for rows written
+    #: before it was recorded.
+    generation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: The look settings the portrait was drawn with (`CartoonSettings` as
+    #: JSON): this member's gender, style, age and the rest, not the star's.
+    settings: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+
+class PortraitAttemptRow(Base):
+    """One portrait the visitor was shown, or one take they picked.
+
+    The studio's history, for the operator only: what was asked for (the look
+    settings), what was wrong with the last one (the ticked chips), which
+    backend drew it, and which take was kept. No image is stored here — the
+    pictures live in the expiring draft — so nothing personal outlives the
+    draft but a settings blob and a few labels.
+
+    A `draw` row is one call to the image model. A `choose` row is the visitor
+    picking take `chosen_index` of the draft `source_id`; its id is the new
+    draft that holds that one take, and is what a book or a cast member points
+    at.
+    """
+
+    __tablename__ = "portrait_attempts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    story_key: Mapped[str] = mapped_column(String(64))
+    #: "" for the book's star, otherwise the photographed cast member.
+    cast_key: Mapped[str] = mapped_column(String(64), default="")
+    #: "draw" or "choose".
+    kind: Mapped[str] = mapped_column(String(16))
+    settings: Mapped[dict[str, Any]] = mapped_column(JSON)
+    #: The rejection chips ticked on the portrait before this one (draw only).
+    rejection: Mapped[list[str]] = mapped_column(JSON)
+    provider: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str] = mapped_column(String(128))
+    #: How many takes the call returned (draw), or 1 (choose).
+    takes: Mapped[int] = mapped_column(Integer)
+    #: Which take was picked (choose only).
+    chosen_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: The draft the take was picked from (choose only).
+    source_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
 class StoryRow(Base):

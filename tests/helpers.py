@@ -38,6 +38,33 @@ def make_noisy_photo_bytes(size: tuple[int, int] = (1200, 1200)) -> bytes:
     return buffer.getvalue()
 
 
+@lru_cache(maxsize=64)
+def scene_png_bytes(size: tuple[int, int] = (640, 480), seed: int = 0) -> bytes:
+    """A picture that passes tier 1: the right shape, not flat, not a grid.
+
+    The stand-in for a real page from a provider that is not a placeholder,
+    so a test about something else is not redrawn three times because its fake
+    page was a blank frame. Soft blobs on a gradient: no straight seams.
+    Cached: painting one takes ~80 ms, and a book asks for one per page.
+    """
+    import random
+
+    from PIL import ImageDraw, ImageFilter
+
+    rng = random.Random(seed)
+    image = Image.new("RGB", size, (90, 140, 110))
+    draw = ImageDraw.Draw(image)
+    for _ in range(40):
+        x, y = rng.randrange(size[0]), rng.randrange(size[1])
+        r = rng.randrange(20, 90)
+        colour = tuple(rng.randrange(40, 220) for _ in range(3))
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=colour)
+    image = image.filter(ImageFilter.GaussianBlur(6))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 def tiny_png_bytes(size: tuple[int, int] = (8, 8), colour: str = "#2f7d4f") -> bytes:
     """The smallest valid PNG, used as canned provider output."""
     buffer = io.BytesIO()

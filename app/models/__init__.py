@@ -6,8 +6,10 @@ without knowing the internal module layout.
 
 from app.models.book import AboutMe, AboutPhotoChoice, BookPage
 from app.models.feedback import (
+    PAGE_FAULT_LABELS,
     REJECTION_CLAUSES,
     REJECTION_LABELS,
+    PageFault,
     RejectionFeedback,
     RejectionReason,
 )
@@ -30,6 +32,7 @@ from app.models.settings import (
 from app.models.story import CastMember, StoryEdition
 
 __all__ = [
+    "PAGE_FAULT_LABELS",
     "REJECTION_CLAUSES",
     "REJECTION_LABELS",
     "AboutMe",
@@ -46,6 +49,7 @@ __all__ = [
     "HairStyle",
     "LikenessStrength",
     "Outfit",
+    "PageFault",
     "PhotoGender",
     "PortraitBackground",
     "RejectionFeedback",

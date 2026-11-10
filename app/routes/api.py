@@ -33,7 +33,9 @@ from app.models import (
     SkinTone,
 )
 from app.models.labels import choices_for
+from app.routes.auth import CurrentSessionDep
 from app.routes.book_access import new_book_edition
+from app.routes.book_access import user_id as _user_id
 from app.routes.settings_form import cartoon_settings_from_form
 from app.services.concurrency import GateTimeout
 from app.services.images import InvalidImage, decode_upload
@@ -81,6 +83,7 @@ async def cartoonify(
     request: Request,
     container: ContainerDep,
     settings: SettingsDep,
+    session: CurrentSessionDep,
     photo: UploadFile = File(..., description="A photo of a person. JPEG, PNG or WEBP."),
     story: str = Form(
         ..., description="The story the portrait is for, e.g. `jack_and_the_beanstalk`."
@@ -151,6 +154,9 @@ async def cartoonify(
     unused = settings.candidates - len(draft.candidates)
     if unused > 0:
         container.rate_limiter.refund(_client_key(request), unused)
+    await asyncio.to_thread(
+        container.portraits.record_draw, draft, user_id=_user_id(session), rejection=feedback
+    )
     return _cartoon_payload(draft, settings, budget)
 
 
@@ -158,6 +164,7 @@ async def cartoonify(
 async def choose_candidate(
     generation_id: str,
     container: ContainerDep,
+    session: CurrentSessionDep,
     index: int = Form(..., ge=0, description="Which alternative to keep; 0 is the default."),
 ) -> dict[str, object]:
     """Keep one of a draft's alternatives as the portrait the book will use.
@@ -181,6 +188,13 @@ async def choose_candidate(
         ) from exc
     chosen = replace(chosen, generation_id=uuid4().hex)
     await asyncio.to_thread(store.save_draft, chosen)
+    await asyncio.to_thread(
+        container.portraits.record_choice,
+        chosen,
+        source_id=generation_id,
+        index=index,
+        user_id=_user_id(session),
+    )
     payload = _cartoon_payload(
         chosen, chosen.settings, container.settings.generation_timeout_seconds
     )

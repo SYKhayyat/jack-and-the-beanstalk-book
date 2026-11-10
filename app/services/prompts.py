@@ -481,7 +481,11 @@ def _scene_block(scene: Scene, emotion: str) -> list[str]:
 
 
 def build_cover_prompt(
-    settings: CartoonSettings, *, story: StoryEdition, prompt_name: str
+    settings: CartoonSettings,
+    *,
+    story: StoryEdition,
+    prompt_name: str,
+    correction: str = "",
 ) -> str:
     """Prompt for the book's one cover call.
 
@@ -521,6 +525,7 @@ def build_cover_prompt(
         str(_BOOK["no_text"]),
         *_scene_block(cover.scene, cover.emotion),
         task_book["cover_band"],
+        correction,
         STANDING_NEGATIVE,
     ]
     return _join_sections(sections)
@@ -673,16 +678,47 @@ def fault_phrases(faults: Sequence[str]) -> str:
     return "; ".join(said) if said else ""
 
 
-def correction_for(faults: Sequence[str]) -> str:
-    """A retry sentence for a from-scratch page (the plate edit has its own).
+#: The longest reviewer description passed on to the artist. A reviewer asked
+#: for three sentences writes well under this; the cap is for one that rambles.
+_FINDINGS_LIMIT = 400
+
+
+def findings_line(findings: str) -> str:
+    """The reviewer's own words about a failed attempt, as one prompt sentence.
+
+    The text comes from our reviewer model, never from a visitor, but it is
+    still flattened to one line, stripped of quote marks and capped, so it reads
+    as a quoted description and cannot grow the prompt without bound.
+    """
+    flat = " ".join(findings.replace('"', "'").split())
+    if not flat:
+        return ""
+    if len(flat) > _FINDINGS_LIMIT:
+        flat = flat[: _FINDINGS_LIMIT - 1].rstrip() + "…"
+    edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
+    return edit["retry_findings"].format(findings=flat)
+
+
+def correction_for(faults: Sequence[str], findings: str = "") -> str:
+    """A retry sentence for a from-scratch picture (the plate edit has its own).
 
     The edit prompt says "fix these and do not touch the plate"; a composed page
-    has no plate to protect, so it only needs to name what was wrong.
+    has no plate to protect, so it only needs to name what was wrong — the kinds
+    of fault, then the reviewer's own description of what it saw and where.
     """
     said = fault_phrases(faults)
     if not said:
         return ""
-    return f"A previous attempt at this page had these problems: {said}. Do not repeat them."
+    return " ".join(
+        filter(
+            None,
+            (
+                f"A previous attempt at this page had these problems: {said}. "
+                "Do not repeat them.",
+                findings_line(findings),
+            ),
+        )
+    )
 
 
 def build_plate_edit_prompt(
@@ -693,6 +729,7 @@ def build_plate_edit_prompt(
     prompt_name: str,
     cover: bool = False,
     retry_faults: Sequence[str] = (),
+    retry_findings: str = "",
 ) -> str:
     """Prompt for one edit call: paint the cast into an approved plate.
 
@@ -720,6 +757,9 @@ def build_plate_edit_prompt(
             page. Empty on a first attempt. Steers the re-draw at what was
             wrong, while saying in the same breath that the plate is not among
             the faults — otherwise a fault list reads as permission to change it.
+        retry_findings: The reviewer's own description of the previous attempt
+            (what is wrong and where), quoted after the fault list. Empty when
+            no reviewer looked, or on a redraw the owner asked for.
     """
     edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
     lines = [
@@ -733,6 +773,7 @@ def build_plate_edit_prompt(
     ]
     if retry_faults:
         lines.append(edit["retry_intro"].format(faults=fault_phrases(retry_faults)))
+        lines.append(findings_line(retry_findings))
     if cover:
         lines.append(edit["cover_band"])
     lines += [edit["no_text"], edit["negative"]]

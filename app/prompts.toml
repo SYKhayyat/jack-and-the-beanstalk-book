@@ -385,6 +385,11 @@ cover_band = "THE TITLE BAND: the upper fifth of the frame was painted calm and 
 # reviewer found wrong last time. The last sentence is load-bearing: a fault list
 # is an instruction to change what is drawn, and the plate is not to be changed.
 retry_intro = "A previous attempt at this page had these problems, so this is another try: {faults}. Fix exactly those, and nothing else. The background, the props and the light are not among them and must stay as they are in the plate."
+# The reviewer's own description of what it saw, quoted after the fault list so
+# the artist knows exactly what and where, not just which kind of fault.
+# Filled only when tier 2 ran and failed the picture. {findings} is the
+# reviewer's sentence, flattened to one line and capped.
+retry_findings = "What the reviewer saw in that attempt, in its own words: \"{findings}\""
 
 # How a reviewer's fault name is said back to the model on a retry. Keyed by the
 # fault names in app/services/reviewer.py; a name with no phrase falls back to
@@ -398,6 +403,18 @@ face_obscured = "a face was hidden or cut off by the edge of the frame"
 frightening = "something in it would frighten a young child"
 wrong_counts = "the number of a repeated object was wrong"
 deformed = "a body or limb did not look right"
+collage = "it was a grid of several small pictures instead of one single scene filling the frame"
+other = "the picture was not right for this page"
+likeness = "the child did not look like the child in the reference portrait; keep their face, hair and skin tone exactly as the portrait shows them"
+# Tier 1's mechanical faults, said back the same way.
+blank = "the picture came back empty"
+all_dark = "the picture came back almost black"
+all_light = "the picture came back almost white"
+wrong_aspect = "the picture was the wrong shape"
+too_small = "the picture was far too small"
+undecodable = "the picture could not be opened"
+plate_unchanged = "nobody was painted into the scene"
+background_redrawn = "the background was redrawn instead of kept as it is in the plate"
 
 # ---------------------------------------------------------------------------
 # The empty plates (T5).
@@ -564,7 +581,7 @@ Answer about this page: "{page_title}". The moment it must show: {story_line}
 {cast}
 
 Report exactly one JSON object and nothing else, in this shape:
-{{"passed": true, "score": 0, "faults": [], "note": "one short sentence"}}
+{{"passed": true, "score": 0, "faults": [], "note": "what is wrong and where"}}
 
 "score" is 0-100: how well the picture shows the moment. "faults" is a list drawn only from these names, and is empty when nothing is wrong:
 - "wrong_moment": the picture does not show the described moment at all
@@ -575,6 +592,10 @@ Report exactly one JSON object and nothing else, in this shape:
 - "frightening": anything that would frighten a young child
 - "wrong_counts": the number of a repeated object disagrees with the moment
 - "deformed": extra or missing limbs, or a body that reads as broken
+- "collage": more than one picture in the frame — a grid of tiles, panels, a storyboard, a character sheet, or the same person shown more than once
+- "other": anything else that would make this a bad page in a child's picture book; say what in the note
+
+"note" is read by the artist who redraws the picture, so make it something they can act on: for every fault, say exactly what is wrong and where in the frame — "a second girl in a red cloak stands at the far right", "the word MARKET is painted on the cart's side", "the grandmother is not in the picture; she should be in the bed", "the picture is a grid of twelve small tiles". Name things by what they look like, never by a guess at who the child is. At most three sentences. When nothing is wrong, one short sentence saying so.
 
 Set "passed" to false if any fault is listed. A picture with no faults and a score of 70 or more has passed."""
 

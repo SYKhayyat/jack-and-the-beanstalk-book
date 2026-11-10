@@ -1008,7 +1008,7 @@ book.page      user=… book=… page=12/20 key=fee-fi-fo-fum mode=edit prompt_c
 book.review    user=… book=… page=12 attempt=1 tier=1 faults=plate_unchanged score=10 outcome=failed
 book.page      user=… book=… page=12/20 key=fee-fi-fo-fum mode=edit prompt_chars=4210 refs=3 bytes=… ms=… outcome=done
 book.review    user=… book=… page=12 attempt=2 tier=2 faults=text_in_image score=62 outcome=failed note='a sign on the door'
-book.page      user=… book=… page=12 attempts=3 outcome=best_effort faults=deformed
+book.best_effort user=… book=… page=12 attempts=3 faults=deformed
 book.complete  user=… book=… pages=20 pdf_bytes=… ms=… outcome=complete
 book.failure   user=… book=… pages_done=11 ms=… outcome=failed message=…
 ```
@@ -1020,7 +1020,7 @@ answerable from a real run instead of an estimate. `book.review` lines are the
 two tiers: `tier=1` is the free mechanical check, `tier=2` the vision model, and
 `outcome=unavailable` means the reviewer could not be reached (the page was kept
 and stamped `tier2_failed`). `attempt=` on each line is which try it was, and
-`outcome=best_effort` marks the page that used all three and was kept anyway.
+`book.best_effort` marks a page that used all three and was kept anyway.
 
 Sign-in has its own lines (`auth.google_login_ok sub=… email=s***@…`). A
 logging filter scrubs secrets before any handler formats a record: provider

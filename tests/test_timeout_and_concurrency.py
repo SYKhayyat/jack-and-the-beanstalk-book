@@ -21,7 +21,7 @@ from app.main import create_app
 from app.services.concurrency import ConcurrencyGate, GateTimeout
 from app.services.image_providers.base import GeneratedImage, ImageProvider, ProviderError
 from tests.conftest import generate_form
-from tests.helpers import multipart, tiny_png_bytes
+from tests.helpers import multipart, scene_png_bytes
 
 
 class SlowProvider(ImageProvider):
@@ -43,7 +43,7 @@ class SlowProvider(ImageProvider):
         with self._lock:
             self.calls += 1
         time.sleep(self.delay)
-        return GeneratedImage(data=tiny_png_bytes(), media_type="image/png", model="slow-v1")
+        return GeneratedImage(data=scene_png_bytes(), media_type="image/png", model="slow-v1")
 
 
 def app_with(settings: Settings, provider: ImageProvider) -> TestClient:

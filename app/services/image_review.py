@@ -1,16 +1,19 @@
 """Tier-1 image review: the free, deterministic checks every picture must pass.
 
 T9 asks for two tiers of review before an image can reach a book. Tier 2 is a
-vision model (not built yet — see `docs/book-template-plan.md`, T9/T10). This
-module is **tier 1**, which runs on every image, costs nothing, needs no API
-key, and cannot judge taste — only whether a picture is, mechanically, a usable
-picture of the scene it was asked for.
+vision model (`reviewer.py`). This module is **tier 1**, which runs on every
+image, costs nothing, needs no API key, and cannot judge taste — only whether
+a picture is, mechanically, a usable picture of the scene it was asked for.
 
 That distinction is worth stating where the code lives: a tier-1 pass is not
 "the page looks right", it is "this is not a blank frame, not the plate handed
-back unchanged, not the wrong shape, and not a black square". It catches the
-four failures that actually happen and are worth a re-roll, and it says plainly
-that tier 2 did not run.
+back unchanged, not the wrong shape, not a black square, and not a grid of
+tiles". It catches the failures that actually happen and are worth a re-roll.
+
+**`collage`** is the one a weak model produces most: handed a page prompt with
+several characters and reference images, it returns a contact sheet — twelve
+to twenty little tiles of people and rooms. A grid has straight seams running
+the whole width or height of the frame; one scene has at most one.
 
 Two checks are specific to the edit pass (T8) and matter more than the rest:
 
@@ -37,6 +40,7 @@ from PIL import Image, ImageChops, ImageStat
 
 __all__ = [
     "BACKGROUND_DRIFT_LIMIT",
+    "COLLAGE_SEAMS",
     "PLATE_UNCHANGED_LIMIT",
     "Tier1Review",
     "review_image",
@@ -51,6 +55,21 @@ BACKGROUND_DRIFT_LIMIT = 34.0
 #: Mean absolute difference below which the "edited" page is the plate itself.
 #: Nobody stands in the frame.
 PLATE_UNCHANGED_LIMIT = 1.5
+
+#: Straight seams running (nearly) the whole width or height of the frame at or
+#: above which a picture is a grid of tiles, not one scene. Calibrated on real
+#: pages: every contact sheet a weak model returned had two or more (three
+#: columns, a 2x2 split, rows of character tiles), and none of 60 good pages or
+#: 42 plates had more than one (a horizon, a door edge).
+COLLAGE_SEAMS = 2
+
+#: A seam is a line of pixels where at least this share of the frame's length
+#: has a hard step in brightness, and the step is at least `_SEAM_STEP` (0-255).
+_SEAM_COVERAGE = 0.75
+_SEAM_STEP = 14
+#: The frame is measured at this width; seams this close to an edge are borders.
+_SEAM_WIDTH = 480
+_SEAM_MARGIN = 0.04
 
 #: A frame whose channel standard deviation is under this has nothing in it.
 _FLAT_DEVIATION = 4.0
@@ -100,6 +119,49 @@ def _mean_absolute_difference(a: Image.Image, b: Image.Image) -> float:
     difference = ImageChops.difference(left, right)
     means = ImageStat.Stat(difference).mean
     return sum(means) / len(means)
+
+
+def _seam_positions(steps: list[float]) -> list[int]:
+    """Indexes of full-length seams in one axis's step-coverage profile.
+
+    Neighbouring lines are one seam (a gutter has two edges a pixel or two
+    apart), and lines within `_SEAM_MARGIN` of the frame's edge are a border,
+    which a picture is allowed.
+    """
+    margin = int(len(steps) * _SEAM_MARGIN)
+    seams: list[int] = []
+    last = -10
+    for index in range(margin, len(steps) - margin):
+        if steps[index] < _SEAM_COVERAGE:
+            continue
+        if index - last > 3:
+            seams.append(index)
+        last = index
+    return seams
+
+
+def count_seams(image: Image.Image) -> int:
+    """How many straight lines cut across the whole frame, both ways together.
+
+    A seam is where the picture changes abruptly along (nearly) its whole
+    length: the gutter between two tiles of a contact sheet. One scene has at
+    most one (a horizon, the edge of a wall); a grid of tiles has several. Pure
+    Pillow, so the check is free and needs nothing installed.
+    """
+    grey = image.convert("L")
+    height = max(1, round(_SEAM_WIDTH * grey.height / grey.width))
+    grey = grey.resize((_SEAM_WIDTH, height), Image.Resampling.BILINEAR)
+    total = 0
+    for dx, dy in ((1, 0), (0, 1)):
+        step = ImageChops.difference(grey, ImageChops.offset(grey, dx, dy))
+        hard = step.point(lambda value: 255 if value > _SEAM_STEP else 0)
+        size = (_SEAM_WIDTH, 1) if dx else (1, height)
+        profile = hard.resize(size, Image.Resampling.BOX)
+        # Mode "L": one byte per line, its share of hard steps scaled to 0-255.
+        steps = [value / 255 for value in profile.tobytes()]
+        # `offset` wraps around, so the first line compares against the last.
+        total += len(_seam_positions(steps[1:]))
+    return total
 
 
 def review_image(
@@ -152,6 +214,12 @@ def review_image(
     if max(deviations) < _FLAT_DEVIATION:
         faults.append("blank")
         score -= 80
+
+    if count_seams(image) >= COLLAGE_SEAMS:
+        # A grid of little pictures (a character sheet, a storyboard) is not a
+        # page, however good each tile is.
+        faults.append("collage")
+        score -= 70
 
     if plate_bytes is not None:
         try:

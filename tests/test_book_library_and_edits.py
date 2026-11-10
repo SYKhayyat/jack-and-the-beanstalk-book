@@ -23,7 +23,7 @@ from app.services.image_providers.base import (
 )
 from app.services.user_store import User
 from app.sessions import SESSION_COOKIE
-from tests.helpers import RecordingProvider, jack, make_photo_bytes, multipart
+from tests.helpers import RecordingProvider, jack, make_photo_bytes, multipart, scene_png_bytes
 
 #: Jack's tale exactly as a new book is made from it (its seed's edition).
 JACK = jack()
@@ -57,7 +57,7 @@ def _start(client: TestClient, **fields: object) -> str:
     return str(response.json()["book_id"])
 
 
-def _wait(client: TestClient, book_id: str, seconds: float = 20.0) -> dict[str, object]:
+def _wait(client: TestClient, book_id: str, seconds: float = 60.0) -> dict[str, object]:
     deadline = time.monotonic() + seconds
     last: dict[str, object] = {}
     while time.monotonic() < deadline:
@@ -106,7 +106,7 @@ class ChangingProvider(ImageProvider):
         self.calls += 1
         self.requests.append(request)
         return GeneratedImage(
-            data=make_photo_bytes(colour=f"#{self.calls % 10}{self.calls % 10}3366"),
+            data=scene_png_bytes(seed=self.calls),
             media_type="image/png",
             model="changing-v1",
         )
@@ -150,7 +150,7 @@ class TestEditing:
 
             response = client.post(
                 f"/api/book/{book_id}/edit",
-                data={"action": "page", "page_number": "2", "reason": "style_wrong"},
+                data={"action": "page", "page_number": "2", "reason": "wrong_moment"},
             )
             assert response.status_code == 202, response.text
             final = _wait(client, book_id)
@@ -159,9 +159,33 @@ class TestEditing:
             new_calls = _page_calls(provider)[before:]
             assert len(new_calls) == 1, "an edit redrew more than the one page"
             assert "Draw page 2 of" in new_calls[0].prompt
-            assert "This is a retry." in new_calls[0].prompt
+            # The ticked chip is the reviewer's own fault name, said the same
+            # way a reviewer's finding is.
+            assert "the picture did not show the moment this page is about" in (
+                new_calls[0].prompt
+            )
             # The untouched page kept its bytes; the edited one changed.
             assert client.get(f"/book-media/{book_id}/pages/1").content == page_one_before
+
+    def test_a_redraw_reason_outside_the_page_vocabulary_is_refused(
+        self, client_factory
+    ) -> None:
+        """Portrait chips ("vary the light") would fight a plate: not accepted here."""
+        provider = ChangingProvider()
+        with client_factory(provider) as client:
+            book_id = _start(client)
+            _wait(client, book_id)
+            before = len(_page_calls(provider))
+            response = client.post(
+                f"/api/book/{book_id}/edit",
+                data={
+                    "action": "page",
+                    "page_number": "2",
+                    "reason": "background_distracting",
+                },
+            )
+            assert response.status_code == 422, response.text
+            assert len(_page_calls(provider)) == before
 
     def test_a_book_made_before_photos_were_stored_can_still_be_redrawn(
         self, client_factory, monkeypatch
@@ -181,7 +205,7 @@ class TestEditing:
             before = len(_page_calls(provider))
             response = client.post(
                 f"/api/book/{book_id}/edit",
-                data={"action": "page", "page_number": "2", "reason": "style_wrong"},
+                data={"action": "page", "page_number": "2", "reason": "wrong_moment"},
             )
             assert response.status_code == 202, response.text
             final = _wait(client, book_id)
@@ -378,7 +402,7 @@ class BlockingPageProvider(ImageProvider):
             if not self.release.wait(15):
                 raise ProviderError("The blocking test provider was never released.")
         return GeneratedImage(
-            data=make_photo_bytes(), media_type="image/png", model="blocking-v1"
+            data=scene_png_bytes(), media_type="image/png", model="blocking-v1"
         )
 
 
@@ -505,9 +529,7 @@ class FlakyPageProvider(ImageProvider):
         self.requests.append(request)
         if not self.healed and f"Draw page {self.fail_page} of" in request.prompt:
             raise ProviderError("Your request was rejected by the safety system.")
-        return GeneratedImage(
-            data=make_photo_bytes(), media_type="image/png", model="flaky-v1"
-        )
+        return GeneratedImage(data=scene_png_bytes(), media_type="image/png", model="flaky-v1")
 
 
 class TestFinishAFailedBook:

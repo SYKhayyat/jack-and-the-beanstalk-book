@@ -59,7 +59,7 @@ from app.services.template_store import (
     UnknownTemplate,
 )
 
-__all__ = ["router"]
+__all__ = ["operator_or_404", "render_admin", "router"]
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ def get_templates(container: ContainerDep) -> TemplateStore:
 TemplateDep = Annotated[TemplateStore, Depends(get_templates)]
 
 
-def _operator(container: Container, session: CurrentSessionDep) -> str:
+def operator_or_404(container: Container, session: CurrentSessionDep) -> str:
     """The operator's sub, or a 404 for everyone else.
 
     Deliberately indistinguishable from a missing page: a 403 would tell a
@@ -114,7 +114,7 @@ def _page_or_404(page_number: int) -> int:
     return page_number
 
 
-def _render(request: Request, name: str, context: dict[str, Any]) -> HTMLResponse:
+def render_admin(request: Request, name: str, context: dict[str, Any]) -> HTMLResponse:
     templates: Jinja2Templates = request.app.state.templates
     return templates.TemplateResponse(request=request, name=name, context=context)
 
@@ -183,9 +183,9 @@ def plate_index(
     request: Request, container: ContainerDep, session: CurrentSessionDep, store: TemplateDep
 ) -> HTMLResponse:
     """Every story, how much of it is approved, and whether it can make books."""
-    _operator(container, session)
+    operator_or_404(container, session)
     stories = [_story_progress(seed, store) for seed in SEEDS]
-    return _render(
+    return render_admin(
         request,
         "admin_plates.html",
         {
@@ -207,7 +207,7 @@ def contact_sheet(
     finished: bool = False,
 ) -> HTMLResponse:
     """All 21 plates of a story in page order: the set, not one picture."""
-    _operator(container, session)
+    operator_or_404(container, session)
     seed = _seed_or_404(story_key)
     try:
         pages = store.pages(story_key)
@@ -242,7 +242,7 @@ def contact_sheet(
             }
         )
     version = store.current_version(story_key)
-    return _render(
+    return render_admin(
         request,
         "admin_plate_sheet.html",
         {
@@ -270,7 +270,7 @@ def plate_image(
     store: TemplateDep,
 ) -> Response:
     """A plate's bytes, for the operator's own screen only."""
-    _operator(container, session)
+    operator_or_404(container, session)
     _seed_or_404(story_key)
     try:
         image, media_type = store.plate_image(plate_id)
@@ -292,7 +292,7 @@ def page_review(
     error: str = "",
 ) -> HTMLResponse:
     """One page's candidates, each with its slot overlay and Approve state."""
-    _operator(container, session)
+    operator_or_404(container, session)
     seed = _seed_or_404(story_key)
     _page_or_404(page_number)
     try:
@@ -303,7 +303,7 @@ def page_review(
     page = pages.get(page_number)
     candidates = [_candidate(plate, store, page_number) for plate in plates]
     plan = _plan(seed, page_number)
-    return _render(
+    return render_admin(
         request,
         "admin_plate_review.html",
         {
@@ -342,7 +342,7 @@ def set_start_gate(
     Books already started are untouched either way: the gate only decides
     whether the next one may begin.
     """
-    operator = _operator(container, session)
+    operator = operator_or_404(container, session)
     _seed_or_404(story_key)
     on = required == "on"
     store.set_requires_template(story_key, on)
@@ -360,7 +360,7 @@ def approve(
     store: TemplateDep,
 ) -> RedirectResponse:
     """Approve one plate, refusing a cover whose title band is too busy."""
-    operator = _operator(container, session)
+    operator = operator_or_404(container, session)
     _seed_or_404(story_key)
     _page_or_404(page_number)
     plates = _plates_on(store, story_key, page_number, plate_id)
@@ -410,7 +410,7 @@ def reroll(
     whole text, for when the plate needs more than a correction. With neither,
     the planned prompt is painted again.
     """
-    _operator(container, session)
+    operator_or_404(container, session)
     seed = _seed_or_404(story_key)
     _page_or_404(page_number)
     plan = _plan(seed, page_number)
@@ -470,7 +470,7 @@ def paint_next(
     it is one plate per request and the browser repeats it. The sheet says how
     many are painted, so a reload never loses the operator's place.
     """
-    _operator(container, session)
+    operator_or_404(container, session)
     seed = _seed_or_404(story_key)
     page, _plate_id, _remaining = _paint_next(container, store, seed)
     query = {"painted": page} if page is not None else {"finished": "1"}
@@ -485,7 +485,7 @@ def paint_next_json(
     store: TemplateDep,
 ) -> JSONResponse:
     """The same one plate, counted: what the browser's repeat loop reads."""
-    _operator(container, session)
+    operator_or_404(container, session)
     seed = _seed_or_404(story_key)
     page, plate_id, remaining = _paint_next(container, store, seed)
     return JSONResponse(
@@ -508,7 +508,7 @@ def retire(
     store: TemplateDep,
 ) -> RedirectResponse:
     """Take a plate out of future versions. Old versions keep it."""
-    _operator(container, session)
+    operator_or_404(container, session)
     _seed_or_404(story_key)
     _page_or_404(page_number)
     _plates_on(store, story_key, page_number, plate_id)

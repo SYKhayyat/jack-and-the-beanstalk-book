@@ -64,7 +64,7 @@ def _start_book(
 
 
 def _wait_for_book(
-    client: TestClient, book_id: str, seconds: float = 10.0
+    client: TestClient, book_id: str, seconds: float = 60.0
 ) -> dict[str, object]:
     deadline = time.monotonic() + seconds
     last: dict[str, object] = {}

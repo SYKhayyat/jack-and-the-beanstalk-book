@@ -211,6 +211,8 @@ def runner_with(reviewer: Any, attempts: int = MAX_PAGE_ATTEMPTS) -> BookRunner:
     runner = BookRunner.__new__(BookRunner)
     runner._reviewer = reviewer
     runner._page_attempts = attempts
+    runner._provider = Mock(name="provider")
+    runner._provider.name = "big-painter"
     return runner
 
 
@@ -224,10 +226,10 @@ def attempt_loop(runner: BookRunner, draws: list[bytes] | None = None, **overrid
         def __init__(self) -> None:
             self.calls = 0
 
-        async def __call__(self, _faults: Any) -> bytes:
+        async def __call__(self, _prompt: Any) -> GeneratedImage:
             image = images[self.calls]
             self.calls += 1
-            return image
+            return GeneratedImage(data=image, media_type="image/png", model="painter-v2")
 
     draw = Script()
     arguments = {
@@ -240,7 +242,7 @@ def attempt_loop(runner: BookRunner, draws: list[bytes] | None = None, **overrid
         "plate": None,
         "artwork": artwork(),
         "draw": draw,
-        "prompt_for": lambda _faults: "the prompt",
+        "prompt_for": lambda _faults, _findings: "the prompt",
     }
     arguments.update(overrides)
     result = asyncio.run(runner._draw_until_pass(**arguments))
@@ -274,7 +276,7 @@ class TestTheAttemptLoop:
             runner_with(reviewer),
             artwork=artwork(plated=True),
             # A real builder puts the faults into the retry's text.
-            prompt_for=lambda faults: f"prompt {faults}",
+            prompt_for=lambda faults, _findings: f"prompt {faults}",
         )
         assert draw.calls == 2
         assert reviewer.calls == 2
@@ -293,7 +295,7 @@ class TestTheAttemptLoop:
         attempt_loop(
             runner,
             artwork=artwork(plated=True),
-            prompt_for=lambda faults: asked.append(tuple(faults)) or "p",
+            prompt_for=lambda faults, _findings: asked.append(tuple(faults)) or "p",
         )
         assert asked[0] == ()  # nothing was wrong yet
         assert asked[1] == ("deformed",)
@@ -354,11 +356,11 @@ class TestTheAttemptLoop:
         assert "blank" in result.verdicts[0]["faults"]
         assert result.chosen == 2
 
-    def test_an_unpinned_book_records_no_verdict_at_all(self) -> None:
-        """Nothing looked at it, so nothing may claim it was looked at."""
-        runner = runner_with(ScriptedReviewer(answers=[]))
+    def test_a_picture_drawn_without_a_plate_is_reviewed_by_both_tiers(self) -> None:
+        """A composed page is where a weak model goes most wrong: never waved through."""
+        reviewer = ScriptedReviewer(answers=[said(False, 20, ("wrong_moment",), "a park")])
         verdict = asyncio.run(
-            runner._judge(
+            runner_with(reviewer)._judge(
                 book_id="book",
                 page_number=5,
                 image=grain(),
@@ -371,9 +373,102 @@ class TestTheAttemptLoop:
                 user="-",
             )
         )
-        assert verdict.passed is True
-        assert verdict.tiers_run == ()
-        assert verdict.as_dict()["tier"] == 0
+        assert reviewer.calls == 1
+        assert verdict.tiers_run == (1, 2)
+        assert verdict.passed is False
+        assert verdict.faults == ("wrong_moment",)
+
+    def test_a_named_fault_fails_the_picture_whatever_the_model_says(self) -> None:
+        """ "Passed, score 90, but there is lettering in the sky" is not a pass."""
+        reviewer = ScriptedReviewer(answers=[said(True, 90, ("text_in_image",))])
+        verdict = asyncio.run(
+            runner_with(reviewer)._judge(
+                book_id="book",
+                page_number=5,
+                image=grain(),
+                plate=None,
+                artwork=artwork(),
+                page_title="t",
+                story_line="s",
+                cast_note="c",
+                attempt=1,
+                user="-",
+            )
+        )
+        assert verdict.passed is False
+
+    def test_a_contact_sheet_fails_tier_one_for_free(self) -> None:
+        """A grid of tiles is caught before a reviewer is paid to look at it."""
+        reviewer = ScriptedReviewer(answers=[said(True, 95)])
+        sheet = Image.new("RGB", (1152, 864), (240, 240, 240))
+        draw = ImageDraw.Draw(sheet)
+        rng = random.Random(4)
+        for row in range(3):
+            for column in range(4):
+                left, top = 8 + column * 286, 8 + row * 286
+                draw.rectangle(
+                    (left, top, left + 276, top + 276),
+                    fill=tuple(rng.randrange(30, 200) for _ in range(3)),
+                )
+        result, _, _ = attempt_loop(
+            runner_with(reviewer),
+            draws=[_png(sheet), grain(seed=5)],
+            artwork=artwork(),
+        )
+        assert "collage" in result.verdicts[0]["faults"]
+        assert reviewer.calls == 1  # only the second picture reached tier 2
+        assert result.chosen == 2
+
+    def test_the_reviewer_s_own_words_reach_the_retry(self) -> None:
+        """The fault kind says what is wrong; the note says which thing, and where."""
+        note = "a second girl in a red cloak stands at the far right"
+        reviewer = ScriptedReviewer(
+            answers=[said(False, 30, ("extra_person",), note), said(True, 90)]
+        )
+        seen: list[tuple[tuple[str, ...], str]] = []
+        attempt_loop(
+            runner_with(reviewer),
+            prompt_for=lambda faults, findings: seen.append((tuple(faults), findings)) or "p",
+        )
+        assert seen == [((), ""), (("extra_person",), note)]
+
+    def test_a_tier_one_failure_sends_no_findings(self) -> None:
+        """Tier 1 has no words of its own: the fault name is all there is."""
+        blank = _png(Image.new("RGB", (512, 384), (255, 255, 255)))
+        seen: list[str] = []
+        attempt_loop(
+            runner_with(ScriptedReviewer(answers=[said(True, 90)])),
+            draws=[blank, grain(seed=3)],
+            prompt_for=lambda _faults, findings: seen.append(findings) or "p",
+        )
+        assert seen == ["", ""]
+
+    def test_what_the_owner_asked_for_steers_every_attempt_and_is_kept(self) -> None:
+        reviewer = ScriptedReviewer(
+            answers=[
+                said(False, 40, ("deformed",), "the left hand has six fingers"),
+                said(True, 90),
+            ]
+        )
+        asked: list[tuple[str, ...]] = []
+        result, _, _ = attempt_loop(
+            runner_with(reviewer),
+            prompt_for=lambda faults, _findings: asked.append(tuple(faults)) or "p",
+            requested=("likeness",),
+        )
+        assert asked == [("likeness",), ("deformed", "likeness")]
+        assert all(verdict["requested"] == ["likeness"] for verdict in result.verdicts)
+
+    def test_every_attempt_records_what_drew_it(self) -> None:
+        result, _, _ = attempt_loop(
+            runner_with(
+                ScriptedReviewer(answers=[said(False, 30, ("deformed",)), said(True, 90)])
+            )
+        )
+        assert [(v["provider"], v["model"]) for v in result.verdicts] == [
+            ("big-painter", "painter-v2"),
+            ("big-painter", "painter-v2"),
+        ]
 
     def test_a_placeholder_provider_is_never_retried(self) -> None:
         """Three identical placeholders would be three claimed attempts."""
@@ -425,12 +520,24 @@ class TestTheReviewer:
         assert answer.passed is False
         assert answer.faults == ("text_in_image",)
 
-    def test_a_fault_name_nobody_knows_is_dropped(self) -> None:
-        """The stored verdict may only name faults the app can display."""
+    def test_a_fault_name_nobody_knows_is_kept_as_other(self) -> None:
+        """An objection the app has no name for still fails the picture.
+
+        Dropping it let a picture the model objected to pass on its score
+        alone; it is stored as "other", with the model's word kept in the note.
+        """
         answer = parse_answer(
-            '{"passed": true, "score": 90, "faults": ["looks_silly", "deformed"], "note": ""}'
+            '{"passed": true, "score": 90, "faults": ["looks_silly", "deformed"], '
+            '"note": "the cow has two heads"}'
         )
-        assert answer.faults == ("deformed",)
+        assert answer.faults == ("other", "deformed")
+        assert answer.note == "[looks_silly] the cow has two heads"
+
+    def test_a_collage_is_a_fault_the_reviewer_can_name(self) -> None:
+        answer = parse_answer(
+            '{"passed": false, "score": 10, "faults": ["collage"], "note": "a grid"}'
+        )
+        assert answer.faults == ("collage",)
 
     def test_an_impossible_score_is_clamped(self) -> None:
         assert parse_answer('{"passed": true, "score": -10, "faults": []}').score == 0
@@ -519,10 +626,9 @@ class TestTheLoopEndToEnd:
     """The whole path, through `/api/book/start`, with a reviewer that can be
     made to fail.
 
-    Only a book pinned to a template version is reviewed at all — an unpinned
-    one is exempt, by design — so these tests approve the real plates first. The
-    claims are the book-level ones: a page that fails is redrawn, and a reviewer
-    that is down never costs a parent the finished book.
+    These approve the real plates first, so the book is drawn by the edit
+    pass. The claims are the book-level ones: a page that fails is redrawn, and
+    a reviewer that is down never costs a parent the finished book.
     """
 
     def _prompts(self, tmp_path: Path) -> list[dict[str, str]]:

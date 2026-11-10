@@ -1,0 +1,190 @@
+{% extends "_layout.html" %}
+{% block title %}Status — Storybook Studio{% endblock %}
+{% block body_attrs %}data-page="admin"{% endblock %}
+{% block header_title %}<span class="header-title">Operator</span>{% endblock %}
+{% block main_class %}page admin{% endblock %}
+{% macro health_rows(h) -%}
+  <tr><th scope="row">Books</th><td class="wallet-amount">{{ h.books }}</td></tr>
+  <tr><th scope="row">Pictures</th><td class="wallet-amount">{{ h.pictures }}</td></tr>
+  <tr><th scope="row">Pictures with a verdict</th><td class="wallet-amount">{{ h.reviewed }}</td></tr>
+  <tr><th scope="row">Passed on the first try</th><td class="wallet-amount">{{ h.passed_first_try }}</td></tr>
+  <tr><th scope="row">Redrawn at least once</th><td class="wallet-amount">{{ h.redrawn }}</td></tr>
+  <tr><th scope="row">Kept as best effort (never passed)</th><td class="wallet-amount{% if h.best_effort %} admin-bad{% endif %}">{{ h.best_effort }}</td></tr>
+  <tr><th scope="row">Attempts the reviewer judged</th><td class="wallet-amount">{{ h.tier2_ran }}</td></tr>
+  <tr><th scope="row">Attempts the reviewer could not judge</th><td class="wallet-amount{% if h.tier2_unavailable %} admin-bad{% endif %}">{{ h.tier2_unavailable }}</td></tr>
+  <tr><th scope="row">Finished pictures with no verdict</th><td class="wallet-amount{% if h.unreviewed %} admin-bad{% endif %}">{{ h.unreviewed | length }}</td></tr>
+{%- endmacro %}
+{% block content %}
+  <nav class="breadcrumb admin-nav"><a href="/admin/status" aria-current="page">Status</a> · <a href="/admin/plates">Plates</a> · <a href="/">The shelf</a></nav>
+
+  <h1>Status</h1>
+
+  <section class="card" aria-labelledby="backends-heading">
+    <h2 id="backends-heading">What is live</h2>
+    <table class="wallet-table admin-kv">
+      <tbody>
+        {% for label, value in backends %}
+        <tr><th scope="row">{{ label }}</th><td>{{ value }}</td></tr>
+        {% endfor %}
+        {% for story in stories %}
+        <tr>
+          <th scope="row">{{ story.title }}</th>
+          <td>
+            {% if story.version_number %}drawn on plates · template version {{ story.version_number }}{% else %}<span class="admin-bad">no plates — pages are composed from scratch</span>{% endif %}
+            · start gate {{ "on" if story.requires_template else "off" }}
+            {% if not story.can_start %} · <span class="admin-bad">held back</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card" aria-labelledby="review-heading">
+    <h2 id="review-heading">The review loop</h2>
+    <p class="field-help">Every picture is checked by tier 1 (free: blank, wrong shape, a grid of tiles, the plate redrawn) and then by the reviewer. A picture the reviewer could not judge is kept on tier 1 alone and counted here.</p>
+    <div class="admin-columns">
+      <table class="wallet-table admin-kv">
+        <caption class="field-help">Last 7 days</caption>
+        <tbody>{{ health_rows(week) }}</tbody>
+      </table>
+      <table class="wallet-table admin-kv">
+        <caption class="field-help">All books that must be reviewed</caption>
+        <tbody>{{ health_rows(ever) }}</tbody>
+      </table>
+    </div>
+    {% if ever.faults %}
+    <h3>Faults found (all attempts, all books)</h3>
+    <p class="admin-tags">
+      {% for fault, count in ever.faults %}<span class="admin-tag">{{ fault }} · {{ count }}</span>{% endfor %}
+    </p>
+    {% endif %}
+    {% if ever.providers %}
+    <h3>Attempts by backend</h3>
+    <p class="admin-tags">
+      {% for name, count in ever.providers %}<span class="admin-tag">{{ name }} · {{ count }}</span>{% endfor %}
+    </p>
+    {% endif %}
+    {% if ever.unreviewed %}
+    <h3 class="admin-bad">Finished pictures with no verdict</h3>
+    <ul>
+      {% for book_id, page in ever.unreviewed %}
+      <li><a href="/admin/books/{{ book_id }}">{{ book_id[:8] }}</a> · {{ "cover" if page == 0 else "page " ~ page }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="books-heading">
+    <h2 id="books-heading">Recent books</h2>
+    {% if books %}
+    <div class="admin-scroll">
+      <table class="wallet-table">
+        <thead>
+          <tr><th scope="col">Made</th><th scope="col">Book</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Plates</th><th scope="col">Pictures</th><th scope="col">Attempts</th><th scope="col">Best effort</th><th scope="col">Reviewer down</th><th scope="col">Drawn by</th></tr>
+        </thead>
+        <tbody>
+          {% for book in books %}
+          <tr>
+            <td class="wallet-when">{{ book.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+            <td><a href="/admin/books/{{ book.book_id }}">{{ book.title or book.story_key }}</a></td>
+            <td>{{ book.owner }}</td>
+            <td>{{ book.status }}</td>
+            <td>{{ "yes" if book.plated else "no" }}</td>
+            <td class="wallet-amount">{{ book.pictures }}</td>
+            <td class="wallet-amount">{{ book.attempts }}</td>
+            <td class="wallet-amount{% if book.best_effort %} admin-bad{% endif %}">{{ book.best_effort }}</td>
+            <td class="wallet-amount{% if book.tier2_unavailable %} admin-bad{% endif %}">{{ book.tier2_unavailable }}</td>
+            <td>{{ book.providers }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="field-help">No books yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="cost-heading">
+    <h2 id="cost-heading">What a book costs to make</h2>
+    {% if costs.books %}
+    <div class="cost-compare">
+      <p><span class="cost-figure">{{ costs.average }}</span><span class="cost-caption">average API spend per finished book</span></p>
+      <p><span class="cost-figure">{{ costs.price }}</span><span class="cost-caption">what a book is charged</span></p>
+      <p><span class="cost-figure">{{ costs.margin }}</span><span class="cost-caption">left over per book ({{ costs.share }}% of the price goes on API calls)</span></p>
+    </div>
+    <table class="wallet-table">
+      <thead><tr><th scope="col">Calls in one book</th><th scope="col">Average count</th><th scope="col">Average cost</th></tr></thead>
+      <tbody>
+        {% for row in costs.rows %}
+        <tr><td>{{ row.label }}</td><td class="wallet-amount">{{ row.calls }}</td><td class="wallet-amount">{{ row.cost }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="field-help">No finished book has been measured yet.</p>
+    {% endif %}
+    <p class="field-help">
+      {{ costs.total_calls }} calls logged, {{ costs.total }} in total; {{ costs.overhead }} belongs to no finished book.
+      {% if costs.failed_calls %}{{ costs.failed_calls }} failed.{% endif %}
+      {% if costs.unpriced_calls %}<strong class="admin-bad">{{ costs.unpriced_calls }} have no known price</strong> — set IMAGE_CALL_COST_USD or REVIEW_CALL_COST_USD.{% endif %}
+    </p>
+  </section>
+
+  <section class="card" aria-labelledby="calls-heading">
+    <h2 id="calls-heading">Recent model calls</h2>
+    {% if calls %}
+    <div class="admin-scroll">
+      <table class="wallet-table">
+        <thead>
+          <tr><th scope="col">When</th><th scope="col">Kind</th><th scope="col">For</th><th scope="col">Backend</th><th scope="col">Book · page · try</th><th scope="col">OK</th><th scope="col">Cost</th><th scope="col">Time</th></tr>
+        </thead>
+        <tbody>
+          {% for call in calls %}
+          <tr>
+            <td class="wallet-when">{{ call.created_at.strftime("%m-%d %H:%M:%S") }}</td>
+            <td>{{ call.kind }}</td>
+            <td>{{ call.category }}</td>
+            <td>{{ call.provider }} · {{ call.model }}</td>
+            <td>{% if call.book_id %}<a href="/admin/books/{{ call.book_id }}">{{ call.book_id[:8] }}</a>{% if call.page_number is not none %} · {{ "cover" if call.page_number == 0 else "p" ~ call.page_number }}{% endif %}{% if call.attempt %} · {{ call.attempt }}{% endif %}{% else %}—{% endif %}</td>
+            <td>{% if call.ok %}yes{% else %}<span class="admin-bad">no</span>{% endif %}</td>
+            <td class="wallet-amount">{{ call.cost }}</td>
+            <td class="wallet-amount">{{ (call.duration_ms / 1000) | round(1) }} s</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="field-help">No calls logged yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="portraits-heading">
+    <h2 id="portraits-heading">Recent portraits in the studio</h2>
+    {% if portraits %}
+    <div class="admin-scroll">
+      <table class="wallet-table">
+        <thead>
+          <tr><th scope="col">When</th><th scope="col">Story · who</th><th scope="col">What</th><th scope="col">Look</th><th scope="col">Chips ticked before it</th><th scope="col">Backend</th></tr>
+        </thead>
+        <tbody>
+          {% for item in portraits %}
+          <tr>
+            <td class="wallet-when">{{ item.created_at.strftime("%m-%d %H:%M") }}</td>
+            <td>{{ item.story_key }} · {{ item.cast_key or "star" }}</td>
+            <td>{% if item.kind == "choose" %}picked take {{ item.chosen_index + 1 }}{% else %}{{ item.takes }} take{{ "" if item.takes == 1 else "s" }}{% endif %}</td>
+            <td>{{ item.settings.get("photo_gender", "?") }} · {{ item.settings.get("cartoon_style", "?") }} · {{ item.settings.get("apparent_age", "?") }}</td>
+            <td>{{ item.rejection | join(", ") or "—" }}</td>
+            <td>{{ item.provider }} · {{ item.model }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="field-help">No portraits yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}

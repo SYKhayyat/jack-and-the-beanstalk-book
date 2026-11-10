@@ -61,7 +61,7 @@ def _start(client: TestClient, story: str, generation_id: str, **fields: object)
 
 
 def _wait(client: TestClient, book_id: str) -> dict[str, object]:
-    deadline = time.monotonic() + 15
+    deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         status = client.get(f"/api/book/{book_id}").json()
         if status["status"] in {"complete", "failed"}:

@@ -290,7 +290,7 @@ def test_a_funded_book_is_charged_when_its_pdf_is_written(browser) -> None:
     assert start.status_code == 201, start.text
     book_id = start.json()["book_id"]
 
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + 60
     status = ""
     while time.monotonic() < deadline:
         status = client.get(f"/api/book/{book_id}").json()["status"]

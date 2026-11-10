@@ -107,8 +107,7 @@
         All calls logged on this deployment: {{ costs.total_calls }}, costing {{ costs.total }} in total.
         {{ costs.overhead }} of that belongs to no finished book (rejected portraits, books that stopped early, template plates).
         {% if costs.failed_calls %}{{ costs.failed_calls }} call{{ "" if costs.failed_calls == 1 else "s" }} failed and cost nothing.{% endif %}
-        {% if costs.unpriced_calls %}<strong>{{ costs.unpriced_calls }} call{{ "" if costs.unpriced_calls == 1 else "s" }} have no known price</strong> and are counted as $0 — set IMAGE_CALL_COST_USD or REVIEW_CALL_COST_USD.{% endif %}
-        Images are priced from the active provider ({{ costs.provider }}).
+        {% if costs.unpriced_calls %}<strong>{{ costs.unpriced_calls }} call{{ "" if costs.unpriced_calls == 1 else "s" }} have no known price</strong> and are counted as $0.{% endif %}
       </p>
     </section>
 

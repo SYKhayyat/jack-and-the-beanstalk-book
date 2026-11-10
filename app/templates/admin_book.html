@@ -1,0 +1,154 @@
+{% extends "_layout.html" %}
+{% block title %}{{ book.line.title or "Book" }} — Operator{% endblock %}
+{% block body_attrs %}data-page="admin"{% endblock %}
+{% block header_title %}<span class="header-title">Operator</span>{% endblock %}
+{% block main_class %}page admin{% endblock %}
+{% macro look(settings) -%}
+  {% if settings %}
+  <table class="wallet-table admin-kv admin-compact">
+    <tbody>
+      {% for key, value in settings | dictsort %}
+      <tr><th scope="row">{{ key }}</th><td>{{ value }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="field-help">Not recorded (saved before settings were kept).</p>
+  {% endif %}
+{%- endmacro %}
+{% macro lineage(rows) -%}
+  {% if rows %}
+  <ol class="admin-lineage">
+    {% for item in rows %}
+    <li>
+      {{ item.created_at.strftime("%m-%d %H:%M") }} ·
+      {% if item.kind == "choose" %}picked take {{ item.chosen_index + 1 }}{% else %}drew {{ item.takes }} take{{ "" if item.takes == 1 else "s" }}{% endif %}
+      · {{ item.provider }} · {{ item.model }}
+      {% if item.rejection %}· after the chips <em>{{ item.rejection | join(", ") }}</em>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="field-help">No portrait history (made before it was recorded, or expired).</p>
+  {% endif %}
+{%- endmacro %}
+{% block content %}
+  <nav class="breadcrumb admin-nav"><a href="/admin/status">← Status</a></nav>
+
+  <h1>{{ book.line.title or book.line.story_key }}</h1>
+  <p class="field-help">
+    {{ book.line.book_id }} · {{ book.line.story_key }} · {{ book.line.status }} ·
+    made {{ book.line.created_at.strftime("%Y-%m-%d %H:%M") }} UTC · owner {{ book.line.owner }}
+  </p>
+  {% if book.error %}<p class="inline-message error">{{ book.error }}</p>{% endif %}
+
+  <section class="card">
+    <h2>How it was made</h2>
+    <table class="wallet-table admin-kv">
+      <tbody>
+        <tr><th scope="row">Drawn on plates</th><td>{% if book.template_version_id %}yes · version {{ book.template_version_id[:8] }}{% else %}no — composed from scratch{% endif %}</td></tr>
+        <tr><th scope="row">Review required</th><td>{{ "yes" if book.review_required else "no — made before every picture was reviewed" }}</td></tr>
+        <tr><th scope="row">Pictures · attempts</th><td>{{ book.line.pictures }} · {{ book.line.attempts }}</td></tr>
+        <tr><th scope="row">Best effort</th><td class="{% if book.line.best_effort %}admin-bad{% endif %}">{{ book.line.best_effort }}</td></tr>
+        <tr><th scope="row">Reviewer could not judge</th><td class="{% if book.line.tier2_unavailable %}admin-bad{% endif %}">{{ book.line.tier2_unavailable }} attempt(s)</td></tr>
+        <tr><th scope="row">Drawn by</th><td>{{ book.line.providers }}</td></tr>
+        <tr><th scope="row">Star's name</th><td>{{ book.about.get("prompt_name", "—") }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>The star</h2>
+    <div class="admin-columns">
+      <div>
+        <h3>Look settings</h3>
+        {{ look(book.settings) }}
+      </div>
+      <div>
+        <h3>The portrait behind it</h3>
+        {{ lineage(portrait_history) }}
+        {% if studio_history %}
+        <h3>Everything tried in the studio before this book</h3>
+        {{ lineage(studio_history) }}
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  {% if book.cast %}
+  <section class="card">
+    <h2>Photographed cast</h2>
+    <p class="field-help">Everyone else in the story is drawn from the book's character bible.</p>
+    {% for member in book.cast %}
+    <h3>{{ member.cast_key }}</h3>
+    <div class="admin-columns">
+      <div>{{ look(member.settings) }}</div>
+      <div>{{ lineage(cast_history.get(member.cast_key, [])) }}</div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <h2>Every picture</h2>
+    <ol class="admin-pictures">
+      {% for picture in book.pictures %}
+      <li class="admin-picture">
+        <a href="/admin/books/{{ book.line.book_id }}/art/{{ picture.number }}" target="_blank" rel="noopener">
+          <img src="/admin/books/{{ book.line.book_id }}/art/{{ picture.number }}" alt="{{ picture.label }}" loading="lazy">
+        </a>
+        <div>
+          <h3>{{ picture.label }}{% if picture.best_effort %} <span class="admin-tag admin-bad">best effort</span>{% endif %}</h3>
+          {% if picture.attempts %}
+          <table class="wallet-table admin-compact">
+            <thead><tr><th scope="col">Try</th><th scope="col">Verdict</th><th scope="col">Tiers</th><th scope="col">Faults</th><th scope="col">The reviewer said</th><th scope="col">Asked for</th><th scope="col">Drawn by</th></tr></thead>
+            <tbody>
+              {% for attempt in picture.attempts %}
+              <tr{% if attempt.chosen %} class="admin-chosen"{% endif %}>
+                <td>{{ attempt.attempt }}{% if attempt.chosen %} ✓{% endif %}</td>
+                <td>{% if attempt.passed %}passed{% else %}<span class="admin-bad">failed</span>{% endif %} · {{ attempt.score }}</td>
+                <td>{{ attempt.tiers }}{% if attempt.tier2_unavailable %} <span class="admin-bad">(reviewer down)</span>{% endif %}</td>
+                <td>{{ attempt.faults | join(", ") or "—" }}</td>
+                <td>{{ attempt.note or "—" }}</td>
+                <td>{{ attempt.requested | join(", ") or "—" }}</td>
+                <td>{{ attempt.provider or "—" }}{% if attempt.model %} · {{ attempt.model }}{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="field-help">No verdict: nothing reviewed this picture.</p>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>Model calls for this book</h2>
+    {% if calls %}
+    <div class="admin-scroll">
+      <table class="wallet-table admin-compact">
+        <thead><tr><th scope="col">When</th><th scope="col">Kind</th><th scope="col">For</th><th scope="col">Backend</th><th scope="col">Page · try</th><th scope="col">OK</th><th scope="col">Cost</th><th scope="col">Time</th></tr></thead>
+        <tbody>
+          {% for call in calls %}
+          <tr>
+            <td class="wallet-when">{{ call.created_at.strftime("%H:%M:%S") }}</td>
+            <td>{{ call.kind }}</td>
+            <td>{{ call.category }}</td>
+            <td>{{ call.provider }} · {{ call.model }}</td>
+            <td>{% if call.page_number is not none %}{{ "cover" if call.page_number == 0 else "p" ~ call.page_number }}{% endif %}{% if call.attempt %} · {{ call.attempt }}{% endif %}</td>
+            <td>{% if call.ok %}yes{% else %}<span class="admin-bad">no</span>{% endif %}</td>
+            <td class="wallet-amount">{{ call.cost }}</td>
+            <td class="wallet-amount">{{ (call.duration_ms / 1000) | round(1) }} s</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="field-help">No calls recorded for this book.</p>
+    {% endif %}
+  </section>
+{% endblock %}

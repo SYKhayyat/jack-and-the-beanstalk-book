@@ -61,6 +61,8 @@ FAULTS: tuple[str, ...] = (
     "frightening",
     "wrong_counts",
     "deformed",
+    "collage",
+    "other",
 )
 
 #: A score below this fails even when the model lists no fault: "I cannot fault
@@ -244,14 +246,29 @@ def parse_answer(text: str) -> ReviewAnswer:
     faults_raw = raw.get("faults", [])
     if not isinstance(faults_raw, list):
         raise ProviderError("the reviewer's `faults` was not a list")
-    # An unknown fault name is dropped rather than trusted: the stored verdict
-    # must only ever name things the rest of the app knows how to display.
-    faults = tuple(str(fault) for fault in faults_raw if str(fault) in FAULTS)
-    note = str(raw.get("note", ""))[:300]
+    # A fault name outside the closed set is still a fault: it is stored as
+    # "other" (so the verdict only names things the app can display) and the
+    # model's own word is kept in the note. Dropping it would let a picture the
+    # model objected to pass on its score alone.
+    faults: list[str] = []
+    unknown: list[str] = []
+    for fault in (str(item) for item in faults_raw):
+        if fault in FAULTS:
+            name = fault
+        else:
+            name = "other"
+            unknown.append(fault)
+        if name not in faults:
+            faults.append(name)
+    note = str(raw.get("note", ""))
+    if unknown:
+        logger.info("review.unknown_faults names=%s", ",".join(unknown))
+        note = f"[{', '.join(unknown)}] {note}".strip()
+    note = note[:600]
     return ReviewAnswer(
         passed=bool(passed),
         score=int(max(0, min(100, float(score)))),
-        faults=faults,
+        faults=tuple(faults),
         note=note,
     )
 

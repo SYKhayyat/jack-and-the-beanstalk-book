@@ -32,7 +32,14 @@ from app.services.image_providers.base import (
     ProviderError,
 )
 from app.services.rate_limit import GenerationRateLimiter
-from tests.helpers import RecordingProvider, edition_in, jack, make_photo_bytes, multipart
+from tests.helpers import (
+    RecordingProvider,
+    edition_in,
+    jack,
+    make_photo_bytes,
+    multipart,
+    scene_png_bytes,
+)
 
 #: Jack's tale exactly as a new book is made from it (its seed's edition).
 JACK = jack()
@@ -71,8 +78,9 @@ def photo_file() -> tuple[str, bytes, str]:
 
 
 def _jpeg_bytes() -> bytes:
+    """A real-looking picture as JPEG: big enough and busy enough for tier 1."""
     buffer = io.BytesIO()
-    Image.new("RGB", (64, 48), "#556677").save(buffer, format="JPEG")
+    Image.open(io.BytesIO(scene_png_bytes())).convert("RGB").save(buffer, format="JPEG")
     return buffer.getvalue()
 
 
@@ -139,7 +147,7 @@ def _pdf_text(data: bytes) -> str:
 
 
 def wait_for_book(
-    client: TestClient, book_id: str, seconds: float = 10.0
+    client: TestClient, book_id: str, seconds: float = 60.0
 ) -> dict[str, object]:
     """Public status until the background job settles (complete or failed)."""
     deadline = time.monotonic() + seconds
@@ -369,13 +377,13 @@ class FailingPageProvider(ImageProvider):
         self.calls += 1
         if f"Draw page {self.fail_page} of" in request.prompt:
             raise ProviderError("The provider gave up.")
-        return GeneratedImage(data=make_photo_bytes(), media_type="image/png", model="demo-v1")
+        return GeneratedImage(data=scene_png_bytes(), media_type="image/png", model="demo-v1")
 
     def generate_candidates(
         self, request: ImageRequest, count: int = 1
     ) -> list[GeneratedImage]:
         return [
-            GeneratedImage(data=make_photo_bytes(), media_type="image/png", model="demo-v1")
+            GeneratedImage(data=scene_png_bytes(), media_type="image/png", model="demo-v1")
         ]
 
 
@@ -433,7 +441,7 @@ class TestBookErrors:
             def generate(self, request: ImageRequest) -> GeneratedImage:
                 time.sleep(0.05)
                 return GeneratedImage(
-                    data=make_photo_bytes(), media_type="image/png", model="demo-v1"
+                    data=scene_png_bytes(), media_type="image/png", model="demo-v1"
                 )
 
             def generate_candidates(
@@ -441,7 +449,7 @@ class TestBookErrors:
             ) -> list[GeneratedImage]:
                 return [
                     GeneratedImage(
-                        data=make_photo_bytes(), media_type="image/png", model="demo-v1"
+                        data=scene_png_bytes(), media_type="image/png", model="demo-v1"
                     )
                 ]
 
@@ -560,7 +568,7 @@ class BlockingPageProvider(ImageProvider):
         try:
             if "Draw page 2 of" in request.prompt:
                 self.page_two_entered.set()
-                self.release_page_two.wait(timeout=10)
+                self.release_page_two.wait(timeout=40)
             elif "Draw page 1 of" in request.prompt:
                 # Page 1 must not finish before page 2 has started: only a
                 # parallel runner can get past this.
@@ -568,13 +576,13 @@ class BlockingPageProvider(ImageProvider):
         finally:
             with self._lock:
                 self._in_flight -= 1
-        return GeneratedImage(data=make_photo_bytes(), media_type="image/png", model="demo-v1")
+        return GeneratedImage(data=scene_png_bytes(), media_type="image/png", model="demo-v1")
 
     def generate_candidates(
         self, request: ImageRequest, count: int = 1
     ) -> list[GeneratedImage]:
         return [
-            GeneratedImage(data=make_photo_bytes(), media_type="image/png", model="demo-v1")
+            GeneratedImage(data=scene_png_bytes(), media_type="image/png", model="demo-v1")
         ]
 
 
@@ -661,8 +669,10 @@ class TestTheStageIsNamed:
 
             # Poll while page 2 is still blocked inside its provider call. The
             # stage must name a page that is actually being drawn, and a stage
-            # that describes work — not the old uninformative "pages".
-            deadline = time.monotonic() + 5.0
+            # that describes work — not the old uninformative "pages". Every
+            # other page passes through "reviewing" (which the stage reports
+            # first), so "painting" shows once page 2 is the only one left.
+            deadline = time.monotonic() + 30.0
             seen_stages: set[str] = set()
             consistent = False
             while time.monotonic() < deadline:
@@ -986,7 +996,7 @@ class TestBookRateBudget:
                 },
             )
             assert start.status_code == 201, start.text
-            final = wait_for_book(client, start.json()["book_id"], seconds=10)
+            final = wait_for_book(client, start.json()["book_id"], seconds=60)
             assert final["status"] == "complete", final
             assert [page["status"] for page in final["pages"]] == ["done"] * (PAGE_COUNT + 1)
 

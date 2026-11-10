@@ -493,11 +493,24 @@ class TestReviews:
                 book_id, 1, review=VERDICT, attempt_count=1, chosen_attempt=2
             )
 
-    def test_a_book_from_before_templates_still_completes_without_reviews(
+    def test_a_book_without_plates_cannot_complete_unreviewed_either(
         self, engine: Engine, templates: TemplateStore, books: DatabaseBookStore
     ) -> None:
-        # No plates are approved, so the book is pinned to words, not a version.
+        """Every picture is reviewed now, plated or composed from scratch."""
+        book_id = new_book(engine, books, "composed")
+        books.save_page(book_id, 1, b"art")
+        with pytest.raises(UnreviewedImages):
+            books.save_status(book_id, BookStatus.COMPLETE, [])
+
+    def test_a_book_from_before_every_picture_was_reviewed_still_completes(
+        self, engine: Engine, templates: TemplateStore, books: DatabaseBookStore
+    ) -> None:
+        """Nothing looked at an old book's pictures; asking would block its edits."""
         book_id = new_book(engine, books, "legacy")
+        with engine.begin() as conn:
+            conn.execute(
+                update(BookRow).where(BookRow.id == book_id).values(review_required=False)
+            )
         books.save_page(book_id, 1, b"old art")
         books.save_status(book_id, BookStatus.COMPLETE, [])
         assert unreviewed_images(engine) == []

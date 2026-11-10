@@ -80,8 +80,8 @@
       <div class="modal-head"><h2 id="redraw-title">Redraw <span id="redraw-page-label">this page</span></h2><button type="submit" value="cancel" class="icon-button" aria-label="Close">✕</button></div>
       <p class="field-help">Tick what went wrong. Every tick is a tested instruction; the rest of the book stays as it is.</p>
       <div class="chips" id="redraw-chips">
-        {% for reason in rejection_reasons %}
-        <label class="chip"><input type="checkbox" name="reason" value="{{ reason.value }}"><span>{{ reason.label }}</span></label>
+        {% for fault in page_faults %}
+        <label class="chip"><input type="checkbox" name="reason" value="{{ fault.value }}"><span>{{ fault.label }}</span></label>
         {% endfor %}
       </div>
       <div class="modal-actions"><button type="submit" value="cancel" class="button">Cancel</button><button type="submit" value="save" class="button primary">Redraw it</button></div>

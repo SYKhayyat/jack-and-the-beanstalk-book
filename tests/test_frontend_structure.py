@@ -21,7 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 from markupsafe import escape
 
-from app.models import CartoonSettings, RejectionReason
+from app.models import CartoonSettings, PageFault, RejectionReason
 from app.stories import NOT_READY, shelf
 from tests.helpers import jack, make_photo_bytes, multipart
 
@@ -85,7 +85,7 @@ def _book(client: TestClient, **fields: object) -> str:
 
 
 def _wait(client: TestClient, book_id: str) -> dict[str, object]:
-    deadline = time.monotonic() + 20
+    deadline = time.monotonic() + 60
     payload: dict[str, object] = {}
     while time.monotonic() < deadline:
         payload = client.get(f"/api/book/{book_id}").json()
@@ -459,7 +459,10 @@ def test_a_finished_book_offers_both_downloads_and_hides_progress(book_html: str
     assert "/sources.zip" in book_html
     assert "prompts.json" in book_html
     assert "Changes are included — the book's fee was taken once." in book_html
-    assert book_html.count('name="reason"') >= len(RejectionReason)
+    # The redraw dialog offers what can be wrong with a page, not a portrait.
+    assert book_html.count('name="reason"') == len(PageFault)
+    assert 'value="likeness"' in book_html
+    assert 'value="background_distracting"' not in book_html
 
 
 def test_a_drawing_book_shows_progress_not_downloads(client: TestClient) -> None:

@@ -51,8 +51,7 @@ from app.models import (
     AspectRatio,
     BookPage,
     CartoonSettings,
-    RejectionFeedback,
-    RejectionReason,
+    PageFault,
     StoryEdition,
 )
 from app.routes.auth import CurrentSessionDep
@@ -440,8 +439,10 @@ async def edit_book(
 
     Actions, and exactly what each one costs:
 
-    * `page` — redraw one story page. One image call. The ticked chips are the
-      same closed-set feedback vocabulary as the portrait review.
+    * `page` — redraw one story page (up to the page-attempt limit if the
+      review fails it). The ticked chips are `PageFault` names: the reviewer's
+      own vocabulary, so a parent's tick and a reviewer's finding steer the
+      redraw with the same sentences.
     * `character` — replace one face. A new portrait draft is made by
       `/api/cartoonify` first (one call); pages that cast that character are
       redrawn. `character_key="star"` replaces the child themselves and redraws
@@ -513,12 +514,11 @@ async def edit_book(
 
     if action == "page":
         page = _page_to_edit(edition, page_number)
-        corrections = {page.number: _correction_text(reason)}
         await container.book_runner.start_edit(
             book_id,
             page_numbers={page.number},
             draw_cover=False,
-            corrections=corrections,
+            requested_fixes={page.number: _page_faults(reason)},
             page_charge=charge,
         )
         return _edit_started(book_id, "page")
@@ -587,15 +587,16 @@ def _page_to_edit(edition: StoryEdition, page_number: int | None) -> BookPage:
     return page
 
 
-def _correction_text(reasons: list[str]) -> str:
-    """Validate the ticked chips and render them as page-correction text."""
+def _page_faults(reasons: list[str]) -> tuple[str, ...]:
+    """Validate the ticked chips of a page redraw into `PageFault` names.
+
+    A closed set, for the same reason the portrait's chips are: nothing the
+    visitor types can reach a prompt. An unknown value is a 422, not a skip.
+    """
     try:
-        feedback = RejectionFeedback(
-            reasons=tuple(RejectionReason(value) for value in reasons)
-        )
+        return tuple(dict.fromkeys(PageFault(value).value for value in reasons))
     except ValueError as exc:
-        raise InvalidSettings(f"Unknown rejection reason: {exc}") from exc
-    return feedback.prompt_block()
+        raise InvalidSettings(f"Unknown redraw reason: {exc}") from exc
 
 
 def _character_reference(
@@ -616,6 +617,8 @@ def _character_reference(
         portrait_media_type=draft.cartoon_media_type,
         photo=draft.photo_data,
         photo_media_type=draft.photo_media_type,
+        generation_id=draft.generation_id,
+        settings=draft.settings,
     )
 
 
@@ -796,5 +799,7 @@ def _character_references(
             portrait_media_type=draft.cartoon_media_type,
             photo=draft.photo_data,
             photo_media_type=draft.photo_media_type,
+            generation_id=draft.generation_id,
+            settings=draft.settings,
         )
     return references

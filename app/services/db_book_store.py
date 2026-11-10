@@ -472,6 +472,7 @@ class DatabaseBookStore(BookStore):
                         portrait_media_type=ref.portrait_media_type,
                         photo=ref.photo,
                         photo_media_type=ref.photo_media_type,
+                        **_character_record(ref),
                     )
                 )
 
@@ -491,6 +492,7 @@ class DatabaseBookStore(BookStore):
                     portrait_media_type=ref.portrait_media_type,
                     photo=ref.photo,
                     photo_media_type=ref.photo_media_type,
+                    **_character_record(ref),
                 )
             )
 
@@ -505,6 +507,12 @@ class DatabaseBookStore(BookStore):
                 portrait_media_type=row.portrait_media_type,
                 photo=row.photo,
                 photo_media_type=row.photo_media_type,
+                generation_id=row.generation_id or "",
+                settings=(
+                    CartoonSettings.model_validate(row.settings)
+                    if row.settings is not None
+                    else None
+                ),
             )
             for row in rows
         }
@@ -789,17 +797,18 @@ def _delete_book(conn: Connection, book_id: str) -> None:
 
 
 def _unreviewed(conn: Connection, book_id: str) -> list[int]:
-    """Images of a template-pinned book that have no review; 0 is the cover.
+    """Images of a book that have no review; 0 is the cover.
 
-    Books made before templates (no pin) are exempt: their pages predate the
-    quality loop and will never have verdicts.
+    Every book made since every picture is reviewed must have a verdict on
+    each one. Books made before that (`review_required` false) are exempt:
+    nothing looked at their pictures and nothing ever will.
     """
     book = conn.execute(
         select(
-            BookRow.template_version_id, BookRow.cover.is_not(None), BookRow.cover_review
+            BookRow.review_required, BookRow.cover.is_not(None), BookRow.cover_review
         ).where(BookRow.id == book_id)
     ).one_or_none()
-    if book is None or book[0] is None:
+    if book is None or not book[0]:
         return []
     missing: list[int] = []
     if book[1] and not book[2]:
@@ -814,19 +823,19 @@ def _unreviewed(conn: Connection, book_id: str) -> list[int]:
 
 
 def unreviewed_images(engine: Engine) -> list[tuple[str, int]]:
-    """Every (book, page) in a completed, pinned book whose image was never reviewed.
+    """Every (book, page) in a completed book whose image was never reviewed.
 
     T4.5's proof query: on a consistent database this is empty. Page 0 means
     the cover. One query per kind, so it stays cheap enough for a health check.
     """
     with engine.connect() as conn:
-        pinned_complete = (
-            BookRow.template_version_id.is_not(None),
+        must_be_reviewed = (
+            BookRow.review_required.is_(True),
             BookRow.status == BookStatus.COMPLETE,
         )
         covers = conn.execute(
             select(BookRow.id).where(
-                *pinned_complete,
+                *must_be_reviewed,
                 BookRow.cover.is_not(None),
                 BookRow.cover_review.is_(None),
             )
@@ -835,7 +844,7 @@ def unreviewed_images(engine: Engine) -> list[tuple[str, int]]:
         pages = conn.execute(
             select(BookPageRow.book_id, BookPageRow.page_number)
             .join(BookRow, BookRow.id == BookPageRow.book_id)
-            .where(*pinned_complete, BookPageRow.review.is_(None))
+            .where(*must_be_reviewed, BookPageRow.review.is_(None))
         ).all()
         found.extend((str(book_id), int(number)) for book_id, number in pages)
     return sorted(found)
@@ -850,3 +859,11 @@ def _subtitle(template: str | None, about: Mapping[str, Any] | None) -> str:
     if not template or about is None:
         return ""
     return template.format(name=AboutMe.model_validate(about).prompt_name)
+
+
+def _character_record(ref: CharacterReference) -> dict[str, Any]:
+    """The non-image half of a cast member's row: where it came from, its look."""
+    return {
+        "generation_id": ref.generation_id or None,
+        "settings": ref.settings.model_dump(mode="json") if ref.settings is not None else None,
+    }

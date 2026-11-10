@@ -12,7 +12,7 @@ import hashlib
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from time import monotonic
 
@@ -34,7 +34,7 @@ from app.logging_context import (
     set_request_id,
 )
 from app.redaction import install_secret_redaction
-from app.routes import admin, api, auth, book, book_media, media, wallet, web
+from app.routes import admin, admin_status, api, auth, book, book_media, media, wallet, web
 from app.routes.auth import install_auth_gate
 from app.services.google_oauth import GoogleOAuthClient
 from app.services.image_providers.base import ImageProvider
@@ -134,6 +134,10 @@ def expire_once(container: Container) -> tuple[int, int]:
     )
     books = container.book_store.expire(
         older_than_seconds=container.settings.book_retention_days * 24 * 3600
+    )
+    # The studio's history is kept as long as the books it led to, no longer.
+    container.portraits.expire(
+        older_than=timedelta(days=container.settings.book_retention_days)
     )
     if drafts or books:
         logger.info("storage.expired drafts=%d books=%d", drafts, books)
@@ -276,6 +280,7 @@ def create_app(
     # of the visitor-facing app, and every route in it 404s for anybody who is
     # not the configured operator.
     app.include_router(admin.router)
+    app.include_router(admin_status.router)
     # The book face the PDF already bundles, served to the pages too. Mounted
     # under /static so the login page (which is pre-session) can load it.
     app.mount("/static/fonts", RevalidatedStaticFiles(directory=FONTS_DIR), name="fonts")

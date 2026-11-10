@@ -51,7 +51,7 @@ from app.services.book_store import (
 )
 from app.services.concurrency import ConcurrencyGate, GateTimeout, Slot
 from app.services.costs import cost_scope
-from app.services.image_providers.base import ImageProvider, ImageRequest
+from app.services.image_providers.base import GeneratedImage, ImageProvider, ImageRequest
 from app.services.image_review import review_image
 from app.services.media import media_type_for
 from app.services.pdf import PageArt
@@ -181,6 +181,16 @@ class BookRunner:
         self._tasks: set[asyncio.Task[None]] = set()
         self._active: dict[str, asyncio.Task[None]] = {}
 
+    @property
+    def reviewer_name(self) -> str:
+        """Which tier-2 reviewer judges pictures; "off" when none does."""
+        return self._reviewer.name
+
+    @property
+    def page_attempts(self) -> int:
+        """How many times one picture may be drawn before the best is kept."""
+        return self._page_attempts
+
     async def start(
         self,
         record: BookRecord,
@@ -214,7 +224,7 @@ class BookRunner:
                 page_numbers=None,
                 draw_cover=True,
                 only_missing=False,
-                corrections={},
+                requested_fixes={},
             ),
         )
 
@@ -225,7 +235,7 @@ class BookRunner:
         page_numbers: set[int] | None,
         draw_cover: bool,
         only_missing: bool = False,
-        corrections: Mapping[int, str] | None = None,
+        requested_fixes: Mapping[int, Sequence[str]] | None = None,
         page_charge: Callable[[], bool] | None = None,
     ) -> None:
         """Mark the edit as rendering, then schedule it; returns before any call.
@@ -241,7 +251,10 @@ class BookRunner:
         putting an assembling book back into the pages phase.
 
         `page_numbers=None` means every story page. `only_missing` leaves pages
-        that already finished untouched (the retry path).
+        that already finished untouched (the retry path). `requested_fixes`
+        maps a page to what its owner said was wrong with it — `PageFault`
+        names, the same vocabulary the reviewer uses — and steers every attempt
+        at that page, the first one included.
         """
         self._ensure_idle(book_id)
         started = asyncio.Event()
@@ -256,7 +269,7 @@ class BookRunner:
                 page_numbers=page_numbers,
                 draw_cover=draw_cover,
                 only_missing=only_missing,
-                corrections=corrections or {},
+                requested_fixes=requested_fixes or {},
             )
 
         task = self._schedule(book_id, job)
@@ -386,7 +399,7 @@ class BookRunner:
         page_numbers: set[int] | None,
         draw_cover: bool,
         only_missing: bool,
-        corrections: Mapping[int, str],
+        requested_fixes: Mapping[int, Sequence[str]],
     ) -> None:
         record = await asyncio.to_thread(self._book_store.load_record, book_id)
         if record is None:
@@ -487,8 +500,13 @@ class BookRunner:
                 page_photos = [name for name in page.cast if name in artwork.characters]
                 plate = artwork.plates.get(page.number)
 
-                def prompt_for(faults: Sequence[str]) -> str:
-                    """The prompt for one attempt, aimed at last attempt's faults."""
+                def prompt_for(faults: Sequence[str], findings: str) -> str:
+                    """The prompt for one attempt, aimed at what is known to be wrong.
+
+                    `faults` is the owner's request (on a redraw) plus whatever
+                    the review found in the previous attempt; `findings` is the
+                    reviewer's own description of that attempt.
+                    """
                     if plate is not None:
                         # The edit pass (T8): the approved plate is the world and
                         # the first reference, the cast is painted into its slots.
@@ -498,13 +516,9 @@ class BookRunner:
                             story=edition,
                             prompt_name=prompt_name,
                             retry_faults=faults,
+                            retry_findings=findings,
                         )
-                    # No pinned plate: compose the page from scratch, as before.
-                    correction = corrections.get(page.number, "")
-                    if faults:
-                        correction = "; ".join(
-                            filter(None, (correction, correction_for(faults)))
-                        )
+                    # No pinned plate: compose the page from scratch.
                     return build_book_page_prompt(
                         page,
                         artwork.settings,
@@ -512,7 +526,7 @@ class BookRunner:
                         prompt_name=prompt_name,
                         supplied_characters=tuple(artwork.characters),
                         character_photos=page_photos,
-                        correction=correction,
+                        correction=correction_for(faults, findings),
                     )
 
                 if plate is not None:
@@ -520,7 +534,7 @@ class BookRunner:
                 else:
                     references, media_types = _references(artwork, page)
 
-                async def draw(prompt: str) -> bytes:
+                async def draw(prompt: str) -> GeneratedImage:
                     # Charged per attempt, which is what an attempt costs. The
                     # charge happens before the call, so a retry cannot slip past
                     # a balance that has run out.
@@ -548,6 +562,7 @@ class BookRunner:
                     draw=draw,
                     prompt_for=prompt_for,
                     on_stage=lambda name, attempt: set_stage(name, page.number, attempt),
+                    requested=tuple(requested_fixes.get(page.number, ())),
                 )
                 await asyncio.to_thread(
                     self._book_store.save_page, book_id, page.number, attempts.image
@@ -707,7 +722,7 @@ class BookRunner:
         async def on_stage(name: str, attempt: int) -> None:
             await set_stage(name, COVER_NUMBER, attempt)
 
-        def prompt_for(faults: Sequence[str]) -> str:
+        def prompt_for(faults: Sequence[str], findings: str) -> str:
             if plate is not None:
                 return build_plate_edit_prompt(
                     edition.cover,
@@ -716,9 +731,13 @@ class BookRunner:
                     prompt_name=record.about.prompt_name,
                     cover=True,
                     retry_faults=faults,
+                    retry_findings=findings,
                 )
             return build_cover_prompt(
-                artwork.settings, story=edition, prompt_name=record.about.prompt_name
+                artwork.settings,
+                story=edition,
+                prompt_name=record.about.prompt_name,
+                correction=correction_for(faults, findings),
             )
 
         if plate is not None:
@@ -727,7 +746,7 @@ class BookRunner:
             references = [artwork.portrait, artwork.photo]
             media_types = [artwork.portrait_media_type, artwork.photo_media_type]
 
-        async def draw(prompt: str) -> bytes:
+        async def draw(prompt: str) -> GeneratedImage:
             await _await_page_charge(page_charge)
             await mark(COVER_NUMBER, "making")
             return await self._on_worker_thread_with_slot(
@@ -774,16 +793,14 @@ class BookRunner:
         should not be paid to notice: a blank frame, the wrong shape, the plate
         handed straight back. Only an image that survives it is shown to tier 2.
 
+        Every picture is judged, drawn onto a plate or composed from scratch:
+        the plate only adds tier 1's two edit checks. A composed page is where
+        a weak model goes most wrong, so it is the last one to wave through.
+
         A tier-2 failure is *recorded*, not raised: a reviewer outage must never
         cost a parent a finished book (T10.2). The verdict then says tier 1 only
         ran for this image, so nothing downstream mistakes it for a review.
         """
-        if not artwork.plates and plate is None:
-            # A book with no pinned template version predates the quality loop
-            # and is exempt: writing a verdict where nothing asks for one would
-            # be pretending a review happened.
-            return Verdict(attempt=attempt, passed=True, score=100, tiers_run=())
-
         tier1 = review_image(
             image,
             plate_bytes=plate.image if plate is not None else None,
@@ -837,7 +854,9 @@ class BookRunner:
                 tier2_failed=True,
             )
 
-        passed = answer.passed and answer.score >= PASS_SCORE
+        # Any named fault fails the picture, whatever the model's own verdict or
+        # score: "passed, but there is lettering in the sky" is not a pass.
+        passed = answer.passed and answer.score >= PASS_SCORE and not answer.faults
         # The two tiers' scores answer different questions, so the combined
         # score is the stricter one: a page is only as good as its worst check.
         score = min(answer.score, tier1.score)
@@ -874,16 +893,18 @@ class BookRunner:
         cast_note: str,
         plate: PlateArt | None,
         artwork: _Artwork,
-        draw: Callable[[str], Awaitable[bytes]],
-        prompt_for: Callable[[Sequence[str]], str],
+        draw: Callable[[str], Awaitable[GeneratedImage]],
+        prompt_for: Callable[[Sequence[str], str], str],
         on_stage: Callable[[str, int], Awaitable[None]] | None = None,
+        requested: Sequence[str] = (),
     ) -> _Attempts:
         """Draw one page up to `MAX_PAGE_ATTEMPTS` times and keep the best (T9.3).
 
         The loop is bounded and it stops the moment a review passes: a retry is
         a billable call, and "good enough" is the whole point. A retry carries
-        the faults the reviewer named, so the second attempt is aimed at what was
-        wrong rather than being the same prompt with the dice rolled again.
+        the faults the reviewer named and its own description of what it saw and
+        where, so the second attempt is aimed at what was wrong rather than
+        being the same prompt with the dice rolled again.
 
         Args:
             draw: One billable attempt, given the prompt to send. The prompt is
@@ -891,6 +912,10 @@ class BookRunner:
             on_stage: Told "painting" or "reviewing" and which attempt it is, so
                 the reader's progress says what is happening (T12). Optional:
                 a caller with nowhere to report to passes nothing.
+            requested: What the book's owner said was wrong when they asked
+                for this redraw (`PageFault` names). Every attempt carries it,
+                and each attempt's record keeps it, so the operator can see
+                what was asked for next to what the reviewer found.
 
         Returns:
             The chosen image, the prompt that produced it, every attempt's prompt
@@ -903,9 +928,11 @@ class BookRunner:
         best_image = b""
         best_prompt = ""
         chosen = 1
-        faults: tuple[str, ...] = ()
+        asked = tuple(dict.fromkeys(requested))
+        faults: tuple[str, ...] = asked
+        findings = ""
         for attempt in range(1, self._page_attempts + 1):
-            prompt = prompt_for(faults)
+            prompt = prompt_for(faults, findings)
             if on_stage is not None:
                 await on_stage(_STAGE_RETRYING if attempt > 1 else _STAGE_PAINTING, attempt)
             # Both billable calls of this attempt — the picture and its review —
@@ -913,7 +940,8 @@ class BookRunner:
             with cost_scope(
                 purpose="book", book_id=book_id, page_number=page_number, attempt=attempt
             ):
-                image = await draw(prompt)
+                drawn = await draw(prompt)
+                image = drawn.data
                 if on_stage is not None:
                     await on_stage(_STAGE_REVIEWING, attempt)
                 verdict = await self._judge(
@@ -928,7 +956,17 @@ class BookRunner:
                     attempt=attempt,
                     user=user,
                 )
-            verdicts.append(verdict.as_dict())
+            verdicts.append(
+                {
+                    **verdict.as_dict(),
+                    # Which backend drew this attempt: books outlive a provider
+                    # switch, and "was this page an Agnes page" must be
+                    # answerable from the page itself.
+                    "provider": self._provider.name,
+                    "model": drawn.model,
+                    **({"requested": list(asked)} if asked else {}),
+                }
+            )
             prompts.append(prompt)
             # Rank on the verdict, never on the attempt number: the earliest
             # attempt wins a tie, so a passing first try is never replaced by an
@@ -939,12 +977,16 @@ class BookRunner:
                 best_image, best_prompt, chosen = image, prompt, attempt
             if verdict.passed:
                 break
-            faults = verdict.faults
+            faults = tuple(dict.fromkeys((*verdict.faults, *asked)))
+            # The reviewer's own words go to the artist with the fault names:
+            # "extra_person" says what kind of thing is wrong, "a second girl in
+            # a red cloak at the far right" says which one to remove.
+            findings = verdict.note if 2 in verdict.tiers_run else ""
 
         best_effort = not any(verdict["passed"] for verdict in verdicts)
         if best_effort:
             logger.warning(
-                "book.page user=%s book=%s page=%d attempts=%d outcome=best_effort faults=%s",
+                "book.best_effort user=%s book=%s page=%d attempts=%d faults=%s",
                 user,
                 book_id,
                 page_number,
@@ -1002,11 +1044,6 @@ class BookRunner:
         refuses to call such a page approved, so a book that needs a human's eye
         says so instead of hiding it.
         """
-        if all(not verdict["tiers_run"] for verdict in verdicts):
-            # Nothing looked at this picture: the book predates the quality loop
-            # and is exempt. The store only demands verdicts from pinned books,
-            # and writing one where nothing asks would pretend a review happened.
-            return
         rows = [dict(verdict) for verdict in verdicts]
         if page_number == COVER_NUMBER:
             await asyncio.to_thread(
@@ -1057,10 +1094,10 @@ class BookRunner:
         prompt: str,
         settings: CartoonSettings,
         label: str,
-    ) -> Callable[[], bytes]:
+    ) -> Callable[[], GeneratedImage]:
         """The blocking half of one render (not yet on a thread)."""
 
-        def work() -> bytes:
+        def work() -> GeneratedImage:
             return self._provider.generate(
                 ImageRequest(
                     prompt=prompt,
@@ -1070,7 +1107,7 @@ class BookRunner:
                     aspect_ratio=str(settings.aspect_ratio),
                     label=label,
                 )
-            ).data
+            )
 
         return work
 

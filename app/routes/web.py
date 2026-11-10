@@ -35,7 +35,7 @@ from app.models import (
     SkinTone,
 )
 from app.models.book import AboutPhotoChoice, BookPage
-from app.models.feedback import REJECTION_LABELS, RejectionReason
+from app.models.feedback import PAGE_FAULT_LABELS, REJECTION_LABELS, PageFault, RejectionReason
 from app.models.labels import choices_for, intensity_label
 from app.models.story import COVER_NUMBER, StoryEdition
 from app.routes.auth import CurrentSessionDep
@@ -196,7 +196,7 @@ def book_page(
             "pdf_url": f"/book-media/{book_id}/pdf" if state == BookStatus.COMPLETE else None,
             "sources_url": f"/book-media/{book_id}/sources.zip",
             "characters": [(member.key, member.label) for member in edition.photoable_cast],
-            "rejection_reasons": _rejection_reasons(),
+            "page_faults": _page_faults(),
             "about_photo_choices": _ABOUT_PHOTO_LABELS,
             "max_upload_mb": container.settings.max_upload_mb,
             "max_attempts": container.settings.page_attempts,
@@ -277,6 +277,11 @@ def _rejection_reasons() -> list[dict[str, str]]:
         {"value": reason.value, "label": REJECTION_LABELS[reason]}
         for reason in RejectionReason
     ]
+
+
+def _page_faults() -> list[dict[str, str]]:
+    """The chips of a page redraw: what can be wrong with a finished page."""
+    return [{"value": fault.value, "label": PAGE_FAULT_LABELS[fault]} for fault in PageFault]
 
 
 def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:

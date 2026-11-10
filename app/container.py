@@ -32,6 +32,7 @@ from app.services.image_providers.base import ImageProvider
 from app.services.image_providers.registry import build_provider
 from app.services.payments import PaymentProvider, StripePaymentProvider
 from app.services.pipeline import GenerationPipeline
+from app.services.portrait_log import PortraitLog
 from app.services.rate_limit import GenerationRateLimiter
 from app.services.reviewer import ImageReviewer, build_reviewer
 from app.services.storage import GenerationStore
@@ -75,6 +76,8 @@ class Container:
     #: Every billable model call, priced and tagged with its book (the cost
     #: panel's source). `provider` and the runner's reviewer write to it.
     costs: CostLedger
+    #: Every portrait shown in the studio and every take picked (operator only).
+    portraits: PortraitLog
     # Bounds concurrent generations per process. Image models are slow and
     # rate-limited, so without a ceiling a burst of traffic becomes a burst of
     # billable requests and 429s.
@@ -177,6 +180,7 @@ def build_container(
         wallet=wallet,
         payments=resolved_payments,
         costs=costs,
+        portraits=PortraitLog(engine),
         gate=gate,
         rate_limiter=GenerationRateLimiter(settings.max_generations_per_minute),
     )
