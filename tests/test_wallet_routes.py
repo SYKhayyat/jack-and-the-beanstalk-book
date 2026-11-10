@@ -257,6 +257,29 @@ def test_an_external_return_path_is_discarded(browser) -> None:
     assert returned.headers["location"] == "/wallet?message=funded"
 
 
+@pytest.mark.parametrize(
+    "next_path",
+    ["/%2F%2Fevil.example/x", "/%5Cevil.example", "/\\evil.example"],
+)
+def test_a_smuggled_external_return_path_is_discarded(browser, next_path: str) -> None:
+    """A browser may decode an escape into a separator; the app must not."""
+    client, stripe = browser
+    client.post(
+        "/wallet/topup",
+        data={"amount_cents": 500, "next": next_path},
+        follow_redirects=False,
+    )
+    checkout = stripe.checkouts[-1]
+    assert "next=%2Fwallet" in str(checkout["success_url"])
+
+    returned = client.get(
+        "/wallet/return",
+        params={"session_id": paid_session(stripe, 500), "next": next_path},
+        follow_redirects=False,
+    )
+    assert returned.headers["location"] == "/wallet?message=funded"
+
+
 def test_the_ledger_filters_by_type_and_book(browser) -> None:
     client, _ = browser
     wallet = client.app.state.container.wallet  # type: ignore[attr-defined]
@@ -467,6 +490,10 @@ def test_the_operator_processes_a_refund_once(settings, provider, stripe) -> Non
         admin = client.get("/admin/status").text
         assert "Refund requests" in admin
         assert "Waiting to be sent" in admin
+        # The queue names the person, not their internal sign-in id.
+        queue = admin.split('id="refunds"', 1)[1].split("</section>", 1)[0]
+        assert "Shai" in queue
+        assert SUB not in queue
         refund_id = client.app.state.container.wallet.refund_requests(SUB)[0].id  # type: ignore[attr-defined]
 
         done = client.post(f"/admin/refunds/{refund_id}/process", follow_redirects=False)
