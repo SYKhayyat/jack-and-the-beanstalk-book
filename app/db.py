@@ -204,6 +204,8 @@ class StoryRow(Base):
     title: Mapped[str] = mapped_column(String(255))
     blurb: Mapped[str] = mapped_column(Text)
     book_title: Mapped[str] = mapped_column(String(255))
+    #: A small line under the cover title ("starring {name}"); "" for none.
+    cover_subtitle: Mapped[str] = mapped_column(String(255), default="", server_default="")
     #: The cast key the uploaded child plays; on every page whether listed or not.
     star: Mapped[str] = mapped_column(String(64))
     available: Mapped[bool] = mapped_column(Boolean, default=True)

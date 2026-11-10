@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 from markupsafe import escape
 
 from app.models import CartoonSettings, RejectionReason
-from app.stories import NOT_READY
+from app.stories import NOT_READY, shelf
 from tests.helpers import jack, make_photo_bytes, multipart
 
 JACK = jack()
@@ -214,8 +214,7 @@ def test_each_screen_loads_its_module_and_has_every_id_it_reads(
 
 
 def test_the_shelf_offers_both_stories(shelf_html: str) -> None:
-    assert "Make a picture book starring someone you love." in shelf_html
-    assert "One photo. Twenty-one pictures. A story they keep." in shelf_html
+    assert "Which adventure is it today?" in shelf_html
     assert f'href="{STUDIO}"' in shelf_html
     red = re.search(
         r'<article[^>]*data-story="little_red_riding_hood".*?</article>', shelf_html, re.S
@@ -224,7 +223,9 @@ def test_the_shelf_offers_both_stories(shelf_html: str) -> None:
     assert 'href="/stories/little_red_riding_hood/studio"' in red.group(0)
     assert "Start this book" in red.group(0)
     assert "Coming soon" not in red.group(0)
-    assert "Their face goes where the circle is." in shelf_html
+    # Without a book of their own, a card cycles through finished sample covers.
+    assert 'src="/static/covers/little_red_riding_hood/' in red.group(0)
+    assert "starring " in red.group(0)
 
 
 def test_a_story_held_by_the_start_gate_says_so_and_has_no_way_in(
@@ -258,11 +259,22 @@ def test_reds_studio_offers_her_own_cast_and_no_outfit(client: TestClient) -> No
     assert 'name="outfit"' in client.get(STUDIO).text
 
 
-def test_the_covers_are_served(client: TestClient) -> None:
-    for key in ("jack_and_the_beanstalk", "little_red_riding_hood"):
-        response = client.get(f"/static/covers/{key}.svg")
-        assert response.status_code == 200
-        assert "<svg" in response.text
+def test_every_story_has_finished_sample_covers_that_are_served(client: TestClient) -> None:
+    for story in shelf(client.app.state.container.templates):
+        assert len(story.samples) >= 2, story.key
+        for sample in story.samples:
+            response = client.get(sample.url)
+            assert response.status_code == 200, sample.url
+            assert response.headers["content-type"] == "image/jpeg"
+            assert sample.name in sample.title + sample.byline
+
+
+def test_a_sample_cover_is_titled_as_its_book_would_be(client: TestClient) -> None:
+    by_key = {story.key: story for story in shelf(client.app.state.container.templates)}
+    jack = next(s for s in by_key["jack_and_the_beanstalk"].samples if s.name == "Leo")
+    assert (jack.title, jack.byline) == ("Leo and the Beanstalk", "A story for Leo")
+    red = next(s for s in by_key["little_red_riding_hood"].samples if s.name == "Ava")
+    assert (red.title, red.byline) == ("Little Red Riding Hood", "starring Ava")
 
 
 def test_an_unknown_story_has_no_studio(client: TestClient) -> None:

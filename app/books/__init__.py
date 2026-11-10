@@ -139,7 +139,7 @@ class StorySeed:
     key: str
     title: str
     blurb: str
-    #: The cover's title, with `{name}` where the star's name goes.
+    #: The cover's title; `{name}` marks where the star's name goes, if anywhere.
     book_title: str
     star: str
     available: bool
@@ -150,6 +150,8 @@ class StorySeed:
     #: The character bible, in the order the studio offers its slots.
     cast: Mapping[str, SeedCharacter]
     pages: tuple[SeedPage, ...]
+    #: A small line under the cover title ("starring {name}"); "" for none.
+    cover_subtitle: str = ""
 
     @property
     def page_keys(self) -> tuple[str, ...]:
@@ -190,8 +192,11 @@ def seed_from_mapping(data: Mapping[str, Any], source: str = "<seed>") -> StoryS
     star = _text(story, "star", source)
     cast = _cast(data, star, source)
     book_title = _text(story, "book_title", source)
-    if "{name}" not in book_title:
-        raise SeedError(f"{source}: book_title must say where the star's {{name}} goes")
+    cover_subtitle = str(story.get("cover_subtitle") or "").strip()
+    if "{name}" not in book_title + cover_subtitle:
+        raise SeedError(
+            f"{source}: book_title or cover_subtitle must say where the star's {{name}} goes"
+        )
     names = _names(story, source)
 
     cover_table = _table(data, "cover", source)
@@ -256,6 +261,7 @@ def seed_from_mapping(data: Mapping[str, Any], source: str = "<seed>") -> StoryS
         title_band=str(cover_table.get("title_band", "calm")),
         cast=cast,
         pages=tuple(pages),
+        cover_subtitle=cover_subtitle,
     )
 
 

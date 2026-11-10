@@ -94,7 +94,7 @@ class TestRedIsABook:
         book_id = started.json()["book_id"]
         status = _wait(client, book_id)
         assert status["status"] == "complete", status
-        assert status["title"] == "Noa and the Wolf"
+        assert status["title"] == "Little Red Riding Hood"
 
         prompts = _prompts(client, book_id)
         assert len(prompts) == 21
@@ -103,7 +103,7 @@ class TestRedIsABook:
             for jack_only in ("beanstalk", "Beanstalk", "Milky-White", "the giant"):
                 assert jack_only not in text, (entry["key"], jack_only)
         page_one = next(entry["prompt"] for entry in prompts if entry["page"] == "1")
-        assert 'the picture book "Noa and the Wolf"' in page_one
+        assert 'the picture book "Little Red Riding Hood"' in page_one
         assert "bright red hooded cloak" in page_one  # the star's costume
 
         # The grandmother's face goes only to the pages that cast her (T7.3).
@@ -118,7 +118,9 @@ class TestRedIsABook:
         text = " ".join(
             page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf.content)).pages
         )
-        assert "Noa and the Wolf" in text
+        # The tale keeps its name on the cover and names the star beneath it.
+        assert "Little Red Riding Hood" in text
+        assert "starring Noa" in text
         assert "Grandmother" in text
 
     def test_the_wolf_can_never_be_given_a_face(self, client: TestClient) -> None:

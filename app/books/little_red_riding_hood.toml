@@ -11,7 +11,9 @@
 key = "little_red_riding_hood"
 title = "Little Red Riding Hood"
 blurb = "A basket for Grandmother, a path through the wood, and a wolf."
-book_title = "{name} and the Wolf"
+book_title = "Little Red Riding Hood"
+# The tale keeps its own name on the cover; the star is named just beneath it.
+cover_subtitle = "starring {name}"
 star = "red"
 available = true
 

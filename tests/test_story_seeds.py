@@ -209,11 +209,22 @@ class TestTheValidatorRefusesBadSeeds:
         with pytest.raises(SeedError, match="only the star wears a story costume"):
             seed_from_mapping(broken)
 
-    def test_a_title_without_the_stars_name_is_refused(self) -> None:
+    def test_a_cover_that_never_names_the_star_is_refused(self) -> None:
         broken = data()
         broken["story"]["book_title"] = "Little Red Riding Hood"  # type: ignore[index]
-        with pytest.raises(SeedError, match="book_title"):
+        broken["story"].pop("cover_subtitle", None)  # type: ignore[union-attr]
+        with pytest.raises(SeedError, match="book_title or cover_subtitle"):
             seed_from_mapping(broken)
+
+    def test_a_subtitle_may_carry_the_name_instead(self) -> None:
+        fine = data()
+        fine["story"]["book_title"] = "Little Red Riding Hood"  # type: ignore[index]
+        fine["story"]["cover_subtitle"] = "starring {name}"  # type: ignore[index]
+        seed = seed_from_mapping(fine)
+        assert (seed.book_title, seed.cover_subtitle) == (
+            "Little Red Riding Hood",
+            "starring {name}",
+        )
 
     def test_compose_may_only_reword_the_framing(self) -> None:
         broken = data()

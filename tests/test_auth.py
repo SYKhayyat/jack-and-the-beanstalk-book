@@ -283,7 +283,7 @@ def test_google_login_page_offers_no_password_form(google_client: TestClient) ->
     assert response.status_code == 200
     assert "auth/google/login" in response.text
     assert 'action="/login"' not in response.text
-    assert "Continue with Google" in response.text
+    assert "Sign in with Google" in response.text
 
 
 def test_the_password_does_not_open_a_google_configured_app(

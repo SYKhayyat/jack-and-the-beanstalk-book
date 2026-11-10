@@ -44,11 +44,15 @@ class BookDocument:
         rendered_pages: Sequence[BookPage],
         progress: Mapping[int, str],
         rendered: Mapping[int, PageArt] | None = None,
+        *,
+        subtitle: str = "",
     ) -> int:
         """Build the PDF from every page on disk, then publish complete.
 
-        `rendered` carries the pages this job just drew, so a full render does
-        not re-format every page a third time just to assemble them. Pages an
+        `subtitle` is the line under the cover title ("starring Ava"), from
+        the book's edition. `rendered` carries the pages this job just drew,
+        so a full render does not re-format every page a third time just to
+        assemble them. Pages an
         edit did not touch are read back from the store.
         """
         arts: list[PageArt] = []
@@ -71,7 +75,13 @@ class BookDocument:
             else None
         )
         pdf_bytes = build_book_pdf(
-            record.title, record.about, arts, cover, portrait=portrait, photo=photo
+            record.title,
+            record.about,
+            arts,
+            cover,
+            subtitle=subtitle,
+            portrait=portrait,
+            photo=photo,
         )
         self._book_store.save_pdf(record.book_id, pdf_bytes)
         # The document exists now, so this is the moment its fee belongs to.

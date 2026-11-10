@@ -208,6 +208,7 @@ def build_book_pdf(
     pages: Sequence[PageArt],
     cover: bytes | None = None,
     *,
+    subtitle: str = "",
     portrait: bytes | None = None,
     photo: bytes | None = None,
 ) -> bytes:
@@ -237,7 +238,7 @@ def build_book_pdf(
         logger.info("pdf.text_shaping=off reason=uharfbuzz_not_importable")
 
     if cover is not None:
-        draw_cover_page(pdf, title, about, cover)
+        draw_cover_page(pdf, title, about, cover, subtitle=subtitle)
 
     for number, entry in enumerate(pages, start=1):
         _draw_page(pdf, entry, layout, number)
@@ -273,13 +274,18 @@ def book_template(
         size = max(_MIN_STORY_FONT, size - 0.5)
 
 
-def draw_cover_page(pdf: FPDF, title: str, about: AboutMe, cover: bytes) -> None:
+def draw_cover_page(
+    pdf: FPDF, title: str, about: AboutMe, cover: bytes, *, subtitle: str = ""
+) -> None:
     """The front cover: full-bleed art with a designed title lockup.
 
     The art covers the whole page (cropped at the sides when the page is
     taller than the art). The title is real PDF text, always spelled right:
     cream lettering with a soft shadow over a gentle darkening of the sky the
-    cover prompt keeps calm, and a credit line beneath it.
+    cover prompt keeps calm, and one italic line beneath it: the story's
+    subtitle ("starring Ava") when it has one, otherwise the credit ("A story
+    for Ava"). A tale whose title does not carry the star's name names them in
+    the subtitle, so the line under the title always does.
     """
     width, height = pdf.w, pdf.h
     pdf.add_page()
@@ -313,7 +319,7 @@ def draw_cover_page(pdf: FPDF, title: str, about: AboutMe, cover: bytes) -> None
         _shadowed_cell(pdf, line, top, title_size * 1.25, offset=title_size * 0.05)
         top += title_size * 1.25
 
-    credit = about.cover_credit()
+    credit = subtitle or about.cover_credit()
     credit_size = max(16.0, title_size * 0.42)
     pdf.set_font(_FAMILY, "I", credit_size)
     _shadowed_cell(pdf, credit, top + credit_size * 0.4, credit_size * 1.4, offset=1.2)

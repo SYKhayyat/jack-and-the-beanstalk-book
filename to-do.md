@@ -83,6 +83,14 @@ pass below.
 
 ## UI
 
+- [x] A landing page: what the site makes in one line, a "Sign in with
+      Google" button, a carousel of real finished covers, and three steps.
+- [x] Every story card shows real finished covers: three sample children per
+      story (made in Gemini from the cover plate), rotating, each titled the
+      way its book would be. Drop more into `app/static/covers/<story>/` named
+      after the child (`leo.jpg` is "Leo and the Beanstalk").
+- [x] Red's cover keeps the tale's name and says "starring {name}" beneath it,
+      on the site and in the PDF (`cover_subtitle` in the seed).
 - [ ] A cleaner pass over the studio, the book and the wallet, judged on the
       live site.
 

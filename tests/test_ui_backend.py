@@ -282,9 +282,10 @@ class TestSignedOutShelf:
         with _locked(tmp_path) as client:
             page = client.get("/login")
             assert page.status_code == 200
-            assert 'class="banner"' in page.text
+            assert 'class="landing-hero"' in page.text
             assert 'id="login-form"' in page.text
-            assert "/static/covers/jack_and_the_beanstalk.svg" in page.text
+            assert "/static/covers/jack_and_the_beanstalk/" in page.text
+            assert "data-carousel" in page.text
             assert "Little Red Riding Hood" in page.text
             # The covers are pictures only; the banner is the way in.
             assert "/stories/" not in page.text
@@ -306,6 +307,7 @@ class TestSignedOutShelf:
             for path in (
                 "/static/style.css",
                 "/static/fonts/Literata-Bold.ttf",
-                "/static/covers/little_red_riding_hood.svg",
+                "/static/covers/little_red_riding_hood/ava.jpg",
+                "/static/carousel.js",
             ):
                 assert client.get(path).status_code == 200, path

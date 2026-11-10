@@ -34,6 +34,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from time import monotonic
 from typing import Any, TypeVar, cast
 
@@ -366,9 +367,13 @@ class BookRunner:
         record = self._book_store.load_record(book_id)
         if record is None:
             return
-        rendered_pages = _rendered(self._templates.book_edition(book_id), record)
+        edition = self._templates.book_edition(book_id)
+        rendered_pages = _rendered(edition, record)
         self._document.assemble(
-            record, rendered_pages, self._document.stored_progress(book_id)
+            record,
+            rendered_pages,
+            self._document.stored_progress(book_id),
+            subtitle=edition.subtitle_for(record.about.prompt_name),
         )
 
     # --- the job ----------------------------------------------------------------
@@ -623,7 +628,14 @@ class BookRunner:
             phase = _PHASE_ASSEMBLING
             await paint()
             pdf_bytes = await asyncio.to_thread(
-                self._document.assemble, record, rendered_pages, progress, rendered
+                partial(
+                    self._document.assemble,
+                    record,
+                    rendered_pages,
+                    progress,
+                    rendered,
+                    subtitle=edition.subtitle_for(record.about.prompt_name),
+                )
             )
             logger.info(
                 "book.complete user=%s book=%s pages=%d pdf_bytes=%d ms=%.0f outcome=complete",

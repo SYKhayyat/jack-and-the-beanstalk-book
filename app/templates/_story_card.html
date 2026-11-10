@@ -1,5 +1,9 @@
-{# One shelf card. `card` carries story, state (fresh/drawing/finished/waiting/soon), href, cover_url.
-   `signed_out` turns the card into a picture only: the banner is the way in. #}
+{# One shelf card. `card` carries story, state (fresh/drawing/finished/waiting/soon),
+   href, and the person's own newest cover (`cover_url`, `cover_title`) when
+   they have one. Without one the card cycles through the story's finished
+   sample covers. `signed_out` makes the card a picture only: the sign-in
+   button is the way in. #}
+{% from "_cover.html" import book_cover %}
 {% set story = card.story %}
 {% set labels = {"fresh": "Start this book", "drawing": "Being drawn…", "finished": "Make another", "waiting": "Not ready yet", "soon": "Coming soon"} %}
 <article class="story-card state-{{ card.state }}" data-story="{{ story.key }}" data-state="{{ card.state }}">
@@ -8,20 +12,26 @@
   {% else %}
   <div class="story-card-link" {% if card.state in ("soon", "waiting") %}aria-disabled="true"{% endif %}>
   {% endif %}
-    <span class="cover-frame">
-      {% if card.cover_url and not signed_out %}
-      <img class="cover-art" src="{{ card.cover_url }}" alt="Your latest cover of {{ story.title }}">
-      {% else %}
-      <img class="cover-art" src="{{ story.cover_url }}" alt="Cover of {{ story.title }}, with a circle where the star's face goes">
-      {% endif %}
+    {% if card.cover_url and not signed_out %}
+    <span class="story-card-art">
+      {{ book_cover(card.cover_url, card.cover_title or story.title, alt="Your latest cover: " ~ (card.cover_title or story.title)) }}
     </span>
+    {% else %}
+    <span class="story-card-art fader" data-carousel data-interval="5200" data-offset="{{ ((loop.index0 if loop is defined else 0) * 2600) }}">
+      {% for sample in story.samples %}
+      <span class="fader-slide{% if loop.first %} is-active{% endif %}" data-slide {% if not loop.first %}aria-hidden="true"{% endif %}>
+        {{ book_cover(sample.url, sample.title, sample.byline, alt="A sample cover: " ~ sample.title ~ ", " ~ sample.byline, lazy=not loop.first) }}
+      </span>
+      {% endfor %}
+    </span>
+    {% endif %}
     <span class="story-card-body">
       <span class="story-title">{{ story.title }}</span>
       <span class="story-blurb">{{ story.blurb }}</span>
-      <span class="story-meta">21 pictures · about 5 minutes</span>
+      <span class="story-meta">20 pictures · their name on the cover</span>
       {% if card.state == "waiting" %}<span class="story-note">{{ not_ready }}</span>{% endif %}
       {% if not signed_out %}
-      <span class="button{% if card.state not in ("soon", "waiting") %} primary{% endif %} story-action" data-card-action>{{ labels[card.state] }}{% if card.state in ("fresh", "finished") %} <span aria-hidden="true">▸</span>{% endif %}</span>
+      <span class="button{% if card.state not in ("soon", "waiting") %} primary{% endif %} story-action" data-card-action>{{ labels[card.state] }}{% if card.state in ("fresh", "finished") %} <span aria-hidden="true">→</span>{% endif %}</span>
       {% elif card.state in ("soon", "waiting") %}
       <span class="button story-action" data-card-action>{{ labels[card.state] }}</span>
       {% endif %}

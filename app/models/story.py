@@ -69,10 +69,16 @@ class StoryEdition:
     #: what a book pins. Empty for an edition built straight from a seed.
     page_ids: Mapping[int, int] = field(default_factory=dict)
     character_ids: Mapping[str, int] = field(default_factory=dict)
+    #: A small line under the cover title ("starring {name}"); "" for none.
+    cover_subtitle: str = ""
 
     def title_for(self, name: str) -> str:
         """The cover title for a star called `name`."""
         return self.book_title.format(name=name)
+
+    def subtitle_for(self, name: str) -> str:
+        """The line under the cover title for a star called `name` ("" for none)."""
+        return self.cover_subtitle.format(name=name)
 
     def default_name(self, gender: PhotoGender) -> str:
         """What a blank name field becomes for this photo-gender answer."""
@@ -150,7 +156,8 @@ def edition_from_content(
 ) -> StoryEdition:
     """Assemble an edition from story, page and character column values.
 
-    `story` carries key, title, book_title, star and names; `pages` is
+    `story` carries key, title, book_title, star and names, and optionally
+    cover_subtitle; `pages` is
     (page_number, content) with the cover as page 0; `characters` is
     (cast_key, content) in bible order.
 
@@ -192,6 +199,7 @@ def edition_from_content(
         key=str(story["key"]),
         title=str(story["title"]),
         book_title=str(story["book_title"]),
+        cover_subtitle=str(story.get("cover_subtitle") or ""),
         star=star,
         names={str(k): str(v) for k, v in dict(story["names"]).items()},
         cover=cover,

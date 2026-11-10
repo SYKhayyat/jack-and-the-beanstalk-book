@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Storybook Studio{% endblock %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <meta name="description" content="Snap one photo and get a real picture book starring your kid: Jack and the Beanstalk or Little Red Riding Hood, their face on every page.">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body {% block body_attrs %}{% endblock %}>
   <a class="skip-link" href="#main">Skip to the page</a>
   <header class="site-header">
     <div class="site-header-inner">
-      <a class="wordmark" href="/"><span class="wordmark-star" aria-hidden="true">✦</span> Storybook Studio</a>
+      <a class="wordmark" href="/"><span class="wordmark-star" aria-hidden="true">✦</span> Storybook Studio<span class="wordmark-tag">picture books starring your kid</span></a>
       {% block header_title %}{% endblock %}
       <div class="header-actions">
         {% if library_enabled %}{% include "_books_drawer.html" %}{% endif %}

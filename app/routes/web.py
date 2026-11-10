@@ -297,6 +297,7 @@ def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
         "state": state,
         "href": f"/stories/{story.key}/studio" if state == "fresh" else None,
         "cover_url": None,
+        "cover_title": None,
     }
     if state != "fresh":
         return card
@@ -307,8 +308,9 @@ def _card(story: Story, books: list[BookSummary]) -> dict[str, Any]:
         card.update(state="drawing", href=f"/books/{drawing.book_id}")
     elif finished is not None:
         card["state"] = "finished"
-    newest_cover = next((book.cover_url for book in books if book.cover_url), None)
-    card["cover_url"] = newest_cover
+    newest = next((book for book in books if book.cover_url), None)
+    if newest is not None:
+        card.update(cover_url=newest.cover_url, cover_title=newest.title)
     return card
 
 

@@ -40,7 +40,7 @@ from app.services.image_providers.base import ImageProvider
 from app.services.payments import PaymentProvider
 from app.services.reviewer import ImageReviewer
 from app.sessions import SessionCodec
-from app.stories import NOT_READY, shelf
+from app.stories import NOT_READY, shelf, showcase
 
 __all__ = ["create_app"]
 
@@ -190,6 +190,7 @@ def create_app(
     # is read per render: the operator's start gate can change it at any time.
     container = app.state.container
     app.state.templates.env.globals["shelf_stories"] = lambda: shelf(container.templates)
+    app.state.templates.env.globals["showcase_covers"] = lambda: showcase(container.templates)
     app.state.templates.env.globals["not_ready"] = NOT_READY
     app.state.templates.env.globals["book_retention_days"] = resolved.book_retention_days
     app.state.templates.env.filters["short_date"] = _short_date

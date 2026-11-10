@@ -1,50 +1,113 @@
 {% extends "_layout.html" %}
-{# The signed-out shelf. `/` redirects here when there is no session, so this
-   is the one signed-out look: the site explains itself before it asks for
-   anything, and the covers (which hold no visitor data) stay visible. #}
-{% block title %}Storybook Studio — sign in{% endblock %}
+{# The landing page. `/` redirects here when there is no session, so this is
+   the one signed-out look: it says what the site makes, shows real finished
+   covers, and offers exactly one way in. #}
+{% from "_cover.html" import book_cover %}
+{% block title %}Storybook Studio — picture books starring your kid{% endblock %}
 {% block body_attrs %}data-page="signed-out"{% endblock %}
-{% block main_class %}page shelf signed-out{% endblock %}
+{% block main_class %}page landing{% endblock %}
 {% block content %}
-  <section class="banner" aria-labelledby="banner-title">
-    <h1 id="banner-title">Make a picture book starring someone you love.</h1>
-    <p>
-      You bring a photo of someone you love. We draw them into a picture book:
-      the cover, the whole story and an About page about them, all in one PDF
-      you keep.
-    </p>
+  <section class="landing-hero" aria-labelledby="landing-title">
+    <div class="landing-copy">
+      <p class="eyebrow"><span aria-hidden="true">✦</span> Personalised picture books</p>
+      <h1 id="landing-title">Once upon a time, <span class="hero-accent">your kid</span> was the hero.</h1>
+      <p class="landing-lede">
+        Snap one photo and we paint them into every page of a real picture book:
+        climbing beanstalks, outsmarting wolves, their name right there on the cover.
+        Twenty pictures, one book, theirs to keep.
+      </p>
 
-    {% if error %}
-    <p class="banner-error" role="alert">{{ error }}</p>
-    {% endif %}
+      {% if error %}
+      <p class="landing-error" role="alert">{{ error }}</p>
+      {% endif %}
 
-    {% if google_enabled %}
-    <form class="banner-form" method="get" action="/auth/google/login">
-      <p class="banner-note">Sign in with Google so your books are yours and survive a restart.</p>
-      <input type="hidden" name="next" value="{{ next_path }}">
-      <button type="submit" class="button primary google-button">Continue with Google</button>
-    </form>
-    {% endif %}
+      {% if google_enabled %}
+      <form class="landing-signin" method="get" action="/auth/google/login">
+        <input type="hidden" name="next" value="{{ next_path }}">
+        <button type="submit" class="google-button">
+          <svg class="google-g" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+          Sign in with Google
+        </button>
+        <p class="landing-fine">Your photos and books stay private to your account.</p>
+      </form>
+      {% endif %}
 
-    {% if password_enabled %}
-    <form id="login-form" class="banner-form" method="post" action="/login">
-      <p class="banner-note">This studio is private for now. Enter the password to come in.</p>
-      <div class="password-row">
-        <label class="visually-hidden" for="password">Password</label>
-        <input type="password" id="password" name="password" autocomplete="current-password"
-               placeholder="Password" autofocus required>
-        <input type="hidden" name="next_path" value="{{ next_path }}">
-        <button type="submit" class="button primary">Enter</button>
+      {% if password_enabled %}
+      <form id="login-form" class="landing-signin" method="post" action="/login">
+        <p class="landing-fine">This studio is private for now. Enter the password to come in.</p>
+        <div class="password-row">
+          <label class="visually-hidden" for="password">Password</label>
+          <input type="password" id="password" name="password" autocomplete="current-password"
+                 placeholder="Password" autofocus required>
+          <input type="hidden" name="next_path" value="{{ next_path }}">
+          <button type="submit" class="button primary">Come in</button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+
+    {% set covers = showcase_covers() %}
+    {% if covers %}
+    <div class="showcase" data-carousel data-interval="4200" role="region" aria-roledescription="carousel" aria-label="Sample books">
+      <div class="showcase-deck">
+        {% for story, sample in covers %}
+        <div class="showcase-slide{% if loop.first %} is-active{% elif loop.index == 2 %} is-next{% endif %}" data-slide
+             role="group" aria-roledescription="slide" aria-label="{{ loop.index }} of {{ covers|length }}"
+             {% if not loop.first %}aria-hidden="true"{% endif %}>
+          {{ book_cover(sample.url, sample.title, sample.byline, alt="A sample cover: " ~ sample.title ~ ", " ~ sample.byline, lazy=loop.index > 2) }}
+        </div>
+        {% endfor %}
       </div>
-    </form>
+      {% if covers|length > 1 %}
+      <div class="showcase-controls">
+        <button type="button" class="round-button" data-carousel-prev aria-label="Previous book">←</button>
+        <div class="showcase-dots" data-carousel-dots>
+          {% for story, sample in covers %}
+          <button type="button" class="dot-button{% if loop.first %} is-active{% endif %}" data-carousel-dot="{{ loop.index0 }}" aria-label="Show {{ sample.name }}'s book"></button>
+          {% endfor %}
+        </div>
+        <button type="button" class="round-button" data-carousel-next aria-label="Next book">→</button>
+      </div>
+      {% endif %}
+    </div>
     {% endif %}
   </section>
 
-  <section class="shelf-cards" aria-label="The books">
-    {% set signed_out = true %}
-    {% for story in shelf_stories() %}
-      {% set card = {"story": story, "state": "fresh" if story.can_start else ("waiting" if story.available else "soon"), "href": none, "cover_url": none} %}
-      {% include "_story_card.html" %}
-    {% endfor %}
+  <section class="how" aria-labelledby="how-title">
+    <h2 id="how-title" class="visually-hidden">How it works</h2>
+    <ol class="how-steps">
+      <li>
+        <span class="how-num" aria-hidden="true">1</span>
+        <strong>Snap a photo</strong>
+        <span>A bright, face-on photo. We turn it into a storybook portrait first, so you see the look before anything else is drawn.</span>
+      </li>
+      <li>
+        <span class="how-num" aria-hidden="true">2</span>
+        <strong>Pick a tale</strong>
+        <span>The beanstalk or the big bad wolf. Add Mum or Grandma too if you like.</span>
+      </li>
+      <li>
+        <span class="how-num" aria-hidden="true">3</span>
+        <strong>Watch it come alive</strong>
+        <span>The pictures appear one by one, then the finished book is yours to download and print.</span>
+      </li>
+    </ol>
+  </section>
+
+  <section class="landing-tales" aria-labelledby="tales-title">
+    <h2 id="tales-title">The stories</h2>
+    <div class="shelf-cards">
+      {% set signed_out = true %}
+      {% for story in shelf_stories() %}
+        {% set card = {"story": story, "state": "fresh" if story.can_start else ("waiting" if story.available else "soon"), "href": none, "cover_url": none} %}
+        {% include "_story_card.html" %}
+      {% endfor %}
+    </div>
   </section>
 {% endblock %}
+{% block scripts %}<script type="module" src="/static/carousel.js"></script>{% endblock %}

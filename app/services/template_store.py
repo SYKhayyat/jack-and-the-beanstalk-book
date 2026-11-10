@@ -271,6 +271,10 @@ class StoryState:
     key: str
     title: str
     blurb: str
+    #: The finished book's title, with ``{name}`` where the star's name goes.
+    book_title: str
+    #: The line under the cover title ("starring {name}"); "" for none.
+    cover_subtitle: str
     available: bool
     #: The operator's start gate (T6.5).
     requires_template: bool
@@ -343,6 +347,7 @@ class TemplateStore:
             "title": seed.title,
             "blurb": seed.blurb,
             "book_title": seed.book_title,
+            "cover_subtitle": seed.cover_subtitle,
             "star": seed.star,
             "available": seed.available,
             "names": dict(seed.names),
@@ -920,6 +925,8 @@ class TemplateStore:
                         key=row.key,
                         title=row.title,
                         blurb=row.blurb,
+                        book_title=row.book_title,
+                        cover_subtitle=row.cover_subtitle or "",
                         available=row.available,
                         requires_template=row.requires_template,
                         version_number=int(number) if number is not None else None,
@@ -1153,6 +1160,7 @@ def seed_edition(seed: StorySeed) -> StoryEdition:
             "key": seed.key,
             "title": seed.title,
             "book_title": seed.book_title,
+            "cover_subtitle": seed.cover_subtitle,
             "star": seed.star,
             "names": seed.names,
         },
@@ -1234,6 +1242,7 @@ def _edition(
             "key": story.key,
             "title": story.title,
             "book_title": story.book_title,
+            "cover_subtitle": story.cover_subtitle or "",
             "star": story.star,
             "names": story.names or {},
         },

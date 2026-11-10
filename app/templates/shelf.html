@@ -1,11 +1,12 @@
 {% extends "_layout.html" %}
-{% block title %}Storybook Studio — make a picture book{% endblock %}
+{% block title %}Storybook Studio — pick an adventure{% endblock %}
 {% block body_attrs %}data-page="shelf"{% endblock %}
 {% block main_class %}page shelf{% endblock %}
 {% block content %}
   <section class="shelf-hero">
-    <h1>Make a picture book starring someone you love.</h1>
-    <p class="shelf-sub">One photo. Twenty-one pictures. A story they keep.</p>
+    <p class="eyebrow">{% if user_name %}Hello, {{ user_name.split()[0] }}{% else %}Welcome back{% endif %}</p>
+    <h1>Which adventure is it today?</h1>
+    <p class="shelf-sub">Pick a tale. Your star climbs, sneaks, runs and wins on every page, and the book ends with a page all about them.</p>
   </section>
 
   <section class="shelf-cards" aria-label="Books you can make">
@@ -13,6 +14,5 @@
       {% include "_story_card.html" %}
     {% endfor %}
   </section>
-  <p class="face-hint hidden" id="face-hint"><span class="hint-ring" aria-hidden="true"></span> Their face goes where the circle is. <button type="button" class="link-button" id="face-hint-dismiss">Got it</button></p>
 {% endblock %}
-{% block scripts %}<script type="module" src="/static/shelf.js"></script>{% endblock %}
+{% block scripts %}<script type="module" src="/static/shelf.js"></script><script type="module" src="/static/carousel.js"></script>{% endblock %}
