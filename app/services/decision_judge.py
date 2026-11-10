@@ -13,8 +13,9 @@ is only asked when it has something to add:
   words steer the redraw ("a second girl in a red cloak at the far right").
   A confident *rejection* does not overrule it: on real pages the decision
   model rejected two pictures the reviewer rightly called perfect.
-* **The reviewer is down** — the decision decides alone: a confident
-  rejection fails, an unsure picture is judged at the halfway line.
+* **The reviewer is down, or resting** (its free daily quota used up, until
+  the quota resets) — the decision decides alone: a confident rejection
+  fails, an unsure picture is judged at the halfway line.
 
 "Accept when confident, escalate when unsure" is the policy the JEV-as-a-Judge
 paper measures (arXiv 2609.26550). The thresholds below were set on real

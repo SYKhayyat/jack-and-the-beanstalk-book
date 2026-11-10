@@ -34,6 +34,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import partial
 from time import monotonic
 from typing import Any, TypeVar, cast
@@ -68,6 +69,7 @@ from app.services.prompts import (
 from app.services.reviewer import (
     ImageReviewer,
     ReviewAnswer,
+    ReviewerQuotaSpent,
     UnavailableReviewer,
     Verdict,
     verdict_passes,
@@ -167,6 +169,9 @@ class BookRunner:
         # (tests that predate the loop); the stand-in is used instead so every
         # verdict is stamped `tiers_run: [1]` rather than claiming a review.
         self._reviewer: ImageReviewer = reviewer or UnavailableReviewer()
+        # Set when the reviewer said its daily quota is used up: until then it
+        # is not asked, and the decision judge decides alone.
+        self._reviewer_rests_until: datetime | None = None
         # The confident first look (`decision_judge.py`); None when not configured.
         self._decision_judge = decision_judge
         # A placeholder provider cannot improve on a second try: there is no
@@ -190,6 +195,14 @@ class BookRunner:
     def reviewer_name(self) -> str:
         """Which tier-2 reviewer judges pictures; "off" when none does."""
         return self._reviewer.name
+
+    @property
+    def reviewer_resting_until(self) -> datetime | None:
+        """When a reviewer with a spent daily quota is next asked; None if not resting."""
+        until = self._reviewer_rests_until
+        if until is not None and datetime.now(UTC) >= until:
+            self._reviewer_rests_until = until = None
+        return until
 
     @property
     def decision_judge_name(self) -> str:
@@ -860,7 +873,7 @@ class BookRunner:
             )
 
         answer: ReviewAnswer | None = None
-        if self._reviewer.name != "off":
+        if self._reviewer.name != "off" and self.reviewer_resting_until is None:
             try:
                 answer = await asyncio.to_thread(
                     self._reviewer.review,
@@ -869,6 +882,17 @@ class BookRunner:
                     page_title=page_title,
                     story_line=story_line,
                     cast=cast_note,
+                )
+            except ReviewerQuotaSpent as exc:
+                self._reviewer_rests_until = exc.until
+                logger.warning(
+                    "book.review user=%s book=%s page=%d attempt=%d tier=2 "
+                    "outcome=quota_spent resting_until=%s",
+                    user,
+                    book_id,
+                    page_number,
+                    attempt,
+                    exc.until.isoformat(),
                 )
             except Exception as exc:
                 logger.warning(
@@ -892,7 +916,7 @@ class BookRunner:
                     note="tier 2 did not run",
                     tier2_failed=True,
                 )
-            # The reviewer is down or not set: the decision makes the call on
+            # The reviewer is down, resting or not set: the decision makes the call on
             # its own, a confident rejection as it is, an unsure one at halfway.
             faults = decision.faults(COIN)
             passed = decision.outcome is not Outcome.REJECT and not faults

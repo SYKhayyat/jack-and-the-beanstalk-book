@@ -256,6 +256,17 @@ async def book_art(
     return no_store(data, media_type=media_type_for(data))
 
 
+def _resting_note(container: Container) -> str:
+    """Why the reviewer is not being asked, while its daily quota is spent."""
+    until = container.book_runner.reviewer_resting_until
+    if until is None:
+        return ""
+    return (
+        f" — RESTING until {until:%Y-%m-%d %H:%M} UTC (daily quota used up;"
+        " the decision judge decides alone)"
+    )
+
+
 def _backends(container: Container) -> list[tuple[str, str]]:
     """What is live, as label/value rows. The only place the provider is named."""
     settings = container.settings
@@ -279,7 +290,7 @@ def _backends(container: Container) -> list[tuple[str, str]]:
             "Reviewer (tier 2)",
             "OFF — pictures get tier 1 only"
             if reviewer == "off"
-            else f"{reviewer} · {settings.reviewer_model}",
+            else f"{reviewer} · {settings.reviewer_model}" + _resting_note(container),
         ),
         (
             "Decision judge (first look)",

@@ -15,6 +15,7 @@ import json
 import random
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -35,10 +36,12 @@ from app.services.prompts import build_plate_edit_prompt
 from app.services.reviewer import (
     GeminiReviewer,
     ReviewAnswer,
+    ReviewerQuotaSpent,
     ReviewerUnavailable,
     UnavailableReviewer,
     Verdict,
     build_reviewer,
+    next_quota_reset,
     parse_answer,
     verdict_passes,
 )
@@ -215,6 +218,7 @@ def runner_with(reviewer: Any, attempts: int = MAX_PAGE_ATTEMPTS) -> BookRunner:
     runner._provider = Mock(name="provider")
     runner._provider.name = "big-painter"
     runner._decision_judge = None
+    runner._reviewer_rests_until = None
     return runner
 
 
@@ -621,6 +625,39 @@ class TestTheReviewer:
                 image, media_type="image/png", page_title="t", story_line="s", cast="c"
             )
         assert len(calls) == 1
+
+    def test_a_used_up_daily_quota_is_not_retried(self) -> None:
+        """Retrying a per-day free-tier refusal cannot succeed; it is reported at once."""
+        reviewer = GeminiReviewer("k", model="gemini-x")
+        pauses: list[Any] = []
+        reviewer._sleep = pauses.append
+        calls: list[int] = []
+
+        def generate_content(**_: Any) -> Any:
+            calls.append(1)
+            raise RuntimeError(
+                "429 RESOURCE_EXHAUSTED. Quota exceeded, quotaId: "
+                "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+            )
+
+        reviewer._client = Mock()
+        reviewer._client.models.generate_content = generate_content
+        with pytest.raises(ReviewerQuotaSpent) as spent:
+            reviewer.review(
+                _png(Image.new("RGB", (8, 8), "white")),
+                media_type="image/png",
+                page_title="t",
+                story_line="s",
+                cast="c",
+            )
+        assert len(calls) == 1 and pauses == []
+        assert spent.value.until > datetime.now(UTC)
+
+    def test_the_quota_rests_until_the_next_midnight_pacific(self) -> None:
+        evening = datetime(2026, 11, 10, 20, 30, tzinfo=UTC)
+        assert next_quota_reset(evening) == datetime(2026, 11, 11, 8, 0, tzinfo=UTC)
+        early = datetime(2026, 11, 10, 7, 59, tzinfo=UTC)
+        assert next_quota_reset(early) == datetime(2026, 11, 10, 8, 0, tzinfo=UTC)
 
     def test_a_reviewer_that_stays_busy_gives_up(self) -> None:
         reviewer = GeminiReviewer("k", model="gemini-x")

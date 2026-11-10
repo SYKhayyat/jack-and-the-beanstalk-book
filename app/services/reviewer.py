@@ -21,6 +21,10 @@ matter more than the wording:
 * **A reviewer failure never fails the book.** One unparseable answer records
   tier 2 as failed for that image and the page continues (T10.2). A reviewer
   outage must not cost a parent a finished book.
+* **A spent free quota is a rest, not an outage.** When Gemini says the day's
+  free requests are used up, the reviewer is not asked again until the quota
+  resets (`ReviewerQuotaSpent`); the decision judge decides alone meanwhile,
+  without waiting out retries that cannot succeed.
 
 The model and the key are the operator's, like every other backend: environment
 only, never named on any visitor-facing surface.
@@ -33,6 +37,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from app.prompt_data import prompt_text
@@ -43,6 +48,7 @@ __all__ = [
     "MINOR_FAULTS",
     "ImageReviewer",
     "ReviewAnswer",
+    "ReviewerQuotaSpent",
     "ReviewerUnavailable",
     "UnavailableReviewer",
     "Verdict",
@@ -108,12 +114,47 @@ def _is_transient(exc: BaseException) -> bool:
     )
 
 
+#: Gemini names the quota it refused under; a per-day one will not clear by
+#: retrying ("GenerateRequestsPerDayPerProjectPerModel-FreeTier").
+_DAILY_QUOTA_MARKER = "PerDay"
+
+#: Gemini's daily quotas reset at midnight Pacific time. Fixed at Pacific
+#: standard time (UTC-8) so no time-zone database is needed: during daylight
+#: time the reviewer is asked again an hour after the reset, never before it.
+_QUOTA_RESET_UTC_HOUR = 8
+
+
+def _is_daily_quota(exc: BaseException) -> bool:
+    """Whether a reviewer error is the day's free requests being used up."""
+    return _is_transient(exc) and _DAILY_QUOTA_MARKER in str(exc)
+
+
+def next_quota_reset(now: datetime) -> datetime:
+    """When a spent daily quota is next available: the coming 08:00 UTC."""
+    reset = now.astimezone(UTC).replace(
+        hour=_QUOTA_RESET_UTC_HOUR, minute=0, second=0, microsecond=0
+    )
+    return reset if reset > now else reset + timedelta(days=1)
+
+
 #: Anything the model writes besides one JSON object is not an answer.
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
 
 class ReviewerUnavailable(ProviderError):
     """No usable reviewer is configured. A boot-time failure in production."""
+
+
+class ReviewerQuotaSpent(ProviderError):
+    """The reviewer's daily (free-tier) quota is used up until `until`.
+
+    Not retried: the caller rests the reviewer until then and lets the
+    decision judge decide alone.
+    """
+
+    def __init__(self, message: str, *, until: datetime) -> None:
+        super().__init__(message)
+        self.until = until
 
 
 class Verdict:
@@ -266,6 +307,12 @@ class GeminiReviewer:
                 )
                 break
             except Exception as exc:  # the SDK raises a wide range of types
+                if _is_daily_quota(exc):
+                    until = next_quota_reset(datetime.now(UTC))
+                    raise ReviewerQuotaSpent(
+                        f"the reviewer's daily quota is spent until {until:%Y-%m-%d %H:%M}Z",
+                        until=until,
+                    ) from None
                 if pause is None or not _is_transient(exc):
                     raise ProviderError(f"the reviewer could not be reached: {exc}") from None
                 logger.info(

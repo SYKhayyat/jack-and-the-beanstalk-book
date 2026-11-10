@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -21,6 +22,7 @@ from app.services.decision_judge import (
     classify,
 )
 from app.services.image_providers.base import ProviderError
+from app.services.reviewer import ReviewerQuotaSpent
 from tests.test_review_loop import ScriptedReviewer, artwork, grain, runner_with, said
 
 #: Page 1 of the plated OpenAI book: the mother hands over the basket.
@@ -155,6 +157,43 @@ class TestTheCascade:
         assert unsure.judged_by == "decision" and not unsure.tier2_failed
         bad, _ = judge(ScriptedReviewer(answers=[down]), [BAD])
         assert bad.passed is False and "collage" in bad.faults
+
+    def test_a_spent_free_quota_rests_the_reviewer_and_the_judge_decides(self) -> None:
+        """The free tier used up: asked once, then left alone until the reset."""
+        until = datetime.now(UTC) + timedelta(hours=3)
+        reviewer = ScriptedReviewer(
+            answers=[ReviewerQuotaSpent("spent", until=until)], default=said(True, 90)
+        )
+        runner = runner_with(reviewer)
+        runner._decision_judge = ScriptedJudge(answers=[UNSURE, GOOD, BAD])
+
+        def one_page() -> Any:
+            return asyncio.run(
+                runner._judge(
+                    book_id="book",
+                    page_number=7,
+                    image=grain(),
+                    plate=None,
+                    artwork=artwork(),
+                    page_title="t",
+                    story_line="the wolf runs ahead",
+                    cast_note="c",
+                    attempt=1,
+                    user="-",
+                )
+            )
+
+        verdicts = [one_page(), one_page(), one_page()]
+        assert reviewer.calls == 1
+        assert runner.reviewer_resting_until == until
+        assert [v.judged_by for v in verdicts] == ["decision"] * 3
+        assert [v.passed for v in verdicts] == [False, True, False]
+        assert not any(v.tier2_failed for v in verdicts)
+
+        runner._reviewer_rests_until = datetime.now(UTC) - timedelta(seconds=1)
+        runner._decision_judge = ScriptedJudge(answers=[UNSURE])
+        assert one_page().judged_by == "reviewer"  # the quota reset: asked again
+        assert runner.reviewer_resting_until is None
 
     def test_when_both_are_down_only_tier_one_ran_and_it_says_so(self) -> None:
         verdict, _ = judge(
