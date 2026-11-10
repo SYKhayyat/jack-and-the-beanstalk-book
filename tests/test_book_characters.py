@@ -403,3 +403,39 @@ class TestCastPortraitPrompt:
         prompt = provider.requests[-1].prompt
         assert "The character's name is Jack" in prompt
         assert "THE CHARACTER: the mother" not in prompt
+
+
+class TestPhotoWithoutCartoon:
+    """"Next" must never make a cartoon: the photo alone can start a book."""
+
+    def test_book_starts_from_a_kept_photo_with_no_cartoon_call(
+        self, client: TestClient, provider: RecordingProvider
+    ) -> None:
+        kept = client.post(
+            "/api/photo",
+            **multipart(
+                {
+                    "story": "jack_and_the_beanstalk",
+                    "photo_gender": "boy",
+                    "photo": ("child.png", CHILD_PHOTO, "image/png"),
+                }
+            ),
+        )
+        assert kept.status_code == 201, kept.text
+        assert provider.requests == []  # nothing drawn, nothing billed
+        started = _start_book(client, kept.json())
+        assert _wait_for_book(client, str(started["book_id"]))["status"] == "complete"
+        assert all(r.label != "cartoonify" for r in provider.requests)
+
+    def test_a_character_photo_is_kept_for_its_own_slot_only(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/photo",
+            **multipart(
+                {
+                    "story": "jack_and_the_beanstalk",
+                    "character": "milky_white",
+                    "photo": ("cow.png", CHILD_PHOTO, "image/png"),
+                }
+            ),
+        )
+        assert response.status_code == 422

@@ -47,6 +47,8 @@ export function paintMissingPlate(storyKey) {
 export function createStudioClient() {
   return {
     cartoonify: (body) => postForm("/api/cartoonify", body),
+    /* Keep the photo as the face reference with no cartoon: free, one step. */
+    keepPhoto: (body) => postForm("/api/photo", body),
     choose: (generationId, index) => {
       const body = new FormData();
       body.append("index", String(index));

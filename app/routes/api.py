@@ -164,6 +164,47 @@ async def cartoonify(
     return _cartoon_payload(draft, settings, budget)
 
 
+@router.post("/photo", status_code=status.HTTP_201_CREATED)
+async def keep_photo(
+    container: ContainerDep,
+    settings: SettingsDep,
+    photo: UploadFile = File(..., description="A photo of a person. JPEG, PNG or WEBP."),
+    story: str = Form(..., description="The story the photo is for."),
+    character: str = Form("", description="Optional photoable cast key; blank is the star."),
+) -> dict[str, object]:
+    """Keep the photo as the book's face reference, with no cartoon drawn.
+
+    The studio's "Next" uses this for a face the visitor did not ask to see
+    drawn: nothing is sent to the image provider and nothing is billed. The
+    draft's portrait *is* the photo, so the book start and the page runner
+    treat it exactly like an approved portrait that happens to be the photograph.
+    """
+    edition = await asyncio.to_thread(new_book_edition, container, story)
+    cast_key = character.strip()
+    if cast_key and not edition.can_photograph(cast_key):
+        raise InvalidSettings(
+            f"There is no character slot for {cast_key!r} — it cannot be given a photo."
+        )
+    settings = story_rules(edition).fit(settings)
+    raw = await _read_upload(photo, container)
+    decoded = await asyncio.to_thread(decode_upload, raw)
+    draft = Draft(
+        generation_id=uuid4().hex,
+        settings=settings,
+        cartoon_prompt="",
+        candidates=(decoded.data,),
+        candidate_media_types=(decoded.media_type,),
+        photo_data=decoded.data,
+        photo_media_type=decoded.media_type,
+        provider="none",
+        model="photo",
+        cast_key=cast_key,
+        story_key=edition.key,
+    )
+    await asyncio.to_thread(container.store.save_draft, draft)
+    return {"generation_id": draft.generation_id, "photo_only": True}
+
+
 @router.post("/cartoonify/{generation_id}/choose", status_code=status.HTTP_201_CREATED)
 async def choose_candidate(
     generation_id: str,

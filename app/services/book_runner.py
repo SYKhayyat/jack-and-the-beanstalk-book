@@ -529,6 +529,10 @@ class BookRunner:
 
             async def _render_page(page: BookPage) -> PageArt:
                 page_photos = [name for name in page.cast if name in artwork.characters]
+                photo_only = frozenset(
+                    ([""] if artwork.photo_is_portrait else [])
+                    + [n for n in page_photos if artwork.characters[n].photo == artwork.characters[n].portrait]
+                )
                 plate = artwork.plates.get(page.number)
 
                 def prompt_for(faults: Sequence[str], findings: str) -> str:
@@ -558,6 +562,7 @@ class BookRunner:
                         prompt_name=prompt_name,
                         supplied_characters=tuple(artwork.characters),
                         character_photos=page_photos,
+                        photo_only=photo_only,
                         correction=correction_for(faults, findings),
                     )
 
@@ -776,8 +781,11 @@ class BookRunner:
         if plate is not None:
             references, media_types = _plate_references(artwork, plate, edition.cover)
         else:
-            references = [artwork.portrait, artwork.photo]
-            media_types = [artwork.portrait_media_type, artwork.photo_media_type]
+            references = [artwork.portrait]
+            media_types = [artwork.portrait_media_type]
+            if not artwork.photo_is_portrait:
+                references.append(artwork.photo)
+                media_types.append(artwork.photo_media_type)
 
         async def draw(prompt: str) -> GeneratedImage:
             await _await_page_charge(page_charge)
@@ -1265,11 +1273,13 @@ class BookRunner:
         # Books made before the photograph was stored keep their portrait only.
         # The portrait is the likeness the pages were drawn from, so it stands
         # in as the second anchor rather than the book becoming uneditable.
+        # A face kept without a cartoon stores the photograph as the portrait too:
+        # the same picture twice is likewise one reference, not two.
         if photo is None:
             photo = portrait
             photo_is_portrait = True
         else:
-            photo_is_portrait = False
+            photo_is_portrait = photo == portrait
         return _Artwork(
             about=record.about,
             settings=record.settings,
@@ -1437,8 +1447,11 @@ def _references(
         character = artwork.characters.get(name)
         if character is None:
             continue
-        references.extend([character.portrait, character.photo])
-        media_types.extend([character.portrait_media_type, character.photo_media_type])
+        references.append(character.portrait)
+        media_types.append(character.portrait_media_type)
+        if character.photo != character.portrait:
+            references.append(character.photo)
+            media_types.append(character.photo_media_type)
     return references, media_types
 
 

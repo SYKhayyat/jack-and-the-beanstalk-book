@@ -1722,18 +1722,23 @@ dialog.modal form {
 }
 .about-fields {
   display: grid;
-  grid-template-columns: 96px 1fr;
+  grid-template-columns: minmax(96px, 160px) 1fr;
   gap: 14px 16px;
   margin: 20px 0;
+  /* Labels wrap to different line counts; pin the controls to the same baseline. */
+  align-items: end;
 }
 .about-fields .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.about-fields .field.grow input {
+.about-fields .field input,
+.about-fields .field select {
+  box-sizing: border-box;
+  height: 52px;
   font-size: 18px;
-  padding: 14px 16px;
+  padding: 0 16px;
 }
 .about-fields .field.wide {
   grid-column: 1 / -1;
@@ -2337,10 +2342,29 @@ body.in-story-time {
   border: 2px solid var(--bean);
 }
 .map-tile.rendering,
-.map-tile.drawing {
+.map-tile.drawing,
+.map-tile.making {
   border: 2px solid var(--marigold);
   background: var(--marigold-soft);
+}
+.map-tile.rendering,
+.map-tile.drawing {
   animation: pulse 1.4s var(--ease) infinite;
+}
+/* A small spinner on every picture being drawn right now, so a page of
+   sixteen at once reads as work in progress rather than a stall. */
+.map-tile.making::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 3px solid var(--marigold);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 .map-tile.failed {
   border: 2px solid var(--berry);
@@ -2522,6 +2546,11 @@ body.in-story-time {
 @keyframes pulse {
   50% {
     opacity: 0.55;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 @keyframes land {

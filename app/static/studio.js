@@ -268,7 +268,7 @@ async function restoreSection(key, el) {
   renderSection(key);
   if (!(await api.draftAlive(data.chosenId))) {
     expired.add(key);
-    for (const field of ["generationId", "chosenId", "candidateUrls", "chosenIndex"]) {
+    for (const field of ["generationId", "chosenId", "candidateUrls", "chosenIndex", "photoOnly"]) {
       delete data[field];
     }
     persist();
@@ -286,7 +286,7 @@ function renderSection(key) {
   const data = draft.sections[key] || {};
   const required = el.dataset.required === "true";
   const photoUrl = objectUrls.get(key) || (data.generationId ? draftImageUrl(data.generationId, "photo") : null);
-  const comicUrl = data.chosenId ? draftImageUrl(data.chosenId) : null;
+  const comicUrl = data.chosenId && !data.photoOnly ? draftImageUrl(data.chosenId) : null;
   const hasPhoto = Boolean(photoUrl);
 
   part(el, "plates").classList.toggle("hidden", !hasPhoto);
@@ -380,7 +380,7 @@ async function acceptPhoto(key, blob) {
     objectUrls.set(key, URL.createObjectURL(prepared.blob));
     // One photo per section: a new photo replaces the comic made from the old.
     const data = sectionData(key);
-    for (const field of ["generationId", "chosenId", "candidateUrls", "chosenIndex"]) {
+    for (const field of ["generationId", "chosenId", "candidateUrls", "chosenIndex", "photoOnly"]) {
       delete data[field];
     }
     expired.delete(key);
@@ -493,6 +493,7 @@ async function makeComic(key, reasons = []) {
     const payload = await api.cartoonify(body);
     data.generationId = payload.generation_id;
     data.chosenId = payload.generation_id;
+    delete data.photoOnly;
     data.chosenIndex = 0;
     data.candidateUrls = payload.images?.candidate_urls || [];
     expired.delete(key);
@@ -585,7 +586,7 @@ function wireAdvanced() {
 
 /* --- the footer -------------------------------------------------------------- */
 
-/* A section with a photo this visit but no portrait yet: drawn on the way out. */
+/* A section with a photo this visit and nothing kept yet: its photo is kept on the way out. */
 function undrawn() {
   return Array.from(sectionEls.keys()).filter((key) => photos.has(key) && !draft.sections[key]?.chosenId);
 }
@@ -603,7 +604,7 @@ function wireFooter() {
     const waiting = undrawn();
     if (!waiting.length) return;
     event.preventDefault();
-    void drawThenGo(next.href, waiting);
+    void keepThenGo(next.href, waiting);
   });
   document.getElementById("studio-start-over").addEventListener("click", () => {
     if (!window.confirm("Start over? This forgets every photo and portrait in this studio.")) return;
@@ -612,11 +613,13 @@ function wireFooter() {
   });
 }
 
-/* One at a time, star first, so the rate limit is never hit by a burst. */
-async function drawThenGo(href, keys) {
+/* "Next" never draws a cartoon: each photo is kept as it is (free), and the
+   cartoon stays one press of "Draw the portrait" away. */
+async function keepThenGo(href, keys) {
   leaving = true;
+  renderFooter();
   for (const key of keys) {
-    const ok = await makeComic(key);
+    const ok = await keepPhoto(key);
     if (!ok) {
       leaving = false;
       renderFooter();
@@ -626,6 +629,33 @@ async function drawThenGo(href, keys) {
     }
   }
   window.location.assign(href);
+}
+
+async function keepPhoto(key) {
+  const photo = photos.get(key);
+  if (!photo) return false;
+  try {
+    const body = settingsBody(key);
+    body.append("photo", photo, `${key}.jpg`);
+    body.append("story", story);
+    if (key !== "star") body.append("character", key);
+    const payload = await api.keepPhoto(body);
+    const data = sectionData(key);
+    data.generationId = payload.generation_id;
+    data.chosenId = payload.generation_id;
+    data.photoOnly = true;
+    data.chosenIndex = 0;
+    data.candidateUrls = [];
+    persist();
+    return true;
+  } catch (error) {
+    if (error.status === 401) {
+      goSignIn();
+      return false;
+    }
+    showMessage(key, friendlyError(error, "That photo couldn't be saved. Try again."), true);
+    return false;
+  }
 }
 
 function renderFooter() {
@@ -638,7 +668,7 @@ function renderFooter() {
   const starReady = Boolean(draft.sections.star?.chosenId || photos.has("star")) && !busy.size;
   const next = document.getElementById("studio-next");
   next.setAttribute("aria-disabled", String(!starReady));
-  next.firstChild.textContent = leaving ? "Drawing the portraits… " : "Next: make the book ";
+  next.firstChild.textContent = leaving ? "Saving the photos… " : "Next: make the book ";
   const summary = document.getElementById("studio-summary");
   if (!starReady) {
     summary.textContent = "";

@@ -211,15 +211,28 @@ def book_cast_sheet(story: StoryEdition, supplied: Iterable[str] = ()) -> str:
     return assembly["cast_sheet"].format(cast_looks=looks, photo_note=photo_note)
 
 
-def _reference_map(story: StoryEdition, character_photos: Iterable[str]) -> str:
-    """The per-page reference order, matching the images sent with this call."""
-    entries = [
-        "1) the child's cartoon portrait",
-        "2) the child's photograph",
-    ]
-    position = 3
+def _reference_map(
+    story: StoryEdition,
+    character_photos: Iterable[str],
+    photo_only: frozenset[str] = frozenset(),
+) -> str:
+    """The per-page reference order, matching the images sent with this call.
+
+    A face kept without a cartoon (`photo_only`: "" for the child, else the
+    cast key) is one image, the photograph, not a portrait and a photograph.
+    """
+    entries = (
+        ["1) the child's photograph"]
+        if "" in photo_only
+        else ["1) the child's cartoon portrait", "2) the child's photograph"]
+    )
+    position = len(entries) + 1
     for name in character_photos:
         label = story.cast[name].label
+        if name in photo_only:
+            entries.append(f"{position}) {label}'s photograph")
+            position += 1
+            continue
         entries.append(f"{position}) {label}'s cartoon portrait")
         entries.append(f"{position + 1}) {label}'s photograph")
         position += 2
@@ -338,6 +351,7 @@ def build_book_page_prompt(
     prompt_name: str,
     supplied_characters: Iterable[str] = (),
     character_photos: Iterable[str] = (),
+    photo_only: frozenset[str] = frozenset(),
     correction: str = "",
 ) -> str:
     """Prompt for one picture-book page.
@@ -465,7 +479,7 @@ def build_book_page_prompt(
         # The exact order of the reference images sent with this call, so the
         # model can tell the child's two anchors from a character's portrait
         # and photograph. Page-level because the references are.
-        _reference_map(story, character_photos),
+        _reference_map(story, character_photos, photo_only),
         task_book["full_frame"],
         *_scene_block(page.scene, page.emotion),
         correction,
