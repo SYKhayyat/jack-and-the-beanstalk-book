@@ -1233,7 +1233,7 @@ def _edition(
         select(StoryPageRow).where(StoryPageRow.id.in_(list(page_ids.values())))
     ).all()
     character_rows = conn.execute(
-        select(StoryCharacterRow)
+        select(StoryCharacterRow.cast_key, *_CHARACTER_CONTENT_COLUMNS)
         .where(StoryCharacterRow.id.in_(list(character_ids.values())))
         .order_by(StoryCharacterRow.position, StoryCharacterRow.cast_key)
     ).all()
@@ -1254,18 +1254,20 @@ def _edition(
     )
 
 
+#: A character revision's words: what an edition is built from. Read by these
+#: columns, never the whole row, which also holds the reference image (P6).
+_CHARACTER_CONTENT_COLUMNS = (
+    StoryCharacterRow.display_name,
+    StoryCharacterRow.look,
+    StoryCharacterRow.look_with_photo,
+    StoryCharacterRow.portrait,
+    StoryCharacterRow.costume,
+    StoryCharacterRow.photoable,
+)
+
+
 def _character_content(row: Any) -> dict[str, Any]:
-    return {
-        name: getattr(row, name)
-        for name in (
-            "display_name",
-            "look",
-            "look_with_photo",
-            "portrait",
-            "costume",
-            "photoable",
-        )
-    }
+    return {column.key: getattr(row, column.key) for column in _CHARACTER_CONTENT_COLUMNS}
 
 
 def _page_content(page: Any) -> dict[str, Any]:
@@ -1448,7 +1450,18 @@ def _load_version(conn: Connection, version_id: str) -> TemplateVersion:
         for row in page_rows
     )
     character_rows = conn.execute(
-        select(StoryCharacterRow)
+        select(
+            StoryCharacterRow.cast_key,
+            StoryCharacterRow.display_name,
+            StoryCharacterRow.look,
+            StoryCharacterRow.photoable,
+            StoryCharacterRow.revision,
+            StoryCharacterRow.look_with_photo,
+            StoryCharacterRow.portrait,
+            StoryCharacterRow.costume,
+            # Whether there is a reference image, never its bytes (P6).
+            StoryCharacterRow.reference_image.is_not(None).label("has_reference_image"),
+        )
         .join(
             TemplateVersionCharacterRow,
             TemplateVersionCharacterRow.character_id == StoryCharacterRow.id,
@@ -1461,7 +1474,7 @@ def _load_version(conn: Connection, version_id: str) -> TemplateVersion:
             display_name=row.display_name,
             look=row.look,
             photoable=row.photoable,
-            has_reference_image=row.reference_image is not None,
+            has_reference_image=bool(row.has_reference_image),
             revision=row.revision,
             look_with_photo=row.look_with_photo or "",
             portrait=row.portrait or "",

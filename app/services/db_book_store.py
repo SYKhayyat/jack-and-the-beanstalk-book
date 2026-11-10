@@ -62,6 +62,20 @@ __all__ = ["COVER_PAGE", "DatabaseBookStore", "UnreviewedImages", "unreviewed_im
 #: The cover's slot in a review report; story pages count from 1.
 COVER_PAGE = 0
 
+#: What `load_record` reads of a `books` row. Never the whole row: it carries
+#: the portrait, source photo, cover and PDF, each read by its own method.
+_RECORD_COLUMNS = (
+    BookRow.id,
+    BookRow.about,
+    BookRow.generation_id,
+    BookRow.created_at,
+    BookRow.story_key,
+    BookRow.title,
+    BookRow.user_id,
+    BookRow.request_fingerprint,
+    BookRow.settings,
+)
+
 
 class UnreviewedImages(RuntimeError):
     """A book pinned to a template tried to complete with an unreviewed image."""
@@ -135,7 +149,12 @@ class DatabaseBookStore(BookStore):
 
     def load_record(self, book_id: str) -> BookRecord | None:
         with self._engine.connect() as conn:
-            row = conn.execute(select(BookRow).where(BookRow.id == book_id)).one_or_none()
+            # Only the request's own columns: the row also holds the portrait,
+            # the photo, the cover and the PDF (megabytes, P6), which every
+            # page view and edit would otherwise drag out of the database.
+            row = conn.execute(
+                select(*_RECORD_COLUMNS).where(BookRow.id == book_id)
+            ).one_or_none()
         if row is None:
             return None
         about = AboutMe.model_validate(row.about)
