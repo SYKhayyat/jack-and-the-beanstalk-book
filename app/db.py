@@ -619,7 +619,14 @@ def build_engine(database_url: str) -> Engine:
     if not database_url:
         raise ValueError("there is no database URL to build an engine from")
     url = make_url(normalise_database_url(database_url))
-    connect_args = {"check_same_thread": False} if url.drivername.startswith("sqlite") else {}
+    connect_args: dict[str, Any] = {}
+    if url.drivername.startswith("sqlite"):
+        connect_args = {"check_same_thread": False}
+    elif url.drivername.startswith("postgresql"):
+        # Neon and Supabase hand out pooled (pgbouncer-style) connections in
+        # transaction mode, where a server-side prepared statement lands on a
+        # different backend than the one that prepared it. Never prepare.
+        connect_args = {"prepare_threshold": None}
     engine = create_engine(
         url,
         pool_pre_ping=True,
