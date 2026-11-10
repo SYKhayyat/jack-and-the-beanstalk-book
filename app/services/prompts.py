@@ -92,14 +92,6 @@ _PRONOUNS: dict[PhotoGender, dict[str, str]] = {
     gender: _DATA["pronouns"][gender.value] for gender in PhotoGender
 }
 
-#: The star's own bible line carries `{name}` and pronouns, and an edit prompt
-#: has no settings to read a gender from. These are the neutral ones: the face
-#: and clothes come from the anchor image, not from these words.
-_NEUTRAL_PRONOUNS: dict[str, str] = _PRONOUNS[PhotoGender.BOY]
-_CAPITALISED_NEUTRAL_PRONOUNS: dict[str, str] = {
-    key.capitalize(): value.capitalize() for key, value in _NEUTRAL_PRONOUNS.items()
-}
-
 _SKIN_DESCRIPTIONS: dict[SkinTone, str] = {
     tone: _DATA["skins"][tone.value] for tone in SkinTone
 }
@@ -806,7 +798,7 @@ def build_plate_edit_prompt(
         edit["feeling"].format(emotion=emotion) if emotion else "",
         edit["cast_identity"],
         _slot_block(slots, story, cover=cover),
-        _edit_cast_looks(slots, story, prompt_name),
+        _edit_cast_looks(slots, story, subs),
         edit["inherits"],
         edit["no_extras"],
         _avoid_clause(scene),
@@ -839,9 +831,11 @@ def _slot_block(slots: Sequence[Slot], story: StoryEdition, *, cover: bool) -> s
         member = story.cast.get(slot.cast_key)
         label = member.label if member is not None else slot.cast_key
         ground = edit["slot_floating"] if cover and y < 0.35 else edit["slot_on_ground"]
+        # A slot pinned to the top edge is a figure the frame cuts off, not one
+        # that fits: telling the model its "head is at 0%" would shrink it.
+        line = edit["slot_line_cut"] if y == 0 and not cover else edit["slot_line"]
         described.append(
-            edit["slot_line"]
-            .format(
+            line.format(
                 label=label,
                 bottom=round((y + h) * 100),
                 top=round(y * 100),
@@ -849,23 +843,22 @@ def _slot_block(slots: Sequence[Slot], story: StoryEdition, *, cover: bool) -> s
                 right=round((x + w) * 100),
                 height=round(h * 100),
                 facing=f"{facing_wording.get(slot.facing, edit['facing_toward'])} {ground}",
-            )
-            .strip()
+            ).strip()
         )
     return edit["slots"].format(slots="\n".join(described))
 
 
-def _edit_cast_looks(slots: Sequence[Slot], story: StoryEdition, prompt_name: str) -> str:
+def _edit_cast_looks(
+    slots: Sequence[Slot], story: StoryEdition, subs: Mapping[str, str]
+) -> str:
     """The pinned look of everyone on this page, from the bible and nowhere else.
 
     Deliberately short: a plate edit is about not changing the plate, so each
     character gets its bible line — the same line on every page of the book,
-    with the star's name and pronouns filled in — and the anchor image is what
-    carries the face.
+    with the star's name and own pronouns filled in (a girl's bible line must
+    not say "his": that pulls the painter away from the portrait) — and the
+    anchor image is what carries the face.
     """
-    # The edit prompt has no settings: the character is already drawn, so the
-    # only thing the bible needs is a name and a neutral pronoun.
-    subs = {"name": prompt_name, **_NEUTRAL_PRONOUNS, **_CAPITALISED_NEUTRAL_PRONOUNS}
     looks = []
     for slot in slots:
         member = story.cast.get(slot.cast_key)

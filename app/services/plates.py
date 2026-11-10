@@ -99,25 +99,35 @@ _STAGINGS: dict[str, tuple[tuple[tuple[float, float, float, float], str], ...]] 
     # low on the floor: the table against the back wall left of centre, the chair
     # pulled out in front of it (x 0.23-0.49), bare flagstones from there to the
     # perch (x 0.76) and the door (x 0.88), the wall meeting the floor at y 0.58.
-    # While he sleeps the giant sits IN that chair, slumped over his arms on the
-    # table and facing it (never under the table, never standing); the star is
-    # child-sized.
+    # The chair faces the camera with its back to the table, so while he sleeps
+    # the giant sits IN it facing the viewer, chin on chest (never under the
+    # table, never standing, never slumped onto a table behind him). The chair
+    # seat is about a quarter of the frame above the floor, so he fills it like
+    # a man an ordinary chair; the star is ~0.21 of the frame, head below the
+    # seat, which is what makes him read as a giant.
     "door_and_chair": (
-        ((0.87, 0.30, 0.12, 0.32), "left"),
-        ((0.20, 0.03, 0.36, 0.60), "left"),
+        ((0.85, 0.38, 0.07, 0.22), "left"),
+        ((0.17, 0.05, 0.36, 0.62), "toward"),
     ),
     "beside_the_chair": (
-        ((0.64, 0.34, 0.12, 0.32), "left"),
-        ((0.20, 0.03, 0.36, 0.60), "left"),
+        ((0.56, 0.47, 0.09, 0.21), "left"),
+        ((0.17, 0.05, 0.36, 0.62), "toward"),
     ),
+    # The hen sits high on the perch (plate 11) and the harp leans by the chair
+    # (plate 12): the star stands on the floor in front of each, never lifted to them.
     "chair_and_perch": (
-        ((0.70, 0.30, 0.14, 0.36), "left"),
-        ((0.20, 0.03, 0.36, 0.60), "left"),
+        ((0.64, 0.41, 0.08, 0.21), "right"),
+        ((0.17, 0.05, 0.36, 0.62), "toward"),
     ),
-    # Awake and on his feet: only his boots and legs, on the bare floor beside the chair.
+    "harp_by_the_chair": (
+        ((0.36, 0.47, 0.08, 0.21), "left"),
+        ((0.17, 0.05, 0.36, 0.62), "toward"),
+    ),
+    # Awake and on his feet he is too tall for the frame: the slot touches the
+    # top edge, so the prompt says the frame cuts him off above the legs.
     "door_and_standing": (
-        ((0.87, 0.30, 0.12, 0.32), "left"),
-        ((0.50, 0.24, 0.22, 0.38), "toward"),
+        ((0.86, 0.40, 0.08, 0.22), "left"),
+        ((0.48, 0.0, 0.24, 0.62), "left"),
     ),
     # The cottage front at dusk (plate 3): the lit window left of the door, both
     # small. The mother is only head and shoulders in the window, the star on the step.
