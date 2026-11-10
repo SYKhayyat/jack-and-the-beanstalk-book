@@ -6,10 +6,15 @@ a cartoon portrait, and pass 2 edits that portrait (plus the original photo) int
 the scene. `images.edit` takes a list of images, so one call can carry both
 identity anchors.
 
-Cheapest configuration by default: `gpt-image-2.5-flare` at `quality=low`, which
-is the one per-image figure OpenAI publishes — $0.00588 for a 1K output, from
-196 output tokens at $30 per 1M image output tokens. Both model and quality are
-settings, so moving up a tier is an environment change.
+Cheapest configuration by default: `gpt-image-2.5-flare` at `quality=low`. Both
+model and quality are settings, so moving up a tier is an environment change.
+
+OpenAI bills an edit by token: the prompt's text tokens and every reference
+image's tokens as input, plus the picture as output. The output alone is small
+(196 tokens, $0.00588, for a 1K low-quality picture); the reference images
+going in usually cost more. Each response reports its own token counts, so
+every image returned carries its call's `TokenUsage` and the cost ledger prices
+the call from what was actually billed.
 
 No retry loop for failures, like every other provider here: a failed call fails
 loudly rather than quietly spending a second call's worth of money. The one
@@ -33,6 +38,7 @@ from app.services.image_providers.base import (
     ImageRequest,
     ProviderError,
     ProviderUnavailable,
+    TokenUsage,
 )
 from app.services.image_providers.pacer import ImagePacer
 
@@ -65,6 +71,7 @@ def _rate_limit_delay(exc: Exception, attempt: int) -> float | None:
     except (TypeError, ValueError):
         wait = 5.0 * (2**attempt)
     return min(max(wait, 1.0), _MAX_RATE_LIMIT_WAIT)
+
 
 # gpt-image-2.5 accepts custom sizes subject to three documented constraints:
 # both edges a multiple of 16, aspect ratio within 1:3..3:1, and total pixels
@@ -252,6 +259,7 @@ class OpenAIImageProvider(ImageProvider):
 
     def _extract_images(self, response: object, *, expected: int) -> list[GeneratedImage]:
         """Pull every image out of the response, whatever shape it arrived in."""
+        usage = _token_usage(response)
         found: list[GeneratedImage] = []
         saw_url_only = False
         for item in getattr(response, "data", None) or []:
@@ -263,7 +271,11 @@ class OpenAIImageProvider(ImageProvider):
                 raw = base64.b64decode(encoded)
             except (ValueError, TypeError) as exc:
                 raise ProviderError("OpenAI returned undecodable image data.") from exc
-            found.append(GeneratedImage(data=raw, media_type="image/png", model=self._model))
+            found.append(
+                GeneratedImage(
+                    data=raw, media_type="image/png", model=self._model, usage=usage
+                )
+            )
 
         if len(found) == expected:
             return found
@@ -294,3 +306,33 @@ def _as_upload(data: bytes, media_type: str, index: int) -> io.BytesIO:
     stream = io.BytesIO(data)
     stream.name = f"reference-{index}.{extension}"
     return stream
+
+
+def _token_usage(response: object) -> TokenUsage | None:
+    """The call's token bill from `response.usage`, or None when it is absent.
+
+    Input is split into text and image tokens by `input_tokens_details`. If a
+    response gives only the input total, all of it is counted as image tokens,
+    the dearer rate: an estimate may run high, never low.
+    """
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    total_in = _count(getattr(usage, "input_tokens", None))
+    output = _count(getattr(usage, "output_tokens", None))
+    if total_in is None or output is None:
+        return None
+    details = getattr(usage, "input_tokens_details", None)
+    text = _count(getattr(details, "text_tokens", None)) if details is not None else None
+    image = _count(getattr(details, "image_tokens", None)) if details is not None else None
+    if text is None or image is None:
+        text, image = 0, total_in
+    return TokenUsage(text_input_tokens=text, image_input_tokens=image, output_tokens=output)
+
+
+def _count(value: object) -> int | None:
+    return (
+        value
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else None
+    )

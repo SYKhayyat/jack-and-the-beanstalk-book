@@ -284,7 +284,7 @@ def _backends(container: Container) -> list[tuple[str, str]]:
         ),
         (
             "Image price",
-            f"${price.usd:.4f} per image" if price.usd is not None else "unpriced",
+            price.describe(),
         ),
         (
             "Reviewer (tier 2)",

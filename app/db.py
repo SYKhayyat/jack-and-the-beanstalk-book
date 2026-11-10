@@ -537,6 +537,11 @@ class ApiCallRow(Base):
     images: Mapped[int] = mapped_column(Integer)
     ok: Mapped[bool] = mapped_column(Boolean)
     cost_microusd: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: The token bill a token-billed backend reported for the call (OpenAI's
+    #: images); null for backends priced per call, and for failed calls.
+    text_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 

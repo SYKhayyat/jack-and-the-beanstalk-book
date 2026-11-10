@@ -18,6 +18,7 @@ __all__ = [
     "ImageRequest",
     "ProviderError",
     "ProviderUnavailable",
+    "TokenUsage",
 ]
 
 
@@ -55,12 +56,25 @@ class ImageRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class TokenUsage:
+    """What one call was billed for, as the backend reported it, in tokens."""
+
+    text_input_tokens: int
+    image_input_tokens: int
+    output_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
 class GeneratedImage:
     """A single image returned by a provider."""
 
     data: bytes
     media_type: str = "image/png"
     model: str = "unknown"
+    #: The token bill of the call that made this image, for backends that bill
+    #: by token. When one call returns several images, each carries that same
+    #: call's usage (it is the call's bill, not a share of it).
+    usage: TokenUsage | None = None
 
     @property
     def extension(self) -> str:

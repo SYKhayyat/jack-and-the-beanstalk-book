@@ -30,9 +30,11 @@ from app.config import Settings
 from app.db import ApiCallRow
 from app.main import create_app
 from app.services.costs import (
+    CallPrice,
     CostLedger,
     CostScope,
     MeteredProvider,
+    TokenRates,
     cost_scope,
     image_call_price,
 )
@@ -41,6 +43,7 @@ from app.services.image_providers.base import (
     ImageProvider,
     ImageRequest,
     ProviderError,
+    TokenUsage,
 )
 from tests.helpers import RecordingProvider, isolated_settings, make_photo_bytes
 from tests.test_plate_import_and_edit import _approved_plates, _start_a_book
@@ -145,7 +148,9 @@ class TestPrices:
         assert image_call_price(agnes).usd == 0.0
         assert image_call_price(settings).usd == 0.0
 
-    def test_openai_is_priced_from_its_published_table(self, settings: Settings) -> None:
+    def test_openai_is_priced_from_the_tokens_each_call_reports(
+        self, settings: Settings
+    ) -> None:
         openai = settings.model_copy(
             update={
                 "image_provider": "openai",
@@ -154,18 +159,35 @@ class TestPrices:
             }
         )
         price = image_call_price(openai)
-        assert price.usd == pytest.approx(0.00588)
+        assert price.usd is None
         assert price.model == "gpt-image-2.5-flare (low)"
+        # 100 text in at $5/1M, 3,000 image in at $8/1M, 196 out at $30/1M.
+        usage = TokenUsage(text_input_tokens=100, image_input_tokens=3000, output_tokens=196)
+        assert price.microusd(1, usage) == 500 + 24_000 + 5_880
+        # The reference images going in, not the picture out, are most of it.
+        assert price.microusd(1, None) is None
 
-    def test_an_unknown_openai_tier_is_unpriced_until_configured(
+    def test_quality_does_not_change_the_rate_only_the_tokens(
         self, settings: Settings
     ) -> None:
         high = settings.model_copy(
             update={"image_provider": "openai", "openai_quality": "high"}
         )
-        assert image_call_price(high).usd is None
-        overridden = high.model_copy(update={"image_call_cost_usd": 0.04})
-        assert image_call_price(overridden).usd == 0.04
+        assert (
+            image_call_price(high).tokens
+            == image_call_price(high.model_copy(update={"openai_quality": "low"})).tokens
+        )
+
+    def test_an_unknown_openai_model_is_unpriced_until_configured(
+        self, settings: Settings
+    ) -> None:
+        unknown = settings.model_copy(
+            update={"image_provider": "openai", "openai_model": "gpt-image-9"}
+        )
+        usage = TokenUsage(text_input_tokens=1, image_input_tokens=1, output_tokens=1)
+        assert image_call_price(unknown).microusd(1, usage) is None
+        overridden = unknown.model_copy(update={"image_call_cost_usd": 0.04})
+        assert image_call_price(overridden).microusd(2, usage) == 80_000
 
     def test_a_blank_override_in_the_environment_means_unset(
         self, monkeypatch: pytest.MonkeyPatch
@@ -202,6 +224,37 @@ class TestTheMeter:
             "page",
             "b1",
         )
+
+    def test_a_token_billed_call_stores_its_tokens_and_their_price(self, engine) -> None:
+        usage = TokenUsage(text_input_tokens=200, image_input_tokens=2500, output_tokens=196)
+
+        class _Billed(ImageProvider):
+            name = "openai"
+
+            def generate(self, request: ImageRequest) -> GeneratedImage:
+                return GeneratedImage(data=b"png", usage=usage)
+
+            def generate_candidates(
+                self, request: ImageRequest, count: int
+            ) -> list[GeneratedImage]:
+                return [GeneratedImage(data=b"png", usage=usage) for _ in range(count)]
+
+        price = CallPrice(usd=None, model="m", tokens=TokenRates(5.0, 8.0, 30.0))
+        metered = MeteredProvider(_Billed(), CostLedger(engine), price)
+        with cost_scope(purpose="book", book_id="b1", page_number=2, attempt=1):
+            metered.generate(ImageRequest(prompt="x"))
+            # Three candidates from one call are one bill, not three.
+            metered.generate_candidates(ImageRequest(prompt="x"), 3)
+        with engine.connect() as conn:
+            rows = conn.execute(select(ApiCallRow)).all()
+        expected = 200 * 5 + 2500 * 8 + 196 * 30
+        assert [row.cost_microusd for row in rows] == [expected, expected]
+        assert [
+            (r.text_input_tokens, r.image_input_tokens, r.output_tokens) for r in rows
+        ] == [
+            (200, 2500, 196),
+            (200, 2500, 196),
+        ]
 
     def test_an_unpriced_call_is_counted_as_unpriced_not_free(self, engine) -> None:
         ledger = CostLedger(engine)

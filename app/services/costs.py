@@ -16,10 +16,13 @@ Three pieces:
   real backends (wired once, in `build_container`) and write one `api_calls`
   row per call — success or failure, with the scope's book, page and attempt.
   Every call site is covered because there is only one provider object.
-* **Prices.** One image's price follows the configured provider: Agnes and the
-  mock are free, OpenAI is priced from its published per-image table for the
-  model and quality. `IMAGE_CALL_COST_USD` overrides that, and a backend whose
-  price is not known is stored as *unpriced* (null) — shown as such, never
+* **Prices.** A call's price follows the configured provider: Agnes and the
+  mock are free; OpenAI bills by token, so each call is priced from the token
+  counts its own response reports (text and image tokens in, picture tokens
+  out) at the model's published per-token rates, and those counts are stored
+  with the row. `IMAGE_CALL_COST_USD` overrides with a flat per-image figure,
+  and a call whose price is not known (an unlisted model, or a response that
+  reported no usage) is stored as *unpriced* (null) — shown as such, never
   counted as free.
 
 A failed call is recorded with a cost of zero: the providers here do not bill
@@ -44,7 +47,12 @@ from app.config import ProviderName, Settings
 from app.db import ApiCallRow, BookRow
 from app.models.story import COVER_NUMBER
 from app.services.decision_judge import Decision, DecisionJudge
-from app.services.image_providers.base import GeneratedImage, ImageProvider, ImageRequest
+from app.services.image_providers.base import (
+    GeneratedImage,
+    ImageProvider,
+    ImageRequest,
+    TokenUsage,
+)
 from app.services.reviewer import ImageReviewer, ReviewAnswer
 
 __all__ = [
@@ -56,6 +64,7 @@ __all__ = [
     "MeteredDecisionJudge",
     "MeteredProvider",
     "MeteredReviewer",
+    "TokenRates",
     "cost_scope",
     "format_microusd",
     "image_call_price",
@@ -64,10 +73,35 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-#: OpenAI's published per-image prices (dollars), by (model, quality). A model
-#: or quality not listed here is unpriced unless IMAGE_CALL_COST_USD says.
-OPENAI_IMAGE_PRICES_USD: dict[tuple[str, str], float] = {
-    ("gpt-image-2.5-flare", "low"): 0.00588,
+
+@dataclass(frozen=True, slots=True)
+class TokenRates:
+    """A token-billed model's prices, in dollars per million tokens."""
+
+    text_input: float
+    image_input: float
+    output: float
+
+    def microusd(self, usage: TokenUsage) -> int:
+        """One call's cost. Dollars per 1M tokens is micro-dollars per token."""
+        return round(
+            usage.text_input_tokens * self.text_input
+            + usage.image_input_tokens * self.image_input
+            + usage.output_tokens * self.output
+        )
+
+
+#: OpenAI's published standard-tier image-model rates (developers.openai.com/
+#: api/docs/pricing, read 2026-11-10). Quality changes how many tokens a picture
+#: takes, not the rate. A model not listed is unpriced unless
+#: IMAGE_CALL_COST_USD says.
+_GPT_IMAGE_2_RATES = TokenRates(text_input=5.00, image_input=8.00, output=30.00)
+OPENAI_IMAGE_TOKEN_RATES: dict[str, TokenRates] = {
+    "gpt-image-2": _GPT_IMAGE_2_RATES,
+    "gpt-image-2.5-flare": _GPT_IMAGE_2_RATES,
+    "gpt-image-2.5-sunburst": _GPT_IMAGE_2_RATES,
+    "gpt-image-2.6-flare": _GPT_IMAGE_2_RATES,
+    "gpt-image-2.6-sunburst": _GPT_IMAGE_2_RATES,
 }
 
 #: Every category a call is filed under, in the order the cost page lists them.
@@ -134,18 +168,45 @@ def current_scope() -> CostScope:
 
 @dataclass(frozen=True, slots=True)
 class CallPrice:
-    """One backend's price per call (None: not known) and how it is named."""
+    """How one backend's calls are priced, and how it is named.
+
+    `usd` is a flat price per image; `tokens` prices a call from the usage it
+    reports. The flat figure wins when both are set (it is the operator's
+    override); with neither, calls are unpriced.
+    """
 
     usd: float | None
     model: str
+    tokens: TokenRates | None = None
+
+    def microusd(self, images: int, usage: TokenUsage | None) -> int | None:
+        if self.usd is not None:
+            return round(self.usd * 1_000_000) * images
+        if self.tokens is not None and usage is not None:
+            return self.tokens.microusd(usage)
+        return None
+
+    def describe(self) -> str:
+        """The price as the operator reads it."""
+        if self.usd is not None:
+            return f"${self.usd:.4f} per image"
+        if self.tokens is not None:
+            rates = self.tokens
+            return (
+                f"by token, per 1M: text in ${rates.text_input:.2f}, image in "
+                f"${rates.image_input:.2f}, out ${rates.output:.2f}"
+            )
+        return "unpriced"
 
 
 def image_call_price(settings: Settings) -> CallPrice:
-    """What one image from the configured provider costs."""
+    """How a call to the configured image provider is priced."""
     provider = settings.image_provider
+    tokens: TokenRates | None = None
+    listed: float | None
     if provider == ProviderName.OPENAI:
         model = f"{settings.openai_model} ({settings.openai_quality})"
-        listed = OPENAI_IMAGE_PRICES_USD.get((settings.openai_model, settings.openai_quality))
+        listed, tokens = None, OPENAI_IMAGE_TOKEN_RATES.get(settings.openai_model)
     elif provider == ProviderName.AGNES:
         # Agnes AI's free tier: rate limited, not billed.
         model, listed = settings.agnes_model, 0.0
@@ -155,7 +216,7 @@ def image_call_price(settings: Settings) -> CallPrice:
         model, listed = "placeholder", 0.0
     if settings.image_call_cost_usd is not None:
         listed = settings.image_call_cost_usd
-    return CallPrice(usd=listed, model=model)
+    return CallPrice(usd=listed, model=model, tokens=tokens)
 
 
 def review_call_price(settings: Settings) -> CallPrice:
@@ -216,6 +277,7 @@ class CostLedger:
         cost_microusd: int | None,
         duration_ms: int,
         scope: CostScope | None = None,
+        usage: TokenUsage | None = None,
     ) -> None:
         """Log one call. Never raises: a ledger hiccup must not cost a book."""
         scope = scope or current_scope()
@@ -233,6 +295,9 @@ class CostLedger:
             "ok": ok,
             "cost_microusd": cost_microusd if ok else 0,
             "duration_ms": duration_ms,
+            "text_input_tokens": usage.text_input_tokens if usage else None,
+            "image_input_tokens": usage.image_input_tokens if usage else None,
+            "output_tokens": usage.output_tokens if usage else None,
         }
         try:
             with self._engine.begin() as conn:
@@ -242,7 +307,7 @@ class CostLedger:
             return
         logger.info(
             "cost.call kind=%s category=%s provider=%s book=%s page=%s attempt=%s "
-            "ok=%s microusd=%s",
+            "ok=%s microusd=%s tokens_in=%s/%s tokens_out=%s",
             kind,
             row["category"],
             provider,
@@ -251,6 +316,9 @@ class CostLedger:
             scope.attempt or "-",
             ok,
             row["cost_microusd"] if row["cost_microusd"] is not None else "unpriced",
+            row["text_input_tokens"] if usage else "-",
+            row["image_input_tokens"] if usage else "-",
+            row["output_tokens"] if usage else "-",
         )
 
     def adopt_drafts(self, book_id: str, generation_ids: list[str]) -> None:
@@ -371,7 +439,7 @@ class MeteredProvider(ImageProvider):
         except BaseException:
             self._log(images=0, ok=False, started=started)
             raise
-        self._log(images=1, ok=True, started=started)
+        self._log(images=1, ok=True, started=started, usage=image.usage)
         return image
 
     def generate_candidates(self, request: ImageRequest, count: int) -> list[GeneratedImage]:
@@ -381,8 +449,10 @@ class MeteredProvider(ImageProvider):
         except BaseException:
             self._log(images=0, ok=False, started=started)
             raise
-        # Priced per image returned: one call with n=3 is three images' worth.
-        self._log(images=len(images), ok=True, started=started)
+        # One call, one bill: every image carries the same call's usage. A flat
+        # per-image price counts each image returned (n=3 is three images).
+        usage = images[0].usage if images else None
+        self._log(images=len(images), ok=True, started=started, usage=usage)
         return images
 
     def health_check(self) -> tuple[bool, str]:
@@ -392,15 +462,18 @@ class MeteredProvider(ImageProvider):
     def draws_placeholders(self) -> bool:
         return self._inner.draws_placeholders
 
-    def _log(self, *, images: int, ok: bool, started: float) -> None:
+    def _log(
+        self, *, images: int, ok: bool, started: float, usage: TokenUsage | None = None
+    ) -> None:
         self._ledger.record(
             kind="image",
             provider=self.name,
             model=self._price.model,
             images=images,
             ok=ok,
-            cost_microusd=_micros(self._price.usd, images),
+            cost_microusd=self._price.microusd(images, usage),
             duration_ms=round((time.monotonic() - started) * 1000),
+            usage=usage,
         )
 
 

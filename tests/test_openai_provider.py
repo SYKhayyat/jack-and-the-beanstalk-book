@@ -17,6 +17,7 @@ from app.services.image_providers.base import (
     ImageRequest,
     ProviderError,
     ProviderUnavailable,
+    TokenUsage,
 )
 from app.services.image_providers.openai_provider import (
     QUALITIES,
@@ -38,6 +39,20 @@ class FakeItem:
 @dataclass
 class FakeResponse:
     data: list[FakeItem] = field(default_factory=list)
+    usage: Any = None
+
+
+@dataclass
+class FakeDetails:
+    text_tokens: int | None = None
+    image_tokens: int | None = None
+
+
+@dataclass
+class FakeUsage:
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    input_tokens_details: FakeDetails | None = None
 
 
 class FakeImages:
@@ -283,3 +298,39 @@ class TestSecretHandling:
 
         assert caught.value.__cause__ is None
         assert caught.value.__suppress_context__ is True
+
+
+class TestTokenUsage:
+    """Each image carries its call's reported token bill, for the cost ledger."""
+
+    def _usage(self, usage: Any) -> TokenUsage | None:
+        response = FakeResponse(data=[FakeItem(b64_json=B64)], usage=usage)
+        return build(FakeImages(response)).generate(req()).usage
+
+    def test_text_and_image_input_are_split_as_reported(self) -> None:
+        usage = FakeUsage(
+            input_tokens=3100,
+            output_tokens=196,
+            input_tokens_details=FakeDetails(text_tokens=100, image_tokens=3000),
+        )
+        assert self._usage(usage) == TokenUsage(
+            text_input_tokens=100, image_input_tokens=3000, output_tokens=196
+        )
+
+    def test_an_unsplit_input_is_counted_at_the_dearer_image_rate(self) -> None:
+        usage = FakeUsage(input_tokens=3100, output_tokens=196)
+        assert self._usage(usage) == TokenUsage(
+            text_input_tokens=0, image_input_tokens=3100, output_tokens=196
+        )
+
+    def test_no_usage_is_none_so_the_call_is_unpriced_not_free(self) -> None:
+        assert self._usage(None) is None
+        assert self._usage(FakeUsage(output_tokens=196)) is None
+
+    def test_every_candidate_carries_the_one_call_usage(self) -> None:
+        usage = FakeUsage(
+            input_tokens=10, output_tokens=600, input_tokens_details=FakeDetails(4, 6)
+        )
+        response = FakeResponse(data=[FakeItem(b64_json=B64)] * 3, usage=usage)
+        images = build(FakeImages(response)).generate_candidates(req(), 3)
+        assert {image.usage for image in images} == {TokenUsage(4, 6, 600)}
