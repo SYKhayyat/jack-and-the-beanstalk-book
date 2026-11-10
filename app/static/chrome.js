@@ -58,3 +58,14 @@ if (menu) {
     if (menu.open && !menu.contains(event.target)) menu.open = false;
   });
 }
+
+/* A flash message is a notice, not a fixture: it has a close button and
+   goes by itself after a few seconds. */
+for (const flash of document.querySelectorAll("[data-flash]")) {
+  const dismiss = () => {
+    flash.classList.add("fading");
+    setTimeout(() => flash.remove(), 400);
+  };
+  flash.querySelector(".flash-close")?.addEventListener("click", dismiss);
+  setTimeout(dismiss, 6000);
+}

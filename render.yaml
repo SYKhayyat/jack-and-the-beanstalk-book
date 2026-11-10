@@ -82,10 +82,10 @@ services:
       # Admission control. Beyond this, requests queue and then get 429 rather
       # than fanning out into more billable calls.
       - key: MAX_CONCURRENT_GENERATIONS
-        value: "2"
+        value: "12"
 
       - key: MAX_GENERATIONS_PER_MINUTE
-        value: "12"
+        value: "120"
 
       - key: STORAGE_DIR
         value: /tmp/jack-and-the-beanstalk-book-storage

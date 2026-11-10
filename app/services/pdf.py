@@ -78,7 +78,7 @@ _MARGIN_CAP = 0.50  # the margin may take this fraction of the art height before
 
 # The page's paper. Public because the template check samples the drawn page
 # against it (tests/test_page_template.py), not because callers may change it.
-PAPER_RGB = (250, 246, 236)
+PAPER_RGB = (244, 234, 210)
 _INK = (64, 48, 32)
 _GOLD = (184, 142, 64)
 _SHADOW = (24, 16, 8)

@@ -96,7 +96,7 @@ PASS_SCORE = 70
 #: that is how a reviewer quietly doubles its own cost. A failed call is not
 #: billed, so these retries cost nothing; a real run lost 6 of 49 reviews to
 #: them before this existed.
-_TRANSIENT_BACKOFF_SECONDS: tuple[float, ...] = (4.0, 12.0, 30.0)
+_TRANSIENT_BACKOFF_SECONDS: tuple[float, ...] = (3.0,)
 
 #: HTTP statuses that mean "try again shortly", not "this request is wrong".
 _TRANSIENT_CODES = frozenset({408, 429, 500, 502, 503, 504})
@@ -265,7 +265,7 @@ class GeminiReviewer:
         self,
         api_key: str,
         model: str = "gemini-3.1-flash-lite",
-        timeout_seconds: int = 60,
+        timeout_seconds: int = 20,
     ):
         if not api_key.strip():
             raise ReviewerUnavailable(

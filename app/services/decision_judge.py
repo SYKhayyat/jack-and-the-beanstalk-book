@@ -78,7 +78,10 @@ QUESTIONS: Mapping[str, str] = {
     ),
     "deformed": (
         "Does any figure have extra or missing limbs, extra fingers, fused hands, "
-        "doubled feet, or a body that reads as broken?"
+        "doubled feet, a body that reads as broken, a body or legs passing "
+        "through a chair, table or other solid object, a figure squeezed under a "
+        "table instead of beside it, or a figure floating with nothing under or "
+        "holding it?"
     ),
     "collage": (
         "Is the frame more than one picture: a grid of tiles, panels, a character "

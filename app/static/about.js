@@ -1,5 +1,5 @@
 /* The About screen, the last step: the words for the last page, the picture
-   it shows, the page shape (when the story leaves it open), and the one
+   it shows, and the one
    button that starts the book. The name was asked first, in the studio, and
    is read from the same draft. Every field is optional; the only thing that
    can stop the book is a missing star portrait. */
@@ -43,7 +43,7 @@ function restoreFields() {
     if (saved[name] !== undefined) field(name).value = saved[name];
   }
   if (saved.details) document.getElementById("about-more").open = true;
-  for (const name of ["about_photo", "aspect_ratio"]) {
+  for (const name of ["about_photo"]) {
     if (!saved[name]) continue;
     const radio = form.querySelector(`input[name="${name}"][value="${saved[name]}"]`);
     if (radio) radio.checked = true;
@@ -58,7 +58,7 @@ function rememberFields() {
   // The name belongs to the studio's first step; keep it as it is.
   const about = { about_name: draft.about?.about_name || "" };
   for (const name of TEXT_FIELDS) about[name] = field(name).value;
-  for (const name of ["about_photo", "aspect_ratio"]) {
+  for (const name of ["about_photo"]) {
     about[name] = form.querySelector(`input[name="${name}"]:checked`)?.value || "";
   }
   draft.about = about;
@@ -123,7 +123,7 @@ async function startBook() {
     const value = field(key).value.trim();
     if (value) body.append(key, value);
   }
-  for (const key of ["about_photo", "aspect_ratio"]) {
+  for (const key of ["about_photo"]) {
     const value = form.querySelector(`input[name="${key}"]:checked`)?.value;
     if (value) body.append(key, value);
   }

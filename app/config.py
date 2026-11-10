@@ -247,7 +247,7 @@ class Settings(BaseSettings):
         ),
     )
     max_concurrent_generations: int = Field(
-        default=2,
+        default=12,
         ge=1,
         le=64,
         description=(
@@ -257,7 +257,7 @@ class Settings(BaseSettings):
         ),
     )
     max_generations_per_minute: int = Field(
-        default=30,
+        default=120,
         ge=1,
         le=10_000,
         description="Per-client abuse brake for billable generation requests.",

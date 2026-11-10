@@ -697,6 +697,22 @@ button.button {
   background: var(--marigold-soft);
   color: #7a4a06;
   font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: opacity 0.4s;
+}
+.flash.fading {
+  opacity: 0;
+}
+.flash-close {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
 }
 
 /* --- book covers ------------------------------------------------------------------- */
@@ -1706,7 +1722,7 @@ dialog.modal form {
 }
 .about-fields {
   display: grid;
-  grid-template-columns: 1fr 120px;
+  grid-template-columns: 96px 1fr;
   gap: 14px 16px;
   margin: 20px 0;
 }
@@ -1714,6 +1730,10 @@ dialog.modal form {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.about-fields .field.grow input {
+  font-size: 18px;
+  padding: 14px 16px;
 }
 .about-fields .field.wide {
   grid-column: 1 / -1;
@@ -1743,48 +1763,6 @@ dialog.modal form {
 }
 .choice-card input {
   accent-color: var(--bean);
-}
-.choice-picture {
-  width: 72px;
-  height: 56px;
-  border-radius: 8px;
-  background: var(--paper);
-  border: 2px solid var(--line);
-  position: relative;
-}
-.choice-cartoon {
-  background: radial-gradient(circle at 50% 45%, var(--skin) 0 12px, transparent 13px), var(--marigold-soft);
-  border-color: var(--marigold);
-}
-.choice-photo {
-  background: radial-gradient(circle at 50% 45%, var(--photo-ink) 0 12px, transparent 13px), var(--photo-soft);
-}
-.choice-both {
-  background:
-    radial-gradient(circle at 30% 45%, var(--photo-ink) 0 9px, transparent 10px),
-    radial-gradient(circle at 70% 45%, var(--skin) 0 9px, transparent 10px),
-    linear-gradient(90deg, var(--photo-soft) 50%, var(--marigold-soft) 50%);
-}
-.shapes .shape-icon {
-  display: inline-block;
-  border: 2px solid var(--ink-soft);
-  border-radius: 3px;
-}
-.shape-4x3 {
-  width: 20px;
-  height: 15px;
-}
-.shape-1x1 {
-  width: 16px;
-  height: 16px;
-}
-.shape-3x4 {
-  width: 14px;
-  height: 18px;
-}
-.shape-16x9 {
-  width: 22px;
-  height: 12px;
 }
 .locked-in {
   font-size: 14px;
@@ -1831,7 +1809,7 @@ dialog.modal form {
    right). Before it runs, the stacked page simply takes the column's width. */
 
 .book-screen {
-  --page-paper: #faf6ec; /* the PDF's PAPER_RGB */
+  --page-paper: #f4ead2; /* the PDF's PAPER_RGB */
   --page-ink: #403020; /* the PDF's _INK */
   --page-gold: #b88e40; /* the PDF's _GOLD */
 }
@@ -1920,6 +1898,12 @@ dialog.modal form {
   height: 100%;
   aspect-ratio: auto;
   border-radius: 0;
+}
+/* Stacked, the cover is the whole page: art and word band together, so it is
+   exactly as big as every page after it. */
+.reader[data-layout="stacked"] .leaf.is-cover .leaf-art {
+  aspect-ratio: auto;
+  height: calc(var(--art-h) + var(--band-h));
 }
 .leaf-text {
   position: relative;

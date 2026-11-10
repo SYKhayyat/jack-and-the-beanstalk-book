@@ -4,7 +4,7 @@ One flow, one screen per step (``docs/ui-redesign-plan.md``):
 
     /                               the shelf — choose a book
     /stories/{story}/studio         give the characters faces
-    /stories/{story}/about          say who it is for, choose the page shape
+    /stories/{story}/about          say who it is for
     /books/{book_id}                watch it being drawn, then read and keep it
 
 Every page shares one header (wordmark, My books, wallet, sign out) built by
@@ -22,7 +22,6 @@ from fastapi.templating import Jinja2Templates
 from app.dependencies import ContainerDep
 from app.models import (
     ApparentAge,
-    AspectRatio,
     Expression,
     HairColour,
     HairStyle,
@@ -51,14 +50,6 @@ from app.stories import shelf as shelf_cards
 __all__ = ["page_chrome", "router"]
 
 router = APIRouter(tags=["web"])
-
-#: The page shapes the About screen offers, in the order a person thinks of them.
-_PAGE_SHAPES = (
-    (AspectRatio.LANDSCAPE, "Landscape"),
-    (AspectRatio.PORTRAIT, "Square"),
-    (AspectRatio.TALL, "Portrait"),
-    (AspectRatio.CINEMATIC, "Wide"),
-)
 
 _ABOUT_PHOTO_LABELS = (
     (AboutPhotoChoice.CARTOON, "The cartoon"),
@@ -163,12 +154,10 @@ def about_screen(
 ) -> HTMLResponse:
     """The last step: the words for the last page, its picture, and Make the book.
 
-    The page shape is offered only when the story leaves it open; a plated
-    story's pages are its plates' shape.
+    There is no page-shape choice: every page is the plates' shape.
     """
     story, edition = _startable_or_404(container, story_key)
     chrome = page_chrome(container, session, request)
-    rules = story_rules(edition)
     return _render(
         request,
         "about_page.html",
@@ -177,8 +166,6 @@ def about_screen(
             "story": story,
             "steps": _steps(edition),
             "names": dict(edition.names),
-            "page_shapes": _PAGE_SHAPES if rules.page_shape is None else (),
-            "default_shape": rules.defaults().aspect_ratio,
             "about_photo_choices": _ABOUT_PHOTO_LABELS,
             "cast": [
                 ("star", "Star"),

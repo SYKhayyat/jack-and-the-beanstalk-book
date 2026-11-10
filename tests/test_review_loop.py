@@ -597,7 +597,6 @@ class TestTheReviewer:
         reviewer = GeminiReviewer("k", model="gemini-x")
         reviewer._sleep = lambda _seconds: None
         answers: list[Any] = [
-            RuntimeError("429 RESOURCE_EXHAUSTED. quota"),
             RuntimeError("503 UNAVAILABLE. high demand"),
             Mock(text='{"passed": true, "score": 90, "faults": [], "note": "ok"}'),
         ]
@@ -616,7 +615,7 @@ class TestTheReviewer:
         answer = reviewer.review(
             image, media_type="image/png", page_title="t", story_line="s", cast="c"
         )
-        assert answer.passed and len(calls) == 3
+        assert answer.passed and len(calls) == 2
 
         calls.clear()
         answers[:] = [RuntimeError("400 INVALID_ARGUMENT")]
@@ -678,7 +677,7 @@ class TestTheReviewer:
                 story_line="s",
                 cast="c",
             )
-        assert len(calls) == 4  # the first try plus three bounded retries
+        assert len(calls) == 2  # the first try plus one bounded retry
 
     def test_a_strict_json_answer_is_read(self) -> None:
         answer = parse_answer('{"passed": true, "score": 80, "faults": [], "note": "fine"}')

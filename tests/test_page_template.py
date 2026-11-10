@@ -142,7 +142,7 @@ class TestStoryPageGeometry:
         content = page.get_contents().get_data().decode("latin-1")
         expected = " ".join(f"{channel / 255:.4f}" for channel in PAPER_RGB)
         assert f"{expected} rg" in content
-        assert PAPER_RGB == (250, 246, 236)
+        assert PAPER_RGB == (244, 234, 210)
 
 
 class TestCoverTitleBand:

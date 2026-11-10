@@ -63,7 +63,7 @@
   </header>
 
   <main id="main" class="{% block main_class %}page{% endblock %}">
-    {% if flash %}<p class="flash" role="status" aria-live="polite">{{ flash }}</p>{% endif %}
+    {% if flash %}<p class="flash" role="status" aria-live="polite" data-flash><span>{{ flash }}</span><button type="button" class="flash-close" aria-label="Dismiss">×</button></p>{% endif %}
     {% block content %}{% endblock %}
   </main>
 

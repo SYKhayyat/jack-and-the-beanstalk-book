@@ -34,7 +34,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from time import monotonic
 from typing import Any, TypeVar, cast
@@ -53,7 +53,12 @@ from app.services.book_store import (
 from app.services.concurrency import ConcurrencyGate, GateTimeout, Slot
 from app.services.costs import cost_scope
 from app.services.decision_judge import COIN, Decision, DecisionJudge, Outcome
-from app.services.image_providers.base import GeneratedImage, ImageProvider, ImageRequest
+from app.services.image_providers.base import (
+    GeneratedImage,
+    ImageProvider,
+    ImageRequest,
+    ProviderError,
+)
 from app.services.image_review import review_image
 from app.services.media import media_type_for
 from app.services.pdf import PageArt
@@ -88,6 +93,9 @@ __all__ = ["MAX_PAGE_ATTEMPTS", "BookRunner", "CharacterReference"]
 MAX_PAGE_ATTEMPTS = 3
 
 logger = logging.getLogger(__name__)
+
+#: How long a reviewer that has just failed is left alone before it is asked again.
+_REVIEWER_COOLDOWN = timedelta(minutes=2)
 
 _T = TypeVar("_T")
 
@@ -895,6 +903,10 @@ class BookRunner:
                     exc.until.isoformat(),
                 )
             except Exception as exc:
+                # A reviewer that just failed is not asked again by the other
+                # pages for a couple of minutes: each ask would only wait out
+                # the same failure, and the decision judge decides meanwhile.
+                self._reviewer_rests_until = datetime.now(UTC) + _REVIEWER_COOLDOWN
                 logger.warning(
                     "book.review user=%s book=%s page=%d attempt=%d tier=2 "
                     "outcome=unavailable error=%s",
@@ -1051,7 +1063,28 @@ class BookRunner:
             with cost_scope(
                 purpose="book", book_id=book_id, page_number=page_number, attempt=attempt
             ):
-                drawn = await draw(prompt)
+                try:
+                    drawn = await draw(prompt)
+                except ProviderError as exc:
+                    # The provider's safety system refused this picture. That is
+                    # a verdict on one drawing, not on the book: keep the best
+                    # earlier attempt, or ask again if there is none yet.
+                    if "moderation_blocked" not in str(exc):
+                        raise
+                    logger.warning(
+                        "book.page_blocked user=%s book=%s page=%d attempt=%d "
+                        "kept_earlier=%s",
+                        user,
+                        book_id,
+                        page_number,
+                        attempt,
+                        best is not None,
+                    )
+                    if best is not None or attempt == self._page_attempts:
+                        if best is None:
+                            raise
+                        break
+                    continue
                 image = drawn.data
                 if on_stage is not None:
                     await on_stage(_STAGE_REVIEWING, attempt)

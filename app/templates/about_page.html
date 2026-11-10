@@ -23,9 +23,12 @@
     <div class="about-fields">
       <div class="field narrow">
         <label for="about-age">How old is <span data-role="star-name">the star</span>?</label>
-        <input type="number" id="about-age" name="about_age" min="0" max="99" inputmode="numeric">
+        <select id="about-age" name="about_age">
+          <option value="">—</option>
+          {% for n in range(1, 100) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+        </select>
       </div>
-      <div class="field">
+      <div class="field grow">
         <label for="about-title">What do they want to be?</label>
         <input type="text" id="about-title" name="about_title" maxlength="60" placeholder="an astronaut">
       </div>
@@ -43,20 +46,10 @@
       {% for value, label in about_photo_choices %}
       <label class="choice-card">
         <input type="radio" name="about_photo" value="{{ value }}" {% if loop.first %}checked{% endif %}>
-        <span class="choice-picture choice-{{ value }}" aria-hidden="true"></span>
         <span>{{ label }}</span>
       </label>
       {% endfor %}
     </fieldset>
-
-    {% if page_shapes %}
-    <fieldset class="segmented shapes">
-      <legend>Page shape</legend>
-      {% for value, label in page_shapes %}
-      <label><input type="radio" name="aspect_ratio" value="{{ value }}" {% if value == default_shape %}checked{% endif %}> <span class="shape-icon shape-{{ value|replace(':', 'x') }}" aria-hidden="true"></span>{{ label }}</label>
-      {% endfor %}
-    </fieldset>
-    {% endif %}
 
     <p class="locked-in" id="about-cast-summary" data-cast='{{ cast|tojson }}'></p>
 

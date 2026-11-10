@@ -433,10 +433,8 @@ def test_the_about_screen_holds_the_book_wide_choices(about_html: str) -> None:
     for value in ("cartoon", "photo", "both"):
         assert f'name="about_photo" value="{value}"' in about_html
     assert re.search(r'name="about_photo" value="cartoon" checked', about_html)
-    shapes = re.findall(r'name="aspect_ratio" value="([^"]+)"', about_html)
-    assert set(shapes) == {"4:3", "1:1", "3:4", "16:9"}
-    default = CartoonSettings().aspect_ratio
-    assert re.search(rf'name="aspect_ratio" value="{re.escape(default)}" checked', about_html)
+    assert 'name="aspect_ratio"' not in about_html, "plates fix the page shape"
+    assert '<select id="about-age"' in about_html
     assert 'id="make-book"' in about_html
     assert "What do they want to be?" in about_html
 
