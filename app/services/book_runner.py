@@ -65,6 +65,7 @@ from app.services.image_providers.base import (
 )
 from app.services.image_review import review_image
 from app.services.media import media_type_for
+from app.services.pictures import page_slot, warm_variants
 from app.services.pipeline import UnknownGeneration
 from app.services.plate_paste import paste_plate_back
 from app.services.prompts import (
@@ -275,6 +276,21 @@ class BookRunner:
         return await asyncio.get_running_loop().run_in_executor(
             self._image_pool, partial(func, *args, **kwargs)
         )
+
+    async def _warm_picture(self, book_id: str, slot: str) -> None:
+        """Make a picture's usual screen copies while the book is still rendering.
+
+        The full-size picture is what the PDF embeds, but a reader wants the
+        240 px thumbnail and the 800 px page; made lazily, they would be 42
+        encodes on the first view of a 21-page book, one at a time, while
+        somebody waits (S2/B12). The 1600 px copy stays lazy. A failure here is
+        logged and never fails the page: the picture is saved, and the media
+        route can still make the copy on demand.
+        """
+        try:
+            await self._image_work(warm_variants, self._book_store, book_id, slot)
+        except Exception:
+            logger.warning("book.warm_failed book=%s slot=%s", book_id, slot, exc_info=True)
 
     async def close(self) -> None:
         """Stop for a shutdown: pause every running book, then free the pool.
@@ -916,6 +932,7 @@ class BookRunner:
                 await asyncio.to_thread(
                     self._book_store.save_page, book_id, page.number, attempts.image
                 )
+                await self._warm_picture(book_id, page_slot(page.number))
                 await self._record(book_id, page.number, page.key or "", attempts)
                 costs[page.number] = (
                     "edit" if plate is not None else "compose",
@@ -939,6 +956,7 @@ class BookRunner:
                 await asyncio.to_thread(
                     self._book_store.save_page, book_id, page.number, premade.image
                 )
+                await self._warm_picture(book_id, page_slot(page.number))
                 await self._record(
                     book_id,
                     page.number,
@@ -1259,6 +1277,7 @@ class BookRunner:
             on_stage=on_stage,
         )
         await asyncio.to_thread(self._book_store.save_cover, record.book_id, attempts.image)
+        await self._warm_picture(record.book_id, page_slot(COVER_NUMBER))
         await self._record(record.book_id, COVER_NUMBER, COVER_KEY, attempts)
         await mark(COVER_NUMBER, "done")
         return attempts.image

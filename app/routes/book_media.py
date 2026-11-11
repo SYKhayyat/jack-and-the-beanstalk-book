@@ -38,8 +38,8 @@ from app.services.pictures import (
     encode_variant,
     page_slot,
     short_version,
+    variant_locks,
 )
-from app.single_flight import KeyedLocks
 
 __all__ = ["router"]
 
@@ -47,8 +47,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/book-media", tags=["book-media"])
 
-#: One screen copy made at a time per picture and width (see app.single_flight).
-_variant_locks = KeyedLocks()
 _WIDTHS_LISTED = ", ".join(str(width) for width in sorted(VARIANT_WIDTHS))
 
 
@@ -247,7 +245,7 @@ def _make_variant(
 
     A request that waited on the lock finds the copy the first one saved.
     """
-    with _variant_locks.hold((book_id, slot, width, sha)):
+    with variant_locks.hold((book_id, slot, width, sha)):
         made = store.read_variant(book_id, slot, width, sha)
         if made is not None:
             return made, "stored"

@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from app.routes import book_media
+from app.services import pictures
 from app.single_flight import KeyedLocks
 
 
@@ -60,7 +61,7 @@ def test_concurrent_misses_encode_once_and_all_get_the_copy(
     assert calls == [480]
     assert sorted(outcome for _, outcome in results) == ["encoded"] + ["stored"] * 5
     assert all(data == b"webp" for data, _ in results)
-    assert len(book_media._variant_locks) == 0
+    assert len(pictures.variant_locks) == 0
 
 
 def test_different_keys_do_not_wait_on_each_other() -> None:

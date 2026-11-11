@@ -20,6 +20,7 @@ from PIL import Image
 
 from app.services.book_store import BookStatus
 from app.services.pictures import (
+    DISPLAY_WIDTHS,
     THUMB_WIDTH,
     VARIANT_WIDTHS,
     encode_variant,
@@ -39,6 +40,29 @@ def finished(client: TestClient) -> tuple[TestClient, str]:
 
 
 # --- the URL scheme ---------------------------------------------------------------
+
+
+def test_a_finished_book_arrives_with_its_screen_copies_already_made(
+    finished: tuple[TestClient, str],
+) -> None:
+    """S2/B12: the first view used to pay 42 encodes, one page at a time.
+
+    A page is saved at the size the PDF embeds; the 240 px thumbnail and the
+    800 px page are made on the render's image pool as each picture is saved,
+    so a reader opening the finished book finds them already there. The
+    1600 px copy stays lazy — only a large screen asks for it.
+    """
+    client, book_id = finished
+    store = client.app.state.container.book_store  # type: ignore[attr-defined]
+    pages = client.get(f"/api/book/{book_id}").json()["pages"]
+    slots = {page_slot(int(page["number"])) for page in pages if page["status"] == "done"}
+    assert slots
+    for slot in sorted(slots):
+        sha = store.picture_sha(book_id, slot)
+        assert sha is not None, f"{slot} has no stored hash"
+        assert store.read_variant(book_id, slot, THUMB_WIDTH, sha) is not None, slot
+        assert store.read_variant(book_id, slot, DISPLAY_WIDTHS[0], sha) is not None, slot
+        assert store.read_variant(book_id, slot, DISPLAY_WIDTHS[-1], sha) is None, slot
 
 
 def test_a_picture_set_names_every_size_under_one_version() -> None:

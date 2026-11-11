@@ -17,10 +17,15 @@ from __future__ import annotations
 import io
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from PIL import Image
 
+from app.single_flight import KeyedLocks
 from app.transcoding import transcoding
+
+if TYPE_CHECKING:
+    from app.services.book_store import BookStore
 
 __all__ = [
     "DISPLAY_WIDTHS",
@@ -33,6 +38,8 @@ __all__ = [
     "picture_set",
     "short_version",
     "slot_page",
+    "variant_locks",
+    "warm_variants",
 ]
 
 logger = logging.getLogger(__name__)
@@ -43,6 +50,17 @@ DISPLAY_WIDTHS: tuple[int, ...] = (800, 1600)
 THUMB_WIDTH = 240
 VARIANT_WIDTHS = frozenset((THUMB_WIDTH, *DISPLAY_WIDTHS))
 VARIANT_MEDIA_TYPE = "image/webp"
+
+#: The copies made the moment a picture is saved: the thumbnail the library and
+#: the page map show, and the 800 px page a phone reads. The 1600 px copy stays
+#: lazy — only a large screen asks for it, and making 42 of them while the
+#: reader waits was the stall (S2/B12).
+WARM_WIDTHS: tuple[int, ...] = (THUMB_WIDTH, DISPLAY_WIDTHS[0])
+
+#: One screen copy at a time per picture and width, shared by the warm-up that
+#: follows a save and by the lazy encode in the media route, so the two can
+#: never make the same copy twice.
+variant_locks = KeyedLocks()
 
 _VERSION_DIGITS = 16
 # Quality 80 is visually indistinguishable from the PNG at reading size, and a
@@ -102,6 +120,35 @@ def picture_set(url: str, sha256: str | None) -> PictureSet:
         srcset=", ".join(f"{sized(width)} {width}w" for width in DISPLAY_WIDTHS),
         thumb=sized(THUMB_WIDTH),
     )
+
+
+def warm_variants(
+    store: BookStore, book_id: str, slot: str, widths: tuple[int, ...] = WARM_WIDTHS
+) -> int:
+    """Make the copies a picture is normally viewed at, now that it is saved.
+
+    Runs on the render's image pool, right after the picture is stored, so a
+    reader opening the finished book finds the copies already there instead of
+    paying for them one at a time while the first page loads.
+
+    The copy is made from the picture read back out of the store and filed
+    under the hash the store recorded, so it can never belong to a picture
+    that has since been redrawn. Returns how many copies were made.
+    """
+    sha = store.picture_sha(book_id, slot)
+    if sha is None:
+        return 0
+    picture = store.read_picture(book_id, slot)
+    if picture is None:
+        return 0
+    made = 0
+    for width in widths:
+        with variant_locks.hold((book_id, slot, width, sha)):
+            if store.read_variant(book_id, slot, width, sha) is not None:
+                continue
+            store.save_variant(book_id, slot, width, sha, encode_variant(picture, width))
+            made += 1
+    return made
 
 
 def encode_variant(data: bytes, width: int) -> bytes:

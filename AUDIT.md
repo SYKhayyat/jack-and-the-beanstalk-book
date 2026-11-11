@@ -76,6 +76,8 @@ The book is a gift for a child; “checks”, “tries” and “best effort” 
 
 **Fix:** hide the chip for `attempts === 1`; for retries say something human (“Redrawn once”) or move the whole record to the operator page; never show “Best of 1 tries”. Keep the detailed record in `/admin/books/{id}` where it belongs.
 
+**Done (11 Nov 2026, `8dad299` then `6fa847d`):** the chip, the page-map count and the in-flight try count are gone from the reader altogether, as asked: a redraw now reads exactly like a draw. The record stays in the poll, in `data-attempts` and in full on `/admin/books/{id}`.
+
 ### B7 — P2: the page number and the printed folio disagree on the same page
 The first story page is labelled `Page 1 of 20`, while its printed folio is `2` (`app/templates/book.html:32`, `app/static/book-live.js:90–93`). The cover is counted as page 1 in the PDF folio (`app/services/pdf.py:386–390`) but not in the reader's page counter, and the shelf copy says “20 pages and a cover”. Three numbering schemes are visible at once.
 
@@ -105,6 +107,8 @@ The first story page is labelled `Page 1 of 20`, while its printed folio is `2` 
 On the first view of any newly completed book, every image URL is a `?w=1600&v=…` URL; the server creates and stores each WebP variant when first requested. A 21-page book therefore pays 42 encodes (800/1600) plus 21 thumbnails, one request at a time, with no background warm-up (`app/routes/book_media.py:227–260`). On a slow instance the page turns feel stalled even though the images are local.
 
 **Fix:** generate the 800 and 240 variants immediately after `save_page`/`save_cover` (in the image pool), and keep the 1600 copy lazy; or make variant generation part of the book's “assembling” phase.
+
+**Done (11 Nov 2026):** `warm_variants` (`app/services/pictures.py`) runs on the render's image pool right after each page, premade page and cover is saved, filing the 240 px and 800 px copies under the hash the store recorded; the 1600 px copy stays lazy, and the warm-up and the media route share one lock. Pinned by `test_a_finished_book_arrives_with_its_screen_copies_already_made`.
 
 ---
 
@@ -180,6 +184,8 @@ See B1. This is the one that turns a slow book into a lost book.
 
 ### S2 — P1: image variants are encoded on first view, serially
 See B12. Measured 0.28 s (800 px) and 0.38 s (1600 px) per 1152×864 image on a development CPU; 21 pages × two widths = ~14 s of CPU before thumbnails and the first page are all warm, on top of the image download. On the free Render CPU this is much worse and happens while the reader is open. Precompute after save; keep the 1600 copy lazy.
+
+**Done (11 Nov 2026):** the 240 px and 800 px copies are made as each picture is saved (B12); a first view of a finished book encodes nothing at those widths.
 
 ### S3 — P1: the configured throughput cannot meet the “under 60 seconds” goal
 `OPENAI_IMAGES_PER_MINUTE=18` (`render.yaml`) paces the provider, and a real book averages about 52 image calls (21 pages + cover + 1–2 redraws), so the pacer alone needs ~3 minutes. `MAX_CONCURRENT_GENERATIONS=8` on a 512 MB free instance is already a memory risk (the blueprint comment records an OOM at 8 before the pool change). The Run 1 live book took 16–17 minutes.
