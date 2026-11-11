@@ -455,8 +455,11 @@ def _tiles(raw: object, rendered: list[BookPage]) -> list[dict[str, Any]]:
         tiles.append(
             {
                 "number": number,
-                "label": "Cover" if number == COVER_NUMBER else f"Page {number}",
-                "short": "C" if number == COVER_NUMBER else str(number),
+                # The cover is page 1 (the PDF prints story page n as n + 1),
+                # so the map's story labels carry the same number as the
+                # folio and the reader bar (B7).
+                "label": "Cover" if number == COVER_NUMBER else f"Page {number + 1}",
+                "short": "C" if number == COVER_NUMBER else str(number + 1),
                 "title": entry.get("title") or title,
                 "story": book_text(str(entry.get("story", story) or "")),
                 "status": status,

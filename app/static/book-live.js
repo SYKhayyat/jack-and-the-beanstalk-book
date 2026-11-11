@@ -90,7 +90,10 @@ function initialIndex() {
 function spreadName(position) {
   if (position === 0) return { hash: "cover", label: "Cover" };
   if (position === lastIndex) return { hash: "about", label: "About" };
-  return { hash: `page-${position}`, label: `Page ${position} of ${lastIndex - 1}` };
+  // The cover is page 1, as the printed folio and the PDF count it; the
+  // About spread is outside the numbering. So the first story page is page 2
+  // of 21 (20 story pages + the cover), the same number printed on it (B7).
+  return { hash: `page-${position}`, label: `Page ${position + 1} of ${lastIndex}` };
 }
 
 function show(wanted, { animate = true } = {}) {

@@ -138,6 +138,12 @@ def test_the_reader_sets_every_page_as_a_book(finished: tuple[TestClient, str]) 
     # Story pages: sized art, the words on the page, a folio; page 1 a drop cap.
     assert html.count('class="leaf-text"') == 20
     assert html.count('class="folio"') == 20
+    # The cover is page 1, so the story pages are numbered 2..21 — the same
+    # rule the PDF uses and the reader bar now states (B7).
+    folios = re.findall(r'class="folio"[^>]*>(\d+)<', html)
+    assert folios == [str(number) for number in range(2, 22)]
+    assert 'aria-label="Page 2,' in html
+    assert 'class="map-number">2<' in html
     assert 'class="spread-story story-text drop-cap"' in html
     assert "srcset=" in html and "?w=800&amp;v=" in html
     # The page picker stays, folded, once the book is finished (U9).
@@ -152,6 +158,12 @@ def test_a_finished_book_opens_on_its_cover() -> None:
     source = (STATIC / "book-live.js").read_text()
     assert 'if (status === "complete") return 0;' in source
     assert 'if (status === "complete") return lastIndex;' not in source
+
+
+def test_the_reader_bar_counts_the_cover_as_page_one() -> None:
+    source = (STATIC / "book-live.js").read_text()
+    assert "label: `Page ${position + 1} of ${lastIndex}`" in source
+    assert "Page ${position} of ${lastIndex - 1}" not in source
 
 
 def test_the_face_edit_says_whose_he_or_she_the_portrait_follows() -> None:
