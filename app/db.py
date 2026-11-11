@@ -397,6 +397,29 @@ class TemplatePlateRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
+class TemplatePortraitRow(Base):
+    """A fixed portrait of one supporting character: the face a book draws them with.
+
+    Used when the visitor uploaded no photo of that character. Status moves
+    draft -> approved -> retired, as plates do; image and media type are never
+    rewritten. A version pins the approved portrait it was made with.
+    """
+
+    __tablename__ = "template_portraits"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    story_key: Mapped[str] = mapped_column(
+        ForeignKey("stories.key", ondelete="RESTRICT"), index=True
+    )
+    cast_key: Mapped[str] = mapped_column(String(64))
+    image: Mapped[bytes] = mapped_column(BlobRef)
+    media_type: Mapped[str] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(16))
+    approved_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
 class TemplateVersionRow(Base):
     """The one thing a book pins: a complete, immutable set of plates, words and looks."""
 
@@ -443,6 +466,10 @@ class TemplateVersionCharacterRow(Base):
     cast_key: Mapped[str] = mapped_column(String(64), primary_key=True)
     character_id: Mapped[int] = mapped_column(
         ForeignKey("story_characters.id", ondelete="RESTRICT")
+    )
+    #: The fixed portrait this version draws the character with, or NULL for none.
+    portrait_id: Mapped[str | None] = mapped_column(
+        ForeignKey("template_portraits.id", ondelete="RESTRICT"), nullable=True, index=True
     )
 
 

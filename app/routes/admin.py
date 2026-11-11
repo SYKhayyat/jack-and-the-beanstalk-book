@@ -5,6 +5,11 @@ Three screens, one gate:
     /admin/plates                               every story and its progress
     /admin/plates/{story}                       the contact sheet — all 21 plates
     /admin/plates/{story}/{page}                one page's candidates, to approve
+    /admin/plates/{story}/cast/{cast_key}       a supporting character's fixed portrait
+
+The portrait screen (P2) takes one draft per upload and approves one of them; the
+approved portrait is what a book draws a character with when its visitor gave no
+photograph. The star has no fixed portrait, so the screen answers 404 for the star.
 
 and one switch per story, the start gate (T6.5): `POST /admin/plates/{story}/gate`
 decides whether a book of that story may start before its plates are all
@@ -30,14 +35,16 @@ visitor already started changes.
 
 from __future__ import annotations
 
+import io
 import logging
 import threading
 from typing import Annotated, Any
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from PIL import Image
 
 from app.books import SEEDS, StorySeed, picture_cast
 from app.container import Container
@@ -56,6 +63,7 @@ from app.services.template_store import (
     PlateNotApprovable,
     PlateStatus,
     PlateSummary,
+    PortraitSummary,
     Slot,
     TemplateError,
     TemplateStore,
@@ -63,6 +71,7 @@ from app.services.template_store import (
 )
 
 __all__ = ["operator_or_404", "render_admin", "router"]
+
 
 logger = logging.getLogger(__name__)
 
@@ -664,3 +673,189 @@ def _candidate(plate: PlateSummary, store: TemplateStore, page_number: int) -> d
         view["can_approve"] = ok
         view["reason"] = reason
     return view
+
+
+# --- the fixed portraits of supporting characters ---------------------------
+#
+# A book whose visitor gave no photo of a supporting character is drawn with
+# that character's approved portrait, pinned by its template version. These
+# screens add candidates and settle which one is approved, one character at a
+# time. The star has no fixed portrait: their face is the book's own.
+
+PORTRAIT_UPLOAD_LIMIT = 8 * 1024 * 1024
+_PORTRAIT_FORMATS = frozenset({"PNG", "JPEG", "WEBP"})
+
+
+def _cast_or_404(story_key: str, cast_key: str) -> StorySeed:
+    seed = _seed_or_404(story_key)
+    if cast_key == seed.star or cast_key not in seed.cast:
+        raise HTTPException(status_code=404, detail="Not Found")
+    return seed
+
+
+def _cast_url(story_key: str, cast_key: str, *, error: str = "") -> str:
+    path = f"/admin/plates/{story_key}/cast/{cast_key}"
+    return f"{path}?{urlencode({'error': error})}" if error else path
+
+
+def _portrait_view(portrait: PortraitSummary) -> dict[str, Any]:
+    base = f"/admin/plates/{portrait.story_key}/cast/{portrait.cast_key}/{portrait.id}"
+    return {
+        "id": portrait.id,
+        "status": portrait.status,
+        "url": f"{base}.png",
+        "approve_url": f"{base}/approve",
+        "retire_url": f"{base}/retire",
+        "approved_by": portrait.approved_by,
+        "created": portrait.created_at.strftime("%Y-%m-%d %H:%M"),
+    }
+
+
+def _portrait_on_cast(
+    store: TemplateStore, story_key: str, cast_key: str, portrait_id: str
+) -> None:
+    """Answer 404 unless the portrait belongs to this story and character."""
+    if not any(p.id == portrait_id for p in store.portraits(story_key, cast_key)):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+
+@router.get("/plates/{story_key}/cast/{cast_key}", response_class=HTMLResponse)
+def cast_portraits(
+    story_key: str,
+    cast_key: str,
+    request: Request,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+    error: str = "",
+) -> HTMLResponse:
+    """One supporting character's candidate portraits, with the approved one first."""
+    operator_or_404(container, session)
+    seed = _cast_or_404(story_key, cast_key)
+    portraits = [_portrait_view(p) for p in store.portraits(story_key, cast_key)]
+    return render_admin(
+        request,
+        "admin_portraits.html",
+        {
+            **admin_chrome(container, session, request, "/admin/plates"),
+            "story_key": story_key,
+            "story_title": seed.title,
+            "cast_key": cast_key,
+            "label": seed.cast[cast_key].label,
+            "portraits": portraits,
+            "error": error,
+        },
+    )
+
+
+@router.post("/plates/{story_key}/cast/{cast_key}")
+async def upload_portrait(
+    story_key: str,
+    cast_key: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+    file: Annotated[UploadFile, File()],
+) -> RedirectResponse:
+    """Add a candidate portrait as a draft. Nothing is approved by uploading."""
+    operator_or_404(container, session)
+    _cast_or_404(story_key, cast_key)
+    data = await file.read(PORTRAIT_UPLOAD_LIMIT + 1)
+    if len(data) > PORTRAIT_UPLOAD_LIMIT:
+        return RedirectResponse(
+            _cast_url(story_key, cast_key, error="That picture is larger than 8 MB."),
+            status_code=303,
+        )
+    try:
+        with Image.open(io.BytesIO(data)) as probe:
+            probe.verify()
+        with Image.open(io.BytesIO(data)) as decoded:
+            fmt = decoded.format
+    except Exception:
+        fmt = None
+    if fmt not in _PORTRAIT_FORMATS:
+        return RedirectResponse(
+            _cast_url(
+                story_key, cast_key, error="That file is not a PNG, JPEG or WEBP picture."
+            ),
+            status_code=303,
+        )
+    try:
+        store.add_portrait(story_key, cast_key, image=data, media_type=Image.MIME[str(fmt)])
+    except TemplateError as exc:
+        return RedirectResponse(
+            _cast_url(story_key, cast_key, error=str(exc)), status_code=303
+        )
+    return RedirectResponse(_cast_url(story_key, cast_key), status_code=303)
+
+
+@router.get("/plates/{story_key}/cast/{cast_key}/{portrait_id}.png")
+def portrait_image(
+    story_key: str,
+    cast_key: str,
+    portrait_id: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+) -> Response:
+    """A portrait's bytes, for the operator's own screen only."""
+    operator_or_404(container, session)
+    _cast_or_404(story_key, cast_key)
+    _portrait_on_cast(store, story_key, cast_key, portrait_id)
+    image, media_type = store.portrait_image(portrait_id)
+    return no_store(image, media_type=media_type)
+
+
+@router.post("/plates/{story_key}/cast/{cast_key}/{portrait_id}/approve")
+def approve_portrait(
+    story_key: str,
+    cast_key: str,
+    portrait_id: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+) -> RedirectResponse:
+    """Approve one portrait, retiring the character's previous one."""
+    operator = operator_or_404(container, session)
+    _cast_or_404(story_key, cast_key)
+    _portrait_on_cast(store, story_key, cast_key, portrait_id)
+    try:
+        version = store.approve_portrait(portrait_id, operator=operator)
+    except PlateNotApprovable as exc:
+        logger.info("admin.portrait_refused portrait=%s reason=%s", portrait_id, exc)
+        return RedirectResponse(
+            _cast_url(story_key, cast_key, error=str(exc)), status_code=303
+        )
+    logger.info(
+        "admin.portrait_approved story=%s cast=%s portrait=%s version=%s operator=%s",
+        story_key,
+        cast_key,
+        portrait_id,
+        version or "",
+        operator,
+    )
+    return RedirectResponse(_cast_url(story_key, cast_key), status_code=303)
+
+
+@router.post("/plates/{story_key}/cast/{cast_key}/{portrait_id}/retire")
+def retire_portrait(
+    story_key: str,
+    cast_key: str,
+    portrait_id: str,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    store: TemplateDep,
+) -> RedirectResponse:
+    """Take a portrait out of future versions. Versions already written keep it."""
+    operator = operator_or_404(container, session)
+    _cast_or_404(story_key, cast_key)
+    _portrait_on_cast(store, story_key, cast_key, portrait_id)
+    store.retire_portrait(portrait_id)
+    logger.info(
+        "admin.portrait_retired story=%s cast=%s portrait=%s operator=%s",
+        story_key,
+        cast_key,
+        portrait_id,
+        operator,
+    )
+    return RedirectResponse(_cast_url(story_key, cast_key), status_code=303)

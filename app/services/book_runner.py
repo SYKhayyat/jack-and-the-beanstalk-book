@@ -1338,9 +1338,29 @@ class BookRunner:
             photo=photo,
             photo_media_type=media_type_for(photo),
             photo_is_portrait=photo_is_portrait,
-            characters=self._book_store.load_characters(record.book_id),
+            characters=self._characters(record.book_id),
             plates=self._templates.book_plates(record.book_id),
         )
+
+    def _characters(self, book_id: str) -> dict[str, CharacterReference]:
+        """The visitor's supporting faces, with the fixed portrait where they gave none.
+
+        A visitor's own photo always wins. A character with no photo gets the
+        approved portrait their book's version pins, drawn as a face of their
+        own (portrait and photo are the same picture, so it is one reference).
+        A version with no portrait for them leaves them out, as before.
+        """
+        characters = dict(self._book_store.load_characters(book_id))
+        for cast_key, fixed in self._templates.book_portraits(book_id).items():
+            if cast_key in characters:
+                continue
+            characters[cast_key] = CharacterReference(
+                portrait=fixed.image,
+                portrait_media_type=fixed.media_type,
+                photo=fixed.image,
+                photo_media_type=fixed.media_type,
+            )
+        return characters
 
     def _fail(
         self, book_id: str, message: str, *, user: str = "-", elapsed_ms: float = 0.0

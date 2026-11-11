@@ -56,6 +56,10 @@ __all__ = [
 
 _DATA = prompt_text()
 
+#: Gemini takes three reference images. A plate edit spends one on the plate,
+#: so at most two character anchors (the star's face included) go with it.
+MAX_PLATE_ANCHORS = 2
+
 _BOOK: dict[str, object] = _DATA["book"]
 
 # Fixed scaffolding around the variable parts; ``{braces}`` are filled at build
@@ -857,13 +861,27 @@ def edit_reference_cast(
     and the prompt line that names them, so image N is always the character
     the prompt says it is. The plate's slots decide who is drawn; a plate
     without slots falls back to the page's cast. The star's portrait always
-    exists; anyone else has one only when the visitor uploaded a photo.
+    exists; anyone else has one when the visitor uploaded a photo or the book
+    has the character's fixed portrait (the caller puts both in `supplied`).
+
+    At most `MAX_PLATE_ANCHORS` keys come back: the plate is already one of the
+    three references Gemini takes. The star's face is kept first; the rest keep
+    their slot order. Callers pass the result to the prompt and to the request
+    alike, so image N is still the character the prompt names.
     """
     keys = [slot.cast_key for slot in slots] or (
         [star, *page.cast] if page.star_in_picture else list(page.cast)
     )
     have = {star, *supplied}
-    return [key for key in dict.fromkeys(keys) if key in have]
+    ordered = [key for key in dict.fromkeys(keys) if key in have]
+    if len(ordered) <= MAX_PLATE_ANCHORS:
+        return ordered
+    others = [key for key in ordered if key != star]
+    room = MAX_PLATE_ANCHORS - (1 if star in ordered else 0)
+    kept = set(others[:room]) | ({star} & set(ordered))
+    # The star's face leads when the cap bites; the rest keep their slot order.
+    head = [star] if star in kept else []
+    return head + [key for key in ordered if key in kept and key != star]
 
 
 def _reference_line(

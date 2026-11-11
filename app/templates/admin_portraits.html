@@ -1,0 +1,54 @@
+{% extends "_layout.html" %}
+{% block title %}{{ label }} portrait — Storybook Studio{% endblock %}
+{% block body_attrs %}data-page="admin"{% endblock %}
+{% block header_title %}<span class="header-title">Fixed portrait</span>{% endblock %}
+{% block main_class %}page admin{% endblock %}
+{% block content %}
+  {% include "_admin_nav.html" %}
+
+  <header class="admin-head">
+    <div>
+      <p class="admin-eyebrow">{{ story_title }}</p>
+      <h1>{{ label }}</h1>
+      <p class="admin-lede">
+        The face this character is drawn with in any book whose visitor gave no
+        photograph of them. Upload candidates as drafts, then approve one. A new
+        template version pins it, and books made on that version use it.
+      </p>
+    </div>
+  </header>
+
+  {% if error %}
+  <p class="admin-error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <form class="card" method="post" action="/admin/plates/{{ story_key }}/cast/{{ cast_key }}" enctype="multipart/form-data">
+    <label>Portrait picture (PNG, JPEG or WEBP, up to 8 MB)
+      <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required>
+    </label>
+    <button type="submit">Add as draft</button>
+  </form>
+
+  <ul class="admin-portraits">
+    {% for portrait in portraits %}
+    <li class="card">
+      <img src="{{ portrait.url }}" alt="{{ label }}, {{ portrait.status }}" loading="lazy" style="max-width: 100%; height: auto;">
+      <p>
+        <strong>{{ portrait.status }}</strong> · {{ portrait.created }}
+        {% if portrait.approved_by %} · approved by {{ portrait.approved_by }}{% endif %}
+      </p>
+      {% if portrait.status == "draft" %}
+      <form method="post" action="{{ portrait.approve_url }}">
+        <button type="submit">Approve</button>
+      </form>
+      {% elif portrait.status == "approved" %}
+      <form method="post" action="{{ portrait.retire_url }}">
+        <button type="submit">Retire</button>
+      </form>
+      {% endif %}
+    </li>
+    {% else %}
+    <li class="card">No portraits yet for {{ label }}.</li>
+    {% endfor %}
+  </ul>
+{% endblock %}

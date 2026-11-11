@@ -45,6 +45,7 @@ from app.db import (
     StoryPageRow,
     StoryRow,
     TemplatePlateRow,
+    TemplatePortraitRow,
     TemplateVersionCharacterRow,
     TemplateVersionPlateRow,
     TemplateVersionRow,
@@ -63,6 +64,8 @@ __all__ = [
     "PlateNotApprovable",
     "PlateStatus",
     "PlateSummary",
+    "PortraitArt",
+    "PortraitSummary",
     "SeedReport",
     "Slot",
     "StoryState",
@@ -136,6 +139,30 @@ class PlateArt:
     image: bytes
     media_type: str
     slots: tuple[Slot, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PortraitArt:
+    """A supporting character's approved portrait, as a book draws them with it."""
+
+    cast_key: str
+    portrait_id: str
+    image: bytes
+    media_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class PortraitSummary:
+    """A fixed portrait's metadata, never its bytes."""
+
+    id: str
+    story_key: str
+    cast_key: str
+    status: str
+    media_type: str
+    created_at: datetime
+    approved_by: str | None
+    approved_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -751,6 +778,160 @@ class TemplateStore:
             for row in rows
         }
 
+    # --- fixed portraits -------------------------------------------------------
+
+    def add_portrait(
+        self, story_key: str, cast_key: str, *, image: bytes, media_type: str
+    ) -> str:
+        """Store a candidate portrait as `draft`. Never touches an approved one."""
+        if not image:
+            raise TemplateError("a portrait needs an image")
+        portrait_id = uuid.uuid4().hex
+        with self._engine.begin() as conn:
+            _require_supporting(conn, story_key, cast_key)
+            conn.execute(
+                insert(TemplatePortraitRow).values(
+                    id=portrait_id,
+                    story_key=story_key,
+                    cast_key=cast_key,
+                    image=image,
+                    media_type=media_type,
+                    status=PlateStatus.DRAFT,
+                    created_at=_now(),
+                )
+            )
+        return portrait_id
+
+    def approve_portrait(self, portrait_id: str, *, operator: str) -> str | None:
+        """Approve a portrait; return the story's current version id afterwards.
+
+        It replaces the character's previously approved portrait. A version is
+        written only when the story is otherwise complete (every page has an
+        approved plate), exactly as with plates.
+        """
+        if not operator:
+            raise TemplateError("approval needs an operator")
+        with self._engine.begin() as conn:
+            portrait = _portrait(conn, portrait_id)
+            if portrait.status == PlateStatus.APPROVED:
+                return _current_version_id(conn, portrait.story_key)
+            if portrait.status == PlateStatus.RETIRED:
+                raise PlateNotApprovable("a retired portrait cannot be approved")
+            conn.execute(
+                update(TemplatePortraitRow)
+                .where(
+                    TemplatePortraitRow.story_key == portrait.story_key,
+                    TemplatePortraitRow.cast_key == portrait.cast_key,
+                    TemplatePortraitRow.status == PlateStatus.APPROVED,
+                )
+                .values(status=PlateStatus.RETIRED)
+            )
+            conn.execute(
+                update(TemplatePortraitRow)
+                .where(TemplatePortraitRow.id == portrait_id)
+                .values(status=PlateStatus.APPROVED, approved_by=operator, approved_at=_now())
+            )
+            logger.info(
+                "templates.portrait_approved story=%s cast=%s portrait=%s",
+                portrait.story_key,
+                portrait.cast_key,
+                portrait_id,
+            )
+            return self._refresh_version(
+                conn, portrait.story_key, f"portrait approved for {portrait.cast_key}"
+            )
+
+    def retire_portrait(self, portrait_id: str) -> None:
+        """Take a portrait out of future versions. Versions already written keep it."""
+        with self._engine.begin() as conn:
+            portrait = _portrait(conn, portrait_id)
+            conn.execute(
+                update(TemplatePortraitRow)
+                .where(TemplatePortraitRow.id == portrait_id)
+                .values(status=PlateStatus.RETIRED)
+            )
+            self._refresh_version(
+                conn, portrait.story_key, f"portrait retired for {portrait.cast_key}"
+            )
+
+    def portraits(self, story_key: str, cast_key: str | None = None) -> list[PortraitSummary]:
+        """Every portrait of a story (or one character), newest first, never bytes."""
+        query = select(
+            TemplatePortraitRow.id,
+            TemplatePortraitRow.story_key,
+            TemplatePortraitRow.cast_key,
+            TemplatePortraitRow.status,
+            TemplatePortraitRow.media_type,
+            TemplatePortraitRow.created_at,
+            TemplatePortraitRow.approved_by,
+            TemplatePortraitRow.approved_at,
+        ).where(TemplatePortraitRow.story_key == story_key)
+        if cast_key is not None:
+            query = query.where(TemplatePortraitRow.cast_key == cast_key)
+        with self._engine.connect() as conn:
+            rows = conn.execute(query.order_by(TemplatePortraitRow.created_at.desc())).all()
+        return [
+            PortraitSummary(
+                id=row.id,
+                story_key=row.story_key,
+                cast_key=row.cast_key,
+                status=row.status,
+                media_type=row.media_type,
+                created_at=row.created_at,
+                approved_by=row.approved_by,
+                approved_at=row.approved_at,
+            )
+            for row in rows
+        ]
+
+    def portrait_image(self, portrait_id: str) -> tuple[bytes, str]:
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                select(TemplatePortraitRow.image, TemplatePortraitRow.media_type).where(
+                    TemplatePortraitRow.id == portrait_id
+                )
+            ).one_or_none()
+        if row is None:
+            raise UnknownTemplate("no such portrait")
+        return row.image, row.media_type
+
+    def book_portraits(self, book_id: str) -> dict[str, PortraitArt]:
+        """The fixed portraits a book is drawn with, by cast key.
+
+        Read through the book's *pinned* version, like `book_plates`. A character
+        the version gives no portrait is absent: the caller draws them from the
+        bible alone, as before portraits existed.
+        """
+        with self._engine.connect() as conn:
+            version_id = conn.execute(
+                select(BookRow.template_version_id).where(BookRow.id == book_id)
+            ).scalar_one_or_none()
+            if not version_id:
+                return {}
+            rows = conn.execute(
+                select(
+                    TemplateVersionCharacterRow.cast_key,
+                    TemplatePortraitRow.id,
+                    TemplatePortraitRow.image,
+                    TemplatePortraitRow.media_type,
+                )
+                .select_from(TemplateVersionCharacterRow)
+                .join(
+                    TemplatePortraitRow,
+                    TemplatePortraitRow.id == TemplateVersionCharacterRow.portrait_id,
+                )
+                .where(TemplateVersionCharacterRow.template_version_id == version_id)
+            ).all()
+        return {
+            str(row.cast_key): PortraitArt(
+                cast_key=str(row.cast_key),
+                portrait_id=row.id,
+                image=row.image,
+                media_type=row.media_type,
+            )
+            for row in rows
+        }
+
     # --- versions --------------------------------------------------------------
 
     def current_version(self, story_key: str) -> TemplateVersion | None:
@@ -1007,7 +1188,7 @@ class TemplateStore:
             pages.append((number, page.id, plate.id))
             hashed.append([number, page.seed_hash or _hash(_page_content(page)), plate.id])
 
-        characters: list[tuple[str, int]] = []
+        characters: list[tuple[str, int, str]] = []
         for cast_key in sorted(cast_keys):
             character = conn.execute(
                 select(StoryCharacterRow)
@@ -1020,8 +1201,12 @@ class TemplateStore:
             ).one_or_none()
             if character is None:
                 return _current_version_id(conn, story_key)
-            characters.append((cast_key, character.id))
-            hashed.append([cast_key, _character_hash(character)])
+            portrait_id = _approved_portrait_id(conn, story_key, cast_key)
+            characters.append((cast_key, character.id, portrait_id or ""))
+            # A character with no portrait hashes exactly as before portraits existed.
+            hashed.append(
+                [cast_key, _character_hash(character), *([portrait_id] if portrait_id else [])]
+            )
 
         current_id = _current_version_id(conn, story_key)
         if current_id is not None and _composition(conn, current_id) == (
@@ -1064,8 +1249,13 @@ class TemplateStore:
         conn.execute(
             insert(TemplateVersionCharacterRow),
             [
-                {"template_version_id": version_id, "cast_key": key, "character_id": row_id}
-                for key, row_id in characters
+                {
+                    "template_version_id": version_id,
+                    "cast_key": key,
+                    "character_id": row_id,
+                    "portrait_id": portrait_id or None,
+                }
+                for key, row_id, portrait_id in characters
             ],
         )
         logger.info(
@@ -1409,9 +1599,49 @@ def _current_version_id(conn: Connection, story_key: str) -> str | None:
     return str(value) if value is not None else None
 
 
+def _approved_portrait_id(conn: Connection, story_key: str, cast_key: str) -> str | None:
+    value = conn.execute(
+        select(TemplatePortraitRow.id).where(
+            TemplatePortraitRow.story_key == story_key,
+            TemplatePortraitRow.cast_key == cast_key,
+            TemplatePortraitRow.status == PlateStatus.APPROVED,
+        )
+    ).scalar_one_or_none()
+    return str(value) if value is not None else None
+
+
+def _portrait(conn: Connection, portrait_id: str) -> Any:
+    row = conn.execute(
+        select(
+            TemplatePortraitRow.id,
+            TemplatePortraitRow.story_key,
+            TemplatePortraitRow.cast_key,
+            TemplatePortraitRow.status,
+        ).where(TemplatePortraitRow.id == portrait_id)
+    ).one_or_none()
+    if row is None:
+        raise UnknownTemplate("no such portrait")
+    return row
+
+
+def _require_supporting(conn: Connection, story_key: str, cast_key: str) -> None:
+    """A fixed portrait is for a supporting character, never the star or a stranger."""
+    _require_story(conn, story_key)
+    if cast_key == _story_star(conn, story_key):
+        raise TemplateError("the star's portrait is the book's own; there is no fixed one")
+    known = conn.execute(
+        select(StoryCharacterRow.id).where(
+            StoryCharacterRow.story_key == story_key,
+            StoryCharacterRow.cast_key == cast_key,
+        )
+    ).first()
+    if known is None:
+        raise TemplateError(f"{cast_key!r} is not in this story's cast")
+
+
 def _composition(
     conn: Connection, version_id: str
-) -> tuple[list[tuple[int, int, str]], list[tuple[str, int]]]:
+) -> tuple[list[tuple[int, int, str]], list[tuple[str, int, str]]]:
     pages = conn.execute(
         select(
             TemplateVersionPlateRow.page_number,
@@ -1421,12 +1651,14 @@ def _composition(
     ).all()
     characters = conn.execute(
         select(
-            TemplateVersionCharacterRow.cast_key, TemplateVersionCharacterRow.character_id
+            TemplateVersionCharacterRow.cast_key,
+            TemplateVersionCharacterRow.character_id,
+            TemplateVersionCharacterRow.portrait_id,
         ).where(TemplateVersionCharacterRow.template_version_id == version_id)
     ).all()
     return (
         sorted((int(n), int(p), str(i)) for n, p, i in pages),
-        sorted((str(k), int(c)) for k, c in characters),
+        sorted((str(k), int(c), str(portrait or "")) for k, c, portrait in characters),
     )
 
 
