@@ -30,7 +30,9 @@
         {% if wallet_visible %}
         <div class="wallet-chip">
           <a class="pill wallet-pill" href="/wallet" aria-label="Wallet, balance {{ wallet_balance }}"><span class="coin" aria-hidden="true"></span>{{ wallet_balance }}</a>
-          {% if payments_enabled %}
+          {# On the wallet page the Add money card owns the amount choice; a
+             second $5 button directly above it is the same decision twice (U6). #}
+          {% if payments_enabled and request.url.path != "/wallet" %}
           <form class="wallet-quick-add" method="post" action="/wallet/topup">
             <input type="hidden" name="amount_cents" value="500">
             <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">

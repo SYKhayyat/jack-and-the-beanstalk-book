@@ -158,10 +158,17 @@ def test_the_wallet_page_starts_empty(browser) -> None:
 
 def test_the_header_shows_the_balance_and_a_quick_add(browser) -> None:
     client, _ = browser
+    # Away from the wallet, the header is the quick way to add $5.
+    shelf = client.get("/").text
+    assert 'aria-label="Add $5 to your wallet"' in shelf
+    # The wallet page itself already has the Add money card, so the header
+    # control stands down there (U6).
     page = client.get("/wallet").text
     assert 'aria-label="Wallet, balance $0.00"' in page
-    assert 'aria-label="Add $5 to your wallet"' in page
-    assert 'name="next" value="/wallet"' in page
+    assert 'aria-label="Add $5 to your wallet"' not in page
+    # The card's own buttons are the one place the amount is chosen.
+    assert "Add money" in page
+    assert 'name="amount_cents" value="500"' in page
 
 
 def test_the_shelf_shows_the_price_up_front(browser) -> None:
