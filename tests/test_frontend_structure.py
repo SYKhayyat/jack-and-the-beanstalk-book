@@ -227,6 +227,34 @@ def test_replacing_a_face_names_the_slot_it_is_for() -> None:
     assert 'if (key !== "star") portraitForm.append("character", key);' in source
 
 
+def test_the_make_it_step_waits_for_the_star_s_portrait() -> None:
+    """U10: the step header opened an About page whose one button was disabled.
+
+    Until the star has a portrait, "4 Make it" stays in the studio and opens
+    the first step that still needs work; with one chosen, it stays a link.
+    """
+    source = _strip_js_comments(_read("studio.js"))
+    assert '#steps [data-step-key="make"] a' in source
+    assert "if (draft.sections.star?.chosenId) return;" in source
+    assert "showStep(firstUnfinished());" in source
+
+
+def test_the_sample_dots_and_the_account_button_are_fingertip_sized() -> None:
+    """U12: 8 px dots were the only way to pick a sample book on a phone.
+
+    Each dot is now a 44 px button with its 8 px mark drawn in the middle, and
+    the header's account button is 44 px on a narrow screen too.
+    """
+    css = _read("style.css")
+    dot = css.split(".dot-button {", 1)[1].split("}", 1)[0]
+    assert "width: 44px" in dot and "height: 44px" in dot
+    mark = css.split(".dot-button::before {", 1)[1].split("}", 1)[0]
+    assert "width: 8px" in mark and "height: 8px" in mark
+    narrow = css.split("@media (max-width: 640px)", 1)[1]
+    account = narrow.split(".avatar-button {", 1)[1].split("}", 1)[0]
+    assert "width: 44px" in account and "height: 44px" in account
+
+
 def test_a_studio_comic_names_its_character() -> None:
     source = _strip_js_comments(_read("studio.js"))
     assert 'if (key !== "star") body.append("character", key);' in source

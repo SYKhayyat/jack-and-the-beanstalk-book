@@ -543,9 +543,13 @@ class TestFinishAFailedBook:
             book_id = _start(client)
             finished = _wait(client, book_id)
             assert finished["status"] == "failed"
-            assert re.search(r'class="failed-row"', client.get(f"/books/{book_id}").text), (
+            page = client.get(f"/books/{book_id}").text
+            assert re.search(r'class="failed-row"', page), (
                 "a failed book offers Finish this book"
             )
+            # U7: the recovery button says what it does before it is pressed.
+            assert "Finished pages are kept." in page
+            assert "draws only the pictures that are missing" in page
 
             provider.healed = True
             before = len(_page_calls(provider))

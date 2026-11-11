@@ -135,6 +135,8 @@ The header shows a `+ $5` button on the wallet page, directly above an “Add mo
 ### U7 — P2: the first view of a failed book does not explain “Finish this book”
 On a failed book the primary recovery is a button labelled **Finish this book** with no sentence about what it will do, whether it costs anything, or how long it takes. The failure message mentions the error, not the recovery. Add one line: “This retries only the missing pictures; finished pages are kept.”
 
+**Done (11 Nov 2026):** the failed row now says, in one line under the error, “Finished pages are kept. Finishing draws only the pictures that are missing, <price> each as they are drawn, and takes a few minutes.” Pinned in `TestFinishAFailedBook`.
+
 ### U8 — P2: the “refund” button debits the wallet with one click and no confirmation
 `POST /wallet/refund` immediately creates the request and reduces the spendable balance (`app/routes/wallet.py:323–345`). The page copy explains this, but the button is one click and there is no confirmation or amount choice; a parent who taps it by accident cannot cancel. Add a confirm step (the app already has `data-confirm` for destructive admin forms) or a small review screen.
 
@@ -144,11 +146,15 @@ On a failed book the primary recovery is a button labelled **Finish this book** 
 ### U10 — P2: the studio can be jumped to the end without a star
 The shared step header links **4 Make it** directly to `/stories/<story>/about` (`app/templates/_steps.html`). The About page correctly disables “Make the book” and shows “Go back to the faces”, but the user reaches a dead end. The header's step links should respect `firstUnfinished()` and land on the first step that still needs work (or show the About page in a read-only “answer the earlier steps first” state).
 
+**Done (11 Nov 2026):** in the studio, “4 Make it” only navigates once the star has a chosen portrait; before that it stays put and opens `firstUnfinished()`, so the About page's disabled button is never the first thing a visitor meets. Pinned in `test_the_make_it_step_waits_for_the_star_s_portrait`.
+
 ### U11 — P2: the reader shows a cover label where the page counter belongs
 On the cover the bar says “Cover”; on page 1 it says “Page 1 of 20” plus the attempt chip. The page map's first item is also labelled “Cover”, while the PDF's cover is page 1. Covered by B7; listed here because it is the first thing a reader sees.
 
 ### U12 — P2: the sample-book dots are 8×8 px tap targets on a phone
 Measured at 390×844 with touch emulation: `.dot-button` is 8×8 with no padding (`app/static/style.css:950–963`), and the six dots are the only way to jump to a specific sample book. The arrows beside them are 40×40, so the dots are the one control on the landing page that needs a fingertip rather than a finger. The header's ✦ menu button measures 36×36, just under the usual 44×44. Fix: keep the 8 px round mark but give the button a 44×44 transparent hit area (padding plus `background-clip: content-box`, or a pseudo-element), and raise the header button to 44 px.
+
+**Done (11 Nov 2026):** each dot is a 44×44 button with the 8 px mark drawn by `::before` (the hit areas tile edge to edge, so no two overlap), and the header's account button is 44×44 on a narrow screen. Pinned in `test_the_sample_dots_and_the_account_button_are_fingertip_sized`.
 
 ---
 

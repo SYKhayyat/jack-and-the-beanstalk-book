@@ -943,21 +943,32 @@ button.button {
   gap: 16px;
   margin-top: 20px;
 }
+/* Each dot is a 44 px button with an 8 px mark in the middle: a fingertip
+   can hit it, and the row still reads as six small dots (U12). The hit areas
+   sit edge to edge so no two of them overlap. */
 .showcase-dots {
   display: flex;
-  gap: 8px;
+  gap: 0;
 }
 .dot-button {
-  width: 8px;
-  height: 8px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: 0;
+  background: none;
+  cursor: pointer;
+}
+.dot-button::before {
+  content: "";
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
   background: var(--line);
-  cursor: pointer;
   transition: width 300ms var(--ease), background 300ms var(--ease);
 }
-.dot-button.is-active {
+.dot-button.is-active::before {
   width: 26px;
   background: var(--bean);
 }
@@ -2614,8 +2625,10 @@ body.in-story-time {
     font-size: 14px;
   }
   .avatar-button {
-    width: 36px;
-    height: 36px;
+    /* The account button stays a 44 px target on a phone: it was the one
+       control in the header a fingertip could miss (U12). */
+    width: 44px;
+    height: 44px;
   }
   .avatar {
     font-size: 12px;

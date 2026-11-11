@@ -231,6 +231,15 @@ function showStep(wanted, { initial = false } = {}) {
 
 function wireSteps() {
   window.addEventListener("hashchange", () => showStep(stepFromHash()));
+  // "4 Make it" opens the About screen, which can do nothing until the star
+  // has a portrait: its one button is disabled and the visitor is at a dead
+  // end. Until then the step goes to the first step that still needs work
+  // (U10). With a portrait chosen, the link is left alone.
+  document.querySelector('#steps [data-step-key="make"] a')?.addEventListener("click", (event) => {
+    if (draft.sections.star?.chosenId) return;
+    event.preventDefault();
+    showStep(firstUnfinished());
+  });
   for (const button of document.querySelectorAll("[data-go]")) {
     button.addEventListener("click", () => {
       location.hash = button.dataset.go;

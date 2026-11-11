@@ -93,6 +93,9 @@
     </div>
     <div class="failed-row{% if status != 'failed' %} hidden{% endif %}" id="failed-row">
       <p class="inline-message error{% if error_code == 'out_of_funds' %} hidden{% endif %}" id="failed-message">{{ error or "Some pictures didn't make it." }}</p>
+      {#- U7: the recovery button says what it will do, what it costs and how
+          long it takes, so it is not a leap of faith. #}
+      <p class="field-help">Finished pages are kept. Finishing draws only the pictures that are missing{% if picture_price %}, {{ picture_price }} each as they are drawn{% endif %}, and takes a few minutes.</p>
       <button type="button" class="button primary" id="finish-book">Finish this book{% if picture_price %} — {{ picture_price }} a picture{% endif %}</button>
     </div>
   </section>
