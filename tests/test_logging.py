@@ -172,14 +172,20 @@ class TestBookLogTrail:
         assert re.search(r"ms=\d", line)
         assert "outcome=complete" in line
 
-    def test_failure_logs_the_page_and_the_book_with_their_outcomes(
+    def test_a_failed_page_is_logged_and_the_book_still_completes(
         self, caplog, client_factory
     ) -> None:
+        """B2: the page names its failure, and the book it belongs to finishes.
+
+        One page that never draws used to log a `book.failure` and lose the
+        other twenty. The page still logs its own failure; the book now logs
+        `complete`, because it is downloadable with that page marked.
+        """
         with caplog.at_level(logging.INFO), client_factory(FailingPageProvider()) as client:
             portrait = _make_portrait(client)
             book_id = _start_book(client, portrait)
             final = _wait_for_book(client, book_id)
-        assert final["status"] == "failed", final
+        assert final["status"] == "complete", final
 
         failed_pages = _lines(caplog, "app.services.book_runner", "book.page")
         failed = [line for line in failed_pages if "outcome=failed" in line]
@@ -188,12 +194,11 @@ class TestBookLogTrail:
         assert "error=ProviderError" in failed[0]
         assert re.search(r"ms=\d", failed[0])
 
-        failure = _lines(caplog, "app.services.book_runner", "book.failure")
-        assert len(failure) == 1, failure
-        assert "user=-" in failure[0]
-        assert f"book={book_id}" in failure[0]
-        assert "outcome=failed" in failure[0]
-        assert re.search(r"pages_done=\d+", failure[0])
+        completed = _lines(caplog, "app.services.book_runner", "book.complete")
+        assert len(completed) == 1, completed
+        assert f"book={book_id}" in completed[0]
+        assert "outcome=complete" in completed[0]
+        assert not _lines(caplog, "app.services.book_runner", "book.failure")
 
 
 class TestLogsCarryNoSecrets:

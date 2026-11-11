@@ -55,6 +55,11 @@ class BookDocument:
         formatted, so a full render does not format every page a third time
         just to assemble them. Every picture is read back from the store as
         its page is drawn, never held for the whole book.
+
+        A page with no picture on disk is not an error: it becomes a marked
+        page in the book, so one picture that could not be drawn does not
+        throw away the pages that could (B2). "Finish this book" draws only
+        what is missing.
         """
         fresh = rendered or {}
         arts = [
@@ -104,11 +109,9 @@ class BookDocument:
         )
         return len(pdf_bytes)
 
-    def _page_image(self, book_id: str, page_number: int) -> bytes:
-        image = self._book_store.read_page(book_id, page_number)
-        if image is None:
-            raise ValueError(f"Page {page_number} is missing; cannot assemble the book.")
-        return image
+    def _page_image(self, book_id: str, page_number: int) -> bytes | None:
+        """The page's picture, or None when it was never drawn (B2)."""
+        return self._book_store.read_page(book_id, page_number)
 
     def stored_progress(self, book_id: str) -> dict[int, str]:
         """Which pages the stored status already calls done."""

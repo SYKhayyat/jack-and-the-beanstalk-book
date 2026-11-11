@@ -661,10 +661,14 @@ function wireEdits() {
     void runEdit(edit({ action: "cover" }), "Redrawing the cover…");
   });
 
-  document.getElementById("finish-book").addEventListener("click", (event) => {
-    event.currentTarget.disabled = true;
-    void runEdit(edit({ action: "retry" }), "Finishing the pictures that are missing…");
-  });
+  // The same press, on a failed book and on a finished book that is missing a
+  // picture: both finish only the pages that were never drawn (B2).
+  for (const id of ["finish-book", "finish-missing"]) {
+    document.getElementById(id)?.addEventListener("click", (event) => {
+      event.currentTarget.disabled = true;
+      void runEdit(edit({ action: "retry" }), "Finishing the pictures that are missing…");
+    });
+  }
 
   document.getElementById("edit-about").addEventListener("click", () => aboutDialog.showModal());
   aboutDialog.addEventListener("close", () => {

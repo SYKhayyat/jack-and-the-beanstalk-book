@@ -792,9 +792,9 @@ class BookRunner:
 
             async def mark(page_number: int, state: str) -> None:
                 progress[page_number] = state
-                if state == "done":
-                    # A finished page is not in a stage any more, whatever it was
-                    # doing a moment ago.
+                if state in ("done", "failed"):
+                    # A page that is finished or has given up is not in a stage
+                    # any more, whatever it was doing a moment ago.
                     stages.pop(page_number, None)
                 await paint()
 
@@ -1005,13 +1005,39 @@ class BookRunner:
                     *(run_page(page) for page in to_render),
                     return_exceptions=True,
                 )
-                fatal = [result for result in results if isinstance(result, BaseException)]
-                if fatal:
-                    raise fatal[0]
-                rendered = {
-                    cast("_Drawn", result).page.number: cast("_Drawn", result).page
-                    for result in results[len(cover_job) :]
-                }
+                # A cover that could not be drawn still stops the job: it is
+                # the face of the book, and "Finish this book" draws it later
+                # from every page that was paid for. A story page is different
+                # (B2): it is marked failed and the book is assembled with a
+                # clearly marked page in its place, so one provider timeout or
+                # moderation block never throws away twenty drawn pictures.
+                for result in results[: len(cover_job)]:
+                    if isinstance(result, BaseException):
+                        raise result
+                page_results = results[len(cover_job) :]
+                for page, result in zip(to_render, page_results, strict=True):
+                    if isinstance(result, BaseException):
+                        if not isinstance(result, Exception):
+                            raise result  # a cancellation must still stop the job
+                        if (
+                            await asyncio.to_thread(
+                                self._book_store.read_page, book_id, page.number
+                            )
+                            is not None
+                        ):
+                            # The picture landed before the failure (a prompt
+                            # record write, say): keep it, never bill it twice.
+                            rendered[page.number] = render_book_page(
+                                page, artwork.settings, prompt_name=prompt_name
+                            )
+                            await mark(page.number, "done")
+                            continue
+                        # The page's own `book.page ... outcome=failed` line was
+                        # already written by the run that raised.
+                        await mark(page.number, "failed")
+                        continue
+                    drawn = cast("_Drawn", result)
+                    rendered[drawn.page.number] = drawn.page
 
             # The pictures are done; the book is not. Say so, so the reader is
             # told the PDF is being put together instead of watching a

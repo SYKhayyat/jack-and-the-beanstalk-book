@@ -106,19 +106,28 @@ class PageArt:
     pages are read from the store one at a time as the PDF is drawn, so
     assembling a nineteen-page book holds one full-size picture rather than
     all of them (each a megabyte or two, and a 512 MB server).
+
+    A page that could not be drawn is `None`: the book is still assembled,
+    with that page marked clearly on paper rather than left blank or the
+    whole book refused (B2).
     """
 
     __slots__ = ("_image", "page")
 
-    def __init__(self, image: bytes | Callable[[], bytes], page: BookPage) -> None:
+    def __init__(
+        self, image: bytes | Callable[[], bytes | None] | None, page: BookPage
+    ) -> None:
         self._image = image
         self.page = page
 
     @property
-    def image(self) -> bytes:
-        """The art's bytes; a lazy page is read again on every access."""
+    def image(self) -> bytes | None:
+        """The art's bytes, or None when this page was never drawn; a lazy
+        page is read again on every access."""
         source = self._image
-        return source if isinstance(source, bytes) else source()
+        if source is None or isinstance(source, bytes):
+            return source
+        return source()
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,12 +242,21 @@ def build_book_pdf(
     asks.
 
     Raises:
-        ValueError: if `pages` is empty or any image is unreadable.
+        ValueError: if `pages` is empty, no page has a picture to take the
+            book's shape from, or an image is unreadable.
     """
     if not pages:
         raise ValueError("A book needs at least one page.")
 
-    art_width, art_height = _page_shape(pages[0].image)
+    # The shape comes from the first page that was actually drawn: a failed
+    # page is marked in the book, not allowed to set its proportions (B2). The
+    # cover is the last resort when no story page was drawn at all.
+    shape_image = (
+        next((entry.image for entry in pages if entry.image is not None), None) or cover
+    )
+    if shape_image is None:
+        raise ValueError("A book needs at least one picture.")
+    art_width, art_height = _page_shape(shape_image)
     layout = book_template(
         art_width, art_height, [book_text(entry.page.story) for entry in pages]
     )
@@ -363,11 +381,19 @@ def _shadowed_cell(
 
 
 def _draw_page(pdf: FPDF, entry: PageArt, layout: TemplateGeometry, number: int) -> None:
-    """One story page: art on top, the story in the band beneath it."""
+    """One story page: art on top, the story in the band beneath it.
+
+    A page whose picture could not be drawn keeps its story and gets a marked
+    frame saying so, rather than taking the rest of the book down with it.
+    """
     pdf.add_page()
     pdf.set_fill_color(*PAPER_RGB)
     pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-    pdf.image(_image_for_pdf(entry.image), x=0, y=0, w=layout.art_width, h=layout.art_height)
+    image = entry.image
+    if image is None:
+        _draw_missing_art(pdf, layout)
+    else:
+        pdf.image(_image_for_pdf(image), x=0, y=0, w=layout.art_width, h=layout.art_height)
 
     # A thin gold rule where the picture meets the page.
     pdf.set_draw_color(*_GOLD)
@@ -388,6 +414,26 @@ def _draw_page(pdf: FPDF, entry: PageArt, layout: TemplateGeometry, number: int)
     pdf.set_text_color(*_GOLD)
     pdf.set_xy(0, pdf.h - _MARGIN_PAD_BOTTOM * 0.75)
     pdf.cell(pdf.w, 14.0, str(number + 1), align="C")
+
+
+def _draw_missing_art(pdf: FPDF, layout: TemplateGeometry) -> None:
+    """The marked but undrawn page: a gold frame and a sentence saying why.
+
+    It has to look deliberate on paper — it is printed and bound with the
+    rest — and it names the one action left: finish this book.
+    """
+    width, height = layout.art_width, layout.art_height
+    inset = min(width, height) * 0.06
+    pdf.set_draw_color(*_GOLD)
+    pdf.set_line_width(1.2)
+    pdf.rect(inset, inset, width - 2 * inset, height - 2 * inset)
+    size = max(12.0, width * 0.025)
+    pdf.set_font(_FAMILY, "I", size)
+    pdf.set_text_color(*_INK)
+    pdf.set_xy(inset * 2, height / 2 - size)
+    pdf.cell(width - 4 * inset, size * 1.4, "This picture could not be drawn.", align="C")
+    pdf.set_xy(inset * 2, height / 2 + size * 0.6)
+    pdf.cell(width - 4 * inset, size * 1.4, "Finish the book to fill it in.", align="C")
 
 
 def draw_about_page(

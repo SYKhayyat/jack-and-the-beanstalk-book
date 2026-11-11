@@ -515,37 +515,34 @@ class TestLibrary:
         assert 'id="books-drawer"' not in client.get("/").text
 
 
-class FlakyPageProvider(ImageProvider):
-    """Refuses one named page until `healed`, like a moderation block that a
-    reworded prompt (or a second roll) gets past."""
+class FlakyCoverProvider(ImageProvider):
+    """Refuses the cover until `healed`, like a moderation block that lifts.
 
-    name = "flaky-page"
+    The cover is the one page whose failure still stops a book: it is the face
+    of the finished PDF. Every story page that fails is kept as a marked page
+    instead (B2), so a cover is what leaves a book for "Finish this book".
+    """
 
-    def __init__(self, fail_page: int) -> None:
-        self.fail_page = fail_page
+    name = "flaky-cover"
+
+    def __init__(self) -> None:
         self.healed = False
         self.requests: list[ImageRequest] = []
 
     def generate(self, request: ImageRequest) -> GeneratedImage:
         self.requests.append(request)
-        if not self.healed and f"Draw page {self.fail_page} of" in request.prompt:
+        if not self.healed and request.label == "book-cover":
             raise ProviderError("Your request was rejected by the safety system.")
         return GeneratedImage(data=scene_png_bytes(), media_type="image/png", model="flaky-v1")
 
 
 class TestFinishAFailedBook:
-    def test_finish_button_draws_only_the_missing_pages(self, client_factory) -> None:
-        provider = FlakyPageProvider(fail_page=2)
+    def test_finish_button_draws_only_the_missing_page(self, client_factory) -> None:
+        provider = FlakyCoverProvider()
         with client_factory(provider) as client:
             book_id = _start(client)
-            failed = _wait(client, book_id)
-            assert failed["status"] == "failed"
-            finished = {
-                int(page["number"])
-                for page in failed["pages"]  # type: ignore[attr-defined]
-                if page["status"] == "done"
-            }
-            assert 2 not in finished
+            finished = _wait(client, book_id)
+            assert finished["status"] == "failed"
             assert re.search(r'class="failed-row"', client.get(f"/books/{book_id}").text), (
                 "a failed book offers Finish this book"
             )
@@ -554,11 +551,14 @@ class TestFinishAFailedBook:
             before = len(_page_calls(provider))
             response = client.post(f"/api/book/{book_id}/edit", data={"action": "retry"})
             assert response.status_code == 202, response.text
-            assert _wait(client, book_id)["status"] == "complete"
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                payload = _wait(client, book_id)
+                if payload.get("status") == "complete":
+                    break
+                time.sleep(0.03)
+            assert payload["status"] == "complete"
 
-            redrawn = _page_calls(provider)[before:]
-            assert redrawn, "the missing page was never drawn"
-            assert any("Draw page 2 of" in r.prompt for r in redrawn)
-            for number in finished:
-                assert not any(f"Draw page {number} of" in r.prompt for r in redrawn)
+            # Not one story page was drawn again: only the cover was missing.
+            assert not _page_calls(provider)[before:], "a finished page was redrawn"
             assert 'class="failed-row hidden"' in client.get(f"/books/{book_id}").text

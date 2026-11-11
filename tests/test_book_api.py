@@ -395,17 +395,28 @@ class FailingPageProvider(ImageProvider):
         ]
 
 
-class TestBookErrors:
-    def test_failed_mid_run_keeps_finished_pages(self, client_factory) -> None:
-        """Page 1 survives; status says failed with a message; no PDF is served.
+class FailingCoverProvider(FailingPageProvider):
+    """Fails the cover and nothing else: the one failure that still stops a book."""
 
-        Step 5 renders pages concurrently, so this constraint changed: a
-        failure on page 2 no longer implies pages after it were never made.
-        Page 1 (started before page 2 in the gate's queue) is done; page 2 is
-        back to pending because the book died; page 3, which was admitted on
-        the freed slot before the failure surfaced, was paid for and is kept.
-        What must hold is the old promise: no page is ever reported done
-        without its bytes, and no half book is served as a PDF.
+    name = "failing-cover"
+
+    def generate(self, request: ImageRequest) -> GeneratedImage:
+        self.calls += 1
+        if request.label == "book-cover":
+            raise ProviderError("The provider gave up.")
+        return GeneratedImage(data=scene_png_bytes(), media_type="image/png", model="demo-v1")
+
+
+class TestBookErrors:
+    def test_one_failed_page_does_not_lose_the_book(self, client_factory) -> None:
+        """B2: a page that never draws is marked, and the other pages still ship.
+
+        A provider timeout, a moderation block that never recovers or a
+        reviewer error used to raise the first page failure and take the whole
+        book with it: no PDF, a failed book, and every already-paid picture
+        invisible until the owner found "Finish this book". Now the page is
+        marked failed, the book is assembled with a clearly marked page in its
+        place, and finishing it draws only the picture that is missing.
         """
         with client_factory(FailingPageProvider(fail_page=2)) as failing_client:
             portrait = make_portrait(failing_client)
@@ -421,19 +432,25 @@ class TestBookErrors:
             book_id = start.json()["book_id"]
 
             status_payload = wait_for_book(failing_client, book_id)
-            assert status_payload["status"] == "failed", status_payload
-            assert "stopped early" in str(status_payload["error"])
+            assert status_payload["status"] == "complete", status_payload
             by_number = {page["number"]: page for page in status_payload["pages"]}
             assert by_number[1]["status"] == "done"
-            assert by_number[2]["status"] == "pending"
-            # Nothing is left claiming to be mid-render once the book stopped.
-            assert all(page["status"] in {"done", "pending"} for page in by_number.values())
+            assert by_number[2]["status"] == "failed"
+            assert by_number[2]["url"] is None, "a failed page has no picture to serve"
+            assert by_number[3]["status"] == "done"
             # The finished page is still there to look at.
             page1 = failing_client.get(f"/book-media/{book_id}/pages/1")
             assert page1.status_code == 200
-            # And the PDF route stays honest rather than serving a half book.
+            # The book is still a book: downloadable, with the gap marked on paper.
             pdf = failing_client.get(f"/book-media/{book_id}/pdf")
-            assert pdf.status_code == 409
+            assert pdf.status_code == 200
+            text = "\n".join(
+                (page.extract_text() or "")
+                for page in PdfReader(io.BytesIO(pdf.content)).pages
+            )
+            assert "could not be drawn" in text
+            # And the page offers the one press that finishes it.
+            assert 'id="finish-missing"' in failing_client.get(f"/books/{book_id}").text
 
     def test_unknown_book_404(self, client: TestClient) -> None:
         response = client.get("/api/book/deadbeef")
@@ -952,8 +969,13 @@ class TestStartIdempotency:
         assert second.json()["book_id"] != first.json()["book_id"]
 
     def test_a_failed_book_is_not_reused(self, client_factory) -> None:
-        """Asking again after a failure means try again, not "here is the corpse"."""
-        with client_factory(FailingPageProvider(fail_page=2)) as failing_client:
+        """Asking again after a failure means try again, not "here is the corpse".
+
+        The cover is the one page whose failure can still stop a book (it is
+        the face of the finished PDF); every story page failing is kept as a
+        marked page instead (B2).
+        """
+        with client_factory(FailingCoverProvider()) as failing_client:
             portrait = make_portrait(failing_client)
             first = self._start(failing_client, portrait["generation_id"])
             assert first.status_code == 201

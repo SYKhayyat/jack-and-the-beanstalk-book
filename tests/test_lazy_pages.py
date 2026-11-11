@@ -53,8 +53,9 @@ def test_assemble_hands_the_pdf_lazy_pages_and_the_fresh_text(
         seen["read_before_drawing"] = list(store.read)
         seen["pages"] = [art.page for art in arts]
         seen["first"] = arts[0].image
-        with pytest.raises(ValueError, match="is missing"):
-            _ = arts[2].image
+        # A page that was never drawn is handed over as None, never raised:
+        # the PDF marks it instead of refusing the whole book (B2).
+        seen["missing"] = arts[2].image
         return b"%PDF"
 
     monkeypatch.setattr(book_document_module, "build_book_pdf", build)
@@ -74,4 +75,5 @@ def test_assemble_hands_the_pdf_lazy_pages_and_the_fresh_text(
     assert seen["read_before_drawing"] == []
     assert seen["pages"] == [pages[0], fresh, pages[2]]
     assert seen["first"].startswith(b"\x89PNG")
+    assert seen["missing"] is None
     assert store.read == [PAGES[0].number, PAGES[2].number]

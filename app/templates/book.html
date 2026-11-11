@@ -62,6 +62,14 @@
 
   <section class="finished-block{% if status != 'complete' %} hidden{% endif %}" id="finished-block" aria-label="Your book is ready">
     <p class="finished-title"><span aria-hidden="true">✨</span> Your book is ready.</p>
+    {% if missing_count %}
+    {#- The book is whole and downloadable; a picture in it is marked on paper
+        as not drawn. This is the one press that fills it (B2). #}
+    <div class="failed-row" id="finished-missing-row">
+      <p class="inline-message error">{{ "One picture" if missing_count == 1 else missing_count ~ " pictures" }} couldn’t be drawn. The book is ready without {{ "it" if missing_count == 1 else "them" }} — finishing takes one press.</p>
+      <button type="button" class="button primary" id="finish-missing">Finish this book</button>
+    </div>
+    {% endif %}
     <div class="finished-actions">
       <button type="button" class="button primary big" id="read-book">Read it from the start</button>
       <a class="button big" id="download-pdf" href="/book-media/{{ book.book_id }}/pdf" download>Download the book (PDF)</a>

@@ -226,6 +226,9 @@ def book_page(
             "phase": status_payload.get("phase") or "",
             "tiles": tiles,
             "done_count": sum(1 for tile in tiles if tile["status"] == "done"),
+            # A book can be complete with a picture that could not be drawn
+            # (B2); the finished block offers to finish it in one press.
+            "missing_count": sum(1 for tile in tiles if tile["status"] == "failed"),
             "about_heading": heading,
             "about_sentences": sentences,
             "about_images": _about_images(
