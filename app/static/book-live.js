@@ -334,7 +334,7 @@ function apply(payload) {
     return;
   }
   if (payload.phase === "assembling") {
-    caption("Step 3 of 3 · Putting the book together — every picture is drawn.");
+    caption("Step 2 of 2 · Putting the book together — every picture is drawn.");
   } else {
     quietPolls = done > lastDone ? 0 : quietPolls + 1;
     lastDone = Math.max(lastDone, done);
@@ -363,16 +363,12 @@ function stageCaption(payload, done, total) {
   const drawing = Number(counts.painting) || 0;
   const checking = Number(counts.reviewing) || 0;
   const redrawing = Number(counts.retrying) || 0;
-  const page = Number(payload.stage_page);
-  if (done === 0 && !(page > 0) && payload.stage) {
-    return "Step 1 of 3 · Drawing the cover — the pages start as soon as it is checked.";
-  }
   const parts = [];
   if (drawing) parts.push(`${drawing} being drawn`);
   if (checking) parts.push(`${checking} being checked`);
   if (redrawing) parts.push(`${redrawing} being drawn again after a check`);
   if (!parts.length) return "";
-  return `Step 2 of 3 · Drawing the pages — ${done} of ${total} finished. Right now: ${parts.join(", ")}.`;
+  return `Step 1 of 2 · Drawing the pictures — ${done} of ${total} finished. Right now: ${parts.join(", ")}.`;
 }
 
 function paint(position, entry) {

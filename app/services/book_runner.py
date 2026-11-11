@@ -472,7 +472,7 @@ class BookRunner:
                 page.number: "done" if existing.get(page.number) == "done" else "pending"
                 for page in pages
             }
-            # The cover counts as one of the book's pages and is drawn first.
+            # The cover counts as one of the book's pages, drawn alongside them.
             progress[COVER_NUMBER] = (
                 "done" if existing.get(COVER_NUMBER) == "done" else "pending"
             )
@@ -728,22 +728,28 @@ class BookRunner:
                 return art
 
             await paint()
-            if draw_cover:
-                await self._render_cover(
-                    record, edition, artwork, page_charge, mark, set_stage
-                )
             to_render = [page for page in pages if page.number in target]
+            # The cover is drawn alongside the pages, not before them: no page
+            # uses it as a reference, so waiting for it only added a whole
+            # draw-and-check cycle to every book.
+            cover_job = (
+                [self._render_cover(record, edition, artwork, page_charge, mark, set_stage)]
+                if draw_cover
+                else []
+            )
             rendered: dict[int, BookPage] = {}
-            if to_render:
+            if to_render or cover_job:
                 results = await asyncio.gather(
-                    *(run_page(page) for page in to_render), return_exceptions=True
+                    *cover_job,
+                    *(run_page(page) for page in to_render),
+                    return_exceptions=True,
                 )
                 fatal = [result for result in results if isinstance(result, BaseException)]
                 if fatal:
                     raise fatal[0]
                 rendered = {
                     cast("_Drawn", result).page.number: cast("_Drawn", result).page
-                    for result in results
+                    for result in results[len(cover_job) :]
                 }
 
             # The pictures are done; the book is not. Say so, so the reader is
@@ -819,7 +825,7 @@ class BookRunner:
         mark: Callable[[int, str], Awaitable[None]],
         set_stage: Callable[[str, int, int], Awaitable[None]],
     ) -> bytes:
-        """Draw and persist the cover, before the pages.
+        """Draw and persist the cover, alongside the pages.
 
         The cover goes through the same attempt loop as a page, and for the same
         reason: it is the one picture every reader sees first, and the page whose
@@ -1379,17 +1385,19 @@ class BookRunner:
             photo_is_portrait = True
         else:
             photo_is_portrait = photo == portrait
+        visitor = dict(self._book_store.load_characters(record.book_id))
         return _Artwork(
             about=record.about,
             settings=record.settings,
             portrait=portrait,
             portrait_media_type=media_type_for(portrait),
             photo=photo,
-        visitor = dict(self._book_store.load_characters(record.book_id))
             photo_media_type=media_type_for(photo),
             photo_is_portrait=photo_is_portrait,
             characters=self._characters(record.book_id, visitor),
             plates=self._templates.book_plates(record.book_id),
+            premades=self._templates.book_premades(record.book_id),
+            visitor_cast=frozenset(visitor),
         )
 
     def _characters(
@@ -1398,8 +1406,6 @@ class BookRunner:
         """The visitor's supporting faces, with the fixed portrait where they gave none.
 
         A visitor's own photo always wins. A character with no photo gets the
-            premades=self._templates.book_premades(record.book_id),
-            visitor_cast=frozenset(visitor),
         approved portrait their book's version pins, drawn as a face of their
         own (portrait and photo are the same picture, so it is one reference).
         A version with no portrait for them leaves them out, as before.

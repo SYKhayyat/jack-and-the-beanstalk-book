@@ -309,6 +309,10 @@ class TestBookEndToEnd:
         pdf = client.get(f"/book-media/{book_id}/pdf")
         assert pdf.status_code == 200
         assert pdf.headers["content-type"] == "application/pdf"
+        # "attachment", not "inline": Chrome lets the header override the
+        # button's download attribute, and an inline PDF opens in the viewer
+        # without ever being saved (storybook-review run 1).
+        assert pdf.headers["content-disposition"].startswith("attachment")
         assert pdf.content[:5] == b"%PDF-"
         reader = PdfReader(io.BytesIO(pdf.content))
         assert len(reader.pages) == PAGE_COUNT + 2  # cover + story pages + About
@@ -613,8 +617,11 @@ class TestPerPageProgress:
             )
             # Poll while page 2 is still blocked inside its provider call: page
             # 1 has finished, page 2 must read as making, and no page may claim
-            # done without bytes on disk.
-            deadline = time.monotonic() + 5.0
+            # done without bytes on disk. The cover now draws alongside the
+            # pages and competes for the same slots, so under a loaded parallel
+            # suite page 1 can take a few seconds; the loop leaves as soon as
+            # it sees both states.
+            deadline = time.monotonic() + 20.0
             states: dict[int, str] = {}
             while time.monotonic() < deadline:
                 payload = blocking_client.get(f"/api/book/{book_id}").json()

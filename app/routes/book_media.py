@@ -71,6 +71,10 @@ def book_pdf(book_id: str, container: ContainerDep, session: CurrentSessionDep) 
         data,
         media_type="application/pdf",
         filename=f"book-{book_id}.pdf",
+        # The button says "Download", so the browser must save the file.
+        # Served inline, Chrome opens it in its viewer instead and nothing
+        # lands in Downloads: the header beats the link's download attribute.
+        download=True,
     )
 
 

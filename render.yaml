@@ -138,11 +138,13 @@ services:
         value: "600"
 
       # Admission control. Beyond this, requests queue and then get 429 rather
-      # than fanning out into more billable calls. 4, not more: each picture in
-      # flight holds its bytes and a decode, and 8 at once ran the 512 MB free
-      # instance out of memory (2026-11-10).
+      # than fanning out into more billable calls. 8 ran the 512 MB instance
+      # out of memory on 2026-11-10, before 79a0206 stopped holding every page
+      # until the PDF and put full-size decodes behind two shared slots; 4 was
+      # the safe floor after that. Back at 8 on trial (2026-11-11): watch the
+      # memory graph on the next book and drop to 6 if it nears 512 MB.
       - key: MAX_CONCURRENT_GENERATIONS
-        value: "4"
+        value: "8"
 
       # Per-client abuse brake. A book charges one per picture up front, so keep
       # this well above a book's size; OPENAI_IMAGES_PER_MINUTE is the real cap.
