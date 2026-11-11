@@ -359,31 +359,31 @@ full_frame = "FRAME: the whole image is the illustration, edge to edge. No part 
 
 [book.edit]
 # The task line. {plate_note} says which page this is; the rest is fixed.
-plate_task = "TASK: This is an EDIT of the background plate supplied as the FIRST reference image. The plate already shows this page's place, its props and its light, with nobody in it. Paint the characters named below into it, one into each of the slots listed below, give each one the shadow it casts in this plate's light, and change nothing else."
+plate_task = "TASK: EDIT the empty background plate (the FIRST reference image). Paint the characters below into it, one into each slot, each casting a shadow in the plate's light, and change nothing else."
 # Which reference image is whose, so a portrait is never read as someone else's
 # face. {entries} is one "image N is the portrait of X" per portrait, in the
 # order book_runner sends them (prompts.edit_reference_cast decides both).
-reference_images = "REFERENCE IMAGES, in the order supplied: image 1 is the empty background plate; {entries}. Each portrait belongs only to the character it is named for: draw that character's face and likeness from it, and never give its face to anyone else."
+reference_images = "REFERENCE IMAGES, in order: image 1 is the plate; {entries}. Draw each character's face only from its own portrait."
 reference_entry = "image {number} is the portrait of {label}"
 # The one sentence this pass lives or dies on.
-preserve = "KEEP THE PLATE: the background — sky, ground, walls, furniture, trees, clouds, every object, the whole composition, the camera angle, the framing, the palette and the light — must come back exactly as it is in the plate. Do not re-imagine the scene, do not re-light it, do not crop it, do not move, add or remove any object, and do not repaint any area that is not a character's own silhouette and whatever that character necessarily touches, apart from the shadow that character casts. A viewer holding the plate and this picture side by side must see the same place."
+preserve = "KEEP THE PLATE: the background, every object, the framing, camera angle, palette and light come back exactly as in the plate. Repaint only the characters, what they touch, and their shadows."
 # The moment the page shows. Only what the characters are doing: the place, the
 # props and the light are the plate's, and the sentence says so before the
 # caption, so a caption that names the room is read as "in this room", never as
 # "draw this room". Without it every character stood posed (real run,
 # 2026-11-09). {caption} is the page's scene caption, name and pronouns filled.
-moment = "THE MOMENT THIS PAGE SHOWS — the place, its props and its light are already in the plate and stay exactly as they are; this is what the characters are doing inside it: {caption}"
+moment = "THE MOMENT (the plate already holds the place, props and light): {caption}"
 # The star's own action, stated on its own so it is not lost in the caption.
-acting = "WHAT {name} IS DOING: {action}. Pose and act every character for this moment — bodies, hands, heads and faces doing what the moment says. A figure standing still and facing the viewer is wrong unless the moment says so."
+acting = "WHAT {name} IS DOING: {action}. Pose and act every character for this moment; nobody stands still facing the viewer unless the moment says so."
 # A page the star is not in: the action without a name. [book.assembly].star_absent
 # follows it and keeps the child out; without it the painter puts its hero on
 # every page.
-acting_cast = "WHAT HAPPENS: {action}. Pose and act every character for this moment — bodies, hands, heads and faces doing what the moment says. A figure standing still and facing the viewer is wrong unless the moment says so."
+acting_cast = "WHAT HAPPENS: {action}. Pose and act every character for this moment; nobody stands still facing the viewer unless the moment says so."
 feeling = "THE FEELING: {emotion}."
 # Where each character goes. {slots} is one line per slot.
 slots = "SLOTS (fractions of the whole image, origin top LEFT, measured left to right and top to bottom):\n{slots}"
 # One slot, as the loop above writes it. {facing} is a sentence, not a word.
-slot_line = "- {label}: the character's feet or lowest point sit at height {bottom}% of the frame, the head at about {top}%; its body spans roughly {left}% to {right}% of the width, and it is about {height}% of the frame's height. {facing} A real, correctly proportioned figure of that size — never a larger one."
+slot_line = "- {label}: feet or lowest point at {bottom}% down the frame, head at about {top}%; spans {left}% to {right}% across, about {height}% of the frame's height, correctly proportioned and never larger. {facing}"
 # A slot whose top touches the frame's top edge is a figure too tall to fit in the
 # picture (a standing giant): the frame cuts it off, it is not shrunk to fit.
 slot_line_cut = "- {label}: the character's feet sit at height {bottom}% of the frame, and the figure spans roughly {left}% to {right}% of the width. It is far too tall to fit in the picture: it is cut off by the TOP EDGE of the frame, so only the part of it below that edge shows, from the feet up — never shrink it, crouch it or bend it to fit inside the frame. {facing}"
@@ -403,24 +403,22 @@ facing_away = "Seen from behind or in three-quarter back view, facing and headin
 # The identity + style contract, kept as short as it can honestly be: on an
 # edit the plate carries the style, so only the drawing of the people is
 # restated. Anything longer is an invitation to redraw the plate.
-cast_identity = "THE CHARACTERS: they are drawn in the plate's own art style — the same line weight, shading, palette and level of detail as the plate around them, so they look painted by the same hand. Never photographic, never a different medium. Each character is lit by the light the plate already shows, and casts a shadow on whatever is beneath or behind them, falling in the same direction and with the same softness and colour as the shadows of the objects around them, so that no figure looks pasted in."
+cast_identity = "THE CHARACTERS: drawn in the plate's own art style, line and palette, never photographic, lit by the plate's light, each with a shadow matching the shadows around it."
 # The frame stops the edit from inventing people of its own.
-no_extras = "NOBODY ELSE: only the characters named above appear. No extra person, no crowd, no figure at the edge of the frame, no second copy of anyone, no reflection of a person in a window or a mirror, no face or hand of anyone not listed."
-no_text = "NO TEXT OF ANY KIND: no lettering, no signage, no captions, no logos, no labels, no numbers, no speech bubbles, and no letter-like marks anywhere. The picture has no words in it because the book's words are printed beside it afterwards."
-negative = "Do not draw: a redrawn or reinterpreted background, a different time of day, a different palette, a change of camera angle, a decorative border or frame, a watermark, a signature, a photograph, a shiny plastic-toy look, a bobblehead or oversized head, an extra limb, or anything frightening for a young child."
-# The plate's own instruction, echoed so the edit inherits the frame's rules.
-inherits = "The rules the plate was painted under still hold: the plate's own text-free, person-free, child-friendly and palette rules carry into this picture. Anything the plate deliberately left out stays out."
+no_extras = "NOBODY ELSE: only the characters named above, no extra or duplicate person, no reflection, no stray face or hand."
+no_text = "NO TEXT: no lettering, signs, captions, labels, numbers or speech bubbles anywhere."
+negative = "Do not draw: a border or frame, a watermark, a signature, a plastic-toy look, an oversized head, an extra limb, or anything frightening for a young child."
 # The cover is the one page whose title band is reserved.
 cover_band = "THE TITLE BAND: the upper fifth of the frame was painted calm and empty on purpose and must stay that way — the book's title is set there afterwards, outside this image. Nobody's head may enter it."
 # Added only on a second or third try at the same page. {faults} names what a
 # reviewer found wrong last time. The last sentence is load-bearing: a fault list
 # is an instruction to change what is drawn, and the plate is not to be changed.
-retry_intro = "A previous attempt at this page had these problems, so this is another try: {faults}. Fix exactly those, and nothing else. The background, the props and the light are not among them and must stay as they are in the plate."
+retry_intro = "ANOTHER TRY. The previous attempt had these problems: {faults}. Fix only those; the plate stays as it is."
 # The reviewer's own description of what it saw, quoted after the fault list so
 # the artist knows exactly what and where, not just which kind of fault.
 # Filled only when tier 2 ran and failed the picture. {findings} is the
 # reviewer's sentence, flattened to one line and capped.
-retry_findings = "What the reviewer saw in that attempt, in its own words: \"{findings}\""
+retry_findings = "The reviewer saw: \"{findings}\""
 
 # How a reviewer's fault name is said back to the model on a retry. Keyed by the
 # fault names in app/services/reviewer.py; a name with no phrase falls back to
@@ -435,7 +433,8 @@ frightening = "something in it would frighten a young child"
 wrong_counts = "the number of a repeated object was wrong"
 deformed = "a body or limb did not look right"
 collage = "it was a grid of several small pictures instead of one single scene filling the frame"
-other = "the picture was not right for this page"
+other = "something else was wrong with it, as the reviewer describes below"
+wrong_place = "the background was redrawn into a different place; paint the characters into the plate as it is"
 likeness = "the child did not look like the child in the reference portrait; keep their face, hair and skin tone exactly as the portrait shows them"
 # Tier 1's mechanical faults, said back the same way.
 blank = "the picture came back empty"
@@ -649,7 +648,20 @@ ever-after = ["home_cottage"]
 # The whole instruction, once per image. {page_title}, {story_line} and
 # {cast} are filled from the page being checked. The text goes through
 # str.format, so a literal brace (the JSON example) must be doubled.
-instruction = """You are checking one picture for a children's picture book before it is shown to a child. Judge it the way a careful parent would on a first look at the page: does it show this moment, with the right people, drawn properly, with nothing wrong that a parent or child would notice? Be strict about those; do not hunt for small details.
+#
+# Every fault is asked as "is it grossly wrong?", never "is it exactly right?".
+# Run 1 (2026-11-11) asked the strict way and passed 2 of 87 pictures that a
+# parent would have been happy with: 85 notes were small differences from the
+# plate, 68 flagged a likeness the decision judge scored at 0.1-0.2, and the
+# rest were "kneeling, not standing" and "the basket is uncovered".
+#
+# The veto budget is deliberately stricter than the code: nothing counts
+# vetoes, and a page that fails is still redrawn. Telling the reviewer it may
+# fail only a few pages, and that each redraw is paid for, makes it spend a
+# fail on what is grossly wrong, not on everything it can see.
+instruction = """You are checking one picture for a children's picture book before it is shown to a child. Look only for things that are GROSSLY wrong: what a parent would notice at a glance and call a mistake. A picture that roughly shows the moment, with the right people, drawn soundly, passes. When in doubt, it is not a fault.
+
+You may fail at most 4 of this book's 20 pictures, and every picture you fail is redrawn at real cost. Spend a fail only on a picture a parent would reject.
 
 You are given the picture and a description of the picture it is supposed to be. Judge likeness only if a portrait of the child is supplied below, and only by comparing against it.
 
@@ -659,31 +671,32 @@ Answer about this page: "{page_title}". The picture it must be: {story_line}
 Report exactly one JSON object and nothing else, in this shape:
 {{"passed": true, "score": 0, "faults": [], "note": "what is wrong and where"}}
 
-"score" is 0-100: how well the picture shows the moment. "faults" is a list drawn only from these names, and is empty when nothing is wrong:
-- "wrong_moment": the picture does not show the described moment — the wrong action, the wrong place, or the characters doing something else
-- "missing_character": someone the description says is in the picture is not there
-- "extra_person": someone is present whom neither the description nor the list above names
-- "text_in_image": any lettering, sign, caption, label, number, speech bubble or writing of any kind
-- "face_obscured": a face is hidden, cut off at the frame edge, or turned away in a way that loses the character
+"score" is 0-100: how recognisably the picture shows the moment. "faults" is a list drawn only from these names, and is empty when nothing is grossly wrong:
+- "wrong_moment": the picture is clearly a different moment: nobody is doing anything like the described action, or the characters are doing something else entirely. A different pose (standing rather than kneeling, the other hand raised), a missing small prop or a detail drawn differently is not this fault
+- "missing_character": someone the description says is in the picture is plainly not there
+- "extra_person": someone plainly present whom neither the description nor the list above names
+- "text_in_image": readable lettering, a sign, caption, label, number, speech bubble or writing
+- "face_obscured": a main character's face is hidden or cut off so the character is lost
 - "frightening": blood, a wound, a weapon being used or pointed at someone, an attack in progress, or a child shown in real terror. A tool lying about, or used for the job the description says (an axe chopping a tree), is not a weapon. The story's villain (a wolf, a giant) may look sly, cross or toothy in a friendly cartoon way; that alone is not frightening
 - "wrong_counts": a number the description states and the story depends on (five beans, three bears) is clearly wrong
-- "deformed": extra or missing limbs, extra fingers, fused hands, doubled feet, or a body that reads as broken, legs or a body passing through a chair, table or other solid object, a figure wedged under a table instead of beside it, or a figure floating in the air with nothing holding it
+- "deformed": extra or missing limbs, extra fingers, fused hands, doubled feet, a body that reads as broken, legs or a body passing through a chair, table or other solid object, a figure wedged under a table instead of beside it, or a figure floating in the air with nothing holding it
 - "collage": more than one picture in the frame — a grid of tiles, panels, a storyboard, a character sheet, or the same person shown more than once
-- "other": something else a parent would notice that makes this a bad page; say what in the note
+- "other": something else grossly wrong that a parent would notice; say what in the note
 
-Small details are NOT faults: what exactly is inside a basket, how many cups or flowers there are, which way a tail points, the exact colour of a prop, or a piece of furniture the description mentions in passing. Do not list them.
+Small details are NOT faults and are not mentioned: what exactly is inside a basket, how many cups or flowers there are, which way a tail points, the exact colour of a prop, a pose that differs from the description, or a piece of furniture the description mentions in passing.
 
-"note" is read by the artist who redraws the picture, so make it something they can act on: for every fault, say exactly what is wrong and where in the frame — "a second girl in a red cloak stands at the far right", "the word MARKET is painted on the cart's side", "the grandmother is not in the picture; she should be in the bed", "the picture is a grid of twelve small tiles". Name things by what they look like, never by a guess at who the child is. At most three sentences. When nothing is wrong, one short sentence saying so.
+"note" is read by the artist who redraws the picture, so for every fault say exactly what is wrong and where in the frame — "a second girl in a red cloak stands at the far right", "the word MARKET is painted on the cart's side", "the grandmother is not in the picture; she should be in the bed". Name things by what they look like, never by a guess at who the child is. Mention nothing that is not a fault. At most three short sentences. When nothing is grossly wrong, one short sentence saying so.
 
 Set "passed" to false if any fault other than "wrong_counts" or "other" is listed, or the score is below 70."""
 
 # Sent with the plate as a second picture, on a page that was painted into one.
-plate_rule = """The SECOND picture is the empty background plate the first picture was painted into. Compare them. Add the fault "other" and say exactly what changed if the first picture is not the same place as the plate: a different or redrawn background, a prop moved, added or removed, a second copy of an object, a plant or stalk that is not joined to what it grew from in the plate, a different camera angle or light. Only the characters, and the shadows they cast, may differ from the plate."""
+# A plate edit always moves a few things; only a different place is a fault.
+plate_rule = """The SECOND picture is the empty background plate the first picture was painted into. Add the fault "wrong_place" only if the first picture is clearly NOT the same place as the plate: a different room or landscape, or the whole scene redrawn so a viewer would not recognise it. A prop moved, redrawn or added, a changed chair, different light or a slightly different angle is NOT a fault and is not mentioned."""
 
-# Sent with the book's approved cartoon portrait of the child, on a page the
-# child is in. The portrait is the image that drew the child, so "does not look
-# like it" is a real fault; small drift from angle, expression or distance is not.
-likeness_rule = """The picture right after this sentence is the approved portrait of the book's child, the one every page must show. Add the fault "likeness" if the child in the FIRST picture is clearly a different child from this portrait: a different skin tone, hair colour, hair style or length, face shape or apparent age. A different angle, expression, pose or distance is not a fault, and neither is a face drawn small and simple in a wide shot. Name what differs in the note."""
+# Sent with the book's approved portrait of the child, on a page the child is
+# in. Only a clearly different child is a fault: a small, simple face in a wide
+# shot, an angle or an expression is not.
+likeness_rule = """The picture right after this sentence is the approved portrait of the book's child. Add the fault "likeness" only if the child in the FIRST picture is clearly NOT the same child: an unmistakably different skin tone, hair colour, or hair length (long hair become short), or a plainly different age. A cartoon style, a different angle, expression, pose or distance, a face drawn small and simple, or hair hidden under a hood is not a fault. Name what differs in the note."""
 
 page_title = "the picture book's page: "
 # Who may appear on the page, said plainly after the description. {named} is the
@@ -706,20 +719,23 @@ cast_note_absent = "Who may appear in this picture: {named}, and anyone the desc
 [decision]
 # {brief} is the page's caption with the star as "the child"; {cast} is the
 # cast note above.
-intro = "A page of a children's picture book. The picture it must be: {brief}\n{cast}"
+# The veto budget is the same deliberate overstatement as in [review].instruction.
+intro = "A page of a children's picture book. The picture it must be: {brief}\n{cast}\nAt most 4 of this book's 20 pictures may be sent back, and every one sent back is redrawn at real cost: answer yes to a fault only when it is gross and plain at a glance."
 # Added after the intro, with the portrait as the second image, on a page the
 # child is in; the likeness question is asked only then.
 likeness_intro = "The second image is the approved portrait of the book's child; the child in the first image must be this child."
 
 [decision.questions]
-shows_moment = "Does the picture show the described moment: the right action and place, with the characters doing what the description says?"
-extra_person = "Is there a person or character in the picture whom neither the description nor the list of who may appear names?"
-missing_character = "Is someone the description says is in the picture missing from it?"
-text_in_image = "Is there any lettering, writing, sign, label, number or speech bubble anywhere in the picture?"
-face_obscured = "Is the face of a character who should be seen hidden behind something, or cut off by the edge of the frame? A face the description itself turns away (seen from behind, a sleeping head bowed), or a figure the description says the frame cuts off, does not count."
+# Each question asks whether something is GROSSLY wrong, the same bar as the
+# reviewer (see [review]): a decision model takes the question literally.
+shows_moment = "Does the picture recognisably show the described moment — roughly the right action and place — even if poses, small props or details differ from the description?"
+extra_person = "Is there plainly a person or character in the picture whom neither the description nor the list of who may appear names?"
+missing_character = "Is someone the description says is in the picture plainly absent from it? A character drawn small, in the background, or partly hidden is present."
+text_in_image = "Is there readable lettering, writing, a sign, label, number or speech bubble anywhere in the picture?"
+face_obscured = "Is a main character's face hidden or cut off so badly that the character is lost? A face the description itself turns away (seen from behind, a sleeping head bowed), or a figure the description says the frame cuts off, does not count."
 wrong_counts = "Does the picture clearly show a different number of something than the description states, where the number matters to the story (five beans, three towers)? Small props whose number the description does not state do not count."
-deformed = "Does any figure have extra or missing limbs, extra fingers, fused hands, doubled feet, a body that reads as broken, a body or legs passing through a chair, table or other solid object, a figure squeezed under a table instead of beside it, or a figure floating with nothing under or holding it?"
+deformed = "Does any figure plainly have extra or missing limbs, extra fingers, fused hands, doubled feet, a body that reads as broken, a body or legs passing through a chair, table or other solid object, a figure squeezed under a table instead of beside it, or a figure floating with nothing under or holding it?"
 # Asked only when the portrait is sent (see likeness_intro).
-likeness = "Is the child in the first image clearly a different child from the portrait in the second image — a different skin tone, hair colour, hair style or length, face shape or apparent age? A different angle, expression, pose or distance does not count, and neither does a face drawn small and simple in a wide shot."
-collage = "Is the frame more than one picture: a grid of tiles, panels, a character sheet, or the same person shown twice?"
+likeness = "Is the child in the first image clearly NOT the same child as the portrait in the second image — an unmistakably different skin tone, hair colour or hair length, or a plainly different age? A cartoon style, angle, expression, pose or distance, a face drawn small and simple, or hair hidden under a hood does not count."
+collage = "Is the frame plainly more than one picture: a grid of tiles, panels, a character sheet, or the same person shown twice?"
 frightening = "Does the picture show blood, a wound, a weapon being used on or pointed at someone, an attack in progress, or a child in real terror? A sly or toothy cartoon villain does not count, and neither does a tool being used for the job the description says (an axe chopping a tree)."

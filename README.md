@@ -96,16 +96,24 @@ Prices move; re-check before you rely on them.
 **Read this bit first: one finished book costs twenty-two API calls.** The
 pipeline cartoonifies the photo (call 1), draws the cover (call 2), then renders
 the twenty story pages (calls 3–22). So 200 finished books is **4,400 billed
-image generations**. Every figure below is per *call*.
+image generations**, before any redraw. Every figure below is per *call*.
 
-| Provider | Per call (1K image) | 200 books (4,200 calls) | Free tier? |
+| Provider | Per call (1K image) | 200 books (4,400 calls) | Free tier? |
 | --- | --- | --- | --- |
 | **Agnes `agnes-image-2.5-flash`** | **$0** | **$0** | **Yes — free, ~10 requests/minute at 1K** |
-| **OpenAI `gpt-image-2.5-flare`, `quality=low`** (default) | **$0.00588** | **~$23.52** | No |
+| **OpenAI `gpt-image-2.5-flare`, `quality=low`** (default) | **~$0.024** | **~$105.60** | No |
 | OpenAI `gpt-image-2.5-*`, `quality=medium` | not published | — | No |
-| Cloudflare `flux-2-klein-9b` | $0.015 / MP | ~$60.00 | **Yes — ~6 images/day free** |
-| Gemini `gemini-3.1-flash-lite-image` | $0.0336 | ~$134.40 | No |
-| Gemini `gemini-3.1-flash-image` | $0.067 | ~$268.00 | No |
+| Cloudflare `flux-2-klein-9b` | $0.015 / MP | ~$66.00 | **Yes — ~6 images/day free** |
+| Gemini `gemini-3.1-flash-lite-image` | $0.0336 | ~$147.84 | No |
+| Gemini `gemini-3.1-flash-image` | $0.067 | ~$294.80 | No |
+
+The OpenAI figure is what run 1 (2026-11-11) was actually billed per page, from
+the `api_calls` ledger: the picture itself is only $0.00588 (196 output
+tokens); the rest is input — about 2,150 image tokens for the plate and the
+portraits ($8 per million) and about 1,450 prompt-text tokens ($5 per million).
+Portraits now go up at 512 px instead of 1024, so the input part is smaller
+than it was in that run. The other providers' figures are their published
+per-image prices.
 
 **OpenAI is the default here**, because at `quality=low` it is roughly 5.7×
 cheaper than the cheapest Gemini image model for the same job, and the
@@ -211,10 +219,13 @@ Two corrections worth stating plainly, because the obvious assumptions are wrong
   the Lite model, and a test fails if the default ever reverts to the retired
   one.
 
-At roughly $0.034 per image and twenty-two calls per finished book, one book costs
-about **74 cents**. Twenty test books across several photos is roughly $14.80.
-(That is the star's portrait plus one call per story page; each optional
-character photo adds one more portrait call before the pages start.)
+At roughly $0.024 per OpenAI call and twenty-two calls per finished book, a book
+that needs no redraws costs about **53 cents**, plus about 1.5 cents of review.
+Every redraw adds another call. (That is the star's portrait plus one call per
+story page; each optional character photo adds one more portrait call before the
+pages start.) Redraws are what make a book expensive: run 1 cost about $1.55 a
+book because the judges sent most pages back, which is what to-do.md's "Cost per
+book under the $0.99 price" addresses.
 
 ### Testing your prompts for free, before you pay
 
@@ -878,7 +889,8 @@ comic, and the one you click is the one the book uses.
 To be clear about the arithmetic: **this is not cheaper per call** — three
 options is three times the cost of one, because you are billed per returned
 image. It is cheaper per *kept* picture only if you would otherwise re-roll
-repeatedly. At $0.00588 a call, three options is $0.018, so it is off by default
+repeatedly. The inputs are billed once and each returned picture adds $0.00588,
+so three options cost about $0.012 more than one; it is off by default
 and worth turning on while settling a likeness.
 
 ## Stress testing, for free
@@ -913,8 +925,8 @@ image, so nothing is served from a cache.
 The p50 above is the gate working, not a bottleneck: 16 requests against
 `MAX_CONCURRENT_GENERATIONS=2` means most of them wait their turn.
 
-Against a real provider it costs roughly `successful × $0.006` (one flare-low
-call per portrait), so the script requires an explicit acknowledgement first:
+Against a real provider it costs roughly `successful × $0.02` (one flare-low
+call per portrait, input tokens included), so the script requires an explicit acknowledgement first:
 
 ```bash
 python scripts/stress_test.py --url https://your-app.onrender.com \

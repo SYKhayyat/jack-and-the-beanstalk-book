@@ -553,14 +553,14 @@ class TestTheAttemptLoop:
         assert "there was lettering or writing in the picture" in retry
         # The load-bearing sentence: a fault list reads as permission to redraw
         # unless it says in the same breath that the plate is not one of them.
-        assert "must stay as they are in the plate" in retry
+        assert "the plate stays as it is" in retry
         # The reviewer's words, flattened to one line and quoted as data.
-        assert "in its own words: \"the word 'MARKET' is painted on the cart\"" in retry
+        assert "The reviewer saw: \"the word 'MARKET' is painted on the cart\"" in retry
         first_try = build_plate_edit_prompt(
             a_page(), (A_SLOT,), story=JACK, settings=CartoonSettings(), prompt_name="Jack"
         )
         assert "another try" not in first_try
-        assert "in its own words" not in first_try
+        assert "The reviewer saw" not in first_try
 
     def test_the_edit_carries_the_moment_but_keeps_the_plate(self) -> None:
         """Without the moment every figure stood posed (real run, 2026-11-09)."""
@@ -573,8 +573,8 @@ class TestTheAttemptLoop:
             settings=CartoonSettings(photo_gender="girl"),
             prompt_name="Maya",
         )
-        assert "THE MOMENT THIS PAGE SHOWS" in prompt
-        assert "stay exactly as they are" in prompt  # said before the caption
+        assert "THE MOMENT (the plate already holds" in prompt
+        assert "come back exactly as in the plate" in prompt
         assert "Maya in the red hood steps through the half-open blue door" in prompt
         assert "WHAT Maya IS DOING: stepping in through the door" in prompt
         assert "the wolf clearly visible or showing teeth" in prompt  # must_avoid

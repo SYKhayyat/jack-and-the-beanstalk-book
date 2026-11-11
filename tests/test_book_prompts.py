@@ -439,7 +439,7 @@ def test_every_page_is_given_the_whole_story_labelled_by_page() -> None:
     for prompt in _all_page_prompts():
         assert "THE WHOLE STORY (context for you only):" in prompt
         assert (
-            "Page 1: Jack and his mother have nothing left to sell but the white cow, "
+            "Page 1: Jack and Jack's mother have nothing left to sell but the white cow, "
             "Milky-White." in prompt
         )
         assert "Page 2: An old man offers Jack five beans in exchange for the cow." in prompt
@@ -484,10 +484,12 @@ def test_the_story_is_illustrated_never_lettered() -> None:
 
 
 def test_the_story_follows_the_child() -> None:
-    """The story lines carry the name and pronouns of the chosen child."""
+    """The story lines carry the chosen child's name in place of pronouns."""
     settings = CartoonSettings(photo_gender="girl", character_gender="match")
     prompt = _prompt(BOOK_PAGES[0], settings, 1)
-    assert "Page 1: Jane and her mother have nothing left to sell but the white cow" in prompt
+    assert (
+        "Page 1: Jane and Jane's mother have nothing left to sell but the white cow" in prompt
+    )
 
 
 def test_every_page_forbids_extra_limbs() -> None:
@@ -690,8 +692,9 @@ def test_every_page_carries_the_same_prop_and_place_bible() -> None:
         "going to market is always moving towards the right",
     ):
         assert fixed in sheet, fixed
-    # The harp's carrying rule follows the child's pronouns.
-    assert "Once Jack has it, he carries it on his back by that strap." in sheet
+    # The harp's carrying rule names the child: under MATCH the photo, not a
+    # pronoun, decides who the child is.
+    assert "Once Jack has it, Jack carries it on Jack's back by that strap." in sheet
 
 
 def test_age_signature_features_physics_and_mood_reach_every_page() -> None:

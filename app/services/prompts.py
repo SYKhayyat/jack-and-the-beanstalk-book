@@ -288,8 +288,31 @@ def book_name_for(settings: CartoonSettings, story: StoryEdition) -> str:
     return story.default_name(settings.effective_gender)
 
 
-def _substitutions(settings: CartoonSettings, name: str) -> dict[str, str]:
-    """The name and pronouns the prose is written with."""
+def _substitutions(
+    settings: CartoonSettings, name: str, *, picture: bool = False
+) -> dict[str, str]:
+    """The name and pronouns the prose is written with.
+
+    `picture` is for text an image model reads. When the child is drawn as the
+    photo shows them (`CharacterGender.MATCH`), the photo decides what the
+    child looks like, so the picture text carries no gender of its own: every
+    pronoun becomes the name ("Tester's head", never "his head"). The answer to
+    "boy or girl?" only picks the book's printed pronouns. Run 1 (2026-11-11)
+    set "boy" on a girl's photo, and "he / his" in every prompt pulled the
+    pages towards a short-haired boy.
+    """
+    if picture and settings.character_gender is CharacterGender.MATCH:
+        possessive = "the child's" if name == "the child" else f"{name}'s"
+        neutral = {
+            "subject": name,
+            "object": name,
+            "possessive": possessive,
+            "reflexive": name,
+        }
+        capitalised = {
+            key.capitalize(): value[:1].upper() + value[1:] for key, value in neutral.items()
+        }
+        return {"name": name, **neutral, **capitalised}
     pronouns = _PRONOUNS[settings.effective_gender]
     capitalised = {key.capitalize(): value.capitalize() for key, value in pronouns.items()}
     return {"name": name, **pronouns, **capitalised}
@@ -301,14 +324,18 @@ def scene_for(page: BookPage, settings: CartoonSettings, *, prompt_name: str) ->
     For a caller that needs what the picture shows (the reviewer's brief), not
     the whole rendered page with its story text.
     """
-    return page.scene.formatted(_substitutions(settings, prompt_name))
+    return page.scene.formatted(_substitutions(settings, prompt_name, picture=True))
 
 
 def render_book_page(
-    page: BookPage, settings: CartoonSettings, *, prompt_name: str
+    page: BookPage, settings: CartoonSettings, *, prompt_name: str, picture: bool = False
 ) -> BookPage:
-    """Fill a book page's name/pronoun placeholders for the chosen child."""
-    return page.formatted(_substitutions(settings, prompt_name))
+    """Fill a book page's name/pronoun placeholders for the chosen child.
+
+    `picture` fills them for an image prompt instead of the printed page (see
+    `_substitutions`).
+    """
+    return page.formatted(_substitutions(settings, prompt_name, picture=picture))
 
 
 def _star_outfit(story: StoryEdition, settings: CartoonSettings, name: str) -> str:
@@ -319,7 +346,7 @@ def _star_outfit(story: StoryEdition, settings: CartoonSettings, name: str) -> s
     """
     costume = story.star_member.costume
     if costume:
-        return costume.format(**_substitutions(settings, name))
+        return costume.format(**_substitutions(settings, name, picture=True))
     return _OUTFIT_DESCRIPTIONS[settings.outfit]
 
 
@@ -339,7 +366,7 @@ def _story_lines(story: StoryEdition, settings: CartoonSettings, prompt_name: st
     """
     lines = []
     for page in story.pages:
-        rendered = render_book_page(page, settings, prompt_name=prompt_name)
+        rendered = render_book_page(page, settings, prompt_name=prompt_name, picture=True)
         summary = rendered.beat or rendered.story
         lines.append(f"Page {page.number}: {summary}")
     return "\n".join(lines)
@@ -398,8 +425,8 @@ def build_book_page_prompt(
     wording = _STORIES[story.key]
     page_number = page.number
     total_pages = len(story.pages)
-    page = render_book_page(page, settings, prompt_name=prompt_name)
-    subs = _substitutions(settings, prompt_name)
+    page = render_book_page(page, settings, prompt_name=prompt_name, picture=True)
+    subs = _substitutions(settings, prompt_name, picture=True)
     # Order is deliberate, and it is two blocks rather than one list.
     #
     # Everything that is byte-identical on every page of a book comes first:
@@ -525,7 +552,7 @@ def build_cover_prompt(
     """
     task_book = cast("dict[str, str]", _BOOK["assembly"])
     wording = _STORIES[story.key]
-    subs = _substitutions(settings, prompt_name)
+    subs = _substitutions(settings, prompt_name, picture=True)
     name = subs["name"]
     cover = story.cover.formatted(subs)
     sections = [
@@ -615,7 +642,7 @@ def build_cartoon_prompt(
     """
     style_text = _STYLE_DESCRIPTIONS[settings.cartoon_style]
     name = book_name_for(settings, story)
-    subs = _substitutions(settings, name)
+    subs = _substitutions(settings, name, picture=True)
     retry_clauses = rejection.prompt_block() if rejection else ""
     sections = [
         _ASSEMBLY["task_cartoon"],
@@ -722,7 +749,11 @@ def findings_line(findings: str) -> str:
     if not flat:
         return ""
     if len(flat) > _FINDINGS_LIMIT:
-        flat = flat[: _FINDINGS_LIMIT - 1].rstrip() + "…"
+        # Cut at the last whole sentence that fits, or failing that the last
+        # whole word: run 1 handed the painter "...and a differen…".
+        head = flat[:_FINDINGS_LIMIT]
+        end = max(head.rfind(". "), head.rfind("! "), head.rfind("? "))
+        flat = head[: end + 1] if end > 0 else head.rsplit(" ", 1)[0].rstrip(",;:") + "…"
     edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
     return edit["retry_findings"].format(findings=flat)
 
@@ -806,7 +837,7 @@ def build_plate_edit_prompt(
     """
     edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
     assembly = cast("Mapping[str, str]", _BOOK["assembly"])
-    subs = _substitutions(settings, prompt_name)
+    subs = _substitutions(settings, prompt_name, picture=True)
     scene = page.formatted(subs).scene
     emotion = page.emotion.format(**subs) if page.emotion else ""
     lines = [
@@ -835,7 +866,6 @@ def build_plate_edit_prompt(
             star_outfit=_star_outfit(story, settings, prompt_name),
             supplied=frozenset(supplied_characters),
         ),
-        edit["inherits"],
         edit["no_extras"],
         _avoid_clause(scene),
     ]
@@ -984,10 +1014,7 @@ def _edit_cast_looks(
         looks.append(f"- {member.label}: {look}")
     if not looks:
         return ""
-    return (
-        "THE CHARACTERS, AS THE BOOK FIXES THEM (draw these exactly, every time):\n"
-        + "\n".join(looks)
-    )
+    return "THE CHARACTERS (the same on every page):\n" + "\n".join(looks)
 
 
 def _avoid_clause(scene: Scene) -> str:

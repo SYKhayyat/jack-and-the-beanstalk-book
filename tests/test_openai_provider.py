@@ -22,6 +22,7 @@ from app.services.image_providers.base import (
     TokenUsage,
 )
 from app.services.image_providers.openai_provider import (
+    PORTRAIT_MAX_EDGE,
     QUALITIES,
     REFERENCE_MAX_EDGE,
     OpenAIImageProvider,
@@ -366,3 +367,21 @@ class TestReferenceSize:
         Image.new("RGBA", (2048, 2048), (0, 0, 0, 0)).save(buffer, format="PNG")
         with Image.open(self._sent(buffer.getvalue())) as sent:
             assert sent.mode == "RGBA"
+
+    def test_portraits_after_the_first_image_go_at_half_the_size(self) -> None:
+        """The plate keeps its 1024; a portrait is read only for a face and a look."""
+        images = FakeImages(FakeResponse([FakeItem(b64_json=B64)]))
+        big = make_photo_bytes((1024, 1024))
+        build(images).generate(
+            ImageRequest(
+                prompt="p",
+                reference_images=(big, big, big),
+                reference_media_types=("image/png",) * 3,
+            )
+        )
+        plate, *portraits = images.calls[0]["image"]
+        with Image.open(plate) as sent:
+            assert max(sent.size) == REFERENCE_MAX_EDGE
+        for portrait in portraits:
+            with Image.open(portrait) as sent:
+                assert max(sent.size) == PORTRAIT_MAX_EDGE

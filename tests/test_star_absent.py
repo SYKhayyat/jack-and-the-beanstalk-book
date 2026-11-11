@@ -270,7 +270,7 @@ def test_the_edit_names_each_portrait_in_the_order_it_is_sent() -> None:
     assert references == [b"plate", b"star-portrait", b"portrait-gran"]
     prompt = _edit("big-ears", slots, supplied_characters=("grandmother",))
     assert (
-        "image 1 is the empty background plate; image 2 is the portrait of Sam; "
+        "image 1 is the plate; image 2 is the portrait of Sam; "
         "image 3 is the portrait of Grandmother."
     ) in prompt
     assert "portrait of The wolf" not in prompt  # no image of the wolf is sent

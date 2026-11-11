@@ -44,24 +44,29 @@ differences from the plate, 68 flag likeness the decision judge scored at
 0.1–0.2, and 32 of 80 pages used all three attempts. Each image call is about
 $0.024 (≈2,150 reference-image tokens, ≈1,450 prompt tokens, 144 out).
 
-- [ ] Plate differences never fail a page; only a background that is
+- [x] Plate differences never fail a page; only a background that is
       recognisably not the plate's place does.
-- [ ] Likeness fails a page only when the reviewer and the decision judge
+- [x] Likeness fails a page only when the reviewer and the decision judge
       both score it high.
-- [ ] Portrait references sent at 512 px, cropped to the face; the plate
-      stays at 1024 (it is the picture being edited).
-- [ ] Cut the repetition out of the plate-edit prompt (the plate is told to
+- [x] Portrait references sent at 512 px; the plate stays at 1024 (it is
+      the picture being edited). Not cropped to the face: the portrait is
+      also where the painter reads the outfit, which must match on every page.
+- [x] Cut the repetition out of the plate-edit prompt (the plate is told to
       stay four times; the star's look restates boilerplate), and fix the
       retry noise: the reviewer note is cut mid-word, and the
       plate-difference fault is passed to the painter as something to fix.
-- [ ] Proper pronouns in image prompts: the drawing follows the photo. Run 1
+- [x] Proper pronouns in image prompts: the drawing follows the photo. Run 1
       set "boy" on a girl's photo, and "he / his" in every prompt pulled pages
       towards a boy (Jack page 20 came back short-haired).
-- [ ] Correct the README's cost figure (it counts output tokens only:
+- [x] Correct the README's cost figure (it counts output tokens only:
       $0.00588 against a real ≈$0.024 per image).
-- [ ] Ask every reviewer and judge question as "is this grossly wrong?" (not
+- [x] Ask every reviewer and judge question as "is this grossly wrong?" (not
       the child, not this moment, not this place), never "is it exactly
       right?".
+- [x] Tell the reviewer and the decision judge they may veto at most 4 of the
+      book's 20 pictures, and that every redraw costs money, so they save a
+      fail for what is grossly wrong. Deliberately untrue: nothing counts the
+      vetoes, and a failed page is still redrawn.
 - [ ] Pre-made pages for pages without the star (maybe the biggest lever):
       a page that only shows fixed characters is the same in every book, so
       make it once from its plate in Gemini (in Chrome, free) and reuse it.

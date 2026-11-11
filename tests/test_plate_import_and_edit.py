@@ -351,12 +351,12 @@ def test_a_book_on_a_template_version_edits_the_plate_instead_of_composing(
     assert len(page_calls) == len(JACK_SEED.pages)
     for request in [*cover_calls, *page_calls]:
         assert "KEEP THE PLATE" in request.prompt
-        assert "EDIT of the background plate" in request.prompt
+        assert "EDIT the empty background plate" in request.prompt
         assert "NOBODY ELSE" in request.prompt
         # None of the from-scratch composition's drawing instructions.
         assert "THE WHOLE STORY" not in request.prompt
         assert "SCENE TO DRAW" not in request.prompt
-        assert "THE MOMENT THIS PAGE SHOWS" in request.prompt
+        assert "THE MOMENT (the plate already holds" in request.prompt
         assert "SLOTS (" in request.prompt
     # The cover's first reference is the cover plate itself.
     assert cover_calls[0].reference_images[0] == plate_bytes

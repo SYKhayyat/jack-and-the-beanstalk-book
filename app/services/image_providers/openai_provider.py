@@ -14,8 +14,10 @@ image's tokens as input, plus the picture as output. The output alone is small
 (196 tokens, $0.00588, for a 1K low-quality picture); the reference images
 going in usually cost more. Each response reports its own token counts, so
 every image returned carries its call's `TokenUsage` and the cost ledger prices
-the call from what was actually billed. To keep that input small, every
-reference is sent at most `REFERENCE_MAX_EDGE` pixels on its long edge.
+the call from what was actually billed. To keep that input small, the first
+reference (the plate, or the photo being edited) is sent at most
+`REFERENCE_MAX_EDGE` pixels on its long edge and every later one (a portrait,
+read only for a face and a look) at most `PORTRAIT_MAX_EDGE`.
 
 No retry loop for failures, like every other provider here: a failed call fails
 loudly rather than quietly spending a second call's worth of money. The one
@@ -96,6 +98,10 @@ _MAX_PIXELS = 8_294_400
 #: layout, poses and colours and the portraits their faces, which all survive
 #: at 1024. Smaller references are sent untouched, never enlarged.
 REFERENCE_MAX_EDGE = 1024
+#: The longest edge of every reference after the first. Those are portraits:
+#: the model reads a face, hair and outfit from them, never a layout, and they
+#: survive at 512 for about a quarter of the image tokens.
+PORTRAIT_MAX_EDGE = 512
 
 _EXTENSION_BY_MEDIA_TYPE = {
     "image/jpeg": "jpg",
@@ -311,28 +317,29 @@ class OpenAIImageProvider(ImageProvider):
 
 def _as_upload(data: bytes, media_type: str, index: int) -> io.BytesIO:
     """Wrap reference bytes in a named stream, which is how the SDK builds multipart."""
-    data, media_type = _fit_reference(data, media_type)
+    limit = REFERENCE_MAX_EDGE if index == 0 else PORTRAIT_MAX_EDGE
+    data, media_type = _fit_reference(data, media_type, limit)
     extension = _EXTENSION_BY_MEDIA_TYPE.get(media_type, "png")
     stream = io.BytesIO(data)
     stream.name = f"reference-{index}.{extension}"
     return stream
 
 
-def _fit_reference(data: bytes, media_type: str) -> tuple[bytes, str]:
-    """The reference scaled to `REFERENCE_MAX_EDGE`, as a lossless PNG.
+def _fit_reference(data: bytes, media_type: str, limit: int) -> tuple[bytes, str]:
+    """The reference scaled to `limit` pixels on its long edge, as a lossless PNG.
 
     A reference already that small, or one Pillow cannot read, goes as it came:
     the API judges an unreadable file, and its error is clearer than ours.
     """
     try:
         with Image.open(io.BytesIO(data)) as image:
-            if max(image.size) <= REFERENCE_MAX_EDGE:
+            if max(image.size) <= limit:
                 return data, media_type
             image.load()
             fitted = image.convert("RGBA" if "A" in image.getbands() else "RGB")
     except (OSError, ValueError, Image.DecompressionBombError):
         return data, media_type
-    fitted.thumbnail((REFERENCE_MAX_EDGE, REFERENCE_MAX_EDGE), Image.Resampling.LANCZOS)
+    fitted.thumbnail((limit, limit), Image.Resampling.LANCZOS)
     buffer = io.BytesIO()
     fitted.save(buffer, format="PNG")
     return buffer.getvalue(), "image/png"

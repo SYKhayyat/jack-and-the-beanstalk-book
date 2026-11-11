@@ -74,6 +74,7 @@ FAULTS: tuple[str, ...] = (
     "deformed",
     "collage",
     "likeness",
+    "wrong_place",
     "other",
 )
 

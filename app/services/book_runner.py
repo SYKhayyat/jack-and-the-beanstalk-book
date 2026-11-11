@@ -997,8 +997,8 @@ class BookRunner:
         # the pass rule, not the model's own `passed`: a serious fault fails the
         # picture whatever the model concluded, and a minor one alone (three
         # cups, not two) does not fail a picture that scores well.
-        faults = answer.faults
-        passed = verdict_passes(answer.score, answer.faults)
+        faults = _confirmed_faults(answer.faults, decision)
+        passed = verdict_passes(answer.score, faults)
         judged_by = "reviewer"
         # The checks' scores answer different questions, so the combined score
         # is the strictest: a page is only as good as its worst check.
@@ -1436,6 +1436,22 @@ def _cast_note(page: BookPage, edition: StoryEdition) -> str:
     review = prompt_text()["review"]
     key = "cast_note" if page.star_in_picture else "cast_note_absent"
     return str(review[key]).format(named=named)
+
+
+def _confirmed_faults(faults: tuple[str, ...], decision: Decision | None) -> tuple[str, ...]:
+    """The reviewer's faults, its likeness call kept only when the decision agrees.
+
+    Run 1 (2026-11-11) had the reviewer flag likeness on 68 of 87 pictures that
+    the decision judge scored at 0.1-0.2 on the same question, and every flag
+    cost a redraw. A wrong child is the one fault a parent will not forgive, so
+    it still fails a page, but only when both models see it. With no decision
+    to ask (the judge is down or off) the reviewer's call stands alone.
+    """
+    if "likeness" not in faults or decision is None:
+        return faults
+    if float(decision.probabilities.get("likeness", 0.0)) >= COIN:
+        return faults
+    return tuple(fault for fault in faults if fault != "likeness")
 
 
 def _ratio(aspect_ratio: str) -> float | None:

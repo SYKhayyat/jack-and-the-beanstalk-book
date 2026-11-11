@@ -61,7 +61,7 @@ must_avoid = ["lettering, a title, a logo or a caption of any kind", "a face in 
 [cast.jack]
 label = "The child"
 photoable = true
-look = "The child in this book: {Possessive} own face, hair, skin and age in every picture, exactly as in the approved portrait and photograph, and never a different child. There is no story costume: {subject} wears the visitor's own outfit from the book, garment for garment, identical on every page — every item of it drawn whenever that part of the body is in view, and no item added, dropped, swapped, restyled or recoloured. {name} is a child throughout: childlike head-to-body proportions, a round young face, short limbs, and no adult or teenage features."
+look = "The child in this book: {Possessive} own face, hair, skin and age, exactly as in the portrait, on every page. {Subject} wears the outfit below, identical on every page, every item drawn whenever that part of the body shows. A child throughout: childlike proportions, a round young face, short limbs."
 
 [cast.mother]
 label = "Mother"
