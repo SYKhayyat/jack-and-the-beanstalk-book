@@ -119,8 +119,14 @@ $0.024 (≈2,150 reference-image tokens, ≈1,450 prompt tokens, 144 out).
 - [x] A failure is redrawn, up to 3 generations in total, aimed at the faults
       found.
 - [x] After 3 failures the best of the three is kept and marked best-effort.
-- [x] The UI shows the attempt count on every picture: a chip under each page
-      ("Try 2 of 3", "Best of 3 tries") and a count on each thumbnail.
+- [x] The attempt count is recorded for every picture: how many tries it took,
+      which one was kept, and whether it is best-effort. **Shown to the
+      operator, not to the reader** (AUDIT.md B6/U1, 11 Nov 2026): the chip
+      under the page ("Try 2 of 3", "Best of 3 tries"), the count on each
+      thumbnail and the in-flight "try 2 of 3" leaked the quality loop into a
+      child's book, so a visitor now judges the picture in front of them. The
+      record is still in the poll, in every page's `data-attempts`, and in
+      full on `/admin/books/{id}` — which is where it can be checked.
 
 ## Text must never hide the story
 
@@ -142,6 +148,32 @@ $0.024 (≈2,150 reference-image tokens, ≈1,450 prompt tokens, 144 out).
       on the site and in the PDF (`cover_subtitle` in the seed).
 - [ ] A cleaner pass over the studio, the book and the wallet, judged on the
       live site.
+- [ ] **Progress caption says "pencil is resting" while 20 pages are
+      painting** (Run 2, 2026-11-11, `app/static/book-live.js:347`, book
+      f6ff1a35). The "N of 21 pictures drawn" counter only counts pages that
+      passed review, so it reads 0 for the first 2-3 minutes while all 21
+      paint in parallel; after 8 quiet polls (~12 s, `RESTING_AFTER_POLLS`)
+      the caption switches to "resting for a moment" although the job is
+      working (live DB: stage `painting`, 8 images landing, then
+      `reviewing`). Fix: count pictures drawn, not only reviewed; use
+      `stage_counts` for the caption; never say "resting" while any page is
+      painting or reviewing.
+- [ ] **The server stalls under a book render, Render restarts it, and the
+      whole book is lost** (Run 2, 2026-11-11 ~10:17 ET, book f6ff1a35,
+      Render service `jack-and-the-beanstalk-book`, free plan). Not a deploy
+      (live deploy 14:58 UTC) and Render's Events page shows nothing after
+      10:00, so no recorded OOM. Logs: `/healthz`, normally ~1.5 ms, took
+      1-3 s from 15:14, 25 s at 15:16:04, 22 s at 15:16:41, ~21 s on four
+      requests at 15:17:00, and a status poll 53 s at 15:17:14. The last
+      log line is 15:17:21, a new process started 15:17:49 with no shutdown
+      line, and `book.reaped (server restart)` failed the book. So the event
+      loop was blocked for tens of seconds by the 21 parallel pages (image
+      decode/encode, base64 for the reviewer, ~1.5 MB per image, on the free
+      plan's tiny CPU share); health checks timed out and the instance was
+      restarted. 14 of 21 pages ($0.36) were lost. Cause of the kill itself
+      is unconfirmed (no event). Fix: keep image work off the event loop
+      (threads/processes), cap page concurrency, and resume a reaped book
+      from its saved pages instead of failing it.
 
 ## Grade yourself, and keep the record
 
