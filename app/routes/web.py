@@ -323,6 +323,10 @@ def page_chrome(
         "wallet_balance": format_cents(balance) if wallet_visible else "",
         "wallet_balance_cents": balance,
         "wallet_short": wallet_enabled and balance < container.wallet.price_cents,
+        # The price of a book, independent of who is looking: it belongs on
+        # the public shelf, where the decision to start is made (U3). Payment
+        # is a separate question from whether the shelf may state the fee.
+        "book_price": format_cents(container.wallet.price_cents) if payments_enabled else "",
         "price_label": format_cents(container.wallet.price_cents) if wallet_enabled else "",
         "flash": wallet_message(request.query_params.get("message", ""))
         if request is not None
