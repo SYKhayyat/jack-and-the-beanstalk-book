@@ -75,6 +75,21 @@ def test_the_balance_is_the_sum_of_the_ledger(wallet: Wallet) -> None:
     assert len(wallet.history("me")) == 2
 
 
+def test_the_history_is_read_one_page_at_a_time(wallet: Wallet) -> None:
+    """S5: a year-old ledger is not read in full to show one screen of it."""
+    for index in range(60):
+        fund(wallet, "me", 500, session_id=f"cs_{index}")
+    first, total = wallet.history_page("me", limit=50, offset=0)
+    assert total == 60 and len(first) == 50
+    last, counted_again = wallet.history_page("me", limit=50, offset=50)
+    assert counted_again == 60 and len(last) == 10
+    # No row appears on both pages, and the newest row is first.
+    assert {row.id for row in first}.isdisjoint({row.id for row in last})
+    assert first[0].created_at >= last[-1].created_at
+    # The filters narrow the count, not only the rows.
+    assert wallet.history_page("me", kinds=("charge",)) == ([], 0)
+
+
 def test_one_stripe_session_funds_once(wallet: Wallet) -> None:
     fund(wallet, "me", 1000)
     transaction, created = wallet.fund(

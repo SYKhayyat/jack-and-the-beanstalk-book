@@ -195,8 +195,12 @@ See B12. Measured 0.28 s (800 px) and 0.38 s (1600 px) per 1152×864 image on a 
 ### S4 — P2: the full status document is rewritten on every progress tick
 `status_payload` includes each page's full story text (`app/services/book_document.py:127–160`), and `save_status` rewrites the whole JSON on every stage change; the browser polls it every 1.5 s (`app/static/book-live.js:16`). That is ~10–12 KB × dozens of writes per book, plus the poll payload, all over the network to Neon. Store story text once (book/story page rows) and keep the poll document to ids/status/URLs, or only update the changed page.
 
+**Done (11 Nov 2026):** the poll document carries no story text — only each page's number, key, title, status, picture URLs and version. For *Jack* that is ~6.4 KB less on every write and every poll (20 pages of prose); the words still live in the edition and are rendered into the book page. Pinned by `test_the_poll_document_carries_no_story_text`.
+
 ### S5 — P2: the wallet history is unbounded and filtered in Python
 `Wallet.history` returns every transaction, `wallet_page` filters the list in memory (`app/services/wallet.py:204–206`, `app/routes/wallet.py:123–170`). A long-lived account accumulates rows; the page and the DB read grow without limit. Add `LIMIT/OFFSET` (the UI already has type filters) and paginate.
+
+**Done (11 Nov 2026):** `Wallet.history_page` narrows by kind and by book (`book:<id>` / `picture:<id>:…`) and pages with `LIMIT/OFFSET` in one query, with a count for the filtered total; the book filter's options come from a distinct-reference query instead of the ledger rows. The wallet shows 50 movements a page with Newer/Older links that keep the filters in the URL, and a page past the end shows the last page. `Wallet.history` still returns the whole ledger for the few callers that want it all. Pinned by `test_the_history_is_read_one_page_at_a_time` and `test_the_wallet_page_pages_and_filters_the_ledger`.
 
 ### S6 — P2: fonts are still 300 KB TTFs, revalidated every load
 `@font-face` points at `Literata-Regular.ttf` (316 KB) and `Literata-Bold.ttf` (324 KB); `/static/fonts` is mounted `no-cache` (`app/main.py:288`, `app/static/style.css:8–18`). A browser must revalidate two large files on each visit. Convert to WOFF2 subsets (30–40 KB), fingerprint and cache immutably, and preload the bold face used for headings.

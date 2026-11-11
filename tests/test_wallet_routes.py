@@ -596,6 +596,52 @@ def test_a_book_a_restart_interrupts_resumes_and_is_charged_once(
     assert "lost_pictures=" in resumed[0]
 
 
+def test_the_wallet_page_pages_and_filters_the_ledger(settings, provider, stripe) -> None:
+    """S5: fifty rows a page, narrowed by kind and by book before it is read."""
+    with wallet_app(settings, provider, stripe) as (client, fake):
+        session_id = paid_session(fake, 1000)
+        client.get(f"/wallet/return?session_id={session_id}")
+        wallet = client.app.state.container.wallet  # type: ignore[attr-defined]
+        for index in range(60):
+            wallet.charge_picture(
+                SUB,
+                reference=f"picture:book{index % 3}:job:{index}",
+                description=f"Page {index + 1} — $0.15",
+            )
+
+        first = client.get("/wallet").text
+        assert "Page 1 of 2" in first
+        assert first.count('class="wallet-amount') == 50
+        assert "Older" in first and "Newer" not in first
+
+        second = client.get("/wallet?page=2").text
+        assert "Page 2 of 2" in second
+        assert second.count('class="wallet-amount') == 11
+        assert "Newer" in second and "Older" not in second
+
+        # The type filter is a condition the store applies, and the count it
+        # reports is the filtered one.
+        pictures = client.get("/wallet?kind=picture").text
+        assert "60 matching" in pictures
+        assert pictures.count('class="wallet-amount') == 50
+        # The top-up is a credit; no credit row is on a pictures-only page.
+        assert 'class="wallet-amount credit"' not in pictures
+
+        # Twenty pictures for each book: one page, no pager.
+        book = client.get("/wallet?book=book1").text
+        assert "20 matching" in book
+        assert book.count('class="wallet-amount') == 20
+        assert "Page 1 of 2" not in book
+
+        # A page past the end (an old link) shows the last page, not nothing;
+        # a page that is not a number shows the first rather than a 422.
+        past = client.get("/wallet?page=99").text
+        assert "Page 2 of 2" in past and past.count('class="wallet-amount') == 11
+        mangled = client.get("/wallet?page=two")
+        assert mangled.status_code == 200
+        assert "Page 1 of 2" in mangled.text
+
+
 def test_the_wallet_has_no_page_without_an_identity(settings: Settings, provider) -> None:
     """The password fallback has no person, so it has no wallet."""
     app = create_app(settings, provider=provider)

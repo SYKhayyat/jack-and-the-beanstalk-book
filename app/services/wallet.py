@@ -148,6 +148,27 @@ class WalletStore:
         """Every transaction, oldest first (the order a ledger is read in)."""
         raise NotImplementedError
 
+    def history_page(
+        self,
+        owner: str,
+        *,
+        kinds: Sequence[str] | None = None,
+        book_id: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[WalletTransaction], int]:
+        """One page of the ledger, newest first, and how many rows match.
+
+        Narrowed before it is paged, in the store, so a long-lived account's
+        history page reads fifty rows rather than the whole ledger.
+        """
+        raise NotImplementedError
+
+    def book_references(self, owner: str) -> list[str]:
+        """The distinct book references in the ledger (`book:<id>`,
+        `picture:<id>:…`), for the history's book filter."""
+        raise NotImplementedError
+
     def add(
         self,
         *,
@@ -231,8 +252,26 @@ class Wallet:
         return self.balance_cents(owner) >= self.price_cents
 
     def history(self, owner: str) -> list[WalletTransaction]:
-        """The ledger, newest first, as the history page shows it."""
+        """The whole ledger, newest first. The history page pages it instead."""
         return list(reversed(self._store.transactions(owner)))
+
+    def history_page(
+        self,
+        owner: str,
+        *,
+        kinds: Sequence[str] | None = None,
+        book_id: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[WalletTransaction], int]:
+        """One page of the ledger, newest first, and the matching row count."""
+        return self._store.history_page(
+            owner, kinds=kinds, book_id=book_id, limit=limit, offset=offset
+        )
+
+    def history_books(self, owner: str) -> list[str]:
+        """The book ids this account has ledger rows for, once each."""
+        return self._store.book_references(owner)
 
     def refund_requests(self, owner: str) -> list[RefundRequest]:
         return self._store.refunds(owner)

@@ -42,6 +42,25 @@ def finished(client: TestClient) -> tuple[TestClient, str]:
 # --- the URL scheme ---------------------------------------------------------------
 
 
+def test_the_poll_document_carries_no_story_text(
+    finished: tuple[TestClient, str],
+) -> None:
+    """S4: the document is rewritten on every stage change and polled every 1.5 s.
+
+    It carries what changes — the number, title, status, picture URLs and
+    version — and not each page's prose; the words are rendered into the book
+    page itself.
+    """
+    client, book_id = finished
+    payload = client.get(f"/api/book/{book_id}").json()
+    assert payload["pages"]
+    assert all("story" not in page for page in payload["pages"])
+    # The words are still on the page the reader opens.
+    html = client.get(f"/books/{book_id}").text
+    assert 'class="spread-story' in html
+    assert "Milky-White" in html
+
+
 def test_a_finished_book_arrives_with_its_screen_copies_already_made(
     finished: tuple[TestClient, str],
 ) -> None:

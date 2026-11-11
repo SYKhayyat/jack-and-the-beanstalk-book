@@ -81,7 +81,7 @@
     <section class="card" aria-labelledby="history-heading">
       <div class="wallet-history-head">
         <h2 id="history-heading">Every movement</h2>
-        {% if filters_active %}<span class="field-help">{{ history|length }} of {{ history_total }}</span>{% endif %}
+        {% if filters_active %}<span class="field-help">{{ history_total }} matching</span>{% endif %}
       </div>
 
       {% if history_total %}
@@ -129,6 +129,13 @@
           {% endfor %}
         </tbody>
       </table>
+      {% if pages > 1 %}
+      <nav class="wallet-pager" aria-label="More movements">
+        {% if newer_href %}<a class="button secondary" href="{{ newer_href }}">← Newer</a>{% endif %}
+        <span class="field-help">Page {{ page }} of {{ pages }}</span>
+        {% if older_href %}<a class="button secondary" href="{{ older_href }}">Older →</a>{% endif %}
+      </nav>
+      {% endif %}
       {% elif filters_active %}
       <p class="field-help">No movements match these filters. <a href="{{ clear_href }}">Show everything</a>.</p>
       {% else %}

@@ -137,8 +137,11 @@ class BookDocument:
 
         The cover comes first and is counted like any other page: the book is
         the cover plus its story pages, and the reader should see that.
-        Each entry carries its own story text, so the browser can show the
-        book page by page without a second request.
+
+        No story text here: the document is rewritten on every stage change and
+        polled every 1.5 s, so it carries only what changes — the page's number,
+        title, status, picture URLs and version (S4). The words live in the
+        story's pages and are rendered into the book page itself.
         """
         cover_state = progress.get(COVER_NUMBER, "pending")
         cover_done = cover_state == "done"
@@ -149,7 +152,6 @@ class BookDocument:
                 "title": "Cover",
                 "url": self._book_store.cover_url(book_id) if cover_done else None,
                 "status": cover_state,
-                "story": "",
             }
         ]
         for page in rendered_pages:
@@ -164,7 +166,6 @@ class BookDocument:
                     if finished
                     else None,
                     "status": state,
-                    "story": page.story,
                 }
             )
         return view

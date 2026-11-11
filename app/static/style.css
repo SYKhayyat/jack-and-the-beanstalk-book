@@ -2445,6 +2445,17 @@ body.in-story-time {
 .wallet-history-head h2 {
   margin-bottom: 8px;
 }
+.wallet-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.wallet-pager .button {
+  min-height: 44px;
+}
 .filter-chips {
   display: flex;
   flex-wrap: wrap;

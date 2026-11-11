@@ -22,8 +22,9 @@ import logging
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy import insert as sa_insert
 from sqlalchemy.engine import Engine, RowMapping
 from sqlalchemy.exc import IntegrityError
@@ -70,6 +71,66 @@ class DatabaseWalletStore(WalletStore):
                 .all()
             )
         return [_transaction(row) for row in rows]
+
+    def history_page(
+        self,
+        owner: str,
+        *,
+        kinds: Sequence[str] | None = None,
+        book_id: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[WalletTransaction], int]:
+        """One page of the ledger, newest first, and how many rows match.
+
+        Narrowed in SQL, not in Python: an account that has been here a year
+        must not make the wallet page read its whole ledger to show fifty rows.
+        """
+        where = _ledger_where(owner, kinds=kinds, book_id=book_id)
+        with self._engine.connect() as conn:
+            total = conn.execute(
+                select(func.count()).select_from(WalletTransactionRow).where(where)
+            ).scalar_one()
+            rows = (
+                conn.execute(
+                    select(WalletTransactionRow)
+                    .where(where)
+                    .order_by(
+                        WalletTransactionRow.created_at.desc(),
+                        WalletTransactionRow.id.desc(),
+                    )
+                    .limit(max(1, limit))
+                    .offset(max(0, offset))
+                )
+                .mappings()
+                .all()
+            )
+        return [_transaction(row) for row in rows], int(total or 0)
+
+    def book_references(self, owner: str) -> list[str]:
+        """The distinct book references in this account's ledger.
+
+        One short row per book, so the history's book filter can offer every
+        book the account has ever paid for without reading every movement.
+        """
+        with self._engine.connect() as conn:
+            rows = (
+                conn.execute(
+                    select(WalletTransactionRow.reference)
+                    .where(
+                        WalletTransactionRow.user_id == owner,
+                        or_(
+                            WalletTransactionRow.reference.like("book:%"),
+                            WalletTransactionRow.reference.like("picture:%"),
+                        ),
+                    )
+                    .distinct()
+                    .order_by(WalletTransactionRow.reference)
+                )
+                .scalars()
+                .all()
+            )
+        return [reference for reference in rows if reference]
 
     def add(
         self,
@@ -199,6 +260,29 @@ class DatabaseWalletStore(WalletStore):
                     note=note or None,
                 )
             )
+
+
+def _ledger_where(
+    owner: str, *, kinds: Sequence[str] | None = None, book_id: str = ""
+) -> Any:
+    """The WHERE clause the history page reads with.
+
+    A book's rows are its fee (`book:<id>`) and the pictures bought for it
+    (`picture:<id>:…`), including a picture refund, which keeps the charge's
+    reference. `book_id` has already been validated against the account's own
+    ledger before it is used, so it never widens the query.
+    """
+    clauses = [WalletTransactionRow.user_id == owner]
+    if kinds:
+        clauses.append(WalletTransactionRow.kind.in_(tuple(kinds)))
+    if book_id:
+        clauses.append(
+            or_(
+                WalletTransactionRow.reference == f"book:{book_id}",
+                WalletTransactionRow.reference.like(f"picture:{book_id}:%"),
+            )
+        )
+    return and_(*clauses)
 
 
 def _transaction(row: RowMapping) -> WalletTransaction:

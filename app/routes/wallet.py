@@ -80,6 +80,10 @@ _KIND_FILTERS = (
 )
 _KIND_LABELS = dict(_KIND_FILTERS)
 
+#: How many movements one page of the history shows. The page is narrowed and
+#: paged by the store, so this is the read, not just the render (S5).
+_HISTORY_PAGE_SIZE = 50
+
 _REFUND_LABELS = {
     REFUND_REQUESTED: "Waiting for the operator",
     REFUND_PROCESSING: "Sending back to the card",
@@ -110,11 +114,13 @@ def wallet_page(
     session: CurrentSessionDep,
     kind: str = "",
     book: str = "",
+    page: str = "",
 ) -> HTMLResponse:
     """The account's balance, the way to add to it, and every movement.
 
-    The ledger is filtered in one place: the URL carries `kind` and `book`, so
-    a filtered view can be refreshed, bookmarked or sent to somebody else.
+    The ledger is filtered and paged in one place: the URL carries `kind`,
+    `book` and `page`, so a view can be refreshed, bookmarked or sent on, and
+    a year-old account's wallet reads fifty rows instead of its whole ledger.
     """
     owner = _owner(session)
     templates: Jinja2Templates = request.app.state.templates
@@ -125,19 +131,43 @@ def wallet_page(
     # rather than paying for a second round trip on a database deployment.
     balance = int(chrome["wallet_balance_cents"])
     refundable = wallet.refundable_cents(owner) if container.payments else 0
-    history = wallet.history(owner)
+
+    kind_filter = kind if kind in _KIND_LABELS else "all"
+    book_ids = {_book_id(reference) for reference in wallet.history_books(owner)}
+    book_ids.discard("")
+    # A top-up or a refund is not tied to a book; ignore a book filter that a
+    # hand-written URL pairs with one of those kinds.
+    if kind_filter not in ("all", KIND_CHARGE, KIND_PICTURE, KIND_PICTURE_REFUND):
+        book_filter = "all"
+    else:
+        book_filter = book if book in book_ids else "all"
+    kinds = None if kind_filter == "all" else (kind_filter,)
+    book_id = "" if book_filter == "all" else book_filter
+
+    wanted = _page_number(page)
+    offset = (wanted - 1) * _HISTORY_PAGE_SIZE
+    entries, total = wallet.history_page(
+        owner, kinds=kinds, book_id=book_id, limit=_HISTORY_PAGE_SIZE, offset=offset
+    )
+    pages = max(1, -(-total // _HISTORY_PAGE_SIZE))
+    page_no = min(wanted, pages)
+    if page_no != wanted:
+        # A page past the end (an old link after rows were refunded) shows the
+        # last page rather than an empty table.
+        offset = (page_no - 1) * _HISTORY_PAGE_SIZE
+        entries, total = wallet.history_page(
+            owner, kinds=kinds, book_id=book_id, limit=_HISTORY_PAGE_SIZE, offset=offset
+        )
 
     rows: list[dict[str, object]] = []
-    book_options: dict[str, str] = {}
-    for entry in history:
-        book_id = _book_id(entry.reference)
+    for entry in entries:
+        entry_book = _book_id(entry.reference)
         title = ""
-        if book_id:
-            stored = known_books.get(book_id)
+        if entry_book:
+            stored = known_books.get(entry_book)
             title = (stored.title if stored and stored.title else "") or _quoted_title(
                 entry.description
             )
-            book_options.setdefault(book_id, title or "Your book")
         rows.append(
             {
                 "description": entry.description,
@@ -146,24 +176,20 @@ def wallet_page(
                 "amount_label": format_cents(entry.amount_cents),
                 "credit": entry.amount_cents > 0,
                 "created_at": entry.created_at,
-                "book_id": book_id,
+                "book_id": entry_book,
                 "book_title": title,
-                "book_href": f"/books/{book_id}" if book_id in known_books else "",
+                "book_href": f"/books/{entry_book}" if entry_book in known_books else "",
             }
         )
 
-    kind_filter = kind if kind in _KIND_LABELS else "all"
-    # A top-up or a refund is not tied to a book; ignore a book filter that a
-    # hand-written URL pairs with one of those kinds.
-    if kind_filter not in ("all", KIND_CHARGE, KIND_PICTURE, KIND_PICTURE_REFUND):
-        book_filter = "all"
-    else:
-        book_filter = book if book in book_options else "all"
-    shown = [
-        row
-        for row in rows
-        if (kind_filter == "all" or row["kind"] == kind_filter)
-        and (book_filter == "all" or row["book_id"] == book_filter)
+    book_options = [
+        (
+            candidate,
+            (known_books[candidate].title or "Your book")
+            if candidate in known_books
+            else "Your book",
+        )
+        for candidate in sorted(book_ids)
     ]
     filters_active = kind_filter != "all" or book_filter != "all"
 
@@ -179,8 +205,16 @@ def wallet_page(
             "refundable_cents": refundable,
             "refundable_label": format_cents(refundable),
             "amounts": [(cents, format_cents(cents)) for cents in FUNDING_AMOUNTS_CENTS],
-            "history": shown,
-            "history_total": len(rows),
+            "history": rows,
+            "history_total": total,
+            "page": page_no,
+            "pages": pages,
+            "newer_href": _filter_href(kind_filter, book_filter, page_no - 1)
+            if page_no > 1
+            else "",
+            "older_href": _filter_href(kind_filter, book_filter, page_no + 1)
+            if page_no < pages
+            else "",
             "kind_filter": kind_filter,
             "book_filter": book_filter,
             "kind_filters": [
@@ -188,8 +222,8 @@ def wallet_page(
                 for value, label in _KIND_FILTERS
             ],
             "book_options": [
-                (book_id, title, _filter_href(kind_filter, book_id))
-                for book_id, title in book_options.items()
+                (candidate, title, _filter_href(kind_filter, candidate))
+                for candidate, title in book_options
             ],
             # A top-up or a refund is not tied to a book; only offer the book
             # filter where it can actually change the list.
@@ -385,14 +419,25 @@ def cost_panel(container: Container, price_cents: int) -> dict[str, object]:
 # --- filters and return paths --------------------------------------------------
 
 
-def _filter_href(kind: str, book: str) -> str:
-    """A wallet URL carrying the chosen filters; no empty defaults."""
+def _filter_href(kind: str, book: str, page: int = 1) -> str:
+    """A wallet URL carrying the chosen filters and page; no empty defaults."""
     query: list[tuple[str, str]] = []
     if kind != "all":
         query.append(("kind", kind))
     if book != "all":
         query.append(("book", book))
+    if page > 1:
+        query.append(("page", str(page)))
     return "/wallet?" + urlencode(query) if query else "/wallet"
+
+
+def _page_number(raw: str) -> int:
+    """A page of the history: anything that is not a positive whole number is 1.
+
+    A mangled or hand-typed `page` shows the first page rather than a 422 on a
+    customer's screen.
+    """
+    return int(raw) if raw.isdigit() and int(raw) > 0 else 1
 
 
 def _book_id(reference: str | None) -> str:
