@@ -17,6 +17,7 @@ from app.services.image_providers.base import (
     ProviderUnavailable,
 )
 from app.services.image_providers.registry import KNOWN_PROVIDERS
+from app.services.image_review import review_image
 from tests.helpers import jack
 
 
@@ -127,6 +128,21 @@ class TestMockProvider:
             ImageRequest(prompt="same", label="scene-compose")
         )
         assert portrait.data != scene.data
+
+    def test_a_placeholder_page_passes_the_free_review(self) -> None:
+        """Demo pages must not fail their own quality check (B5).
+
+        The full-width banner used to give tier 1 two hard seams and a
+        `collage` fault, so every demo picture was marked best-effort and the
+        demo could not show the normal, approved path.
+        """
+        page = MockImageProvider().generate(
+            ImageRequest(prompt="Jack climbs the beanstalk.", label="book-page")
+        )
+        review = review_image(page.data, expected_ratio=4 / 3)
+        assert review.passed, review.faults
+        assert review.faults == ()
+        assert review.score == 100
 
     def test_health_check_is_ok(self) -> None:
         ok, reason = MockImageProvider().health_check()
