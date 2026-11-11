@@ -274,7 +274,8 @@ def book_prompts(
 _SOURCES_README = """\
 These are the pictures behind your picture book.
 
-star/        the photo you gave for the star, and the cartoon made from it
+star/        the photo you gave for the star, and the storybook portrait
+             made from it
 <name>/      the same pair for every other character you gave a face to
 cover.*      the cover illustration
 pages/       each story page's illustration, without the words
@@ -321,10 +322,10 @@ def _sources_archive(store: BookStore, book_id: str, edition: StoryEdition) -> b
                 archive.writestr(f"{name}{extension_for(data)}", data)
 
         add("star/photo", store.read_source_photo(book_id))
-        add("star/comic", store.read_portrait(book_id))
+        add("star/portrait", store.read_portrait(book_id))
         for key, reference in sorted(store.load_characters(book_id).items()):
             add(f"{key}/photo", reference.photo)
-            add(f"{key}/comic", reference.portrait)
+            add(f"{key}/portrait", reference.portrait)
         add("cover", store.read_cover(book_id))
         for page in edition.pages:
             add(f"pages/page-{page.number:02d}", store.read_page(book_id, page.number))

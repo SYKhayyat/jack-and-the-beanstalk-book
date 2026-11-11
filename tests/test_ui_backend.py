@@ -3,7 +3,7 @@
 * `POST /api/cartoonify/{id}/choose` — a chosen take reaches the book;
 * `aspect_ratio` on `book/start` — the page shape is chosen on the About screen;
 * `about_photo` — the About page frames the cartoon, the photo, or both;
-* `GET /book-media/{id}/sources.zip` — the photos and comics, to keep;
+* `GET /book-media/{id}/sources.zip` — the photos and portraits, to keep;
 * `/login` — the signed-out shelf, with the banner and the covers.
 """
 
@@ -250,9 +250,9 @@ class TestSourcesZip:
             expected = {
                 "README",
                 "star/photo",
-                "star/comic",
+                "star/portrait",
                 "mother/photo",
-                "mother/comic",
+                "mother/portrait",
                 "cover",
                 "about",
                 "prompts",

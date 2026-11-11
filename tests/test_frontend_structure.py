@@ -478,7 +478,7 @@ def test_a_finished_book_offers_both_downloads_and_hides_progress(book_html: str
     assert re.search(r'class="progress-block hidden"', book_html)
     assert re.search(r'class="finished-block"', book_html)
     assert "Download the book (PDF)" in book_html
-    assert "Keep the photos and comics (zip)" in book_html
+    assert "Keep the photos and portraits (zip)" in book_html
     assert "/sources.zip" in book_html
     assert "prompts.json" in book_html
     # No payments in this deployment, so no fee is spoken of (U9).
