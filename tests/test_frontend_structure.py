@@ -192,6 +192,23 @@ def test_the_book_progress_tells_the_truth_while_pages_are_in_flight() -> None:
     assert ".progress-track.working .progress-fill" in css
 
 
+def test_a_page_drawn_once_carries_no_quality_control_note() -> None:
+    """B6/U1: the attempt record belongs to the operator, not to the child.
+
+    A page drawn once says nothing at all; a page drawn again says "Redrawn
+    once" in a family's words. The check's own vocabulary ("Try 2 of 3",
+    "Best of 1 tries", "passed its check") never reaches the reader; the whole
+    record of every attempt stays on the operator's book page.
+    """
+    source = _strip_js_comments(_read("book-live.js"))
+    assert "function redrawnWords(" in source
+    assert 'if (redrawn < 1) return "";' in source
+    assert "`Redrawn ${times}`" in source
+    assert "mark?.remove()" in source  # a page drawn once keeps no count
+    for jargon in ("Best of", "Passed its check", "try ${tries} of", "every check"):
+        assert jargon not in source, f"the reader still says {jargon!r}"
+
+
 def test_replacing_a_face_names_the_slot_it_is_for() -> None:
     """Without `character` the server draws a star, and the edit refuses it."""
     source = _strip_js_comments(_read("book-live.js"))

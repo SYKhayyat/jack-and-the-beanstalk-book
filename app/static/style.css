@@ -2172,10 +2172,6 @@ dialog.modal form {
   border: 1px solid var(--line);
   color: var(--ink-soft);
 }
-.attempt-chip.first {
-  border-color: var(--bean);
-  color: var(--bean);
-}
 .attempt-chip.retried {
   border-color: var(--marigold);
   background: var(--marigold-soft);

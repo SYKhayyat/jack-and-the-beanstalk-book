@@ -417,9 +417,9 @@ function shareDone({ stage, attempt }) {
 }
 
 function tryWords({ stage, attempt }) {
-  const tries = Number(attempt) || 1;
-  const doing = stage === "reviewing" ? "being checked" : "being drawn";
-  return `${doing}, try ${tries} of ${MAX_ATTEMPTS}`;
+  const again = (Number(attempt) || 1) > 1;
+  if (stage === "reviewing") return again ? "taking another look" : "checking it over";
+  return again ? "drawing it again" : "drawing it";
 }
 
 function paint(position, entry, inFlight) {
@@ -481,7 +481,7 @@ function markTry(tile, inFlight) {
     tile.append(mark);
   }
   mark.textContent = `${Number(inFlight.attempt) || 1}/${MAX_ATTEMPTS}`;
-  mark.title = `Try ${Number(inFlight.attempt) || 1} of ${MAX_ATTEMPTS}`;
+  mark.title = (Number(inFlight.attempt) || 1) > 1 ? "Being drawn again" : "Being drawn";
 }
 
 function sizedImage(entry, alt) {
@@ -523,9 +523,11 @@ function coverFigure(entry) {
 }
 
 /* --- the attempt record -------------------------------------------------------
-   Every picture goes through the quality check and is redrawn up to
-   MAX_ATTEMPTS times; the badge says how many tries it took and which one is on
-   the page, so the loop can be seen (and graded) rather than taken on trust. */
+   A page drawn once is just the page, and says nothing: a picture that passed
+   first time needs no note. A page drawn again says so in a family's words
+   ("Redrawn once"), never the quality check's ("try 2 of 3", "best of 1 tries").
+   The full record of every attempt lives on the operator's book page, where the
+   technical vocabulary belongs. */
 
 function attemptsFrom(source) {
   const attempts = Number(source.attempts) || 0;
@@ -536,32 +538,34 @@ function attemptsFrom(source) {
   };
 }
 
-function attemptWords({ attempts, chosen, bestEffort }) {
-  if (bestEffort) {
-    return `${attempts} of ${MAX_ATTEMPTS} tries — none passed every check, so the best one (try ${chosen}) is shown`;
-  }
-  if (attempts === 1) return `Passed its check on the first try (1 of ${MAX_ATTEMPTS})`;
-  return `Passed its check on try ${chosen} of ${MAX_ATTEMPTS}`;
+/* "" for a first-time page: there is nothing to explain. */
+function redrawnWords({ attempts, bestEffort }) {
+  const redrawn = (Number(attempts) || 0) - 1;
+  if (redrawn < 1) return "";
+  const times = redrawn === 1 ? "once" : redrawn === 2 ? "twice" : `${redrawn} times`;
+  return bestEffort ? `Redrawn ${times} — this is the best version` : `Redrawn ${times}`;
 }
 
-/* The tile in the page map carries every picture's record; the bar under the
-   book carries the current page's. Never on the page itself: the page is the
-   book, and the badge is about how it was made. */
+/* The tile in the page map carries the note for a page that was drawn again;
+   the bar under the book carries the current page's. Never on the page itself:
+   the page is the book, and the note is about how it was made. */
 function badgeAttempts(position, record) {
-  if (!record.attempts) return;
-  const words = attemptWords(record);
+  const words = redrawnWords(record);
   const tile = mapTiles[position];
-  if (tile) {
-    let mark = tile.querySelector(".map-attempts");
-    if (!mark) {
-      mark = document.createElement("span");
-      tile.append(mark);
-    }
-    mark.className = `map-attempts ${attemptTone(record)}`;
-    mark.textContent = `${record.attempts}×`;
-    mark.title = words;
-    tile.setAttribute("aria-label", `${spreadName(position).label}, ${words}`);
+  if (!tile) return;
+  let mark = tile.querySelector(".map-attempts");
+  if (!words) {
+    mark?.remove(); // a first-time page takes its old badge away on a redraw
+    return;
   }
+  if (!mark) {
+    mark = document.createElement("span");
+    tile.append(mark);
+  }
+  mark.className = `map-attempts ${attemptTone(record)}`;
+  mark.textContent = `${record.attempts}×`;
+  mark.title = words;
+  tile.setAttribute("aria-label", `${spreadName(position).label}, ${words}`);
 }
 
 function attemptTone(record) {
@@ -571,16 +575,16 @@ function attemptTone(record) {
 function showAttempts(position) {
   const chip = document.getElementById("attempt-chip");
   const record = records[position];
-  if (!record || !record.attempts) {
+  const words = record ? redrawnWords(record) : "";
+  if (!words) {
     chip.className = "attempt-chip hidden";
     chip.textContent = "";
+    chip.removeAttribute("title");
     return;
   }
   chip.className = `attempt-chip ${attemptTone(record)}`;
-  chip.textContent = record.bestEffort
-    ? `Best of ${record.attempts} tries`
-    : `Try ${record.chosen} of ${MAX_ATTEMPTS}`;
-  chip.title = attemptWords(record);
+  chip.textContent = words;
+  chip.title = words;
 }
 
 /* The bar counts pages finished, plus the share of each page in flight, so it
