@@ -36,6 +36,38 @@ pass below.
       dashboard — never in the repo.
 - [ ] Confirm `STRIPE_SECRET_KEY` is set in the Render dashboard.
 
+## Cost per book under the $0.99 price
+
+Run 1 cost $1.60 (Jack) and $1.56 (Red) a book, against a $0.99 sale. Most of
+it is redraws: the reviewer passed 2 of 87 pictures, 85 of its notes cite small
+differences from the plate, 68 flag likeness the decision judge scored at
+0.1–0.2, and 32 of 80 pages used all three attempts. Each image call is about
+$0.024 (≈2,150 reference-image tokens, ≈1,450 prompt tokens, 144 out).
+
+- [ ] Plate differences never fail a page; only a background that is
+      recognisably not the plate's place does.
+- [ ] Likeness fails a page only when the reviewer and the decision judge
+      both score it high.
+- [ ] Portrait references sent at 512 px, cropped to the face; the plate
+      stays at 1024 (it is the picture being edited).
+- [ ] Cut the repetition out of the plate-edit prompt (the plate is told to
+      stay four times; the star's look restates boilerplate), and fix the
+      retry noise: the reviewer note is cut mid-word, and the
+      plate-difference fault is passed to the painter as something to fix.
+- [ ] Proper pronouns in image prompts: the drawing follows the photo. Run 1
+      set "boy" on a girl's photo, and "he / his" in every prompt pulled pages
+      towards a boy (Jack page 20 came back short-haired).
+- [ ] Correct the README's cost figure (it counts output tokens only:
+      $0.00588 against a real ≈$0.024 per image).
+- [ ] Ask every reviewer and judge question as "is this grossly wrong?" (not
+      the child, not this moment, not this place), never "is it exactly
+      right?".
+- [ ] Pre-made pages for pages without the star (maybe the biggest lever):
+      a page that only shows fixed characters is the same in every book, so
+      make it once from its plate in Gemini (in Chrome, free) and reuse it.
+      Keep a set for each cast combination a visitor can supply (only the
+      child; the child and mother; and so on), so those pages cost nothing.
+
 ## The book — 20 pages, one template
 
 - [x] 20 story pages plus the About Me back page (and a cover).
