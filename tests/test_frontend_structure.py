@@ -173,6 +173,25 @@ def test_the_book_poller_gives_up_after_consecutive_failures() -> None:
     assert "poll(failures + 1);" in source
 
 
+def test_the_book_progress_tells_the_truth_while_pages_are_in_flight() -> None:
+    """Run 2 said "the pencil is resting" while sixteen pages were being drawn.
+
+    The caption counts from the pages in flight first, and says resting only
+    when there is no stage to report; each tile in flight says its try; the bar
+    takes partial credit for pages in flight (docs/plan-render-stall-and-resume.md).
+    """
+    source = _strip_js_comments(_read("book-live.js"))
+    assert "payload.page_stages" in source
+    assert "payload.pictures_drawn" in source
+    assert "stage ||" in source  # the stage sentence wins over resting
+    assert "inFlight.length ? countStages(inFlight)" in source
+    assert "markTry(tile, working ? inFlight : null);" in source
+    assert "shareDone(page)" in source
+    css = _read("style.css")
+    assert ".map-try" in css
+    assert ".progress-track.working .progress-fill" in css
+
+
 def test_replacing_a_face_names_the_slot_it_is_for() -> None:
     """Without `character` the server draws a star, and the edit refuses it."""
     source = _strip_js_comments(_read("book-live.js"))

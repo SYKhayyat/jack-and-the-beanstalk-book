@@ -218,6 +218,9 @@ def build_container(
                 else None
             ),
             page_attempts=settings.page_attempts,
+            page_concurrency=settings.book_page_concurrency,
+            image_threads=settings.image_work_threads,
+            costs=costs,
         ),
         wallet=wallet,
         payments=resolved_payments,

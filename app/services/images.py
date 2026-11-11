@@ -106,5 +106,7 @@ def decode_upload(raw: bytes) -> DecodedImage:
 
     buffer = io.BytesIO()
     # Re-encoding discards the original metadata block, including EXIF GPS data.
-    image.save(buffer, format="JPEG", quality=92, optimize=True)
+    # No optimize=: it makes Pillow encode in one GIL-holding call, which would
+    # stall the event loop (and every rendering book) for the whole encode.
+    image.save(buffer, format="JPEG", quality=92)
     return DecodedImage(data=buffer.getvalue(), media_type="image/jpeg")

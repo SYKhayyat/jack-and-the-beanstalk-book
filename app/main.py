@@ -41,6 +41,7 @@ from app.services.image_providers.base import ImageProvider
 from app.services.payments import PaymentProvider
 from app.services.pictures import picture_set
 from app.services.reviewer import ImageReviewer
+from app.services.vitals import watch_loop
 from app.sessions import SessionCodec
 from app.stories import NOT_READY, shelf, showcase
 
@@ -162,21 +163,32 @@ async def _sweep_expired(container: Container) -> None:
 
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Boot/reap book jobs, sweep expired data, and keep sweeping."""
+    """Resume interrupted books, sweep expired data, and keep sweeping."""
     container = app.state.container
-    reaped = container.book_store.reap_incomplete()
-    if reaped:
-        logger.info("book.reaped_start reaped=%d", reaped)
+    # A restart mid-render (a deploy, or the platform's health check giving
+    # up) picks the book up again rather than losing it; one that has been
+    # resumed too often, or started too long ago, fails with its pages kept.
+    resumed = await container.book_runner.recover(
+        max_resumes=container.settings.book_max_resumes,
+        window_minutes=container.settings.book_resume_window_minutes,
+    )
+    if resumed:
+        logger.info("book.resumed_start resumed=%d", len(resumed))
     # At boot, directly and before serving: a restart is the one moment the
     # process is guaranteed idle, so the sweep cannot race a live render.
     expire_once(container)
     sweeper = asyncio.create_task(_sweep_expired(container))
+    # Logs `loop.lag` only when the event loop falls behind; silence is health.
+    vitals = asyncio.create_task(watch_loop())
     try:
         yield
     finally:
-        sweeper.cancel()
-        with suppress(asyncio.CancelledError):
-            await sweeper
+        for task in (sweeper, vitals):
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        # Pauses the books still rendering, for the next boot to resume.
+        await container.book_runner.close()
 
 
 def create_app(

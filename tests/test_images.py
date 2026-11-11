@@ -156,3 +156,27 @@ class TestPrivacy:
         decoded = decode_upload(buffer.getvalue())
         with Image.open(io.BytesIO(decoded.data)) as opened:
             assert opened.size == (40, 80)
+
+
+def test_a_shrunk_copy_is_made_once_per_picture_and_the_cache_stays_bounded() -> None:
+    from app.services.media import ShrunkCache
+
+    cache = ShrunkCache(size=2)
+    made: list[bytes] = []
+
+    def shrink(data: bytes) -> bytes:
+        made.append(data)
+        return data[:1]
+
+    for data in (b"portrait", b"portrait", b"plate"):
+        cache.get(data, 512, lambda data=data: shrink(data))
+    # The same bytes at the same size are shrunk once; another size is its own copy.
+    assert made == [b"portrait", b"plate"]
+    cache.get(b"portrait", 256, lambda: shrink(b"portrait"))
+    assert len(made) == 3
+    # Bounded: the least recently used copy (the portrait at 512) was let go,
+    # and the plate kept.
+    cache.get(b"plate", 512, lambda: shrink(b"plate"))
+    assert len(made) == 3
+    cache.get(b"portrait", 512, lambda: shrink(b"portrait"))
+    assert len(made) == 4

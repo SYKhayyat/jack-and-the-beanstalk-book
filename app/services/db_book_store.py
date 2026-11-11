@@ -47,18 +47,25 @@ from app.models.book import AboutMe
 from app.models.settings import CartoonSettings
 from app.models.story import COVER_NUMBER, StoryEdition
 from app.services.book_store import (
+    INTERRUPTED_MESSAGE,
     BookRecord,
     BookStatus,
     BookStore,
     BookSummary,
     CharacterReference,
+    ResumedBook,
     page_totals,
 )
 from app.services.media import media_type_for
 from app.services.pictures import VARIANT_MEDIA_TYPE, picture_set, slot_page
 from app.services.template_store import write_pins
 
-__all__ = ["COVER_PAGE", "DatabaseBookStore", "UnreviewedImages", "unreviewed_images"]
+__all__ = [
+    "COVER_PAGE",
+    "DatabaseBookStore",
+    "UnreviewedImages",
+    "unreviewed_images",
+]
 
 #: The cover's slot in a review report; story pages count from 1.
 COVER_PAGE = 0
@@ -142,6 +149,9 @@ class DatabaseBookStore(BookStore):
                     ),
                     created_at=_now(),
                     updated_at=_now(),
+                    # The job starts with the record: a restart before the
+                    # runner's first write still resumes it.
+                    job_started_at=_now(),
                 )
             )
             # The pins are the template store's rule, written in this same
@@ -742,59 +752,134 @@ class DatabaseBookStore(BookStore):
         with self._engine.begin() as conn:
             _delete_book(conn, book_id)
 
-    def reap_incomplete(self) -> int:
-        """Mark books still pending or rendering as failed (a restart orphaned them).
-
-        The asyncio task died with the process; its stale status must not keep
-        polling as "pending" forever. A PENDING row is as orphaned as a
-        RENDERING one: `save_record` commits before the runner writes its first
-        status, so a crash in that window would otherwise leave a book that
-        never renders. The finished pages stay in their rows — exactly the
-        file store's promise, kept pages visible.
-        """
-        message = (
-            "The server restarted while this book was rendering. Start a new "
-            "one — the finished pages shown here were kept."
-        )
-        reaped = 0
-        with self._engine.begin() as conn:
-            orphans = conn.execute(
-                select(BookRow.id, BookRow.status_payload).where(
-                    BookRow.status.in_((BookStatus.PENDING, BookStatus.RENDERING))
-                )
-            ).all()
-            for book_id, payload in orphans:
-                pages: list[dict[str, object]] = []
-                if payload is not None:
-                    raw = cast("dict[str, object]", payload).get("pages", [])
-                    pages = [
-                        entry for entry in cast("list[object]", raw) if isinstance(entry, dict)
-                    ]
-                stamp = _now()
-                previous = cast("dict[str, object]", payload) if payload is not None else {}
-                stamped = {
-                    "book_id": book_id,
-                    "status": BookStatus.FAILED,
-                    "pages": pages,
-                    "error": message,
-                    "pdf_url": None,
-                    "cover_url": previous.get("cover_url"),
-                    "title": previous.get("title"),
-                    "updated_at": stamp.isoformat(),
-                }
-                conn.execute(
-                    update(BookRow)
-                    .where(BookRow.id == book_id)
-                    .values(
-                        status=BookStatus.FAILED,
-                        error=stamped["error"],
-                        status_payload=stamped,
-                        updated_at=stamp,
+    def saved_page_numbers(self, book_id: str) -> set[int]:
+        with self._engine.connect() as conn:
+            book = conn.execute(
+                select(
+                    BookRow.review_required,
+                    BookRow.cover.is_not(None),
+                    BookRow.cover_review,
+                ).where(BookRow.id == book_id)
+            ).one_or_none()
+            if book is None:
+                return set()
+            required = bool(book[0])
+            finished = {
+                int(row.page_number)
+                for row in conn.execute(
+                    select(BookPageRow.page_number, BookPageRow.review).where(
+                        BookPageRow.book_id == book_id
                     )
                 )
-                reaped += 1
-                logger.warning("book.reaped id=%s (server restart)", book_id)
-        return reaped
+                if row.review or not required
+            }
+        if book[1] and (book[2] or not required):
+            finished.add(COVER_PAGE)
+        return finished
+
+    def begin_job(self, book_id: str) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(
+                update(BookRow)
+                .where(BookRow.id == book_id)
+                .values(job_started_at=_now(), resume_count=0)
+            )
+
+    def resume_incomplete(
+        self, *, max_resumes: int, window_seconds: float
+    ) -> list[ResumedBook]:
+        """See `BookStore.resume_incomplete`.
+
+        A PENDING row is as interrupted as a RENDERING one: `save_record`
+        commits before the runner writes its first status, so a crash in that
+        window would otherwise leave a book that never renders. A book older
+        than its window, or one already resumed `max_resumes` times, is not
+        tried again: the one thing worse than losing a book is a book that
+        kills the server on every boot. Those fail, finished pages kept.
+        """
+        oldest = _now() - timedelta(seconds=window_seconds)
+        resumed: list[ResumedBook] = []
+        with self._engine.begin() as conn:
+            orphans = conn.execute(
+                select(
+                    BookRow.id,
+                    BookRow.status_payload,
+                    BookRow.portrait_sha256,
+                    BookRow.job_started_at,
+                    BookRow.resume_count,
+                ).where(BookRow.status.in_((BookStatus.PENDING, BookStatus.RENDERING)))
+            ).all()
+            for row in orphans:
+                book_id = str(row.id)
+                job_started: datetime | None = row.job_started_at
+                count = int(row.resume_count or 0)
+                if (
+                    row.portrait_sha256 is not None
+                    and count < max_resumes
+                    and job_started is not None
+                    and job_started >= oldest
+                ):
+                    conn.execute(
+                        update(BookRow)
+                        .where(BookRow.id == book_id)
+                        .values(resume_count=count + 1)
+                    )
+                    resumed.append(
+                        ResumedBook(
+                            book_id=book_id, job_started_at=job_started, resume=count + 1
+                        )
+                    )
+                    logger.warning(
+                        "book.resume id=%s resume=%d/%d (server restart)",
+                        book_id,
+                        count + 1,
+                        max_resumes,
+                    )
+                    continue
+                self._fail_interrupted(conn, book_id, row.status_payload)
+                logger.warning(
+                    "book.reaped id=%s resumes=%d started=%s (server restart)",
+                    book_id,
+                    count,
+                    job_started.isoformat() if job_started is not None else "-",
+                )
+        return resumed
+
+    def _fail_interrupted(
+        self, conn: Connection, book_id: str, payload: Mapping[str, object] | None
+    ) -> None:
+        """Mark one interrupted book failed, its finished pages kept and shown."""
+        pages: list[dict[str, object]] = []
+        previous: Mapping[str, object] = payload or {}
+        raw = previous.get("pages", [])
+        if isinstance(raw, list):
+            pages = [entry for entry in raw if isinstance(entry, dict)]
+        # A page the restart caught mid-flight is not being worked on any more.
+        pages = [
+            entry if entry.get("status") == "done" else {**entry, "status": "pending"}
+            for entry in pages
+        ]
+        stamp = _now()
+        stamped = {
+            "book_id": book_id,
+            "status": BookStatus.FAILED,
+            "pages": pages,
+            "error": INTERRUPTED_MESSAGE,
+            "pdf_url": None,
+            "cover_url": previous.get("cover_url"),
+            "title": previous.get("title"),
+            "updated_at": stamp.isoformat(),
+        }
+        conn.execute(
+            update(BookRow)
+            .where(BookRow.id == book_id)
+            .values(
+                status=BookStatus.FAILED,
+                error=INTERRUPTED_MESSAGE,
+                status_payload=stamped,
+                updated_at=stamp,
+            )
+        )
 
     def expire(self, *, older_than_seconds: float) -> int:
         """Delete finished books older than the window; see `BookStore.expire`.

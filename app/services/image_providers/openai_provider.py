@@ -46,6 +46,7 @@ from app.services.image_providers.base import (
     TokenUsage,
 )
 from app.services.image_providers.pacer import ImagePacer
+from app.services.media import FAST_PNG_LEVEL, ShrunkCache
 
 __all__ = ["OpenAIImageProvider", "Quality", "size_for_aspect_ratio"]
 
@@ -315,6 +316,10 @@ class OpenAIImageProvider(ImageProvider):
         )
 
 
+#: The shrunk references, by content (see `_fit_reference`).
+_REFERENCE_COPIES = ShrunkCache()
+
+
 def _as_upload(data: bytes, media_type: str, index: int) -> io.BytesIO:
     """Wrap reference bytes in a named stream, which is how the SDK builds multipart."""
     limit = REFERENCE_MAX_EDGE if index == 0 else PORTRAIT_MAX_EDGE
@@ -330,7 +335,15 @@ def _fit_reference(data: bytes, media_type: str, limit: int) -> tuple[bytes, str
 
     A reference already that small, or one Pillow cannot read, goes as it came:
     the API judges an unreadable file, and its error is clearer than ours.
+    Remembered by content (`ShrunkCache`): a book sends the same portrait and
+    faces with every page, and the same plate with each of a page's attempts.
     """
+    return _REFERENCE_COPIES.get(
+        data, ("reference", media_type, limit), lambda: _fit(data, media_type, limit)
+    )
+
+
+def _fit(data: bytes, media_type: str, limit: int) -> tuple[bytes, str]:
     try:
         with Image.open(io.BytesIO(data)) as image:
             if max(image.size) <= limit:
@@ -341,7 +354,7 @@ def _fit_reference(data: bytes, media_type: str, limit: int) -> tuple[bytes, str
         return data, media_type
     fitted.thumbnail((limit, limit), Image.Resampling.LANCZOS)
     buffer = io.BytesIO()
-    fitted.save(buffer, format="PNG")
+    fitted.save(buffer, format="PNG", compress_level=FAST_PNG_LEVEL)
     return buffer.getvalue(), "image/png"
 
 

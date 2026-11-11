@@ -49,7 +49,9 @@ let polling = false;
 let awaitingEdit = false;
 let editing = false; // an edit is redrawing part of a book that was finished
 let lastDone = -1;
+let lastDrawn = -1;
 let quietPolls = 0;
+let shownFill = 0; // the bar's width only grows while a job runs
 
 spreads.forEach((spread, position) => badgeAttempts(position, records[position]));
 layout.fit();
@@ -302,15 +304,18 @@ function apply(payload) {
   if (state !== "complete") awaitingEdit = false;
   status = state;
   const pages = Array.isArray(payload.pages) ? payload.pages : [];
+  // Each page still in flight, by number: its stage and which try it is on.
+  const stages = state === "rendering" && payload.page_stages ? payload.page_stages : {};
   let done = 0;
   for (const entry of pages) {
     const position = Number(entry.number);
     if (!(position >= 0 && position < lastIndex)) continue;
     if (entry.status === "done") done += 1;
-    paint(position, entry);
+    paint(position, entry, stages[String(position)]);
   }
   const total = lastIndex;
-  setProgress(done, total);
+  const inFlight = Object.values(stages);
+  setProgress(done, total, inFlight);
 
   if (state === "complete") {
     // The finished book has an About spread and downloads the server renders;
@@ -339,16 +344,20 @@ function apply(payload) {
   if (payload.phase === "assembling") {
     caption("Step 2 of 2 · Putting the book together — every picture is drawn.");
   } else {
-    quietPolls = done > lastDone ? 0 : quietPolls + 1;
+    const drawn = Number(payload.pictures_drawn) || 0;
+    quietPolls = done > lastDone || drawn > lastDrawn ? 0 : quietPolls + 1;
     lastDone = Math.max(lastDone, done);
+    lastDrawn = Math.max(lastDrawn, drawn);
     // Say what is happening, not only how much is left. "45% for two minutes"
-    // looks stuck; "checking page 7" looks like work.
-    const stage = stageCaption(payload, done, total);
+    // looks stuck; "4 being drawn, 2 being checked" looks like work. Resting is
+    // said only when nothing at all is in flight: a page being drawn or checked
+    // is work, however long since the last one was accepted.
+    const stage = stageCaption(payload, inFlight, done, total);
     caption(
       stage ||
         (quietPolls >= RESTING_AFTER_POLLS
-          ? `${done} of ${total} pictures drawn. The pencil is resting for a moment — it picks up again on its own.`
-          : `Your book is being drawn. ${done} of ${total} pictures drawn.`),
+          ? `${done} of ${total} pages finished. The pencil is resting for a moment — it picks up again on its own.`
+          : `Your book is being drawn. ${done} of ${total} pages finished.`),
     );
   }
   poll(0);
@@ -357,12 +366,14 @@ function apply(payload) {
 /**
  * What the job is doing right now, as a sentence, or "" when there is nothing
  * specific to say. The pages are drawn in parallel, so the caption names the
- * step the whole book is on and how many pages are at each stage of it
- * (`stage_counts` from the server's status payload), rather than one page that
- * may already be finished by the time it is read.
+ * step the whole book is on and how many pages are at each stage of it, rather
+ * than one page that may already be finished by the time it is read. Pictures
+ * drawn run ahead of pages finished — the check turns some down and they are
+ * drawn again — so both are said, and the count never sits still while work
+ * goes on.
  */
-function stageCaption(payload, done, total) {
-  const counts = payload.stage_counts || {};
+function stageCaption(payload, inFlight, done, total) {
+  const counts = inFlight.length ? countStages(inFlight) : payload.stage_counts || {};
   const drawing = Number(counts.painting) || 0;
   const checking = Number(counts.reviewing) || 0;
   const redrawing = Number(counts.retrying) || 0;
@@ -371,16 +382,46 @@ function stageCaption(payload, done, total) {
   if (checking) parts.push(`${checking} being checked`);
   if (redrawing) parts.push(`${redrawing} being drawn again after a check`);
   if (!parts.length) return "";
-  return `Step 1 of 2 · Drawing the pictures — ${done} of ${total} finished. Right now: ${parts.join(", ")}.`;
+  const drawn = Number(payload.pictures_drawn) || 0;
+  const tally = drawn
+    ? `${done} of ${total} pages finished, ${drawn} ${drawn === 1 ? "picture" : "pictures"} drawn so far`
+    : `${done} of ${total} pages finished`;
+  return `Step 1 of 2 · Drawing the pictures — ${tally}. Right now: ${parts.join(", ")}.`;
 }
 
-function paint(position, entry) {
+function countStages(inFlight) {
+  const counts = {};
+  for (const { stage } of inFlight) counts[stage] = (counts[stage] || 0) + 1;
+  return counts;
+}
+
+/* How far along a page in flight is, as a share of one page: each try is a
+   third of the way, and within a try the check comes after the drawing. */
+function shareDone({ stage, attempt }) {
+  const tries = Math.min(Math.max(Number(attempt) || 1, 1), MAX_ATTEMPTS);
+  const within = stage === "reviewing" ? 0.7 : 0.3;
+  return Math.min(0.9, (tries - 1 + within) / MAX_ATTEMPTS);
+}
+
+function tryWords({ stage, attempt }) {
+  const tries = Number(attempt) || 1;
+  const doing = stage === "reviewing" ? "being checked" : "being drawn";
+  return `${doing}, try ${tries} of ${MAX_ATTEMPTS}`;
+}
+
+function paint(position, entry, inFlight) {
   const spread = spreads[position];
   const tile = mapTiles[position];
   const state = entry.status || "pending";
+  const working = state !== "done" && inFlight;
   if (tile) {
-    tile.className = `map-tile ${state}${position === index ? " current" : ""}`;
-    tile.setAttribute("aria-label", `${spreadName(position).label}, ${state}`);
+    const look = working ? "making" : state;
+    tile.className = `map-tile ${look}${position === index ? " current" : ""}`;
+    tile.setAttribute(
+      "aria-label",
+      `${spreadName(position).label}, ${working ? tryWords(inFlight) : state}`,
+    );
+    markTry(tile, working ? inFlight : null);
     if (state === "done" && entry.url && !tile.querySelector("img")) {
       const thumb = document.createElement("img");
       thumb.src = entry.thumb || entry.url;
@@ -394,17 +435,40 @@ function paint(position, entry) {
     badgeAttempts(position, records[position]);
     if (position === index) showAttempts(index);
   }
-  if (!spread || spread.dataset.status === state) return;
-  spread.dataset.status = state;
+  if (!spread) return;
   const art = spread.querySelector(".spread-art");
-  if (state === "done" && entry.url) {
-    art.replaceChildren(position === 0 ? coverFigure(entry) : pageImage(position, entry));
-    layout.schedule();
-    if (position === index && !reducedMotion) art.classList.add("landed");
-  } else {
-    const text = art.querySelector('[data-role="waiting-text"]');
-    if (text) text.textContent = state === "failed" ? "This one didn't make it." : "being drawn…";
+  if (spread.dataset.status !== state) {
+    spread.dataset.status = state;
+    if (state === "done" && entry.url) {
+      art.replaceChildren(position === 0 ? coverFigure(entry) : pageImage(position, entry));
+      layout.schedule();
+      if (position === index && !reducedMotion) art.classList.add("landed");
+      return;
+    }
   }
+  if (state === "done") return;
+  const text = art.querySelector('[data-role="waiting-text"]');
+  if (!text) return;
+  if (state === "failed") text.textContent = "This one didn't make it.";
+  else if (working) text.textContent = `${tryWords(inFlight)}…`;
+  else text.textContent = status === "rendering" ? "waiting its turn…" : "being drawn…";
+}
+
+/* The try a page in flight is on, in the corner of its tile ("2/3"); gone once
+   the page is finished, when the attempt badge takes the corner over. */
+function markTry(tile, inFlight) {
+  let mark = tile.querySelector(".map-try");
+  if (!inFlight) {
+    mark?.remove();
+    return;
+  }
+  if (!mark) {
+    mark = document.createElement("span");
+    mark.className = "map-try";
+    tile.append(mark);
+  }
+  mark.textContent = `${Number(inFlight.attempt) || 1}/${MAX_ATTEMPTS}`;
+  mark.title = `Try ${Number(inFlight.attempt) || 1} of ${MAX_ATTEMPTS}`;
 }
 
 function sizedImage(entry, alt) {
@@ -506,10 +570,22 @@ function showAttempts(position) {
   chip.title = attemptWords(record);
 }
 
-function setProgress(done, total) {
+/* The bar counts pages finished, plus the share of each page in flight, so it
+   moves while pictures are drawn and checked rather than only when one is
+   accepted. It never runs backwards during a job (a page turned down by its
+   check would otherwise pull it back), and it stripes while work is in flight.
+   Screen readers are told the plain count of pages finished. */
+function setProgress(done, total, inFlight = []) {
   const track = document.getElementById("progress-track");
   track.setAttribute("aria-valuenow", String(done));
-  document.getElementById("progress-fill").style.width = `${(100 * done) / total}%`;
+  const partial = inFlight.reduce((sum, page) => sum + shareDone(page), 0);
+  const fill = Math.min(1, (done + partial) / total);
+  const rendering = status === "rendering";
+  const width = rendering ? Math.max(shownFill, fill) : fill;
+  // Forgotten once the job ends, so an edit started later starts from its own count.
+  shownFill = rendering ? width : 0;
+  track.classList.toggle("working", inFlight.length > 0);
+  document.getElementById("progress-fill").style.width = `${100 * width}%`;
 }
 
 function caption(text) {

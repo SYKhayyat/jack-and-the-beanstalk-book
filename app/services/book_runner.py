@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -46,13 +47,15 @@ from app.models.story import StoryEdition
 from app.prompt_data import prompt_text
 from app.services.book_document import COVER_KEY, COVER_NUMBER, BookDocument
 from app.services.book_store import (
+    INTERRUPTED_MESSAGE,
     BookRecord,
     BookStatus,
     BookStore,
     CharacterReference,
+    ResumedBook,
 )
 from app.services.concurrency import ConcurrencyGate, GateTimeout, Slot
-from app.services.costs import cost_scope
+from app.services.costs import CostLedger, cost_scope
 from app.services.decision_judge import COIN, Decision, DecisionJudge, Outcome
 from app.services.image_providers.base import (
     GeneratedImage,
@@ -84,6 +87,7 @@ from app.services.reviewer import (
 )
 from app.services.storage import GenerationStore
 from app.services.template_store import PlateArt, PremadeArt, TemplateStore
+from app.services.vitals import rss_mb
 from app.services.wallet import Wallet
 
 __all__ = ["FIXABLE_FAULTS", "MAX_PAGE_ATTEMPTS", "BookRunner", "CharacterReference"]
@@ -222,8 +226,21 @@ class BookRunner:
         reviewer: ImageReviewer | None = None,
         decision_judge: DecisionJudge | None = None,
         page_attempts: int = MAX_PAGE_ATTEMPTS,
+        page_concurrency: int = 6,
+        image_threads: int = 2,
+        costs: CostLedger | None = None,
     ) -> None:
         self._provider = provider
+        # Read once per resume, to log what the restart threw away.
+        self._costs = costs
+        # How many of one book's pages are in flight at once (a semaphore per
+        # job), and a bounded pool of our own for Pillow work, so that work
+        # never runs on the event loop or queues the default pool the routes
+        # and database calls share (Run 2, 2026-11-11).
+        self._page_concurrency = max(1, page_concurrency)
+        self._image_pool = ThreadPoolExecutor(
+            max_workers=max(1, image_threads), thread_name_prefix="book-image"
+        )
         # Tier 2 of the review. `None` means this runner was built without one
         # (tests that predate the loop); the stand-in is used instead so every
         # verdict is stamped `tiers_run: [1]` rather than claiming a review.
@@ -249,6 +266,30 @@ class BookRunner:
         self._document = BookDocument(book_store=book_store, wallet=wallet)
         self._tasks: set[asyncio.Task[None]] = set()
         self._active: dict[str, asyncio.Task[None]] = {}
+        # Set by `close`: a job cancelled because the server is stopping is
+        # paused for the next boot to resume, not failed.
+        self._stopping = False
+
+    async def _image_work(self, func: Callable[..., _T], /, *args: Any, **kwargs: Any) -> _T:
+        """Run CPU-heavy image work on the runner's own bounded pool."""
+        return await asyncio.get_running_loop().run_in_executor(
+            self._image_pool, partial(func, *args, **kwargs)
+        )
+
+    async def close(self) -> None:
+        """Stop for a shutdown: pause every running book, then free the pool.
+
+        A deploy stops the process gracefully, so the jobs are cancelled here
+        rather than torn down with the loop. Each one is left as it was —
+        rendering, its finished pages kept — and the next boot resumes it
+        (`recover`). Called once, from the app's lifespan.
+        """
+        self._stopping = True
+        tasks = list(self._tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._image_pool.shutdown(wait=False, cancel_futures=True)
 
     @property
     def reviewer_name(self) -> str:
@@ -307,6 +348,7 @@ class BookRunner:
                 draw_cover=True,
                 only_missing=False,
                 requested_fixes={},
+                resumed=False,
             ),
         )
 
@@ -319,6 +361,7 @@ class BookRunner:
         only_missing: bool = False,
         requested_fixes: Mapping[int, Sequence[str]] | None = None,
         page_charge: Callable[[], bool] | None = None,
+        resumed: bool = False,
     ) -> None:
         """Mark the edit as rendering, then schedule it; returns before any call.
 
@@ -336,9 +379,12 @@ class BookRunner:
         that already finished untouched (the retry path). `requested_fixes`
         maps a page to what its owner said was wrong with it — `PageFault`
         names, the same vocabulary the reviewer uses — and steers every attempt
-        at that page, the first one included.
+        at that page, the first one included. `resumed` is a restart picking
+        the job up again (`recover`): its window and resume count are kept, and
+        finished pictures outside the job's own pages count as done.
         """
         self._ensure_idle(book_id)
+        fixes = dict(requested_fixes or {})
         started = asyncio.Event()
 
         async def job() -> None:
@@ -351,12 +397,23 @@ class BookRunner:
                 page_numbers=page_numbers,
                 draw_cover=draw_cover,
                 only_missing=only_missing,
-                requested_fixes=requested_fixes or {},
+                requested_fixes=fixes,
+                resumed=resumed,
             )
 
         task = self._schedule(book_id, job)
         try:
-            await asyncio.to_thread(self._mark_rendering, book_id, page_numbers, only_missing)
+            await asyncio.to_thread(
+                partial(
+                    self._mark_rendering,
+                    book_id,
+                    page_numbers,
+                    draw_cover=draw_cover,
+                    only_missing=only_missing,
+                    requested_fixes=fixes,
+                    resumed=resumed,
+                )
+            )
         except BaseException:
             task.cancel()
             raise
@@ -367,35 +424,150 @@ class BookRunner:
         self,
         book_id: str,
         page_numbers: set[int] | None,
+        *,
+        draw_cover: bool,
         only_missing: bool,
+        requested_fixes: Mapping[int, Sequence[str]],
+        resumed: bool,
     ) -> None:
-        """Publish the edit's starting status before the job runs."""
+        """Publish the edit's starting status before the job runs.
+
+        A new job also starts the book's resume window here (`begin_job`); a
+        resumed one keeps the window and the count it already has.
+        """
         record = self._book_store.load_record(book_id)
         if record is None:
             return
+        if not resumed:
+            self._book_store.begin_job(book_id)
         edition = self._templates.book_edition(book_id)
         rendered_pages = _rendered(edition, record)
-        existing = self._document.stored_progress(book_id)
-        progress = {
-            page.number: "done" if existing.get(page.number) == "done" else "pending"
-            for page in edition.pages
-        }
-        progress[COVER_NUMBER] = "done" if existing.get(COVER_NUMBER) == "done" else "pending"
-        target = (
-            {page.number for page in edition.pages}
-            if page_numbers is None
-            else set(page_numbers)
+        progress, target, cover = self._plan(
+            book_id,
+            edition,
+            page_numbers=page_numbers,
+            draw_cover=draw_cover,
+            only_missing=only_missing,
+            resumed=resumed,
         )
-        if only_missing:
-            target = {number for number in target if progress[number] != "done"}
-        for number in target:
-            progress[number] = "pending"
         self._book_store.save_status(
             book_id,
             BookStatus.RENDERING,
             self._document.page_view(book_id, progress, rendered_pages),
             title=record.title,
-            extra={"phase": _PHASE_PAGES, "total_pages": len(rendered_pages) + 1},
+            extra={
+                "phase": _PHASE_PAGES,
+                "total_pages": len(rendered_pages) + 1,
+                "job": _job_note(target, cover, requested_fixes),
+            },
+        )
+
+    def _plan(
+        self,
+        book_id: str,
+        edition: StoryEdition,
+        *,
+        page_numbers: set[int] | None,
+        draw_cover: bool,
+        only_missing: bool,
+        resumed: bool,
+    ) -> tuple[dict[int, str], set[int], bool]:
+        """Where a job starts: each page's progress, the pages to draw, the cover.
+
+        A page is done when the stored status says so. A resumed job also
+        counts every finished picture outside its own pages as done: those
+        are not its to redraw, whatever an interrupted status write said. A
+        picture the job is redrawing is not done until its new bytes land.
+        """
+        numbers = {page.number for page in edition.pages}
+        done = {
+            number
+            for number, state in self._document.stored_progress(book_id).items()
+            if state == "done"
+        }
+        target = set(numbers) if page_numbers is None else set(page_numbers)
+        if resumed:
+            job = target | ({COVER_NUMBER} if draw_cover else set())
+            done |= self._book_store.saved_page_numbers(book_id) - job
+        if only_missing:
+            target -= done
+            draw_cover = draw_cover and COVER_NUMBER not in done
+        progress = {
+            number: "pending" if number in target or number not in done else "done"
+            for number in numbers
+        }
+        progress[COVER_NUMBER] = (
+            "pending" if draw_cover or COVER_NUMBER not in done else "done"
+        )
+        return progress, target, draw_cover
+
+    async def recover(self, *, max_resumes: int, window_minutes: int) -> list[str]:
+        """Pick up the books a restart interrupted; called once, at boot.
+
+        Each is rendered again as the job it was — the same pages, the same
+        fixes its owner asked for — skipping the pages already finished. The
+        wallet is charged when the book completes, once per book whatever the
+        number of resumes (`BookDocument.assemble`). A book the store will not
+        resume again is failed there, its owner told to finish it.
+
+        Returns the ids of the books resumed.
+        """
+        books = await asyncio.to_thread(
+            partial(
+                self._book_store.resume_incomplete,
+                max_resumes=max_resumes,
+                window_seconds=window_minutes * 60,
+            )
+        )
+        for book in books:
+            try:
+                await self._resume(book)
+            except Exception:
+                logger.exception("book.resume_failed id=%s", book.book_id)
+                await self._fail_off_loop(
+                    book.book_id, INTERRUPTED_MESSAGE, user="-", elapsed_ms=0.0
+                )
+        return [book.book_id for book in books]
+
+    async def _resume(self, book: ResumedBook) -> None:
+        status = await asyncio.to_thread(self._book_store.load_status, book.book_id) or {}
+        pages, cover, fixes = _read_job_note(status.get("job"))
+        lost = await asyncio.to_thread(self._lost_pictures, book, pages, cover)
+        logger.warning(
+            "book.resumed id=%s resume=%d pages=%s cover=%s lost_pictures=%d",
+            book.book_id,
+            book.resume,
+            "all" if pages is None else ",".join(str(number) for number in sorted(pages)),
+            cover,
+            lost,
+        )
+        await self.start_edit(
+            book.book_id,
+            page_numbers=pages,
+            draw_cover=cover,
+            only_missing=True,
+            requested_fixes=fixes,
+            resumed=True,
+        )
+
+    def _lost_pictures(self, book: ResumedBook, pages: set[int] | None, cover: bool) -> int:
+        """Pictures the interrupted job paid for that never became a finished page."""
+        if self._costs is None:
+            return 0
+        numbers = (
+            {page.number for page in self._templates.book_edition(book.book_id).pages}
+            if pages is None
+            else set(pages)
+        )
+        if cover:
+            numbers.add(COVER_NUMBER)
+        done = {
+            number
+            for number, state in self._document.stored_progress(book.book_id).items()
+            if state == "done"
+        }
+        return self._costs.pictures_drawn(
+            book.book_id, pages=numbers - done, since=book.job_started_at
         )
 
     def _ensure_idle(self, book_id: str) -> None:
@@ -482,6 +654,7 @@ class BookRunner:
         draw_cover: bool,
         only_missing: bool,
         requested_fixes: Mapping[int, Sequence[str]],
+        resumed: bool,
     ) -> None:
         record = await asyncio.to_thread(self._book_store.load_record, book_id)
         if record is None:
@@ -502,24 +675,25 @@ class BookRunner:
                 render_book_page(page, artwork.settings, prompt_name=prompt_name)
                 for page in pages
             )
-            existing = await asyncio.to_thread(self._document.stored_progress, book_id)
-            progress: dict[int, str] = {
-                page.number: "done" if existing.get(page.number) == "done" else "pending"
-                for page in pages
-            }
             # The cover counts as one of the book's pages, drawn alongside them.
-            progress[COVER_NUMBER] = (
-                "done" if existing.get(COVER_NUMBER) == "done" else "pending"
+            progress, target, draw_cover = await asyncio.to_thread(
+                partial(
+                    self._plan,
+                    book_id,
+                    edition,
+                    page_numbers=page_numbers,
+                    draw_cover=draw_cover,
+                    only_missing=only_missing,
+                    resumed=resumed,
+                )
             )
-            target = (
-                {page.number for page in pages} if page_numbers is None else set(page_numbers)
-            )
-            if only_missing:
-                target = {number for number in target if progress[number] != "done"}
-            # A regenerated page is not done any more until its new bytes land.
-            for number in target:
-                progress[number] = "pending"
+            # What this job is, kept in every status write: a restart resumes
+            # exactly it, with the fixes its owner asked for (`recover`).
+            job_note = _job_note(target, draw_cover, requested_fixes)
             status_lock = asyncio.Lock()
+            # One book's pages in flight at once; the rest wait their turn
+            # here, holding nothing, before any picture is loaded for them.
+            in_flight = asyncio.Semaphore(self._page_concurrency)
             phase = _PHASE_PAGES
             costs: dict[int, tuple[str, int, int]] = {}
             # Which stage each page is in, by page number. Kept per page rather
@@ -529,6 +703,24 @@ class BookRunner:
             # work that is over (T12).
             stages: dict[int, str] = {}
             attempts_by_page: dict[int, int] = {}
+            # Every attempt that came back as a picture, by (page, attempt):
+            # pictures drawn runs ahead of pages accepted, and the reader is
+            # shown both rather than a count that sits still while the
+            # reviewer turns pictures down.
+            drawn_pictures: set[tuple[int, int]] = set()
+
+            def page_stages() -> dict[str, dict[str, object]]:
+                """Each page still in flight: its stage and which try it is on."""
+                if phase != _PHASE_PAGES:
+                    return {}
+                return {
+                    str(number): {
+                        "stage": name,
+                        "attempt": attempts_by_page.get(number, 1),
+                    }
+                    for number, name in sorted(stages.items())
+                    if progress.get(number) != "done"
+                }
 
             def stage_now() -> dict[str, object]:
                 """The most interesting page still in flight, as a stage triple."""
@@ -583,12 +775,19 @@ class BookRunner:
                             "phase": phase,
                             "total_pages": total + 1,
                             **stage_now(),
+                            "page_stages": page_stages(),
+                            "pictures_drawn": len(drawn_pictures),
+                            "page_attempts": self._page_attempts,
+                            "job": job_note,
                         },
                     )
 
             async def set_stage(name: str, page_number: int, attempt: int = 1) -> None:
                 stages[page_number] = name
                 attempts_by_page[page_number] = attempt
+                if name == _STAGE_REVIEWING:
+                    # Reviewing starts the moment an attempt's picture is in.
+                    drawn_pictures.add((page_number, attempt))
                 await paint()
 
             async def mark(page_number: int, state: str) -> None:
@@ -741,19 +940,24 @@ class BookRunner:
                 )
 
             async def run_page(page: BookPage) -> _Drawn:
+                async with in_flight:
+                    return await _run_page(page)
+
+            async def _run_page(page: BookPage) -> _Drawn:
                 page_started = monotonic()
                 try:
                     art = await _render_page(page)
                 except BaseException as exc:
                     logger.warning(
                         "book.page user=%s book=%s page=%d/%d key=%s "
-                        "ms=%.0f outcome=failed error=%s",
+                        "ms=%.0f rss_mb=%.0f outcome=failed error=%s",
                         user,
                         book_id,
                         page.number,
                         total,
                         page.key,
                         (monotonic() - page_started) * 1000,
+                        rss_mb(),
                         type(exc).__name__,
                     )
                     raise
@@ -765,7 +969,7 @@ class BookRunner:
                 mode, prompt_chars, references = costs.get(page.number, ("compose", 0, 0))
                 logger.info(
                     "book.page user=%s book=%s page=%d/%d key=%s mode=%s "
-                    "prompt_chars=%d refs=%d bytes=%d ms=%.0f outcome=done",
+                    "prompt_chars=%d refs=%d bytes=%d ms=%.0f rss_mb=%.0f outcome=done",
                     user,
                     book_id,
                     page.number,
@@ -776,19 +980,24 @@ class BookRunner:
                     references,
                     art.size,
                     (monotonic() - page_started) * 1000,
+                    rss_mb(),
                 )
                 return art
 
             await paint()
             to_render = [page for page in pages if page.number in target]
+
             # The cover is drawn alongside the pages, not before them: no page
             # uses it as a reference, so waiting for it only added a whole
             # draw-and-check cycle to every book.
-            cover_job = (
-                [self._render_cover(record, edition, artwork, page_charge, mark, set_stage)]
-                if draw_cover
-                else []
-            )
+            # The cover takes its turn among the pages: it is as much work.
+            async def run_cover() -> bytes:
+                async with in_flight:
+                    return await self._render_cover(
+                        record, edition, artwork, page_charge, mark, set_stage
+                    )
+
+            cover_job = [run_cover()] if draw_cover else []
             rendered: dict[int, BookPage] = {}
             if to_render or cover_job:
                 results = await asyncio.gather(
@@ -820,19 +1029,28 @@ class BookRunner:
                 )
             )
             logger.info(
-                "book.complete user=%s book=%s pages=%d pdf_bytes=%d ms=%.0f outcome=complete",
+                "book.complete user=%s book=%s pages=%d pdf_bytes=%d ms=%.0f "
+                "rss_mb=%.0f outcome=complete",
                 user,
                 book_id,
                 total,
                 pdf_bytes,
                 (monotonic() - started) * 1000,
+                rss_mb(),
             )
         except asyncio.CancelledError:
-            # A delete cancels the job and removes the book; a shutdown cancels
-            # it and leaves the book in place. Only the second case has a
-            # status document to write — and writing one into a deleted book
-            # would fail on a directory that no longer exists.
-            if await asyncio.to_thread(self._book_store.load_record, book_id) is not None:
+            # A shutdown pauses the job: the book stays rendering, and the next
+            # boot resumes it. A delete cancels the job and removes the book,
+            # leaving nothing to write. Any other cancel fails the book, its
+            # finished pages kept.
+            if self._stopping:
+                logger.warning(
+                    "book.paused id=%s user=%s elapsed_ms=%.0f",
+                    book_id,
+                    user,
+                    (monotonic() - started) * 1000,
+                )
+            elif await asyncio.to_thread(self._book_store.load_record, book_id) is not None:
                 self._fail(
                     book_id,
                     "Rendering was cancelled before the book finished. The pages "
@@ -843,7 +1061,7 @@ class BookRunner:
                 )
             raise
         except GateTimeout:
-            self._fail(
+            await self._fail_off_loop(
                 book_id,
                 "The server was too busy to render this book's pages, so it "
                 "stopped. The pages already finished were made and paid for — "
@@ -852,7 +1070,7 @@ class BookRunner:
                 elapsed_ms=(monotonic() - started) * 1000,
             )
         except TimeoutError:
-            self._fail(
+            await self._fail_off_loop(
                 book_id,
                 "A page took too long to generate, so the book was stopped. The "
                 "pages already finished were kept.",
@@ -861,12 +1079,24 @@ class BookRunner:
             )
         except Exception as exc:  # keep the completed pages visible whatever happened
             logger.exception("book.failed user=%s book=%s", user, book_id)
-            self._fail(
+            await self._fail_off_loop(
                 book_id,
                 f"The book stopped early: {exc}",
                 user=user,
                 elapsed_ms=(monotonic() - started) * 1000,
             )
+
+    async def _fail_off_loop(
+        self, book_id: str, message: str, *, user: str, elapsed_ms: float
+    ) -> None:
+        """`_fail`, on a worker thread: it reads and writes the database.
+
+        The cancellation path calls `_fail` directly instead: it runs while the
+        server shuts down, when there is nothing left on the loop to starve.
+        """
+        await asyncio.to_thread(
+            partial(self._fail, book_id, message, user=user, elapsed_ms=elapsed_ms)
+        )
 
     async def _render_cover(
         self,
@@ -998,7 +1228,10 @@ class BookRunner:
         parent a finished book (T10.2). Only when neither check could look does
         the verdict say tier 1 alone ran, so nothing mistakes it for a review.
         """
-        tier1 = review_image(
+        # Off the event loop: ~0.35 s of Pillow on a dev machine, ten times
+        # that on the free plan, and every request waited behind it.
+        tier1 = await self._image_work(
+            review_image,
             image,
             plate_bytes=plate.image if plate is not None else None,
             expected_ratio=_ratio(str(artwork.settings.aspect_ratio)),
@@ -1298,7 +1531,7 @@ class BookRunner:
                     continue
                 paste: dict[str, Any] = {}
                 if plate is not None:
-                    pasted = await asyncio.to_thread(
+                    pasted = await self._image_work(
                         paste_plate_back,
                         drawn.data,
                         plate.image,
@@ -1678,6 +1911,44 @@ def _ratio(aspect_ratio: str) -> float | None:
         return float(width) / float(height)
     except (ValueError, ZeroDivisionError):
         return None
+
+
+def _job_note(
+    target: set[int], draw_cover: bool, requested_fixes: Mapping[int, Sequence[str]]
+) -> dict[str, object]:
+    """What a job is drawing, as kept in its status: enough to resume it."""
+    return {
+        "pages": sorted(target),
+        "cover": draw_cover,
+        "fixes": {
+            str(number): list(faults) for number, faults in requested_fixes.items() if faults
+        },
+    }
+
+
+def _read_job_note(
+    note: object,
+) -> tuple[set[int] | None, bool, dict[int, tuple[str, ...]]]:
+    """A stored `_job_note` back as (pages, cover, fixes).
+
+    A book interrupted before its first status write has no note: it was a
+    new book, so the job is every page and the cover (pages None).
+    """
+    if not isinstance(note, Mapping):
+        return None, True, {}
+    raw_pages = note.get("pages")
+    pages = (
+        {int(number) for number in raw_pages if isinstance(number, int)}
+        if isinstance(raw_pages, list)
+        else None
+    )
+    fixes: dict[int, tuple[str, ...]] = {}
+    raw_fixes = note.get("fixes")
+    if isinstance(raw_fixes, Mapping):
+        for key, faults in raw_fixes.items():
+            if str(key).isdigit() and isinstance(faults, list):
+                fixes[int(key)] = tuple(str(fault) for fault in faults)
+    return pages, bool(note.get("cover", True)), fixes
 
 
 def _rendered(edition: StoryEdition, record: BookRecord) -> tuple[BookPage, ...]:

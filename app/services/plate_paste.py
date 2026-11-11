@@ -30,6 +30,7 @@ from dataclasses import dataclass
 
 from PIL import Image, ImageChops, ImageFilter, ImageStat
 
+from app.services.media import FAST_PNG_LEVEL
 from app.services.template_store import Slot
 
 __all__ = ["CAMERA_MOVED_LIMIT", "PasteResult", "paste_plate_back"]
@@ -111,7 +112,11 @@ def paste_plate_back(
         ImageFilter.GaussianBlur(radius)
     )
     out = io.BytesIO()
-    Image.composite(picture, background, mask).save(out, format="PNG")
+    # The fast level (see `FAST_PNG_LEVEL`): this encode, at Pillow's default,
+    # was the costliest step of a render, up to three times per plate page.
+    Image.composite(picture, background, mask).save(
+        out, format="PNG", compress_level=FAST_PNG_LEVEL
+    )
     return PasteResult(
         out.getvalue(), "image/png", pasted=True, restored=restored, drift=drift
     )

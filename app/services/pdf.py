@@ -594,13 +594,11 @@ def _image_for_pdf(image: bytes) -> io.BytesIO:
                 frame = background
             frame.thumbnail((_EMBED_LONG_EDGE, _EMBED_LONG_EDGE), Image.Resampling.LANCZOS)
             encoded = io.BytesIO()
-            frame.save(
-                encoded,
-                format="JPEG",
-                quality=_EMBED_JPEG_QUALITY,
-                optimize=True,
-                progressive=True,
-            )
+            # A plain baseline JPEG on purpose: with optimize= or progressive=
+            # Pillow encodes the whole frame in one call that holds the GIL
+            # (~270 ms a page), freezing the server for the whole assembly; a
+            # baseline encode works in chunks. The size cost is about 5%.
+            frame.save(encoded, format="JPEG", quality=_EMBED_JPEG_QUALITY)
     except (OSError, UnidentifiedImageError) as exc:
         raise ValueError("A page image was unreadable; cannot assemble the book.") from exc
     encoded.seek(0)

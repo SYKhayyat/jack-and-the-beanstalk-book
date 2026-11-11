@@ -2272,6 +2272,27 @@ body.in-story-time {
   border-radius: 999px;
   transition: width 400ms var(--ease);
 }
+/* Stripes drift along the bar while a page is being drawn or checked, so a
+   long check between two finished pages still reads as work. */
+.progress-track.working .progress-fill {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 8px,
+    rgb(255 255 255 / 0.25) 8px 16px
+  );
+  background-size: 22.6px 100%;
+  animation: progress-drift 900ms linear infinite;
+}
+@keyframes progress-drift {
+  to {
+    background-position: 22.6px 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-track.working .progress-fill {
+    animation: none;
+  }
+}
 .progress-caption {
   margin: 10px 0 0;
 }
@@ -2329,6 +2350,19 @@ body.in-story-time {
   line-height: 16px;
   background: var(--card);
   color: var(--bean);
+}
+/* The try a page in flight is on ("2/3"), until the page is finished. */
+.map-try {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  padding: 0 4px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  background: var(--marigold-soft);
+  color: var(--ink);
 }
 .map-attempts.retried {
   color: var(--ink);

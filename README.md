@@ -1206,6 +1206,10 @@ A failed call is logged at no cost.
 | `MAX_UPLOAD_MB` | `10` | Enforced before decoding |
 | `GENERATION_TIMEOUT_SECONDS` | `600` | One budget per request: queue + model call. Also applied to the provider's HTTP client. |
 | `MAX_CONCURRENT_GENERATIONS` | `2` | Admission control per process. Beyond this, requests queue and then get 429. |
+| `BOOK_PAGE_CONCURRENCY` | `6` | How many of one book's pages are drawn, pasted and reviewed at once; the rest wait. Bounds the memory and CPU one book takes, separately from the gate above. |
+| `IMAGE_WORK_THREADS` | `2` | A render's own pool for image work (review, pasting the plate back), apart from the default pool the routes and database calls use. |
+| `BOOK_MAX_RESUMES` | `2` | How many times a restart-interrupted book resumes by itself on boot (missing pages only, charged once). Past this it fails and its owner can press "Finish this book". |
+| `BOOK_RESUME_WINDOW_MINUTES` | `60` | A book whose job started longer ago than this fails on boot instead of resuming. |
 | `MAX_GENERATIONS_PER_MINUTE` | `30` | Per-client abuse brake for billable requests; Render's blueprint uses `12`. |
 | `STORAGE_DIR` | `./storage` | Created on startup |
 | `DRAFT_RETENTION_HOURS` | `24` | How long an uploaded photo and the portraits made from it are kept. Swept on boot and hourly. |

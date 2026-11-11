@@ -323,6 +323,50 @@ class Settings(BaseSettings):
             "traffic turns straight into 429s and billable requests."
         ),
     )
+    book_page_concurrency: int = Field(
+        default=6,
+        ge=1,
+        le=64,
+        description=(
+            "How many of one book's pages are worked on at once: drawn, pasted "
+            "onto their plate and reviewed. Separate from the gate above, which "
+            "bounds model calls across the server. Every page in flight holds "
+            "its pictures in memory and queues Pillow work, so 21 at once is "
+            "what starved the free plan's event loop (Run 2); the model calls "
+            "are I/O, so a lower number mostly costs latency, not CPU."
+        ),
+    )
+    image_work_threads: int = Field(
+        default=2,
+        ge=1,
+        le=16,
+        description=(
+            "Worker threads for a render's own image work (tier-1 review, "
+            "pasting the plate back). Their own pool, so that work never runs "
+            "on the event loop nor queues the database calls and routes that "
+            "share the default one."
+        ),
+    )
+    book_max_resumes: int = Field(
+        default=2,
+        ge=0,
+        le=10,
+        description=(
+            "How many times a book a restart interrupted is picked up again by "
+            "itself. Bounded, so a book that is what kills the server cannot "
+            "keep killing it: past this it fails, and its owner can finish it."
+        ),
+    )
+    book_resume_window_minutes: int = Field(
+        default=60,
+        ge=1,
+        # A week, as for the generation timeout: a GEMINI_WEB book can take a day.
+        le=7 * 24 * 60,
+        description=(
+            "A book whose job started longer ago than this is not resumed after "
+            "a restart: it fails, and its owner can finish it by hand."
+        ),
+    )
     max_generations_per_minute: int = Field(
         default=120,
         ge=1,

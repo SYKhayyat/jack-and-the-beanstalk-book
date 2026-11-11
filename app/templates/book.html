@@ -74,7 +74,7 @@
       <div class="progress-fill" id="progress-fill" style="width: {{ (100 * done_count / tiles|length)|round(1) }}%"></div>
     </div>
     <p class="progress-caption" id="progress-caption" role="status" aria-live="polite">
-      {% if status == "failed" %}{{ done_count }} of {{ tiles|length }} pictures — this book stopped early.{% else %}Your book is being drawn. {{ done_count }} of {{ tiles|length }} pictures drawn.{% endif %}
+      {% if status == "failed" %}{{ done_count }} of {{ tiles|length }} pictures — this book stopped early.{% else %}Your book is being drawn. {{ done_count }} of {{ tiles|length }} pages finished.{% endif %}
     </p>
     <div class="failed-row{% if status != 'failed' %} hidden{% endif %}" id="failed-row">
       <p class="inline-message error" id="failed-message">{{ error or "Some pictures didn't make it." }}</p>

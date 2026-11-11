@@ -266,9 +266,17 @@ def test_find_started_answers_with_a_live_book_and_skips_a_failed_one(
     assert store.find_started(fingerprint="another", since=since) is None
 
 
-def test_a_restart_reaps_a_book_that_never_finished(store: BookStore) -> None:
+def test_a_restart_resumes_a_book_that_never_finished(store: BookStore) -> None:
     book_id = seed(store)
-    assert store.reap_incomplete() >= 1
+    store.save_portrait(book_id, b"PORTRAIT")
+    resumed = store.resume_incomplete(max_resumes=2, window_seconds=3600)
+    assert [book.book_id for book in resumed] == [book_id]
+
+
+def test_a_restart_fails_a_book_it_will_not_resume(store: BookStore) -> None:
+    book_id = seed(store)
+    store.save_portrait(book_id, b"PORTRAIT")
+    assert store.resume_incomplete(max_resumes=0, window_seconds=3600) == []
     status = store.load_status(book_id)
     assert status is not None
     assert status["status"] == BookStatus.FAILED

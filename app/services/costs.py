@@ -37,6 +37,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import func, select, update
@@ -360,6 +361,30 @@ class CostLedger:
                 .group_by(ApiCallRow.book_id)
             ).all()
         return {str(book_id): int(total or 0) for book_id, total in rows}
+
+    def pictures_drawn(self, book_id: str, *, pages: set[int], since: datetime) -> int:
+        """Image calls that answered for these pages of a book since `since`.
+
+        What a restart threw away: pictures paid for that never became a
+        finished page. Never raises: it only feeds a log line.
+        """
+        if not pages:
+            return 0
+        try:
+            with self._engine.connect() as conn:
+                total = conn.execute(
+                    select(func.coalesce(func.sum(ApiCallRow.images), 0)).where(
+                        ApiCallRow.book_id == book_id,
+                        ApiCallRow.kind == "image",
+                        ApiCallRow.ok.is_(True),
+                        ApiCallRow.page_number.in_(sorted(pages)),
+                        ApiCallRow.created_at >= since,
+                    )
+                ).scalar_one()
+        except Exception:
+            logger.exception("cost.lost_query_failed book=%s", book_id)
+            return 0
+        return int(total or 0)
 
     def summary(self) -> CostSummary:
         """Average cost per finished book, and everything else logged."""

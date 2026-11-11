@@ -146,6 +146,21 @@ services:
       - key: MAX_CONCURRENT_GENERATIONS
         value: "8"
 
+      # One book's pages in flight at once, and the threads for their image
+      # work. Run 2 (2026-11-11) had all 21 pages in flight on a tenth of a
+      # CPU; the health check took 20 s and the instance was restarted.
+      - key: BOOK_PAGE_CONCURRENCY
+        value: "6"
+      - key: IMAGE_WORK_THREADS
+        value: "2"
+
+      # A restart picks an interrupted book up again: twice at most, and
+      # only within an hour of its job starting.
+      - key: BOOK_MAX_RESUMES
+        value: "2"
+      - key: BOOK_RESUME_WINDOW_MINUTES
+        value: "60"
+
       # Per-client abuse brake. A book charges one per picture up front, so keep
       # this well above a book's size; OPENAI_IMAGES_PER_MINUTE is the real cap.
       - key: MAX_GENERATIONS_PER_MINUTE

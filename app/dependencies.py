@@ -16,8 +16,12 @@ from app.services.storage import GenerationStore
 __all__ = ["ContainerDep", "StoreDep"]
 
 
-def get_container(request: Request) -> Container:
-    """The container attached to this app at startup."""
+async def get_container(request: Request) -> Container:
+    """The container attached to this app at startup.
+
+    Async so that resolving it never takes a thread-pool slot: `/healthz`
+    must answer while image work and database calls fill that pool.
+    """
     return cast(Container, request.app.state.container)
 
 

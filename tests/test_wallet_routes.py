@@ -8,6 +8,8 @@ what the Google callback does after it has verified somebody.
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -17,7 +19,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
-from app.services.image_providers.base import ImageProvider
+from app.services.image_providers.base import GeneratedImage, ImageProvider, ImageRequest
 from app.services.payments import (
     CheckoutSession,
     PaidCheckout,
@@ -478,6 +480,101 @@ def test_a_funded_book_is_charged_when_its_pdf_is_written(browser) -> None:
     assert "$9.01" in page
     assert "Book" in page
     assert "\u2212$0.99" in page
+
+
+class _StallingProvider(RecordingProvider):
+    """Draws the first few pictures, then holds every call until released."""
+
+    name = "stalling"
+
+    def __init__(self, free_calls: int) -> None:
+        super().__init__()
+        self._free = free_calls
+        self._lock = threading.Lock()
+        self.release = threading.Event()
+
+    def generate(self, request: ImageRequest) -> GeneratedImage:
+        with self._lock:
+            self._free -= 1
+            held = self._free < 0
+        if held:
+            self.release.wait(timeout=30)
+        return super().generate(request)
+
+
+def _status_when(client: TestClient, book_id: str, done, timeout: float = 60) -> dict:
+    deadline = time.monotonic() + timeout
+    status: dict = {}
+    while time.monotonic() < deadline:
+        status = client.get(f"/api/book/{book_id}").json()
+        if done(status):
+            return status
+        time.sleep(0.05)
+    raise AssertionError(f"book never got there: {status.get('status')}")
+
+
+def test_a_book_a_restart_interrupts_resumes_and_is_charged_once(
+    settings: Settings, stripe: FakeStripe, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A deploy mid-render pauses the book; the next boot finishes it.
+
+    The pages finished before the restart are kept, the rest are drawn by the
+    new process, and the wallet pays for one book, not two.
+    """
+    provider = _StallingProvider(free_calls=5)  # the portrait, then four pictures
+    with wallet_app(settings, provider, stripe) as (client, _):
+        client.get(f"/wallet/return?session_id={paid_session(stripe, 1000)}")
+        portrait = client.post(
+            "/api/cartoonify",
+            files={"photo": ("me.png", make_photo_bytes(), "image/png")},
+            data={"story": "jack_and_the_beanstalk", "photo_gender": "boy"},
+        )
+        start = client.post(
+            "/api/book/start",
+            data={
+                "story": "jack_and_the_beanstalk",
+                "photo_gender": "boy",
+                "generation_id": portrait.json()["generation_id"],
+            },
+        )
+        assert start.status_code == 201, start.text
+        book_id = start.json()["book_id"]
+        before = _status_when(
+            client,
+            book_id,
+            lambda status: sum(page["status"] == "done" for page in status["pages"]) >= 3,
+        )
+        kept = {
+            page["number"]: page["src"] for page in before["pages"] if page["status"] == "done"
+        }
+        container = client.app.state.container
+    # The first process has stopped, its book paused rather than failed.
+    provider.release.set()
+    paused = container.book_store.load_status(book_id)
+    assert paused is not None
+    assert paused["status"] == "rendering", paused.get("error")
+
+    caplog.set_level(logging.INFO)
+    with wallet_app(settings, provider, stripe) as (client, _):
+        final = _status_when(
+            client, book_id, lambda status: status["status"] in {"complete", "failed"}
+        )
+        assert final["status"] == "complete", final.get("error")
+        assert all(page["status"] == "done" for page in final["pages"])
+        # The pages finished before the restart were not drawn again: the
+        # same picture, at the same version.
+        after = {page["number"]: page["src"] for page in final["pages"]}
+        assert {number: after[number] for number in kept} == kept
+        page = client.get("/wallet").text
+    assert page.count("\u2212$0.99") == 1
+    assert "$9.01" in page
+    resumed = [
+        record.getMessage()
+        for record in caplog.records
+        if "book.resumed id=" in record.getMessage()
+    ]
+    assert len(resumed) == 1 and f"id={book_id}" in resumed[0]
+    assert "lost_pictures=" in resumed[0]
 
 
 def test_the_wallet_has_no_page_without_an_identity(settings: Settings, provider) -> None:

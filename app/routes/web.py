@@ -254,8 +254,13 @@ def book_page(
 
 
 @router.get("/healthz")
-def healthz(container: ContainerDep) -> dict[str, object]:
+async def healthz(container: ContainerDep) -> dict[str, object]:
     """Liveness, whether the pictures are real, and the concurrency ceiling.
+
+    Async, and touching nothing but the already-built container: a health check
+    must not wait in the thread pool behind image work or a database round trip
+    (Run 2, 2026-11-11, when a busy render made this take 20-50 s and the
+    platform restarted the process).
 
     This URL is open to anyone, because the platform polls it, so it says only
     that the service is up, whether it is drawing real pictures, and how many

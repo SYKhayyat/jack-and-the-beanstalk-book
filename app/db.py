@@ -114,6 +114,12 @@ class BookRow(Base):
     request_fingerprint: Mapped[str | None] = mapped_column(
         String(64), nullable=True, index=True
     )
+    #: When this book's render first started: the window a restart may resume it
+    #: inside. Never moved by a resume, so repeated crashes cannot extend it.
+    job_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    #: How many times a restart has picked this book up again. Bounded, so a
+    #: book that is what kills the server cannot keep killing it.
+    resume_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     about: Mapped[dict[str, Any]] = mapped_column(JSON)
     #: The settings the portrait and pages were made with, so a single page can
     #: be regenerated after the original draft has expired.

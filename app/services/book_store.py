@@ -21,8 +21,9 @@ The filesystem implementation rewrites the status file after every page
 either the old or the new file, never a torn one, and a write interrupted by
 a crash cannot leave a finished book unreadable. The database implementation
 gets the same property from its transactions. On Render without a database
-the disk is ephemeral and a restart loses books — `reap_incomplete` marks the
-ones that were mid-render as failed so they do not poll as "pending" forever.
+the disk is ephemeral and a restart loses books — `resume_incomplete` picks the
+ones that were mid-render up again, or marks them failed so they do not poll as
+"pending" forever.
 """
 
 from __future__ import annotations
@@ -39,15 +40,25 @@ from app.models.story import StoryEdition
 from app.services.pictures import slot_page
 
 __all__ = [
+    "INTERRUPTED_MESSAGE",
     "BookRecord",
     "BookStatus",
     "BookStore",
     "BookSummary",
     "CharacterReference",
+    "ResumedBook",
     "page_totals",
 ]
 
 logger = logging.getLogger(__name__)
+
+
+#: What the owner of a book a restart interrupted, and could not resume, reads.
+INTERRUPTED_MESSAGE = (
+    "The server restarted while this book was rendering. The finished pages "
+    "shown here were kept: press \u201cFinish this book\u201d to draw the rest, "
+    "without paying for these again."
+)
 
 
 class BookStatus:
@@ -98,6 +109,18 @@ class BookSummary:
     subtitle: str = ""
     #: The cover's content hash, for its sized and versioned URLs.
     cover_sha256: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResumedBook:
+    """A book a restart interrupted that is to be rendered again."""
+
+    book_id: str
+    #: When the interrupted job started (naive UTC), so the pictures it paid
+    #: for and lost can be counted.
+    job_started_at: datetime
+    #: Which resume this is: 1 for the first.
+    resume: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,6 +342,27 @@ class BookStore:
         """
         raise NotImplementedError
 
+    def saved_page_numbers(self, book_id: str) -> set[int]:
+        """The pictures already finished: stored and reviewed (0 is the cover).
+
+        The authority on what a resumed render may skip: a page's picture is
+        saved, then its review recorded, then its status written, so a crash
+        between those leaves finished art the status does not know about yet.
+        Reading the rows (never the images) is what stops a resume paying to
+        draw it again. A picture stored without its review is not finished —
+        the book could not complete with it — and is drawn again.
+        """
+        raise NotImplementedError
+
+    def begin_job(self, book_id: str) -> None:
+        """Note that a render of this book starts now, as a new job.
+
+        Starts the window a restart may resume it inside and clears its count
+        of resumes: a job the owner asked for is a fresh start, a resume is not
+        (and does not call this).
+        """
+        raise NotImplementedError
+
     # --- pictures on screen (P1, P2) -------------------------------------------
     # A "slot" names one of a book's pictures: "cover", "portrait" or "page-<n>"
     # (`app.services.pictures.page_slot`).
@@ -393,10 +437,21 @@ class BookStore:
     def delete(self, book_id: str) -> None:
         raise NotImplementedError
 
-    def reap_incomplete(self) -> int:
-        """Mark books still rendering as failed (a restart orphaned them).
+    def resume_incomplete(
+        self, *, max_resumes: int, window_seconds: float
+    ) -> list[ResumedBook]:
+        """Pick up the books a restart interrupted, or fail them for good.
 
-        Returns the number of books marked.
+        A book is resumed when it was still pending or rendering, has its
+        portrait (everything a render draws from), has not been resumed
+        `max_resumes` times already, and its job started within
+        `window_seconds`. Its resume is counted, it is left as it was, and it
+        is returned for the caller to schedule; its finished pages will be
+        skipped. Every other such book is marked failed, its finished pages
+        kept, and its owner told to finish it.
+
+        Returns:
+            The books to render again, in the order found.
         """
         raise NotImplementedError
 

@@ -1,0 +1,135 @@
+"""A book rendering must not stall the server (docs/plan-render-stall-and-resume.md).
+
+Run 2 on the live site lost a book because the health check went unanswered
+for twenty seconds while its pages were being made. A rendering book is now
+image work on the runner's own small pool and model calls on threads; the
+event loop only routes. This test renders a whole book with a slow provider
+and full-size pictures — the real Pillow work: decode, downscale, re-encode
+for every page and every review — and checks that the loop kept up the whole
+time: its lag watcher (sampling far faster than in production) never fired,
+and the health check and the poll answered promptly throughout.
+"""
+
+from __future__ import annotations
+
+import io
+import logging
+import random
+import time
+from functools import partial
+
+import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from app import main as main_module
+from app.config import Settings
+from app.main import create_app
+from app.services.image_providers.base import GeneratedImage, ImageRequest
+from app.services.vitals import watch_loop
+from tests.helpers import RecordingProvider, make_photo_bytes
+
+#: How late the loop may run before it counts as stalled; the production
+#: watcher's own threshold.
+LAG_LIMIT_SECONDS = 0.25
+#: The slowest the health check may answer while the book renders: async and
+#: database-free, it waits on nothing but the loop. A tenth of what Render's
+#: check waited before it gave up.
+HEALTH_LIMIT_SECONDS = 0.5
+#: The slowest the poll may answer. It reads the database, and the test's
+#: SQLite file makes a reader wait out each of the runner's status writes
+#: (Postgres, in production, does not), so its bound is looser.
+POLL_LIMIT_SECONDS = 5.0
+
+
+def test_no_jpeg_is_encoded_in_one_gil_holding_call() -> None:
+    """optimize=/progressive= make Pillow hold the GIL for the whole encode.
+
+    At ~270 ms a page that froze the loop through every book's PDF assembly;
+    a plain baseline encode works in chunks and lets the loop run.
+    """
+    from pathlib import Path
+
+    offenders = [
+        f"{path}:{number}"
+        for path in Path("app").rglob("*.py")
+        for number, line in enumerate(path.read_text().splitlines(), 1)
+        if "optimize=True" in line or "progressive=True" in line
+    ]
+    assert not offenders, offenders
+
+
+def _picture() -> bytes:
+    """A noisy 1024x1536 PNG: as costly to decode and shrink as a real page."""
+    rng = random.Random(7)
+    image = Image.frombytes("RGB", (1024, 1536), rng.randbytes(1024 * 1536 * 3))
+    out = io.BytesIO()
+    image.save(out, format="PNG", compress_level=1)
+    return out.getvalue()
+
+
+class _SlowProvider(RecordingProvider):
+    """Takes a while per picture, like a real model, and returns a full-size one."""
+
+    name = "slow"
+
+    def __init__(self) -> None:
+        super().__init__(_picture())
+
+    def generate(self, request: ImageRequest) -> GeneratedImage:
+        time.sleep(0.15)
+        return super().generate(request)
+
+
+def test_a_rendering_book_leaves_the_loop_free(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.WARNING, logger="app.services.vitals")
+    monkeypatch.setattr(
+        main_module,
+        "watch_loop",
+        partial(watch_loop, interval=0.05, threshold=LAG_LIMIT_SECONDS),
+    )
+    app = create_app(settings, provider=_SlowProvider())
+    with TestClient(app) as client:
+        portrait = client.post(
+            "/api/cartoonify",
+            files={"photo": ("me.png", make_photo_bytes(), "image/png")},
+            data={"story": "jack_and_the_beanstalk", "photo_gender": "boy"},
+        )
+        assert portrait.status_code == 201, portrait.text
+        start = client.post(
+            "/api/book/start",
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait.json()["generation_id"],
+            },
+        )
+        assert start.status_code == 201, start.text
+        book_id = start.json()["book_id"]
+
+        slowest = {"/healthz": 0.0, "poll": 0.0}
+        polls = 0
+        status: dict = {}
+        deadline = time.monotonic() + 180
+        while time.monotonic() < deadline:
+            for name, path in (("/healthz", "/healthz"), ("poll", f"/api/book/{book_id}")):
+                asked = time.monotonic()
+                response = client.get(path)
+                slowest[name] = max(slowest[name], time.monotonic() - asked)
+                assert response.status_code == 200, (path, response.text)
+            status = response.json()
+            polls += 1
+            if status["status"] in {"complete", "failed"}:
+                break
+            time.sleep(0.05)
+
+    assert status["status"] == "complete", status.get("error")
+    assert len(status["pages"]) == 21  # the cover and twenty story pages
+    assert polls > 10, "the book finished before the server was watched"
+    assert slowest["/healthz"] < HEALTH_LIMIT_SECONDS, slowest
+    assert slowest["poll"] < POLL_LIMIT_SECONDS, slowest
+    stalls = [
+        record.getMessage() for record in caplog.records if "loop.lag" in record.getMessage()
+    ]
+    assert not stalls, stalls

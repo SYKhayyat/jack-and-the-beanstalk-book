@@ -319,8 +319,18 @@ def test_find_started_ignores_a_record_without_a_fingerprint(
     )
 
 
-def test_a_mid_render_book_is_reaped_on_restart(store: DatabaseBookStore) -> None:
+_HOUR = 3600.0
+
+
+def _resume(store: DatabaseBookStore, *, max_resumes: int = 2) -> list[str]:
+    books = store.resume_incomplete(max_resumes=max_resumes, window_seconds=_HOUR)
+    return [book.book_id for book in books]
+
+
+def test_a_mid_render_book_is_resumed_twice_then_failed(store: DatabaseBookStore) -> None:
+    """A restart resumes the book; a crash-looping book stops after two."""
     book_id = _seed(store)
+    store.save_portrait(book_id, b"PORTRAIT")
     store.save_page(book_id, 1, b"kept")
     pages = [{"number": 1, "status": "done", "url": "/book-media/book-1/pages/1"}]
     store.save_status(book_id, BookStatus.RENDERING, pages)
@@ -333,43 +343,107 @@ def test_a_mid_render_book_is_reaped_on_restart(store: DatabaseBookStore) -> Non
     )
     store.save_status("book-2", BookStatus.COMPLETE, [])
 
-    assert store.reap_incomplete() == 1
+    first = store.resume_incomplete(max_resumes=2, window_seconds=_HOUR)
+    assert [(book.book_id, book.resume) for book in first] == [(book_id, 1)]
+    # A resumed book is left as it was, for the runner to pick up.
+    resumed = store.load_status(book_id)
+    assert resumed is not None
+    assert resumed["status"] == BookStatus.RENDERING
+    assert _resume(store) == [book_id]
+
+    # The third restart in a row gives up: the book fails, its pages kept.
+    assert _resume(store) == []
     status = store.load_status(book_id)
     assert status is not None
     assert status["status"] == BookStatus.FAILED
     assert "restarted" in str(status["error"])
+    assert "Finish this book" in str(status["error"])
     # The finished page stays visible: everything stored survives, and the read
     # adds its sized, versioned URLs (`_with_picture_records`).
     assert [{key: entry[key] for key in pages[0]} for entry in status["pages"]] == pages
     assert "?w=1600&v=" in status["pages"][0]["src"]
     assert store.read_page(book_id, 1) == b"kept"
 
-    # The second reap has nothing left to do.
-    assert store.reap_incomplete() == 0
-    # A complete book is never touched.
+    # Nothing is left to do, and a complete book is never touched.
+    assert _resume(store) == []
     complete = store.load_status("book-2")
     assert complete is not None
     assert complete["status"] == BookStatus.COMPLETE
 
 
-def test_a_book_orphaned_while_pending_is_reaped_on_restart(
-    store: DatabaseBookStore,
-) -> None:
-    """`save_record` commits PENDING before the runner writes any status.
-
-    A crash in that window used to leave a book that never rendered and never
-    stopped polling as pending; the reaper now treats PENDING as orphaned too.
-    """
+def test_a_new_job_starts_the_resume_count_again(store: DatabaseBookStore) -> None:
     book_id = _seed(store)
+    store.save_portrait(book_id, b"PORTRAIT")
+    assert _resume(store, max_resumes=1) == [book_id]
+    store.begin_job(book_id)
+    assert _resume(store, max_resumes=1) == [book_id]
 
-    assert store.reap_incomplete() == 1
+
+def test_a_book_whose_job_started_too_long_ago_is_failed(
+    store: DatabaseBookStore, engine: Any
+) -> None:
+    book_id = _seed(store)
+    store.save_portrait(book_id, b"PORTRAIT")
+    with engine.begin() as conn:
+        conn.execute(
+            update(BookRow)
+            .where(BookRow.id == book_id)
+            .values(job_started_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2))
+        )
+
+    assert _resume(store) == []
     status = store.load_status(book_id)
     assert status is not None
     assert status["status"] == BookStatus.FAILED
-    assert "restarted" in str(status["error"])
+
+
+def test_a_book_orphaned_while_pending_is_resumed(store: DatabaseBookStore) -> None:
+    """`save_record` commits PENDING before the runner writes any status.
+
+    A crash in that window would leave a book that never rendered; it is
+    resumed like a rendering one, because its job started with the record.
+    """
+    book_id = _seed(store)
+    store.save_portrait(book_id, b"PORTRAIT")
+
+    assert _resume(store) == [book_id]
+
+
+def test_a_book_without_its_portrait_cannot_be_resumed(store: DatabaseBookStore) -> None:
+    book_id = _seed(store)
+
+    assert _resume(store) == []
+    status = store.load_status(book_id)
+    assert status is not None
+    assert status["status"] == BookStatus.FAILED
     assert status["pages"] == []
-    # Reaping is idempotent.
-    assert store.reap_incomplete() == 0
+
+
+def test_saved_page_numbers_are_the_reviewed_pictures(
+    store: DatabaseBookStore, engine: Any
+) -> None:
+    book_id = _seed(store)
+    store.save_page(book_id, 1, b"one")
+    store.save_page(book_id, 2, b"two")
+    store.save_cover(book_id, b"cover")
+    with engine.begin() as conn:
+        conn.execute(update(BookRow).where(BookRow.id == book_id).values(review_required=True))
+        conn.execute(
+            update(BookPageRow)
+            .where(BookPageRow.book_id == book_id, BookPageRow.page_number == 1)
+            .values(review=[{"passed": True}])
+        )
+    # Page 2 and the cover have pictures but no review: not finished.
+    assert store.saved_page_numbers(book_id) == {1}
+
+    with engine.begin() as conn:
+        conn.execute(
+            update(BookRow)
+            .where(BookRow.id == book_id)
+            .values(cover_review=[{"passed": True}])
+        )
+    assert store.saved_page_numbers(book_id) == {0, 1}
+    assert store.saved_page_numbers("no-such-book") == set()
 
 
 def test_delete_removes_everything(store: DatabaseBookStore, engine: Any) -> None:

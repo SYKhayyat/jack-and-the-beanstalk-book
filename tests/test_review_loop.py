@@ -14,6 +14,7 @@ import io
 import json
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -233,6 +234,10 @@ def artwork(plated: bool = False) -> Any:
     )
 
 
+#: The image pool every hand-built runner shares: one per test would leak threads.
+_IMAGE_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="test-image")
+
+
 def runner_with(reviewer: Any, attempts: int = MAX_PAGE_ATTEMPTS) -> BookRunner:
     """A runner carrying only what the loop touches, built without its stores."""
     runner = BookRunner.__new__(BookRunner)
@@ -242,6 +247,7 @@ def runner_with(reviewer: Any, attempts: int = MAX_PAGE_ATTEMPTS) -> BookRunner:
     runner._provider.name = "big-painter"
     runner._decision_judge = None
     runner._reviewer_rests_until = None
+    runner._image_pool = _IMAGE_POOL
     return runner
 
 
