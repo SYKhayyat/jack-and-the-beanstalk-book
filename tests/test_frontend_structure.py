@@ -177,36 +177,48 @@ def test_the_book_progress_tells_the_truth_while_pages_are_in_flight() -> None:
     """Run 2 said "the pencil is resting" while sixteen pages were being drawn.
 
     The caption counts from the pages in flight first, and says resting only
-    when there is no stage to report; each tile in flight says its try; the bar
-    takes partial credit for pages in flight (docs/plan-render-stall-and-resume.md).
+    when there is no stage to report; the bar takes partial credit for pages in
+    flight (docs/plan-render-stall-and-resume.md).
     """
     source = _strip_js_comments(_read("book-live.js"))
     assert "payload.page_stages" in source
     assert "payload.pictures_drawn" in source
     assert "stage ||" in source  # the stage sentence wins over resting
     assert "inFlight.length ? countStages(inFlight)" in source
-    assert "markTry(tile, working ? inFlight : null);" in source
     assert "shareDone(page)" in source
     css = _read("style.css")
-    assert ".map-try" in css
     assert ".progress-track.working .progress-fill" in css
 
 
-def test_a_page_drawn_once_carries_no_quality_control_note() -> None:
-    """B6/U1: the attempt record belongs to the operator, not to the child.
+def test_the_reader_never_says_how_many_tries_a_picture_took(book_html: str) -> None:
+    """B6/U1: a redraw is the quality loop's business, not the reader's.
 
-    A page drawn once says nothing at all; a page drawn again says "Redrawn
-    once" in a family's words. The check's own vocabulary ("Try 2 of 3",
-    "Best of 1 tries", "passed its check") never reaches the reader; the whole
-    record of every attempt stays on the operator's book page.
+    No chip beside the page number, no count on a page-map tile, no "Redrawn
+    once", and a page being redrawn reads exactly like a page being drawn: a
+    visitor judges the picture in front of them. The record of every attempt
+    stays on the operator's book page (GET /admin/books/{id}).
     """
     source = _strip_js_comments(_read("book-live.js"))
-    assert "function redrawnWords(" in source
-    assert 'if (redrawn < 1) return "";' in source
-    assert "`Redrawn ${times}`" in source
-    assert "mark?.remove()" in source  # a page drawn once keeps no count
-    for jargon in ("Best of", "Passed its check", "try ${tries} of", "every check"):
-        assert jargon not in source, f"the reader still says {jargon!r}"
+    for gone in (
+        "attempt-chip",
+        "map-attempts",
+        "map-try",
+        "redrawnWords",
+        "attemptsFrom",
+        "badgeAttempts",
+        "showAttempts",
+        "Redrawn",
+        "Best of",
+        "Passed its check",
+        "passed every check",
+        "${MAX_ATTEMPTS}",
+    ):
+        assert gone not in source, f"the reader still says {gone!r}"
+    # A redraw is drawn, not described: the in-flight words do not change.
+    assert 'return stage === "reviewing" ? "checking it over" : "drawing it";' in source
+    assert 'id="attempt-chip"' not in book_html
+    css = _read("style.css")
+    assert "attempt-chip" not in css and ".map-try" not in css and ".map-attempts" not in css
 
 
 def test_replacing_a_face_names_the_slot_it_is_for() -> None:

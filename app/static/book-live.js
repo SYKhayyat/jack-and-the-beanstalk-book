@@ -41,7 +41,6 @@ const layout = createReaderLayout(reader, slot);
 const turner = createPageTurner(slot, { reducedMotion });
 const sound = createPageSound();
 const voice = createReadAloud({ onPageRead: () => readOn() });
-const records = spreads.map((spread) => attemptsFrom(spread.dataset));
 
 let index = 0;
 let status = body.dataset.bookStatus;
@@ -53,7 +52,6 @@ let lastDrawn = -1;
 let quietPolls = 0;
 let shownFill = 0; // the bar's width only grows while a job runs
 
-spreads.forEach((spread, position) => badgeAttempts(position, records[position]));
 layout.fit();
 show(initialIndex(), { animate: false });
 wireTurning();
@@ -116,7 +114,6 @@ function show(wanted, { animate = true } = {}) {
   // The cover and the About page have their own buttons in the strip, so
   // "Redraw this page" only appears on a story page.
   document.getElementById("edit-page").hidden = index === 0 || index === lastIndex;
-  showAttempts(index);
   preloadAround(index);
   if (voice.reading) voice.readLeaf(spreads[index], bookTitle);
 }
@@ -387,13 +384,13 @@ function apply(payload) {
  */
 function stageCaption(payload, inFlight, done, total) {
   const counts = inFlight.length ? countStages(inFlight) : payload.stage_counts || {};
-  const drawing = Number(counts.painting) || 0;
+  // A page being redrawn is simply a page being drawn: the check and its
+  // retries are not something the reader is told about.
+  const drawing = (Number(counts.painting) || 0) + (Number(counts.retrying) || 0);
   const checking = Number(counts.reviewing) || 0;
-  const redrawing = Number(counts.retrying) || 0;
   const parts = [];
   if (drawing) parts.push(`${drawing} being drawn`);
   if (checking) parts.push(`${checking} being checked`);
-  if (redrawing) parts.push(`${redrawing} being drawn again after a check`);
   if (!parts.length) return "";
   const drawn = Number(payload.pictures_drawn) || 0;
   const tally = drawn
@@ -416,10 +413,10 @@ function shareDone({ stage, attempt }) {
   return Math.min(0.9, (tries - 1 + within) / MAX_ATTEMPTS);
 }
 
-function tryWords({ stage, attempt }) {
-  const again = (Number(attempt) || 1) > 1;
-  if (stage === "reviewing") return again ? "taking another look" : "checking it over";
-  return again ? "drawing it again" : "drawing it";
+/* What a page in flight is doing. A redraw is named the same as a first draw:
+   the number of tries is the quality loop's business, not the reader's. */
+function tryWords({ stage }) {
+  return stage === "reviewing" ? "checking it over" : "drawing it";
 }
 
 function paint(position, entry, inFlight) {
@@ -434,7 +431,6 @@ function paint(position, entry, inFlight) {
       "aria-label",
       `${spreadName(position).label}, ${working ? tryWords(inFlight) : state}`,
     );
-    markTry(tile, working ? inFlight : null);
     if (state === "done" && entry.url && !tile.querySelector("img")) {
       const thumb = document.createElement("img");
       thumb.src = entry.thumb || entry.url;
@@ -442,11 +438,6 @@ function paint(position, entry, inFlight) {
       thumb.decoding = "async";
       tile.prepend(thumb);
     }
-  }
-  if (state === "done") {
-    records[position] = attemptsFrom(entry);
-    badgeAttempts(position, records[position]);
-    if (position === index) showAttempts(index);
   }
   if (!spread) return;
   const art = spread.querySelector(".spread-art");
@@ -465,23 +456,6 @@ function paint(position, entry, inFlight) {
   if (state === "failed") text.textContent = "This one didn't make it.";
   else if (working) text.textContent = `${tryWords(inFlight)}…`;
   else text.textContent = status === "rendering" ? "waiting its turn…" : "being drawn…";
-}
-
-/* The try a page in flight is on, in the corner of its tile ("2/3"); gone once
-   the page is finished, when the attempt badge takes the corner over. */
-function markTry(tile, inFlight) {
-  let mark = tile.querySelector(".map-try");
-  if (!inFlight) {
-    mark?.remove();
-    return;
-  }
-  if (!mark) {
-    mark = document.createElement("span");
-    mark.className = "map-try";
-    tile.append(mark);
-  }
-  mark.textContent = `${Number(inFlight.attempt) || 1}/${MAX_ATTEMPTS}`;
-  mark.title = (Number(inFlight.attempt) || 1) > 1 ? "Being drawn again" : "Being drawn";
 }
 
 function sizedImage(entry, alt) {
@@ -520,71 +494,6 @@ function coverFigure(entry) {
   }
   figure.append(lockup);
   return figure;
-}
-
-/* --- the attempt record -------------------------------------------------------
-   A page drawn once is just the page, and says nothing: a picture that passed
-   first time needs no note. A page drawn again says so in a family's words
-   ("Redrawn once"), never the quality check's ("try 2 of 3", "best of 1 tries").
-   The full record of every attempt lives on the operator's book page, where the
-   technical vocabulary belongs. */
-
-function attemptsFrom(source) {
-  const attempts = Number(source.attempts) || 0;
-  return {
-    attempts,
-    chosen: Number(source.chosenAttempt ?? source.chosen_attempt) || attempts,
-    bestEffort: source.bestEffort === "true" || source.best_effort === true,
-  };
-}
-
-/* "" for a first-time page: there is nothing to explain. */
-function redrawnWords({ attempts, bestEffort }) {
-  const redrawn = (Number(attempts) || 0) - 1;
-  if (redrawn < 1) return "";
-  const times = redrawn === 1 ? "once" : redrawn === 2 ? "twice" : `${redrawn} times`;
-  return bestEffort ? `Redrawn ${times} — this is the best version` : `Redrawn ${times}`;
-}
-
-/* The tile in the page map carries the note for a page that was drawn again;
-   the bar under the book carries the current page's. Never on the page itself:
-   the page is the book, and the note is about how it was made. */
-function badgeAttempts(position, record) {
-  const words = redrawnWords(record);
-  const tile = mapTiles[position];
-  if (!tile) return;
-  let mark = tile.querySelector(".map-attempts");
-  if (!words) {
-    mark?.remove(); // a first-time page takes its old badge away on a redraw
-    return;
-  }
-  if (!mark) {
-    mark = document.createElement("span");
-    tile.append(mark);
-  }
-  mark.className = `map-attempts ${attemptTone(record)}`;
-  mark.textContent = `${record.attempts}×`;
-  mark.title = words;
-  tile.setAttribute("aria-label", `${spreadName(position).label}, ${words}`);
-}
-
-function attemptTone(record) {
-  return record.bestEffort ? "best" : record.attempts > 1 ? "retried" : "first";
-}
-
-function showAttempts(position) {
-  const chip = document.getElementById("attempt-chip");
-  const record = records[position];
-  const words = record ? redrawnWords(record) : "";
-  if (!words) {
-    chip.className = "attempt-chip hidden";
-    chip.textContent = "";
-    chip.removeAttribute("title");
-    return;
-  }
-  chip.className = `attempt-chip ${attemptTone(record)}`;
-  chip.textContent = words;
-  chip.title = words;
 }
 
 /* The bar counts pages finished, plus the share of each page in flight, so it

@@ -2163,26 +2163,6 @@ dialog.modal form {
 .tool-button[hidden] {
   display: none;
 }
-.attempt-chip {
-  padding: 1px 10px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  color: var(--ink-soft);
-}
-.attempt-chip.retried {
-  border-color: var(--marigold);
-  background: var(--marigold-soft);
-  color: var(--ink);
-}
-.attempt-chip.best {
-  border-color: var(--berry);
-  background: var(--bad-soft);
-  color: var(--berry-dark);
-}
-
 /* Story time: the book alone, filling the screen. */
 .reader.story-time {
   position: fixed;
@@ -2334,39 +2314,6 @@ body.in-story-time {
   font-weight: 600;
   color: var(--ink-soft);
   text-shadow: 0 0 3px var(--card), 0 0 3px var(--card);
-}
-.map-attempts {
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  padding: 0 4px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 16px;
-  background: var(--card);
-  color: var(--bean);
-}
-/* The try a page in flight is on ("2/3"), until the page is finished. */
-.map-try {
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  padding: 0 4px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 16px;
-  background: var(--marigold-soft);
-  color: var(--ink);
-}
-.map-attempts.retried {
-  color: var(--ink);
-  background: var(--marigold-soft);
-}
-.map-attempts.best {
-  color: var(--berry-dark);
-  background: var(--bad-soft);
 }
 .map-tile.done {
   border: 2px solid var(--bean);
