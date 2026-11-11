@@ -434,17 +434,30 @@ def draw_about_page(
 
     if sentences:
         available = closing_top - top - height * 0.02
-        lines, body_size, line_height = _fit_text(
+        # A continuation page has the same text column and leaves the same
+        # room for "The End"; only the picture and heading are first-page
+        # furniture (B11).
+        continuation_top = height * 0.08
+        continuation_height = closing_top - continuation_top - height * 0.02
+        pages, body_size, line_height = _fit_text_pages(
             "\n".join(sentences),
             _FAMILY,
             "",
             max(15.0, width * 0.028),
             max_width=usable * 0.92,
-            max_height=available,
+            first_height=available,
+            next_height=continuation_height,
         )
         pdf.set_font(_FAMILY, "", body_size)
         pdf.set_text_color(*_INK)
-        _centred_lines(pdf, lines, top, line_height)
+        page_top = top
+        for index, lines in enumerate(pages):
+            if index:
+                pdf.add_page()
+                pdf.set_fill_color(*PAPER_RGB)
+                pdf.rect(0, 0, width, height, style="F")
+                page_top = continuation_top
+            _centred_lines(pdf, lines, page_top, line_height)
 
     pdf.set_font(_FAMILY, "I", closing_size)
     pdf.set_text_color(*_GOLD)
@@ -515,34 +528,42 @@ def _text_width(family: str, style: str, size: float, text: str) -> float:
     return _wrap_probe(family, style, size).get_string_width(text)
 
 
-def _fit_text(
+def _fit_text_pages(
     text: str,
     family: str,
     style: str,
     size: float,
     *,
     max_width: float,
-    max_height: float,
-) -> tuple[list[str], float, float]:
-    """Wrap `text`, shrinking the font and finally truncating until it fits.
+    first_height: float,
+    next_height: float,
+) -> tuple[list[list[str]], float, float]:
+    """Wrap `text`, shrinking it to fit, then flow the rest onto more pages.
 
-    Used for the About page, whose details are free text of any length. Story
+    Used for the About page, whose details are free text of any length. A
+    single page keeps the old behaviour: the largest size that fits the room
+    under the picture is used. When even the smallest readable size cannot fit,
+    the text continues on another page rather than being cut with an ellipsis,
+    so the download carries every word the web reader showed (B11). Story
     pages never come through here: their margin grows instead.
     """
     current = size
     while current >= _MIN_STORY_FONT:
         lines = _wrap(text, family, style, current, max_width)
-        if len(lines) * current * _LINE_FACTOR <= max_height:
-            return lines, current, current * _LINE_FACTOR
+        line_height = current * _LINE_FACTOR
+        if len(lines) * line_height <= first_height:
+            return [lines], current, line_height
         current = current * 0.9
     current = _MIN_STORY_FONT
+    line_height = current * _LINE_FACTOR
     lines = _wrap(text, family, style, current, max_width)
-    max_lines = max(1, int(max_height // (current * _LINE_FACTOR)))
-    if len(lines) > max_lines:
-        lines = lines[:max_lines]
-        if lines:
-            lines[-1] = (lines[-1].rstrip() + "…").strip()
-    return lines, current, current * _LINE_FACTOR
+    first_capacity = max(1, int(first_height // line_height))
+    next_capacity = max(1, int(next_height // line_height))
+    pages = [lines[:first_capacity]]
+    rest = lines[first_capacity:]
+    for start in range(0, len(rest), next_capacity):
+        pages.append(rest[start : start + next_capacity])
+    return pages, current, line_height
 
 
 def _shaping_supported() -> bool:

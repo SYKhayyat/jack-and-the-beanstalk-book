@@ -216,6 +216,34 @@ class TestAssembly:
         assert "The End" in text
         assert " Do" in last.get_contents().get_data().decode("latin-1"), "portrait drawn"
 
+    def test_a_long_about_text_flows_onto_another_page_instead_of_being_cut(self) -> None:
+        """The download must carry every word the web reader showed (B11).
+
+        The form allows 1,000 characters of details. At the smallest readable
+        size they do not fit under the picture, so the About text continues on
+        a second page rather than ending in an ellipsis.
+        """
+        details = (
+            "Noa loves dinosaurs, tells long stories at bedtime, and knows "
+            "every dinosaur name. " * 20
+        )[:1000]
+        one_page = [PageArt(image=art_bytes(), page=BOOK_PAGES[0])]
+        data = build_book_pdf(
+            "Jack and the Beanstalk",
+            about(details=details),
+            one_page,
+            portrait=art_bytes(512, 512),
+        )
+        reader = PdfReader(io.BytesIO(data))
+
+        about_pages = [(page.extract_text() or "") for page in reader.pages[1:]]
+        assert len(about_pages) >= 2, "the text should have continued"
+        joined = " ".join(" ".join(page.split()) for page in about_pages)
+        assert "…" not in joined
+        assert "The End" in about_pages[-1]
+        # The last words typed are in the PDF, not dropped at the page break.
+        assert " ".join(details.split())[-80:] in joined
+
     def test_empty_pages_rejected(self) -> None:
         with pytest.raises(ValueError, match="at least one page"):
             build_book_pdf("Jack and the Beanstalk", about(), [])
