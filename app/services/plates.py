@@ -112,21 +112,21 @@ _STAGINGS: dict[str, tuple[_Spot, ...]] = {
     # seat, which is what makes him read as a giant.
     "door_and_chair": (
         ((0.85, 0.38, 0.07, 0.22), "left"),
-        ((0.17, 0.05, 0.36, 0.62), "toward"),
+        ((0.17, 0.05, 0.36, 0.62), "toward", "seated"),
     ),
     "beside_the_chair": (
         ((0.56, 0.47, 0.09, 0.21), "left"),
-        ((0.17, 0.05, 0.36, 0.62), "toward"),
+        ((0.17, 0.05, 0.36, 0.62), "toward", "seated"),
     ),
     # The hen sits high on the perch (plate 11) and the harp leans by the chair
     # (plate 12): the star stands on the floor in front of each, never lifted to them.
     "chair_and_perch": (
         ((0.64, 0.41, 0.08, 0.21), "right"),
-        ((0.17, 0.05, 0.36, 0.62), "toward"),
+        ((0.17, 0.05, 0.36, 0.62), "toward", "seated"),
     ),
     "harp_by_the_chair": (
         ((0.36, 0.47, 0.08, 0.21), "left"),
-        ((0.17, 0.05, 0.36, 0.62), "toward"),
+        ((0.17, 0.05, 0.36, 0.62), "toward", "seated"),
     ),
     # Awake and on his feet he is too tall for the frame: the slot touches the
     # top edge, so the prompt says the frame cuts him off above the legs.
