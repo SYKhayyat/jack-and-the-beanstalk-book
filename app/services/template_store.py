@@ -46,6 +46,7 @@ from app.db import (
     StoryRow,
     TemplatePlateRow,
     TemplatePortraitRow,
+    TemplatePremadeRow,
     TemplateVersionCharacterRow,
     TemplateVersionPlateRow,
     TemplateVersionRow,
@@ -66,6 +67,8 @@ __all__ = [
     "PlateSummary",
     "PortraitArt",
     "PortraitSummary",
+    "PremadeArt",
+    "PremadeSummary",
     "SeedReport",
     "Slot",
     "StoryState",
@@ -149,6 +152,31 @@ class PortraitArt:
     portrait_id: str
     image: bytes
     media_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class PremadeArt:
+    """A page's approved pre-made picture: the finished page, drawn once."""
+
+    page_number: int
+    premade_id: str
+    image: bytes
+    media_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class PremadeSummary:
+    """A pre-made picture's metadata, never its bytes."""
+
+    id: str
+    story_key: str
+    page_number: int
+    plate_id: str
+    status: str
+    media_type: str
+    created_at: datetime
+    approved_by: str | None
+    approved_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -721,6 +749,11 @@ class TemplateStore:
             ).scalar_one()
             if used:
                 raise TemplateInUse("this plate is part of a template version; retire it")
+            # A version pins a pre-made page only beside its own plate, so a plate
+            # no version names has pre-made pages no version names either.
+            conn.execute(
+                delete(TemplatePremadeRow).where(TemplatePremadeRow.plate_id == plate_id)
+            )
             conn.execute(delete(TemplatePlateRow).where(TemplatePlateRow.id == plate_id))
 
     def plate_image(self, plate_id: str) -> tuple[bytes, str]:
@@ -926,6 +959,184 @@ class TemplateStore:
             str(row.cast_key): PortraitArt(
                 cast_key=str(row.cast_key),
                 portrait_id=row.id,
+                image=row.image,
+                media_type=row.media_type,
+            )
+            for row in rows
+        }
+
+    # --- pre-made pages ----------------------------------------------------------
+
+    def add_premade(
+        self, story_key: str, page_number: int, *, image: bytes, media_type: str
+    ) -> str:
+        """Store a finished picture for a page without the star, as `draft`.
+
+        It is tied to the page's approved plate, the background it was painted
+        onto, so the page must have one. A page the star is in has no pre-made
+        picture: it is drawn from the visitor's photo in every book.
+        """
+        if not image:
+            raise TemplateError("a pre-made page needs an image")
+        premade_id = uuid.uuid4().hex
+        with self._engine.begin() as conn:
+            _require_story(conn, story_key)
+            if page_number not in PAGE_NUMBERS or page_number == COVER_PAGE:
+                raise TemplateError(f"page {page_number} cannot have a pre-made picture")
+            page = _latest_page(conn, story_key, page_number)
+            if page is None:
+                raise TemplateError(f"page {page_number} has no words yet")
+            if scene_shows_star(page.scene):
+                raise TemplateError(
+                    f"page {page_number} shows the star; it is drawn from the visitor's photo"
+                )
+            plate_id = _approved_plate_id(conn, story_key, page_number)
+            if plate_id is None:
+                raise TemplateError(f"page {page_number} has no approved plate to belong to")
+            conn.execute(
+                insert(TemplatePremadeRow).values(
+                    id=premade_id,
+                    story_key=story_key,
+                    page_number=page_number,
+                    plate_id=plate_id,
+                    image=image,
+                    media_type=media_type,
+                    status=PlateStatus.DRAFT,
+                    created_at=_now(),
+                )
+            )
+        return premade_id
+
+    def approve_premade(self, premade_id: str, *, operator: str) -> str | None:
+        """Approve a pre-made page; return the story's current version id afterwards.
+
+        It replaces the page's previously approved one. A picture whose plate is
+        no longer the page's approved plate cannot be approved.
+        """
+        if not operator:
+            raise TemplateError("approval needs an operator")
+        with self._engine.begin() as conn:
+            premade = _premade(conn, premade_id)
+            if premade.status == PlateStatus.APPROVED:
+                return _current_version_id(conn, premade.story_key)
+            if premade.status == PlateStatus.RETIRED:
+                raise PlateNotApprovable("a retired pre-made page cannot be approved")
+            if _approved_plate_id(conn, premade.story_key, premade.page_number) != (
+                premade.plate_id
+            ):
+                raise PlateNotApprovable(
+                    "the page has a different plate now; make the picture again from it"
+                )
+            conn.execute(
+                update(TemplatePremadeRow)
+                .where(
+                    TemplatePremadeRow.story_key == premade.story_key,
+                    TemplatePremadeRow.page_number == premade.page_number,
+                    TemplatePremadeRow.status == PlateStatus.APPROVED,
+                )
+                .values(status=PlateStatus.RETIRED)
+            )
+            conn.execute(
+                update(TemplatePremadeRow)
+                .where(TemplatePremadeRow.id == premade_id)
+                .values(status=PlateStatus.APPROVED, approved_by=operator, approved_at=_now())
+            )
+            logger.info(
+                "templates.premade_approved story=%s page=%d premade=%s",
+                premade.story_key,
+                premade.page_number,
+                premade_id,
+            )
+            return self._refresh_version(
+                conn, premade.story_key, f"pre-made page {premade.page_number} approved"
+            )
+
+    def retire_premade(self, premade_id: str) -> None:
+        """Take a pre-made page out of future versions. Versions already written keep it."""
+        with self._engine.begin() as conn:
+            premade = _premade(conn, premade_id)
+            conn.execute(
+                update(TemplatePremadeRow)
+                .where(TemplatePremadeRow.id == premade_id)
+                .values(status=PlateStatus.RETIRED)
+            )
+            self._refresh_version(
+                conn, premade.story_key, f"pre-made page {premade.page_number} retired"
+            )
+
+    def premades(self, story_key: str, page_number: int | None = None) -> list[PremadeSummary]:
+        """Every pre-made page of a story (or one page), newest first, never bytes."""
+        query = select(
+            TemplatePremadeRow.id,
+            TemplatePremadeRow.story_key,
+            TemplatePremadeRow.page_number,
+            TemplatePremadeRow.plate_id,
+            TemplatePremadeRow.status,
+            TemplatePremadeRow.media_type,
+            TemplatePremadeRow.created_at,
+            TemplatePremadeRow.approved_by,
+            TemplatePremadeRow.approved_at,
+        ).where(TemplatePremadeRow.story_key == story_key)
+        if page_number is not None:
+            query = query.where(TemplatePremadeRow.page_number == page_number)
+        with self._engine.connect() as conn:
+            rows = conn.execute(query.order_by(TemplatePremadeRow.created_at.desc())).all()
+        return [
+            PremadeSummary(
+                id=row.id,
+                story_key=row.story_key,
+                page_number=row.page_number,
+                plate_id=row.plate_id,
+                status=row.status,
+                media_type=row.media_type,
+                created_at=row.created_at,
+                approved_by=row.approved_by,
+                approved_at=row.approved_at,
+            )
+            for row in rows
+        ]
+
+    def premade_image(self, premade_id: str) -> tuple[bytes, str]:
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                select(TemplatePremadeRow.image, TemplatePremadeRow.media_type).where(
+                    TemplatePremadeRow.id == premade_id
+                )
+            ).one_or_none()
+        if row is None:
+            raise UnknownTemplate("no such pre-made page")
+        return row.image, row.media_type
+
+    def book_premades(self, book_id: str) -> dict[int, PremadeArt]:
+        """The pre-made pictures a book's pinned version offers, by page number.
+
+        Offered, not imposed: the runner uses one only when the visitor gave no
+        photo of anyone on the page. A book with no version has none.
+        """
+        with self._engine.connect() as conn:
+            version_id = conn.execute(
+                select(BookRow.template_version_id).where(BookRow.id == book_id)
+            ).scalar_one_or_none()
+            if not version_id:
+                return {}
+            rows = conn.execute(
+                select(
+                    TemplateVersionPlateRow.page_number,
+                    TemplatePremadeRow.id,
+                    TemplatePremadeRow.image,
+                    TemplatePremadeRow.media_type,
+                )
+                .select_from(TemplateVersionPlateRow)
+                .join(
+                    TemplatePremadeRow,
+                    TemplatePremadeRow.id == TemplateVersionPlateRow.premade_id,
+                )
+                .where(TemplateVersionPlateRow.template_version_id == version_id)
+            ).all()
+        return {
+            int(row.page_number): PremadeArt(
+                page_number=int(row.page_number),
+                premade_id=row.id,
                 image=row.image,
                 media_type=row.media_type,
             )
@@ -1159,7 +1370,7 @@ class TemplateStore:
         approved plate, or whose plate's slots no longer fit its cast.
         """
         star = _story_star(conn, story_key)
-        pages: list[tuple[int, int, str]] = []
+        pages: list[tuple[int, int, str, str]] = []
         cast_keys: set[str] = set()
         hashed: list[Any] = []
         for number in PAGE_NUMBERS:
@@ -1185,8 +1396,23 @@ class TemplateStore:
                 )
                 return _current_version_id(conn, story_key)
             cast_keys.update(cast)
-            pages.append((number, page.id, plate.id))
-            hashed.append([number, page.seed_hash or _hash(_page_content(page)), plate.id])
+            # Only a page without the star can be pre-made, and only from the plate
+            # it was painted onto.
+            premade_id = (
+                None
+                if scene_shows_star(page.scene)
+                else _approved_premade_id(conn, story_key, number, plate.id)
+            )
+            pages.append((number, page.id, plate.id, premade_id or ""))
+            # A page with no pre-made picture hashes exactly as before they existed.
+            hashed.append(
+                [
+                    number,
+                    page.seed_hash or _hash(_page_content(page)),
+                    plate.id,
+                    *([premade_id] if premade_id else []),
+                ]
+            )
 
         characters: list[tuple[str, int, str]] = []
         for cast_key in sorted(cast_keys):
@@ -1242,8 +1468,9 @@ class TemplateStore:
                     "page_number": page_number,
                     "story_page_id": page_id,
                     "plate_id": plate_id,
+                    "premade_id": premade_id or None,
                 }
-                for page_number, page_id, plate_id in pages
+                for page_number, page_id, plate_id, premade_id in pages
             ],
         )
         conn.execute(
@@ -1624,6 +1851,46 @@ def _portrait(conn: Connection, portrait_id: str) -> Any:
     return row
 
 
+def _approved_plate_id(conn: Connection, story_key: str, page_number: int) -> str | None:
+    value = conn.execute(
+        select(TemplatePlateRow.id).where(
+            TemplatePlateRow.story_key == story_key,
+            TemplatePlateRow.page_number == page_number,
+            TemplatePlateRow.status == PlateStatus.APPROVED,
+        )
+    ).scalar_one_or_none()
+    return str(value) if value is not None else None
+
+
+def _approved_premade_id(
+    conn: Connection, story_key: str, page_number: int, plate_id: str
+) -> str | None:
+    value = conn.execute(
+        select(TemplatePremadeRow.id).where(
+            TemplatePremadeRow.story_key == story_key,
+            TemplatePremadeRow.page_number == page_number,
+            TemplatePremadeRow.plate_id == plate_id,
+            TemplatePremadeRow.status == PlateStatus.APPROVED,
+        )
+    ).scalar_one_or_none()
+    return str(value) if value is not None else None
+
+
+def _premade(conn: Connection, premade_id: str) -> Any:
+    row = conn.execute(
+        select(
+            TemplatePremadeRow.id,
+            TemplatePremadeRow.story_key,
+            TemplatePremadeRow.page_number,
+            TemplatePremadeRow.plate_id,
+            TemplatePremadeRow.status,
+        ).where(TemplatePremadeRow.id == premade_id)
+    ).one_or_none()
+    if row is None:
+        raise UnknownTemplate("no such pre-made page")
+    return row
+
+
 def _require_supporting(conn: Connection, story_key: str, cast_key: str) -> None:
     """A fixed portrait is for a supporting character, never the star or a stranger."""
     _require_story(conn, story_key)
@@ -1641,12 +1908,13 @@ def _require_supporting(conn: Connection, story_key: str, cast_key: str) -> None
 
 def _composition(
     conn: Connection, version_id: str
-) -> tuple[list[tuple[int, int, str]], list[tuple[str, int, str]]]:
+) -> tuple[list[tuple[int, int, str, str]], list[tuple[str, int, str]]]:
     pages = conn.execute(
         select(
             TemplateVersionPlateRow.page_number,
             TemplateVersionPlateRow.story_page_id,
             TemplateVersionPlateRow.plate_id,
+            TemplateVersionPlateRow.premade_id,
         ).where(TemplateVersionPlateRow.template_version_id == version_id)
     ).all()
     characters = conn.execute(
@@ -1657,7 +1925,7 @@ def _composition(
         ).where(TemplateVersionCharacterRow.template_version_id == version_id)
     ).all()
     return (
-        sorted((int(n), int(p), str(i)) for n, p, i in pages),
+        sorted((int(n), int(p), str(i), str(premade or "")) for n, p, i, premade in pages),
         sorted((str(k), int(c), str(portrait or "")) for k, c, portrait in characters),
     )
 

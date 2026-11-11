@@ -33,7 +33,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from time import monotonic
@@ -81,7 +81,7 @@ from app.services.reviewer import (
     verdict_passes,
 )
 from app.services.storage import GenerationStore
-from app.services.template_store import PlateArt, TemplateStore
+from app.services.template_store import PlateArt, PremadeArt, TemplateStore
 from app.services.wallet import Wallet
 
 __all__ = ["MAX_PAGE_ATTEMPTS", "BookRunner", "CharacterReference"]
@@ -166,6 +166,12 @@ class _Artwork:
     # True when the photograph is missing and the portrait stands in for it,
     # which happens for books made before the photograph was stored.
     photo_is_portrait: bool = False
+    #: The pre-made pictures the book's version pins, by page number: pages the
+    #: star is not in, drawn once from their plate. Used only for a page whose
+    #: cast the visitor gave no photo of.
+    premades: Mapping[int, PremadeArt] = field(default_factory=dict)
+    #: The cast keys the visitor gave a photo of (fixed portraits are not these).
+    visitor_cast: frozenset[str] = frozenset()
 
 
 class BookRunner:
@@ -559,6 +565,9 @@ class BookRunner:
                 await paint()
 
             async def _render_page(page: BookPage) -> _Drawn:
+                premade = _premade_for(page, artwork, requested_fixes)
+                if premade is not None:
+                    return await _use_premade(page, premade)
                 page_photos = [name for name in page.cast if name in artwork.characters]
                 photo_only = frozenset(
                     ([""] if artwork.photo_is_portrait and page.star_in_picture else [])
@@ -655,6 +664,28 @@ class BookRunner:
                 return _Drawn(
                     page=render_book_page(page, artwork.settings, prompt_name=prompt_name),
                     size=len(attempts.image),
+                )
+
+            async def _use_premade(page: BookPage, premade: PremadeArt) -> _Drawn:
+                """Put the page's pre-made picture on it: no image call, no charge.
+
+                It was approved by an operator when it was made, so it is not
+                reviewed again; the verdict says so, and names the picture used.
+                """
+                await asyncio.to_thread(
+                    self._book_store.save_page, book_id, page.number, premade.image
+                )
+                await self._record(
+                    book_id,
+                    page.number,
+                    page.key or "",
+                    _premade_attempts(premade),
+                )
+                costs[page.number] = ("premade", 0, 0)
+                await mark(page.number, "done")
+                return _Drawn(
+                    page=render_book_page(page, artwork.settings, prompt_name=prompt_name),
+                    size=len(premade.image),
                 )
 
             async def run_page(page: BookPage) -> _Drawn:
@@ -1354,21 +1385,26 @@ class BookRunner:
             portrait=portrait,
             portrait_media_type=media_type_for(portrait),
             photo=photo,
+        visitor = dict(self._book_store.load_characters(record.book_id))
             photo_media_type=media_type_for(photo),
             photo_is_portrait=photo_is_portrait,
-            characters=self._characters(record.book_id),
+            characters=self._characters(record.book_id, visitor),
             plates=self._templates.book_plates(record.book_id),
         )
 
-    def _characters(self, book_id: str) -> dict[str, CharacterReference]:
+    def _characters(
+        self, book_id: str, visitor: Mapping[str, CharacterReference]
+    ) -> dict[str, CharacterReference]:
         """The visitor's supporting faces, with the fixed portrait where they gave none.
 
         A visitor's own photo always wins. A character with no photo gets the
+            premades=self._templates.book_premades(record.book_id),
+            visitor_cast=frozenset(visitor),
         approved portrait their book's version pins, drawn as a face of their
         own (portrait and photo are the same picture, so it is one reference).
         A version with no portrait for them leaves them out, as before.
         """
-        characters = dict(self._book_store.load_characters(book_id))
+        characters = dict(visitor)
         for cast_key, fixed in self._templates.book_portraits(book_id).items():
             if cast_key in characters:
                 continue
@@ -1565,3 +1601,46 @@ def _hand_slot_to_worker(slot: Slot, hop: asyncio.Task[object]) -> None:
     """Give the slot to work that outlives the awaited request."""
     slot.transfer()
     hop.add_done_callback(lambda _finished: slot.release())
+
+
+def _premade_for(
+    page: BookPage, artwork: _Artwork, requested_fixes: Mapping[int, Sequence[str]]
+) -> PremadeArt | None:
+    """The page's pre-made picture, when this book may use it.
+
+    Only for a page the star is not in, whose cast the visitor gave no photo of
+    (a visitor's grandmother is theirs, not the stock one), and which the owner
+    has not asked to be redrawn: a fix request is a request for a new picture.
+    """
+    premade = artwork.premades.get(page.number)
+    if premade is None or page.star_in_picture:
+        return None
+    if requested_fixes.get(page.number):
+        return None
+    if any(name in artwork.visitor_cast for name in page.cast):
+        return None
+    return premade
+
+
+def _premade_attempts(premade: PremadeArt) -> _Attempts:
+    """A pre-made page's record: one attempt, passed, with nothing sent."""
+    verdict: dict[str, Any] = {
+        "attempt": 1,
+        "tier": 0,
+        "tiers_run": [],
+        "passed": True,
+        "score": 100,
+        "faults": [],
+        "note": "pre-made page, approved by an operator when it was made",
+        "judged_by": "operator",
+        "provider": "premade",
+        "premade_id": premade.premade_id,
+    }
+    return _Attempts(
+        image=premade.image,
+        prompt="",
+        prompts=("",),
+        verdicts=(verdict,),
+        chosen=1,
+        best_effort=False,
+    )

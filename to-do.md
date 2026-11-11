@@ -75,11 +75,15 @@ $0.024 (≈2,150 reference-image tokens, ≈1,450 prompt tokens, 144 out).
       and failed on the plate's chair and small props, which no longer fail;
       the reviewer's face_obscured now spares a figure the caption crops
       (page 13 shows only the giant's legs), as the decision judge already did.
-- [ ] Pre-made pages for pages without the star (maybe the biggest lever):
+- [x] Pre-made pages for pages without the star:
       a page that only shows fixed characters is the same in every book, so
       make it once from its plate in Gemini (in Chrome, free) and reuse it.
-      Keep a set for each cast combination a visitor can supply (only the
-      child; the child and mother; and so on), so those pages cost nothing.
+      Done as `template_premade_pages`, pinned per template version and used
+      by the runner when the visitor gave no photo of anyone on the page (see
+      "Pre-made pages" in the README). Smaller lever than hoped: only Red's
+      pages 7–10 leave the star out, and Jack has none, so this saves at most
+      4 of 40 page renders. A "set per cast combination" does not apply,
+      because every other page has the child in it, drawn from their photo.
 
 ## The book — 20 pages, one template
 

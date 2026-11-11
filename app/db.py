@@ -420,6 +420,33 @@ class TemplatePortraitRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
+class TemplatePremadeRow(Base):
+    """A finished picture for a page the star is not in, made once from its plate.
+
+    Used instead of an image call when the visitor gave no photo of anyone on
+    the page, so the page is the same in every such book. It belongs to the
+    plate it was painted onto. Status moves draft -> approved -> retired, as
+    plates do; the image is never rewritten. A version pins the approved one.
+    """
+
+    __tablename__ = "template_premade_pages"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    story_key: Mapped[str] = mapped_column(
+        ForeignKey("stories.key", ondelete="RESTRICT"), index=True
+    )
+    page_number: Mapped[int] = mapped_column(Integer)
+    plate_id: Mapped[str] = mapped_column(
+        ForeignKey("template_plates.id", ondelete="RESTRICT"), index=True
+    )
+    image: Mapped[bytes] = mapped_column(BlobRef)
+    media_type: Mapped[str] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(16))
+    approved_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
 class TemplateVersionRow(Base):
     """The one thing a book pins: a complete, immutable set of plates, words and looks."""
 
@@ -452,6 +479,10 @@ class TemplateVersionPlateRow(Base):
     )
     story_page_id: Mapped[int] = mapped_column(
         ForeignKey("story_pages.id", ondelete="RESTRICT")
+    )
+    #: The pre-made picture this version uses for the page, or NULL to draw it.
+    premade_id: Mapped[str | None] = mapped_column(
+        ForeignKey("template_premade_pages.id", ondelete="RESTRICT"), nullable=True, index=True
     )
 
 

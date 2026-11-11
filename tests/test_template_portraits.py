@@ -115,7 +115,7 @@ def _characters_for(
     store: TemplateStore, book_id: str, visitor: dict[str, CharacterReference]
 ) -> dict[str, CharacterReference]:
     stub = SimpleNamespace(_book_store=_Books(visitor), _templates=store)
-    return BookRunner._characters(cast(Any, stub), book_id)
+    return BookRunner._characters(cast(Any, stub), book_id, visitor)
 
 
 # --- ordering -----------------------------------------------------------------------

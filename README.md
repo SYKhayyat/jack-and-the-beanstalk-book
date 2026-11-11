@@ -730,6 +730,39 @@ before anything is written:
   what writes a new template version;
 - an empty directory.
 
+### Pre-made pages: no image call at all
+
+A page the star is not in shows only fixed characters (in Little Red Riding
+Hood, pages 7–10: the wolf, and grandmother), so its picture is the same in
+every book whose visitor gave no photo of anyone on it. Such a page can have a
+**pre-made picture**: the finished page, painted once onto its approved plate in
+any image tool (a free web UI is fine), checked by eye, and imported.
+
+```bash
+# Files named by page number or page key: 7.jpg, the-cupboard.png …
+python -m app.scripts.import_premades --story little_red_riding_hood \
+    --dir ~/premade/red --approve
+```
+
+A template version pins the pre-made picture beside the page's plate, the same
+way it pins plates and portraits, so a book keeps the one it began on. The
+runner uses it, with **no image call, no charge and no review**, only when all
+of these hold:
+
+- the book's version pins one for that page;
+- the star is not in the picture;
+- the visitor gave no photo of anyone on the page. A visitor's own grandmother
+  is theirs, so that page is drawn as usual. A photo of someone who is only on
+  other pages does not matter;
+- the owner has not asked for that page to be redrawn.
+
+The page's record says `provider: premade`, `judged_by: operator`, and which
+picture it was. A picture belongs to the plate it was painted onto: approving a
+new plate for the page leaves it out of later versions, and a picture made from
+an old plate cannot be approved. The importer refuses a star page, a page with
+no approved plate, or an unreadable file, all before anything is written. An
+approved picture is replaced only with `--replace --approve`.
+
 ### What a book is drawn onto
 
 A book started on a template version renders **one edit call per page**: the
