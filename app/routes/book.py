@@ -665,17 +665,54 @@ def _require_funds(container: Container, user_id: str | None) -> None:
     deployment, and a deployment without a Stripe key, keep making free books.
     The check lives here, after the reuse lookup, so polling or re-submitting
     an already-started book is never refused for money.
+
+    The fee is taken when a book's PDF is written, not here, so the balance
+    alone is not enough: a book already being made has money promised to it.
+    Counting those books and setting their fees aside is what stops two tabs
+    that each see $0.99 from both starting and leaving the ledger a fee short
+    (B3). This runs under `_start_lock`, so two requests in this process cannot
+    both read the same count before either records its book.
     """
     if container.payments is None or not user_id:
         return
     balance = container.wallet.balance_cents(user_id)
     price = container.wallet.price_cents
-    if balance >= price:
+    open_books = _open_book_count(container, user_id)
+    set_aside = open_books * price
+    if balance - set_aside >= price:
         return
+    if set_aside:
+        noun = "book" if open_books == 1 else "books"
+        raise PaymentRequired(
+            f"One picture book costs {format_cents(price)} and your wallet has "
+            f"{format_cents(balance)}. {format_cents(set_aside)} of that is set "
+            f"aside for the {noun} you are already making — wait for it to "
+            f"finish, or add money with the + $5 button in the header."
+        )
     raise PaymentRequired(
         f"One picture book costs {format_cents(price)} and your wallet has "
         f"{format_cents(balance)}. Add money with the + $5 button in the header, "
         "or on your wallet page, then start the book again."
+    )
+
+
+#: How many of the owner's books are read to find the ones in flight. Their
+#: library is newest first and a book in flight is always among the newest, so
+#: this is far above the number anyone can fund at once ($0.99 each).
+_OPEN_BOOKS_LOOKUP = 100
+
+_OPEN_BOOK_STATES = frozenset({BookStatus.PENDING, BookStatus.RENDERING})
+
+
+def _open_book_count(container: Container, user_id: str) -> int:
+    """Books this account has started that have not finished or failed.
+
+    Their fee belongs to them even though the ledger has not been debited yet.
+    """
+    return sum(
+        1
+        for book in container.book_store.list_for_owner(user_id, limit=_OPEN_BOOKS_LOOKUP)
+        if book.status in _OPEN_BOOK_STATES
     )
 
 
