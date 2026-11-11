@@ -340,3 +340,20 @@ def test_a_staged_plate_prompt_uses_its_staging_sentence_not_the_thirds() -> Non
         prompt = plates.build_plate_prompt(story, page.scene, page_key=page.key)
         assert plates._common()["staging_space"][page.scene.staging] in prompt, page.key
         assert "left third of the frame and one in the right third" not in prompt, page.key
+
+
+def test_the_golden_eggs_page_seats_the_child_and_mother_at_the_table() -> None:
+    """The mother and child sit at the table, so both slots must be seated.
+
+    The caption also has the hen in her nest beside the eggs, not sitting on
+    them: the plate and the words must show the same thing.
+    """
+    from app.services import plates
+
+    story = next(seed for seed in SEEDS if seed.key == "jack_and_the_beanstalk")
+    page = next(page for page in story.pages if page.key == "the-golden-eggs")
+    assert page.scene.staging == "mother_and_child_at_the_table"
+    slots = plates.slots_for(plates.page_cast(story, page.scene), staging=page.scene.staging)
+    assert [slot.rest for slot in slots] == ["seated", "seated"]
+    assert "sits proudly on her golden eggs" not in page.scene.caption
+    assert "three gleaming golden eggs beside her" in page.scene.caption

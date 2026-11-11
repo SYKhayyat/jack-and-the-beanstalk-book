@@ -233,6 +233,11 @@ _STAGINGS: dict[str, tuple[_Spot, ...]] = {
         ((0.20, 0.42, 0.16, 0.40), "right", "seated"),
         ((0.62, 0.36, 0.18, 0.46), "left", "seated"),
     ),
+    # Jack and his mother at the worn oak table, the child on the left.
+    "mother_and_child_at_the_table": (
+        ((0.30, 0.42, 0.16, 0.40), "right", "seated"),
+        ((0.60, 0.36, 0.18, 0.46), "left", "seated"),
+    ),
     # Both walk into the picture, away from the viewer, towards the far gate.
     "home_at_dusk": (
         ((0.30, 0.48, 0.12, 0.36), "away"),
