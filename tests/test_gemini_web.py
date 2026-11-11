@@ -297,6 +297,13 @@ class TestTheReviewer:
         assert len(images) == 1
         assert "background plate" not in prompt
 
+    def test_describes_the_portraits_hair_in_one_clean_sentence(self) -> None:
+        client = FakeClient('"Short, curly\n brown hair"')
+        hair = GeminiWebReviewer(client).describe_hair(_png())  # type: ignore[arg-type]
+        assert hair == "Short, curly brown hair."
+        _, _, images = client.calls[0]
+        assert len(images) == 1
+
 
 class TestTheDecisionJudge:
     def _answer(self, names: Sequence[str], value: float = 0.1) -> str:

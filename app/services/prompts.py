@@ -50,8 +50,10 @@ __all__ = [
     "build_cartoon_prompt",
     "build_cast_portrait_prompt",
     "build_cover_prompt",
+    "build_fix_edit_prompt",
     "build_plate_edit_prompt",
     "render_book_page",
+    "star_hair",
 ]
 
 _DATA = prompt_text()
@@ -382,6 +384,7 @@ def build_book_page_prompt(
     character_photos: Iterable[str] = (),
     photo_only: frozenset[str] = frozenset(),
     correction: str = "",
+    hair_seen: str = "",
 ) -> str:
     """Prompt for one picture-book page.
 
@@ -512,6 +515,7 @@ def build_book_page_prompt(
             story, character_photos, photo_only, star_in_picture=page.star_in_picture
         ),
         "" if page.star_in_picture else task_book["star_absent"].format(name=subs["name"]),
+        star_hair(settings, subs["name"], hair_seen) if page.star_in_picture else "",
         task_book["full_frame"],
         *_scene_block(page.scene, page.emotion),
         correction,
@@ -541,6 +545,7 @@ def build_cover_prompt(
     story: StoryEdition,
     prompt_name: str,
     correction: str = "",
+    hair_seen: str = "",
 ) -> str:
     """Prompt for the book's one cover call.
 
@@ -571,6 +576,7 @@ def build_cover_prompt(
             intensity=_book_intensity_text(settings.cartoon_intensity)
         ),
         _common_character_block(settings, subs, _star_outfit(story, settings, name)),
+        star_hair(settings, name, hair_seen),
         *_cover_cast(story, cover.cast),
         # The places and props on the cover are the book's own.
         wording.page_world.format(**subs),
@@ -791,6 +797,7 @@ def build_plate_edit_prompt(
     supplied_characters: Iterable[str] = (),
     retry_faults: Sequence[str] = (),
     retry_findings: str = "",
+    hair_seen: str = "",
 ) -> str:
     """Prompt for one edit call: paint the cast into an approved plate, acting.
 
@@ -834,21 +841,114 @@ def build_plate_edit_prompt(
         retry_findings: The reviewer's own description of the previous attempt
             (what is wrong and where), quoted after the fault list. Empty when
             no reviewer looked, or on a redraw the owner asked for.
+        hair_seen: The child's hair as the reviewer saw it in the portrait,
+            for a visitor who kept the photo's hair (`star_hair`).
     """
+    edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
+    lines = [
+        edit["plate_task"],
+        *_edit_body(
+            page,
+            slots,
+            story=story,
+            settings=settings,
+            prompt_name=prompt_name,
+            supplied_characters=supplied_characters,
+            hair_seen=hair_seen,
+            preserve=edit["preserve"],
+            reference_images=edit["reference_images"],
+            cover=cover,
+        ),
+    ]
+    if retry_faults:
+        lines.append(edit["retry_intro"].format(faults=fault_phrases(retry_faults)))
+        lines.append(findings_line(retry_findings))
+    if cover:
+        lines.append(edit["cover_band"])
+    lines += [edit["no_text"], edit["negative"]]
+    return _join_sections(lines)
+
+
+def build_fix_edit_prompt(
+    page: BookPage,
+    slots: Sequence[Slot],
+    *,
+    story: StoryEdition,
+    settings: CartoonSettings,
+    prompt_name: str,
+    faults: Sequence[str],
+    findings: str = "",
+    cover: bool = False,
+    supplied_characters: Iterable[str] = (),
+    hair_seen: str = "",
+) -> str:
+    """Prompt for a fix: send a nearly-right page back with what is wrong with it.
+
+    The first reference image is the failed attempt itself, not the plate, so
+    the task is "change only this" rather than "paint the cast in": what was
+    right is kept instead of rolled again. The moment, the slots and the cast's
+    looks are the plate edit's own, so a missing character is put back where
+    the plate wants them and a wrong moment is corrected towards the page.
+
+    `faults` is never empty: a fix with nothing to fix is a redraw, and the
+    runner never asks for one. The plate's protection sentence is not sent —
+    image 1 is a finished page, and the task line already says to keep it.
+    """
+    if not faults:
+        raise ValueError("a fix needs at least one fault to fix")
+    edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
+    fix = cast("Mapping[str, str]", _DATA["book"]["fix"])
+    lines = [
+        fix["task"],
+        fix["wrong"].format(faults=fault_phrases(faults)),
+        findings_line(findings),
+        *_edit_body(
+            page,
+            slots,
+            story=story,
+            settings=settings,
+            prompt_name=prompt_name,
+            supplied_characters=supplied_characters,
+            hair_seen=hair_seen,
+            preserve="",
+            reference_images=fix["reference_images"],
+            cover=cover,
+        ),
+    ]
+    if cover:
+        lines.append(edit["cover_band"])
+    lines += [edit["no_text"], edit["negative"]]
+    return _join_sections(lines)
+
+
+def _edit_body(
+    page: BookPage,
+    slots: Sequence[Slot],
+    *,
+    story: StoryEdition,
+    settings: CartoonSettings,
+    prompt_name: str,
+    supplied_characters: Iterable[str],
+    hair_seen: str,
+    preserve: str,
+    reference_images: str,
+    cover: bool,
+) -> list[str]:
+    """What an edit and a fix both say: whose image is which, the moment, the cast."""
     edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
     assembly = cast("Mapping[str, str]", _BOOK["assembly"])
     subs = _substitutions(settings, prompt_name, picture=True)
     scene = page.formatted(subs).scene
     emotion = page.emotion.format(**subs) if page.emotion else ""
-    lines = [
-        edit["plate_task"],
+    return [
         _reference_line(
             edit_reference_cast(slots, page, star=story.star, supplied=supplied_characters),
             story,
             star=story.star,
             prompt_name=prompt_name,
+            template=reference_images,
         ),
-        edit["preserve"],
+        preserve,
         edit["moment"].format(caption=scene.caption),
         (
             edit["acting"].format(name=prompt_name, action=scene.subject_action)
@@ -866,16 +966,10 @@ def build_plate_edit_prompt(
             star_outfit=_star_outfit(story, settings, prompt_name),
             supplied=frozenset(supplied_characters),
         ),
+        star_hair(settings, prompt_name, hair_seen) if page.star_in_picture else "",
         edit["no_extras"],
         _avoid_clause(scene),
     ]
-    if retry_faults:
-        lines.append(edit["retry_intro"].format(faults=fault_phrases(retry_faults)))
-        lines.append(findings_line(retry_findings))
-    if cover:
-        lines.append(edit["cover_band"])
-    lines += [edit["no_text"], edit["negative"]]
-    return _join_sections(lines)
 
 
 def edit_reference_cast(
@@ -915,9 +1009,18 @@ def edit_reference_cast(
 
 
 def _reference_line(
-    keys: Sequence[str], story: StoryEdition, *, star: str, prompt_name: str
+    keys: Sequence[str],
+    story: StoryEdition,
+    *,
+    star: str,
+    prompt_name: str,
+    template: str,
 ) -> str:
-    """Name each reference image after the plate, or nothing if there are none."""
+    """Name each reference image after the first, or nothing if there are none.
+
+    `template` is the sentence the entries go into: image 1 is the plate on an
+    edit and the page being fixed on a fix.
+    """
     if not keys:
         return ""
     edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
@@ -926,7 +1029,35 @@ def _reference_line(
         member = story.cast.get(key)
         label = prompt_name if key == star else (member.label if member else key)
         entries.append(edit["reference_entry"].format(number=number, label=label))
-    return edit["reference_images"].format(entries="; ".join(entries))
+    return template.format(entries="; ".join(entries))
+
+
+def star_hair(settings: CartoonSettings, prompt_name: str, seen: str = "") -> str:
+    """The star's hair as one prompt line, or "" when there is nothing to say.
+
+    The visitor's hair picks win; where they kept the photo's hair, `seen` (the
+    reviewer's one sentence about the approved portrait) says what that hair
+    is. With neither — the photo's hair kept and no reviewer to look — the
+    portrait reference alone carries it, as it always did.
+    """
+    picked = [
+        description
+        for value, description in (
+            (settings.hair_style, _HAIR_STYLE_DESCRIPTIONS[settings.hair_style]),
+            (settings.hair_color, _HAIR_COLOUR_DESCRIPTIONS[settings.hair_color]),
+        )
+        if value not in (HairStyle.AS_UPLOADED, HairColour.AS_UPLOADED)
+    ]
+    seen = seen.strip()
+    if seen and len(picked) == 1:
+        # One pick, one kept from the photo: the pick governs, the portrait
+        # supplies the rest.
+        seen = f"Otherwise as in the portrait: {seen}"
+    said = " ".join([*picked, *([seen] if seen and len(picked) < 2 else [])])
+    if not said:
+        return ""
+    edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
+    return edit["star_hair"].format(name=prompt_name, hair=said)
 
 
 def _slot_block(slots: Sequence[Slot], story: StoryEdition, *, cover: bool) -> str:

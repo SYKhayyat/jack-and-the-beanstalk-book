@@ -33,7 +33,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from time import monotonic
@@ -41,7 +41,7 @@ from typing import Any, TypeVar, cast
 
 from app.errors import BookBusy
 from app.models.book import BookPage
-from app.models.settings import CartoonSettings
+from app.models.settings import CartoonSettings, HairColour, HairStyle
 from app.models.story import StoryEdition
 from app.prompt_data import prompt_text
 from app.services.book_document import COVER_KEY, COVER_NUMBER, BookDocument
@@ -63,9 +63,11 @@ from app.services.image_providers.base import (
 from app.services.image_review import review_image
 from app.services.media import media_type_for
 from app.services.pipeline import UnknownGeneration
+from app.services.plate_paste import paste_plate_back
 from app.services.prompts import (
     build_book_page_prompt,
     build_cover_prompt,
+    build_fix_edit_prompt,
     build_plate_edit_prompt,
     correction_for,
     edit_reference_cast,
@@ -84,7 +86,7 @@ from app.services.storage import GenerationStore
 from app.services.template_store import PlateArt, PremadeArt, TemplateStore
 from app.services.wallet import Wallet
 
-__all__ = ["MAX_PAGE_ATTEMPTS", "BookRunner", "CharacterReference"]
+__all__ = ["FIXABLE_FAULTS", "MAX_PAGE_ATTEMPTS", "BookRunner", "CharacterReference"]
 
 #: How many times one page may be drawn before the best attempt is kept (T9.3).
 #: Three, and no more: each attempt is a billable call, so the loop must converge
@@ -92,6 +94,31 @@ __all__ = ["MAX_PAGE_ATTEMPTS", "BookRunner", "CharacterReference"]
 #: that never passes keeps its best attempt and is marked `best_effort`, because
 #: a book with one imperfect picture is worth more than no book.
 MAX_PAGE_ATTEMPTS = 3
+
+#: Faults that live in one part of a picture, so the second attempt sends that
+#: picture back to be mended rather than drawing the page again from the plate:
+#: a redraw rolls every part of it again to fix one hand. Not here, so redrawn:
+#: a collage or a background redrawn into another place (the whole picture is
+#: wrong), and tier 1's mechanical faults (nothing worth keeping came back).
+FIXABLE_FAULTS = frozenset(
+    {
+        "wrong_moment",
+        "missing_character",
+        "extra_person",
+        "text_in_image",
+        "face_obscured",
+        "frightening",
+        "wrong_counts",
+        "deformed",
+        "likeness",
+        "other",
+    }
+)
+
+#: Which attempt may be a fix. Only the second: the third is always a clean
+#: redraw from the plate, so a fix that made things worse is not built on, and
+#: an edit is never made of an edit.
+_FIX_ATTEMPT = 2
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +199,11 @@ class _Artwork:
     premades: Mapping[int, PremadeArt] = field(default_factory=dict)
     #: The cast keys the visitor gave a photo of (fixed portraits are not these).
     visitor_cast: frozenset[str] = frozenset()
+    #: The reviewer's one sentence about the star's hair in the approved
+    #: portrait, for a visitor who kept the photo's hair: said on every page so
+    #: a hood or a cap does not get new hair under it. "" when not needed or
+    #: when there was no reviewer to ask.
+    hair_seen: str = ""
 
 
 class BookRunner:
@@ -459,6 +491,9 @@ class BookRunner:
         started = monotonic()
         try:
             artwork = await asyncio.to_thread(self._artwork, record)
+            artwork = replace(
+                artwork, hair_seen=await self._hair_seen(artwork, book_id=book_id, user=user)
+            )
             edition = await asyncio.to_thread(self._templates.book_edition, book_id)
             pages = list(edition.pages)
             total = len(pages)
@@ -579,13 +614,26 @@ class BookRunner:
                 )
                 plate = artwork.plates.get(page.number)
 
-                def prompt_for(faults: Sequence[str], findings: str) -> str:
+                def prompt_for(faults: Sequence[str], findings: str, fix: bool) -> str:
                     """The prompt for one attempt, aimed at what is known to be wrong.
 
                     `faults` is the owner's request (on a redraw) plus whatever
                     the review found in the previous attempt; `findings` is the
-                    reviewer's own description of that attempt.
+                    reviewer's own description of that attempt. `fix` asks for
+                    the mend of that attempt rather than a draw from the plate.
                     """
+                    if plate is not None and fix:
+                        return build_fix_edit_prompt(
+                            page,
+                            plate.slots,
+                            story=edition,
+                            settings=artwork.settings,
+                            prompt_name=prompt_name,
+                            faults=faults,
+                            findings=findings,
+                            supplied_characters=tuple(artwork.characters),
+                            hair_seen=artwork.hair_seen,
+                        )
                     if plate is not None:
                         # The edit pass (T8): the approved plate is the world and
                         # the first reference, the cast is painted into its slots.
@@ -598,6 +646,7 @@ class BookRunner:
                             supplied_characters=tuple(artwork.characters),
                             retry_faults=faults,
                             retry_findings=findings,
+                            hair_seen=artwork.hair_seen,
                         )
                     # No pinned plate: compose the page from scratch.
                     return build_book_page_prompt(
@@ -609,6 +658,7 @@ class BookRunner:
                         character_photos=page_photos,
                         photo_only=photo_only,
                         correction=correction_for(faults, findings),
+                        hair_seen=artwork.hair_seen,
                     )
 
                 if plate is not None:
@@ -618,7 +668,7 @@ class BookRunner:
                 else:
                     references, media_types = _references(artwork, page)
 
-                async def draw(prompt: str) -> GeneratedImage:
+                async def draw(prompt: str, base: GeneratedImage | None) -> GeneratedImage:
                     # Charged per attempt, which is what an attempt costs. The
                     # charge happens before the call, so a retry cannot slip past
                     # a balance that has run out.
@@ -627,9 +677,10 @@ class BookRunner:
                     async def on_slot() -> None:
                         await mark(page.number, "making")
 
+                    sent, sent_types = _with_base(references, media_types, base)
                     return await self._on_worker_thread_with_slot(
                         self._page_call(
-                            references, media_types, prompt, artwork.settings, "book-page"
+                            sent, sent_types, prompt, artwork.settings, "book-page"
                         ),
                         on_slot=on_slot,
                     )
@@ -646,6 +697,7 @@ class BookRunner:
                     artwork=artwork,
                     draw=draw,
                     prompt_for=prompt_for,
+                    paint_areas=page.paint_areas,
                     on_stage=lambda name, attempt: set_stage(name, page.number, attempt),
                     requested=tuple(requested_fixes.get(page.number, ())),
                 )
@@ -837,7 +889,20 @@ class BookRunner:
         async def on_stage(name: str, attempt: int) -> None:
             await set_stage(name, COVER_NUMBER, attempt)
 
-        def prompt_for(faults: Sequence[str], findings: str) -> str:
+        def prompt_for(faults: Sequence[str], findings: str, fix: bool) -> str:
+            if plate is not None and fix:
+                return build_fix_edit_prompt(
+                    edition.cover,
+                    plate.slots,
+                    story=edition,
+                    settings=artwork.settings,
+                    prompt_name=record.about.prompt_name,
+                    faults=faults,
+                    findings=findings,
+                    cover=True,
+                    supplied_characters=tuple(artwork.characters),
+                    hair_seen=artwork.hair_seen,
+                )
             if plate is not None:
                 return build_plate_edit_prompt(
                     edition.cover,
@@ -849,12 +914,14 @@ class BookRunner:
                     supplied_characters=tuple(artwork.characters),
                     retry_faults=faults,
                     retry_findings=findings,
+                    hair_seen=artwork.hair_seen,
                 )
             return build_cover_prompt(
                 artwork.settings,
                 story=edition,
                 prompt_name=record.about.prompt_name,
                 correction=correction_for(faults, findings),
+                hair_seen=artwork.hair_seen,
             )
 
         if plate is not None:
@@ -868,13 +935,12 @@ class BookRunner:
                 references.append(artwork.photo)
                 media_types.append(artwork.photo_media_type)
 
-        async def draw(prompt: str) -> GeneratedImage:
+        async def draw(prompt: str, base: GeneratedImage | None) -> GeneratedImage:
             await _await_page_charge(page_charge)
             await mark(COVER_NUMBER, "making")
+            sent, sent_types = _with_base(references, media_types, base)
             return await self._on_worker_thread_with_slot(
-                self._page_call(
-                    references, media_types, prompt, artwork.settings, "book-cover"
-                )
+                self._page_call(sent, sent_types, prompt, artwork.settings, "book-cover")
             )
 
         attempts = await self._draw_until_pass(
@@ -889,6 +955,7 @@ class BookRunner:
             artwork=artwork,
             draw=draw,
             prompt_for=prompt_for,
+            paint_areas=edition.cover.paint_areas,
             on_stage=on_stage,
         )
         await asyncio.to_thread(self._book_store.save_cover, record.book_id, attempts.image)
@@ -1129,8 +1196,9 @@ class BookRunner:
         star_in_picture: bool,
         plate: PlateArt | None,
         artwork: _Artwork,
-        draw: Callable[[str], Awaitable[GeneratedImage]],
-        prompt_for: Callable[[Sequence[str], str], str],
+        draw: Callable[[str, GeneratedImage | None], Awaitable[GeneratedImage]],
+        prompt_for: Callable[[Sequence[str], str, bool], str],
+        paint_areas: Sequence[tuple[float, float, float, float]] = (),
         on_stage: Callable[[str, int], Awaitable[None]] | None = None,
         requested: Sequence[str] = (),
     ) -> _Attempts:
@@ -1142,9 +1210,23 @@ class BookRunner:
         where, so the second attempt is aimed at what was wrong rather than
         being the same prompt with the dice rolled again.
 
+        On a plate page the second attempt mends the first when everything
+        wrong with it lives in part of the picture (`FIXABLE_FAULTS`): that
+        picture goes back with what is wrong, instead of the page being drawn
+        again. The third attempt is always a clean draw from the plate, so a
+        mend is never mended. After every plate draw the plate is pasted back
+        outside the cast's slots and the page's paint areas, so background drift
+        is undone for free instead of failing the page.
+
         Args:
-            draw: One billable attempt, given the prompt to send. The prompt is
-                built here, once, so the text recorded is exactly the text sent.
+            draw: One billable attempt, given the prompt to send and the picture
+                to mend (None to draw from the plate, or from scratch). The
+                prompt is built here, once, so the text recorded is exactly the
+                text sent.
+            prompt_for: The prompt for the faults and findings to aim at, and
+                whether it is a mend of the previous attempt.
+            paint_areas: Where the page's story puts something outside the
+                slots, kept from the drawing when the plate is pasted back.
             on_stage: Told "painting" or "reviewing" and which attempt it is, so
                 the reader's progress says what is happening (T12). Optional:
                 a caller with nowhere to report to passes nothing.
@@ -1164,11 +1246,28 @@ class BookRunner:
         best_image = b""
         best_prompt = ""
         chosen = 1
+        best_index = 0  # the chosen attempt's place in `verdicts` (a blocked one has none)
         asked = tuple(dict.fromkeys(requested))
         faults: tuple[str, ...] = asked
         findings = ""
+        # The previous attempt's picture, when it was drawn (not blocked): only
+        # that picture can be mended.
+        previous: GeneratedImage | None = None
         for attempt in range(1, self._page_attempts + 1):
-            prompt = prompt_for(faults, findings)
+            mend = (
+                previous
+                if (
+                    plate is not None
+                    and attempt == _FIX_ATTEMPT
+                    and previous is not None
+                    and faults
+                    and set(faults) <= FIXABLE_FAULTS
+                )
+                else None
+            )
+            kind = "fix" if mend is not None else "first" if attempt == 1 else "redraw"
+            prompt = prompt_for(faults, findings, mend is not None)
+            previous = None
             if on_stage is not None:
                 await on_stage(_STAGE_RETRYING if attempt > 1 else _STAGE_PAINTING, attempt)
             # Both billable calls of this attempt — the picture and its review —
@@ -1177,7 +1276,7 @@ class BookRunner:
                 purpose="book", book_id=book_id, page_number=page_number, attempt=attempt
             ):
                 try:
-                    drawn = await draw(prompt)
+                    drawn = await draw(prompt, mend)
                 except ProviderError as exc:
                     # The provider's safety system refused this picture. That is
                     # a verdict on one drawing, not on the book: keep the best
@@ -1197,6 +1296,23 @@ class BookRunner:
                             raise
                         break
                     continue
+                paste: dict[str, Any] = {}
+                if plate is not None:
+                    pasted = await asyncio.to_thread(
+                        paste_plate_back,
+                        drawn.data,
+                        plate.image,
+                        plate.slots,
+                        paint_areas,
+                        media_type=drawn.media_type,
+                    )
+                    drawn = replace(drawn, data=pasted.image, media_type=pasted.media_type)
+                    paste = {
+                        "pasted": pasted.pasted,
+                        "restored": round(pasted.restored, 3),
+                        "drift": round(pasted.drift, 1),
+                    }
+                previous = drawn
                 image = drawn.data
                 if on_stage is not None:
                     await on_stage(_STAGE_REVIEWING, attempt)
@@ -1221,6 +1337,9 @@ class BookRunner:
                     # answerable from the page itself.
                     "provider": self._provider.name,
                     "model": drawn.model,
+                    # A first draw, a mend of the previous attempt, or a redraw.
+                    "kind": kind,
+                    **({"plate_paste": paste} if paste else {}),
                     **({"requested": list(asked)} if asked else {}),
                 }
             )
@@ -1232,6 +1351,7 @@ class BookRunner:
             if best is None or rank > best[:2]:
                 best = (rank[0], rank[1], image)
                 best_image, best_prompt, chosen = image, prompt, attempt
+                best_index = len(verdicts) - 1
             if verdict.passed:
                 break
             faults = tuple(dict.fromkeys((*verdict.faults, *asked)))
@@ -1248,7 +1368,7 @@ class BookRunner:
                 book_id,
                 page_number,
                 len(verdicts),
-                ",".join(verdicts[chosen - 1].get("faults", [])) or "-",
+                ",".join(verdicts[best_index].get("faults", [])) or "-",
             )
         return _Attempts(
             image=best_image,
@@ -1400,6 +1520,43 @@ class BookRunner:
             visitor_cast=frozenset(visitor),
         )
 
+    async def _hair_seen(self, artwork: _Artwork, *, book_id: str, user: str) -> str:
+        """What the star's hair looks like in the portrait, when the prompt needs it.
+
+        Asked once per render, and only when the visitor kept the photo's hair
+        or colour: a picked hair is said from the pick, needing no look. Any
+        failure leaves the pages to the portrait reference alone, as before.
+        """
+        settings = artwork.settings
+        if (
+            settings.hair_style is not HairStyle.AS_UPLOADED
+            and settings.hair_color is not HairColour.AS_UPLOADED
+        ):
+            return ""
+        if self._reviewer.name == "off" or self.reviewer_resting_until is not None:
+            return ""
+        try:
+            with cost_scope(purpose="book", book_id=book_id):
+                return await asyncio.to_thread(self._reviewer.describe_hair, artwork.portrait)
+        except ReviewerQuotaSpent as exc:
+            self._reviewer_rests_until = exc.until
+            logger.warning(
+                "book.hair user=%s book=%s outcome=quota_spent resting_until=%s",
+                user,
+                book_id,
+                exc.until.isoformat(),
+            )
+        except Exception as exc:
+            # Down for the hair is down for the reviews too: rest it, as _judge does.
+            self._reviewer_rests_until = datetime.now(UTC) + _REVIEWER_COOLDOWN
+            logger.warning(
+                "book.hair user=%s book=%s outcome=unavailable error=%s",
+                user,
+                book_id,
+                f"{type(exc).__name__}: {exc}",
+            )
+        return ""
+
     def _characters(
         self, book_id: str, visitor: Mapping[str, CharacterReference]
     ) -> dict[str, CharacterReference]:
@@ -1537,6 +1694,19 @@ async def _await_page_charge(charge: Callable[[], bool] | None) -> None:
         return
     while not charge():
         await asyncio.sleep(_PAGE_CHARGE_RETRY_SECONDS)
+
+
+def _with_base(
+    references: Sequence[bytes], media_types: Sequence[str], base: GeneratedImage | None
+) -> tuple[list[bytes], list[str]]:
+    """The references for one draw: as built, or with a picture to mend first.
+
+    A fix sends the attempt being mended in place of the plate, as image 1,
+    and keeps the cast's portraits after it; the fix prompt names it so.
+    """
+    if base is None:
+        return list(references), list(media_types)
+    return [base.data, *references[1:]], [base.media_type, *media_types[1:]]
 
 
 def _plate_references(

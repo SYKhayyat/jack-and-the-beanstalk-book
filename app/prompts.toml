@@ -420,6 +420,13 @@ retry_intro = "ANOTHER TRY. The previous attempt had these problems: {faults}. F
 # reviewer's sentence, flattened to one line and capped.
 retry_findings = "The reviewer saw: \"{findings}\""
 
+# The star's hair, said outright on every page they are drawn on. A portrait
+# shows the hair once; a page with a hood, a cap or a nightcap came back with
+# different hair under it, and the reviewer failed it as likeness. {hair} is the
+# visitor's hair picks, or what the reviewer saw in the portrait when the visitor
+# kept the photo's hair.
+star_hair = "{name}'s hair: {hair} Under a hood, hat or cap, the hair that shows is this same hair, the same colour and texture."
+
 # How a reviewer's fault name is said back to the model on a retry. Keyed by the
 # fault names in app/services/reviewer.py; a name with no phrase falls back to
 # itself, so a new fault is clumsy here rather than invisible.
@@ -445,6 +452,17 @@ too_small = "the picture was far too small"
 undecodable = "the picture could not be opened"
 plate_unchanged = "nobody was painted into the scene"
 background_redrawn = "the background was redrawn instead of kept as it is in the plate"
+
+# The second try at a page whose first attempt was nearly right: that picture is
+# sent back with what was wrong, instead of drawing the page again from the plate.
+# A redraw rolls every part of the picture again and spends a whole attempt to fix
+# one hand; an edit of a nearly-right page keeps what was right. Used only for a
+# fault that lives in part of the picture (book_runner.FIXABLE_FAULTS), only once
+# per page, and never on an edit's own output.
+[book.fix]
+task = "TASK: FIX this picture-book page. Image 1 is the page as drawn, and it is nearly right. Change only what is wrong with it, listed below, and keep everything else exactly as it is: the background, every object, the framing, the light, the art style, and every character and part of a character that is already right."
+reference_images = "REFERENCE IMAGES, in order: image 1 is the page to fix; {entries}. Draw each character's face only from its own portrait."
+wrong = "WHAT IS WRONG: {faults}. Fix exactly this, in place, and nothing else."
 
 # ---------------------------------------------------------------------------
 # The empty plates (T5).
@@ -675,7 +693,7 @@ Report exactly one JSON object and nothing else, in this shape:
 - "wrong_moment": the picture is clearly a different moment: nobody is doing anything like the described action, or the characters are doing something else entirely. A different pose (standing rather than kneeling, the other hand raised), a missing small prop or a detail drawn differently is not this fault
 - "missing_character": someone the description says is in the picture is nowhere in it at all. Someone who is there but in another pose, doing something else, drawn small, in the background or partly hidden is present; that is at most "wrong_moment". A missing object is never this fault
 - "extra_person": someone plainly present whom neither the description nor the list above names
-- "text_in_image": readable lettering, a sign, caption, label, number, speech bubble or writing
+- "text_in_image": plainly readable words or numbers: a sign, caption, label or speech bubble a child could read. Marks, scribbles or a pattern that only looks like writing is not this fault
 - "face_obscured": a main character's face is hidden or cut off so the character is lost. A face the description itself turns away, or a figure the description says the frame cuts off (only the giant's legs show), is not this fault
 - "frightening": blood, a wound, a weapon being used or pointed at someone, an attack in progress, or a child shown in real terror. A tool lying about, or used for the job the description says (an axe chopping a tree), is not a weapon. The story's villain (a wolf, a giant) may look sly, cross or toothy in a friendly cartoon way; that alone is not frightening
 - "wrong_counts": a number the description states and the story depends on (five beans, three bears) is clearly wrong
@@ -707,6 +725,11 @@ web_plate = "second, the empty background plate"
 web_portrait = "last, the approved portrait of the book's child"
 
 page_title = "the picture book's page: "
+
+# Asked once per book, of the approved portrait, when the visitor kept the
+# photo's hair: the answer is written into every page prompt as the child's hair
+# (prompts.star_hair), so a hood or a nightcap does not get new hair under it.
+hair = "This is a cartoon portrait of a child. Describe only the child's hair, in one short sentence a painter can follow: its colour, length, texture (straight, wavy, curly or coiled) and style, for example \"Shoulder-length, wavy dark-brown hair with a side parting.\" No other words."
 # Who may appear on the page, said plainly after the description. {named} is the
 # cast's bible labels, the star as "the child". The reviewer and the decision
 # judge read the same sentence. A description can name someone in the
@@ -744,7 +767,7 @@ web_answer = "For each question below, give the probability from 0 to 1 that the
 shows_moment = "Does the picture recognisably show the described moment — roughly the right action and place — even if poses, small props or details differ from the description?"
 extra_person = "Is there plainly a person or character in the picture whom neither the description nor the list of who may appear names?"
 missing_character = "Is a person or animal the description names nowhere in the picture at all? Someone who is there but in another pose, doing something else, drawn small, in the background or partly hidden is present. A missing object is not a missing character."
-text_in_image = "Is there readable lettering, writing, a sign, label, number or speech bubble anywhere in the picture?"
+text_in_image = "Are there plainly readable words or numbers anywhere in the picture — a sign, caption, label or speech bubble a child could read? Marks, scribbles or a pattern that only looks like writing do not count."
 face_obscured = "Is a main character's face hidden or cut off so badly that the character is lost? A face the description itself turns away (seen from behind, a sleeping head bowed), or a figure the description says the frame cuts off, does not count."
 wrong_counts = "Does the picture clearly show a different number of something than the description states, where the number matters to the story (five beans, three towers)? Small props whose number the description does not state do not count."
 deformed = "Does any figure plainly have extra or missing limbs, extra fingers, fused hands, doubled feet, a body that reads as broken, a body or legs passing through a chair, table or other solid object, a figure squeezed under a table instead of beside it, or a figure floating with nothing under or holding it?"

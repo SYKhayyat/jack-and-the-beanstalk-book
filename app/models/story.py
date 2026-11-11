@@ -143,6 +143,10 @@ def page_from_content(number: int, content: Mapping[str, Any]) -> BookPage:
         cast=tuple(str(key) for key in content.get("cast_keys", ())),
         beat=str(content.get("beat", "")),
         star_in_picture=bool(scene.get("star_in_picture", True)),
+        paint_areas=tuple(
+            (float(x), float(y), float(w), float(h))
+            for x, y, w, h in scene.get("paint_areas", ())
+        ),
     )
 
 

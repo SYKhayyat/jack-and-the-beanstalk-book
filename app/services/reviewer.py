@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict
 from app.prompt_data import prompt_text
 from app.services.gemini_web.attachment import Attachment
 from app.services.image_providers.base import ProviderError
-from app.services.media import jpeg_data_url, judge_jpeg
+from app.services.media import jpeg_data_url, judge_jpeg, media_type_for
 
 if TYPE_CHECKING:
     from app.services.gemini_web.client import GeminiWeb
@@ -255,6 +255,19 @@ class ImageReviewer(Protocol):
         """
         ...
 
+    def describe_hair(self, portrait: bytes) -> str:
+        """The child's hair in the approved portrait, as one painter's sentence.
+
+        Asked once per book when the visitor kept the photo's hair, so every
+        page prompt can say what that hair is (a hood or a nightcap otherwise
+        comes back with new hair under it).
+
+        Raises:
+            ProviderError: the model was reached and failed. The caller draws
+                the book without the sentence.
+        """
+        ...
+
 
 class UnavailableReviewer:
     """The reviewer that is deliberately not there: local, test and mock mode.
@@ -277,6 +290,10 @@ class UnavailableReviewer:
         portrait: bytes | None = None,
     ) -> ReviewAnswer:
         del image, media_type, page_title, story_line, cast, plate, portrait  # unused
+        raise ReviewerUnavailable("no reviewer is configured")
+
+    def describe_hair(self, portrait: bytes) -> str:
+        del portrait  # unused
         raise ReviewerUnavailable("no reviewer is configured")
 
 
@@ -339,6 +356,18 @@ class GeminiReviewer:
         logger.info(
             "review.call model=%s page=%r image_bytes=%d", self._model, page_title, len(image)
         )
+        return parse_answer(self._generate(contents))
+
+    def describe_hair(self, portrait: bytes) -> str:
+        contents: list[Any] = [
+            self._types.Part.from_bytes(data=portrait, mime_type=media_type_for(portrait)),
+            self._types.Part.from_text(text=prompt_text()["review"]["hair"]),
+        ]
+        logger.info("review.hair model=%s image_bytes=%d", self._model, len(portrait))
+        return hair_sentence(self._generate(contents))
+
+    def _generate(self, contents: list[Any]) -> str:
+        """One call, re-asked only while the service is busy; the answer's text."""
         for attempt, pause in enumerate((*_TRANSIENT_BACKOFF_SECONDS, None), start=1):
             try:
                 response = self._client.models.generate_content(
@@ -361,8 +390,7 @@ class GeminiReviewer:
                     str(exc)[:120],
                 )
                 self._sleep(pause)
-        text = getattr(response, "text", None) or ""
-        return parse_answer(text)
+        return str(getattr(response, "text", None) or "")
 
 
 class _ReasoningKwargs(TypedDict, total=False):
@@ -446,14 +474,31 @@ class OpenAIReviewer:
             plate is not None,
             portrait is not None,
         )
+        return parse_answer(self._complete(content, json_answer=True))
+
+    def describe_hair(self, portrait: bytes) -> str:
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": prompt_text()["review"]["hair"]},
+            {"type": "image_url", "image_url": {"url": jpeg_data_url(portrait)}},
+        ]
+        logger.info("review.hair model=%s image_bytes=%d", self._model, len(portrait))
+        return hair_sentence(self._complete(content, json_answer=False))
+
+    def _complete(self, content: list[dict[str, Any]], *, json_answer: bool) -> str:
+        """One Chat Completions call with `content` as the user turn; its text."""
         messages: list[Any] = [{"role": "user", "content": content}]
         try:
-            response = self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                **self._reasoning_kwargs(),
-            )
+            if json_answer:
+                response = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    **self._reasoning_kwargs(),
+                )
+            else:
+                response = self._client.chat.completions.create(
+                    model=self._model, messages=messages, **self._reasoning_kwargs()
+                )
         except Exception as exc:  # the SDK raises a wide range of types
             if "insufficient_quota" in str(exc):
                 until = next_quota_reset(datetime.now(UTC))
@@ -461,7 +506,25 @@ class OpenAIReviewer:
                     "the reviewer's OpenAI quota is spent", until=until
                 ) from None
             raise ProviderError(f"the reviewer could not be reached: {exc}") from None
-        return parse_answer(response.choices[0].message.content or "")
+        return response.choices[0].message.content or ""
+
+
+#: The longest hair sentence passed on to the painter: one sentence is far less.
+_HAIR_LIMIT = 200
+
+
+def hair_sentence(text: str) -> str:
+    """A model's hair description as one prompt-safe sentence, or "".
+
+    Flattened to one line, stripped of quote marks and capped, so a rambling or
+    odd answer cannot grow every page prompt of the book.
+    """
+    flat = " ".join(text.replace('"', "").replace("`", "").split())
+    if len(flat) > _HAIR_LIMIT:
+        flat = flat[:_HAIR_LIMIT].rsplit(" ", 1)[0].rstrip(",;:")
+    if flat and flat[-1] not in ".!?":
+        flat += "."
+    return flat
 
 
 class GeminiWebReviewer:
@@ -515,6 +578,11 @@ class GeminiWebReviewer:
             portrait is not None,
         )
         return parse_answer(self._client.ask(text, images))
+
+    def describe_hair(self, portrait: bytes) -> str:
+        logger.info("review.hair model=gemini-web image_bytes=%d", len(portrait))
+        hair = prompt_text()["review"]["hair"]
+        return hair_sentence(self._client.ask(hair, [Attachment(judge_jpeg(portrait))]))
 
 
 def parse_answer(text: str) -> ReviewAnswer:

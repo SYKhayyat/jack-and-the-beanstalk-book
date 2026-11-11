@@ -102,16 +102,18 @@ class TestABookIsCostedCallByCall:
         by_category: dict[str, int] = {}
         for row in rows:
             by_category[row.category] = by_category.get(row.category, 0) + 1
-        # One portrait, one cover, the story pages, one redraw, and one review
-        # per picture drawn (the redraw included).
+        # One portrait, one cover, the story pages, one redraw, one review per
+        # picture drawn (the redraw included), and one look at the portrait's
+        # hair for the prompts (the visitor kept the photo's hair).
         assert by_category == {
             "portrait": 1,
             "cover": 1,
             "page": PLAN_COUNT - 1,
             "retry": 1,
-            "review": reviewer.calls,
+            "review": reviewer.calls + reviewer.hair_calls,
         }
         assert reviewer.calls == PLAN_COUNT + 1
+        assert reviewer.hair_calls == 1
         retry = next(row for row in rows if row.category == "retry")
         assert retry.attempt == 2 and retry.page_number is not None
 
@@ -119,7 +121,8 @@ class TestABookIsCostedCallByCall:
         client, book_id, _, reviewer = book
         ledger: CostLedger = client.app.state.container.costs  # type: ignore[attr-defined]
         images = 1 + PLAN_COUNT + 1  # portrait, every picture, the redraw
-        expected = round(images * IMAGE_USD * 1e6) + reviewer.calls * round(REVIEW_USD * 1e6)
+        reviews = reviewer.calls + reviewer.hair_calls
+        expected = round(images * IMAGE_USD * 1e6) + reviews * round(REVIEW_USD * 1e6)
         summary = ledger.summary()
         assert summary.books_measured == 1
         assert summary.average_book_microusd == expected

@@ -52,6 +52,10 @@ class BookPage:
             listed. Looks come from the bible by key; a page never restates one.
         star_in_picture: False for a page the star is not drawn on (the wolf
             reaches the cottage first); the picture is then `cast` alone.
+        paint_areas: What the story paints outside the characters' slots on a
+            plated page (coins on the table, beans in the air), as (x, y, w, h)
+            fractions of the picture. The plate is pasted back everywhere else
+            (`app/services/plate_paste.py`).
     """
 
     number: int
@@ -62,6 +66,7 @@ class BookPage:
     cast: tuple[str, ...] = ()
     beat: str = ""
     star_in_picture: bool = True
+    paint_areas: tuple[tuple[float, float, float, float], ...] = ()
 
     def formatted(self, substitutions: Mapping[str, str]) -> BookPage:
         """A copy with name/pronoun placeholders filled in for this child.

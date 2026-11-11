@@ -1529,6 +1529,9 @@ def _scene_json(scene: SeedScene) -> dict[str, Any]:
     if not scene.star_in_picture:
         # Written only when off, so a page that shows the star hashes as before.
         content["star_in_picture"] = False
+    if scene.paint_areas:
+        # Written only when declared, so a page without any hashes as before.
+        content["paint_areas"] = [list(area) for area in scene.paint_areas]
     return content
 
 

@@ -23,7 +23,7 @@ from unittest.mock import Mock
 import pytest
 from PIL import Image, ImageDraw
 
-from app.models.settings import CartoonSettings
+from app.models.settings import CartoonSettings, HairColour, HairStyle
 from app.prompt_data import prompt_text
 from app.services.book_runner import MAX_PAGE_ATTEMPTS, BookRunner
 from app.services.image_providers.base import (
@@ -78,7 +78,7 @@ class ABigPainter(ImageProvider):
         self.requests: list[ImageRequest] = []
         # Painted once: each attempt differs, and every one is a small change to
         # the same background, which is what the plate edit pass produces.
-        self._pictures = [a_plate_with_someone_in_it(shift) for shift in range(0, 7)]
+        self._pictures = [a_cast_across_the_frame(shift) for shift in range(0, 7)]
 
     def health_check(self) -> tuple[bool, str]:
         return True, "big painter"
@@ -132,6 +132,22 @@ def a_plate_with_someone_in_it(shift: int = 0) -> bytes:
     return _png(image)
 
 
+def a_cast_across_the_frame(shift: int = 0) -> bytes:
+    """A frame with small figures in a row across the middle, on the plate.
+
+    The painter of a whole book does not know where each page's slots are, and
+    the plate is pasted back outside them: one figure in a corner would be
+    erased on every page whose cast stands elsewhere, and the page would come
+    back as the untouched plate. Every page plan has a slot crossing the middle
+    of the frame, so some of this row is always kept.
+    """
+    image = Image.new("RGB", (1152, 864), PLATE_COLOUR)
+    draw = ImageDraw.Draw(image)
+    for left in range(30 + shift * 12, 1100, 115):
+        draw.ellipse((left, 440, left + 70, 540), fill=(60, 45, 35))
+    return _png(image)
+
+
 def plate(blob: bool = False) -> bytes:
     """A plate. With `blob`, something stands in it, so an edit can be close to it."""
     image = Image.open(io.BytesIO(grain((110, 90, 60), seed=9))).convert("RGB")
@@ -163,7 +179,12 @@ class ScriptedReviewer:
     answers: list[Any] = field(default_factory=list)
     default: Any = None
     calls: int = 0
+    hair_calls: int = 0
     portraits: list[bytes | None] = field(default_factory=list)
+
+    def describe_hair(self, portrait: bytes) -> str:
+        self.hair_calls += 1
+        return "Short curly brown hair."
 
     def review(self, image: bytes, **kwargs: Any) -> Any:
         self.calls += 1
@@ -233,8 +254,10 @@ def attempt_loop(runner: BookRunner, draws: list[bytes] | None = None, **overrid
 
         def __init__(self) -> None:
             self.calls = 0
+            self.bases: list[GeneratedImage | None] = []
 
-        async def __call__(self, _prompt: Any) -> GeneratedImage:
+        async def __call__(self, _prompt: Any, base: GeneratedImage | None) -> GeneratedImage:
+            self.bases.append(base)
             image = images[self.calls]
             self.calls += 1
             return GeneratedImage(data=image, media_type="image/png", model="painter-v2")
@@ -251,7 +274,7 @@ def attempt_loop(runner: BookRunner, draws: list[bytes] | None = None, **overrid
         "plate": None,
         "artwork": artwork(),
         "draw": draw,
-        "prompt_for": lambda _faults, _findings: "the prompt",
+        "prompt_for": lambda _faults, _findings, _fix: "the prompt",
     }
     arguments.update(overrides)
     result = asyncio.run(runner._draw_until_pass(**arguments))
@@ -285,7 +308,7 @@ class TestTheAttemptLoop:
             runner_with(reviewer),
             artwork=artwork(plated=True),
             # A real builder puts the faults into the retry's text.
-            prompt_for=lambda faults, _findings: f"prompt {faults}",
+            prompt_for=lambda faults, _findings, _fix: f"prompt {faults}",
         )
         assert draw.calls == 2
         assert reviewer.calls == 2
@@ -304,7 +327,7 @@ class TestTheAttemptLoop:
         attempt_loop(
             runner,
             artwork=artwork(plated=True),
-            prompt_for=lambda faults, _findings: asked.append(tuple(faults)) or "p",
+            prompt_for=lambda faults, _findings, _fix: asked.append(tuple(faults)) or "p",
         )
         assert asked[0] == ()  # nothing was wrong yet
         assert asked[1] == ("deformed",)
@@ -485,7 +508,9 @@ class TestTheAttemptLoop:
         seen: list[tuple[tuple[str, ...], str]] = []
         attempt_loop(
             runner_with(reviewer),
-            prompt_for=lambda faults, findings: seen.append((tuple(faults), findings)) or "p",
+            prompt_for=lambda faults, findings, _fix: (
+                seen.append((tuple(faults), findings)) or "p"
+            ),
         )
         assert seen == [((), ""), (("extra_person",), note)]
 
@@ -496,7 +521,7 @@ class TestTheAttemptLoop:
         attempt_loop(
             runner_with(ScriptedReviewer(answers=[said(True, 90)])),
             draws=[blank, grain(seed=3)],
-            prompt_for=lambda _faults, findings: seen.append(findings) or "p",
+            prompt_for=lambda _faults, findings, _fix: seen.append(findings) or "p",
         )
         assert seen == ["", ""]
 
@@ -510,7 +535,7 @@ class TestTheAttemptLoop:
         asked: list[tuple[str, ...]] = []
         result, _, _ = attempt_loop(
             runner_with(reviewer),
-            prompt_for=lambda faults, _findings: asked.append(tuple(faults)) or "p",
+            prompt_for=lambda faults, _findings, _fix: asked.append(tuple(faults)) or "p",
             requested=("likeness",),
         )
         assert asked == [("likeness",), ("deformed", "likeness")]
@@ -595,6 +620,130 @@ class TestTheAttemptLoop:
 
 
 # --- the reviewer ---------------------------------------------------------------
+
+
+def a_flat_plate() -> PlateArt:
+    """The plate `a_plate_with_someone_in_it` keeps: so a draw differs from it only
+    where the figure is, as a good edit does, and the figure stands in the slot."""
+    return PlateArt(
+        plate_id="flat",
+        image=_png(Image.new("RGB", (1152, 864), PLATE_COLOUR)),
+        media_type="image/png",
+        slots=(A_SLOT,),
+    )
+
+
+class TestMendingAPage:
+    """Attempt 2 sends a nearly-right picture back; attempt 3 starts clean."""
+
+    @staticmethod
+    def _run(answers: list[Any], *, plate: PlateArt | None = None) -> Any:
+        fixes: list[bool] = []
+        result, draw, _ = attempt_loop(
+            runner_with(ScriptedReviewer(answers=answers)),
+            plate=plate if plate is not None else a_flat_plate(),
+            prompt_for=lambda _faults, _findings, fix: fixes.append(fix) or f"p{len(fixes)}",
+        )
+        return result, draw, fixes
+
+    def test_a_fault_in_part_of_the_picture_is_mended_not_redrawn(self) -> None:
+        result, draw, fixes = self._run(
+            [said(False, 40, ("extra_person",), "a second boy at the right"), said(True, 90)]
+        )
+        assert fixes == [False, True]
+        assert draw.bases[0] is None
+        # The picture sent back is the first attempt as judged (plate pasted back).
+        assert draw.bases[1] is not None
+        assert draw.bases[1].media_type == "image/png"
+        assert [verdict["kind"] for verdict in result.verdicts] == ["first", "fix"]
+        assert result.chosen == 2
+
+    def test_the_third_attempt_is_a_clean_redraw_never_a_mend_of_a_mend(self) -> None:
+        result, draw, fixes = self._run(
+            [
+                said(False, 40, ("deformed",)),
+                said(False, 45, ("deformed",)),
+                said(False, 50, ("deformed",)),
+            ]
+        )
+        assert fixes == [False, True, False]
+        assert draw.bases[2] is None
+        assert [verdict["kind"] for verdict in result.verdicts] == ["first", "fix", "redraw"]
+
+    @pytest.mark.parametrize("fault", ["collage", "wrong_place"])
+    def test_a_picture_wrong_as_a_whole_is_redrawn(self, fault: str) -> None:
+        result, draw, fixes = self._run([said(False, 30, (fault,)), said(True, 90)])
+        assert fixes == [False, False]
+        assert draw.bases[1] is None
+        assert result.verdicts[1]["kind"] == "redraw"
+
+    def test_one_unmendable_fault_among_mendable_ones_redraws(self) -> None:
+        _, draw, fixes = self._run([said(False, 30, ("deformed", "collage")), said(True, 90)])
+        assert fixes == [False, False]
+        assert draw.bases[1] is None
+
+    def test_a_page_without_a_plate_is_never_mended(self) -> None:
+        fixes: list[bool] = []
+        _, draw, _ = attempt_loop(
+            runner_with(
+                ScriptedReviewer(answers=[said(False, 40, ("deformed",)), said(True, 90)])
+            ),
+            prompt_for=lambda _faults, _findings, fix: fixes.append(fix) or "p",
+        )
+        assert fixes == [False, False]
+        assert draw.bases == [None, None]
+
+    def test_every_plate_draw_records_the_paste(self) -> None:
+        result, _, _ = self._run([said(True, 90)])
+        paste = result.verdicts[0]["plate_paste"]
+        assert set(paste) == {"pasted", "restored", "drift"}
+        assert paste["pasted"] is True
+
+    def test_drift_outside_the_slot_is_gone_before_the_review(self) -> None:
+        """A stray mark far from every slot never reaches the reviewer's eyes."""
+        drifted = Image.open(io.BytesIO(a_plate_with_someone_in_it())).convert("RGB")
+        ImageDraw.Draw(drifted).rectangle((900, 60, 1000, 160), fill=(250, 250, 0))
+        result, _, _ = attempt_loop(
+            runner_with(ScriptedReviewer(answers=[said(True, 90)])),
+            draws=[_png(drifted)],
+            plate=a_flat_plate(),
+        )
+        kept = Image.open(io.BytesIO(result.image)).convert("RGB")
+        assert kept.getpixel((950, 110)) == PLATE_COLOUR
+        assert kept.getpixel((150, 600)) == (60, 45, 35)
+
+
+class TestLookingAtTheHair:
+    """The portrait's hair is described once, and only when nobody picked it."""
+
+    @staticmethod
+    def _seen(reviewer: Any, settings: CartoonSettings) -> tuple[str, BookRunner]:
+        runner = runner_with(reviewer)
+        art = Mock(settings=settings, portrait=b"portrait")
+        seen = asyncio.run(runner._hair_seen(art, book_id="b", user="u"))
+        return seen, runner
+
+    def test_picked_hair_needs_no_look(self) -> None:
+        reviewer = ScriptedReviewer(answers=[])
+        settings = CartoonSettings(hair_style=HairStyle.SHORT, hair_color=HairColour.BROWN)
+        assert self._seen(reviewer, settings)[0] == ""
+        assert reviewer.hair_calls == 0
+
+    def test_the_photos_hair_is_looked_at_once(self) -> None:
+        reviewer = ScriptedReviewer(answers=[])
+        assert self._seen(reviewer, CartoonSettings())[0] == "Short curly brown hair."
+        assert reviewer.hair_calls == 1
+
+    def test_a_reviewer_that_is_down_says_nothing_and_rests(self) -> None:
+        class Down:
+            name = "down"
+
+            def describe_hair(self, _portrait: bytes) -> str:
+                raise RuntimeError("no route")
+
+        seen, runner = self._seen(Down(), CartoonSettings())
+        assert seen == ""
+        assert runner.reviewer_resting_until is not None
 
 
 class TestTheReviewer:
@@ -872,6 +1021,9 @@ class TestTheLoopEndToEnd:
             name = "down"
 
             def review(self, *_: Any, **__: Any) -> Any:
+                raise RuntimeError("the reviewer is down")
+
+            def describe_hair(self, portrait: bytes) -> str:
                 raise RuntimeError("the reviewer is down")
 
         payload = self._a_book(settings, tmp_path, ABigPainter(), AlwaysDown())

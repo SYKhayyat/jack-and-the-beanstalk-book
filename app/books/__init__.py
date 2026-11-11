@@ -99,6 +99,10 @@ class SeedScene:
     #: False for a page the star is not in (the wolf reaches the cottage
     #: first): the picture is drawn from `cast` alone.
     star_in_picture: bool = True
+    #: What the story paints outside the characters' slots on a plated page
+    #: (coins on the table, beans in the air), as (x, y, w, h) fractions of the
+    #: picture. Everywhere else outside the slots the plate is pasted back.
+    paint_areas: tuple[tuple[float, float, float, float], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,7 +378,32 @@ def _scene(spec: Mapping[str, Any], where: str, name: str) -> SeedScene:
         compose=_compose(spec, where, name),
         staging=_optional_text(spec, "staging", f"{where} {name!r}"),
         star_in_picture=_star_in_picture(spec, where, name, tuple(cast_value)),
+        paint_areas=_paint_areas(spec, where, name),
     )
+
+
+def _paint_areas(
+    spec: Mapping[str, Any], where: str, name: str
+) -> tuple[tuple[float, float, float, float], ...]:
+    value = spec.get("paint_areas", [])
+    message = (
+        f"{where} {name!r}: paint_areas must be a list of [x, y, width, height] fractions"
+    )
+    if not isinstance(value, list):
+        raise SeedError(message)
+    areas: list[tuple[float, float, float, float]] = []
+    for area in value:
+        if (
+            not isinstance(area, list)
+            or len(area) != 4
+            or not all(isinstance(n, int | float) and not isinstance(n, bool) for n in area)
+        ):
+            raise SeedError(message)
+        x, y, w, h = (float(n) for n in area)
+        if not (0 <= x < 1 and 0 <= y < 1 and 0 < w <= 1 - x + 1e-9 and 0 < h <= 1 - y + 1e-9):
+            raise SeedError(f"{message}, inside the picture")
+        areas.append((x, y, w, h))
+    return tuple(areas)
 
 
 def _star_in_picture(

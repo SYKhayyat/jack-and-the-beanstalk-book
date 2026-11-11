@@ -521,15 +521,28 @@ class MeteredReviewer:
             ok = True
             return answer
         finally:
-            self._ledger.record(
-                kind="review",
-                provider="reviewer",
-                model=self._price.model,
-                images=0,
-                ok=ok,
-                cost_microusd=_micros(self._price.usd),
-                duration_ms=round((time.monotonic() - started) * 1000),
-            )
+            self._log(ok=ok, started=started)
+
+    def describe_hair(self, portrait: bytes) -> str:
+        started = time.monotonic()
+        ok = False
+        try:
+            hair = self._inner.describe_hair(portrait)
+            ok = True
+            return hair
+        finally:
+            self._log(ok=ok, started=started)
+
+    def _log(self, *, ok: bool, started: float) -> None:
+        self._ledger.record(
+            kind="review",
+            provider="reviewer",
+            model=self._price.model,
+            images=0,
+            ok=ok,
+            cost_microusd=_micros(self._price.usd),
+            duration_ms=round((time.monotonic() - started) * 1000),
+        )
 
 
 class MeteredDecisionJudge:
