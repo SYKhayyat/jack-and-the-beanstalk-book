@@ -673,10 +673,10 @@ Report exactly one JSON object and nothing else, in this shape:
 
 "score" is 0-100: how recognisably the picture shows the moment. "faults" is a list drawn only from these names, and is empty when nothing is grossly wrong:
 - "wrong_moment": the picture is clearly a different moment: nobody is doing anything like the described action, or the characters are doing something else entirely. A different pose (standing rather than kneeling, the other hand raised), a missing small prop or a detail drawn differently is not this fault
-- "missing_character": someone the description says is in the picture is plainly not there
+- "missing_character": someone the description says is in the picture is nowhere in it at all. Someone who is there but in another pose, doing something else, drawn small, in the background or partly hidden is present; that is at most "wrong_moment". A missing object is never this fault
 - "extra_person": someone plainly present whom neither the description nor the list above names
 - "text_in_image": readable lettering, a sign, caption, label, number, speech bubble or writing
-- "face_obscured": a main character's face is hidden or cut off so the character is lost
+- "face_obscured": a main character's face is hidden or cut off so the character is lost. A face the description itself turns away, or a figure the description says the frame cuts off (only the giant's legs show), is not this fault
 - "frightening": blood, a wound, a weapon being used or pointed at someone, an attack in progress, or a child shown in real terror. A tool lying about, or used for the job the description says (an axe chopping a tree), is not a weapon. The story's villain (a wolf, a giant) may look sly, cross or toothy in a friendly cartoon way; that alone is not frightening
 - "wrong_counts": a number the description states and the story depends on (five beans, three bears) is clearly wrong
 - "deformed": extra or missing limbs, extra fingers, fused hands, doubled feet, a body that reads as broken, legs or a body passing through a chair, table or other solid object, a figure wedged under a table instead of beside it, or a figure floating in the air with nothing holding it
@@ -730,7 +730,7 @@ likeness_intro = "The second image is the approved portrait of the book's child;
 # reviewer (see [review]): a decision model takes the question literally.
 shows_moment = "Does the picture recognisably show the described moment — roughly the right action and place — even if poses, small props or details differ from the description?"
 extra_person = "Is there plainly a person or character in the picture whom neither the description nor the list of who may appear names?"
-missing_character = "Is someone the description says is in the picture plainly absent from it? A character drawn small, in the background, or partly hidden is present."
+missing_character = "Is a person or animal the description names nowhere in the picture at all? Someone who is there but in another pose, doing something else, drawn small, in the background or partly hidden is present. A missing object is not a missing character."
 text_in_image = "Is there readable lettering, writing, a sign, label, number or speech bubble anywhere in the picture?"
 face_obscured = "Is a main character's face hidden or cut off so badly that the character is lost? A face the description itself turns away (seen from behind, a sleeping head bowed), or a figure the description says the frame cuts off, does not count."
 wrong_counts = "Does the picture clearly show a different number of something than the description states, where the number matters to the story (five beans, three towers)? Small props whose number the description does not state do not count."

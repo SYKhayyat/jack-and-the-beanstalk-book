@@ -494,7 +494,19 @@ class BookRunner:
                 if phase != _PHASE_PAGES:
                     # Nothing is being drawn any more: assembling the PDF is the
                     # whole story, and no page may still be named.
-                    return {"stage": phase, "stage_page": None, "stage_attempt": 1}
+                    return {
+                        "stage": phase,
+                        "stage_page": None,
+                        "stage_attempt": 1,
+                        "stage_counts": {},
+                    }
+                # How many pages are in each stage right now. Pages run in
+                # parallel, so one named page undersells the work: "4 being
+                # drawn, 3 being checked" is what is actually happening.
+                counts: dict[str, int] = {}
+                for number, name in stages.items():
+                    if progress.get(number) != "done":
+                        counts[name] = counts.get(name, 0) + 1
                 # Reviewing is more worth reporting than painting: it is the
                 # stage a reader has never seen before, and the one that
                 # explains a pause after a picture appears.
@@ -508,8 +520,14 @@ class BookRunner:
                             "stage": wanted,
                             "stage_page": number,
                             "stage_attempt": attempts_by_page.get(number, 1),
+                            "stage_counts": counts,
                         }
-                return {"stage": _STAGE_PAINTING, "stage_page": None, "stage_attempt": 1}
+                return {
+                    "stage": _STAGE_PAINTING,
+                    "stage_page": None,
+                    "stage_attempt": 1,
+                    "stage_counts": counts,
+                }
 
             async def paint() -> None:
                 async with status_lock:

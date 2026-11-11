@@ -692,6 +692,12 @@ class TestTheStageIsNamed:
                 # reader is told about work that is already over.
                 assert page in unfinished, (stage, page, sorted(unfinished))
                 consistent = page in unfinished
+                # The counts tell the reader how many pages are at each stage;
+                # they can only ever cover pages that are not finished.
+                counts = payload["stage_counts"]
+                assert set(counts) <= {"painting", "reviewing", "retrying"}, counts
+                assert 0 < sum(counts.values()) <= len(unfinished), (counts, unfinished)
+                assert counts.get(stage, 0) >= 1, (stage, counts)
                 if stage == "painting":
                     break
                 time.sleep(0.02)

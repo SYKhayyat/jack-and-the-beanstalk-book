@@ -334,7 +334,7 @@ function apply(payload) {
     return;
   }
   if (payload.phase === "assembling") {
-    caption("All the pictures are drawn — putting the book together…");
+    caption("Step 3 of 3 · Putting the book together — every picture is drawn.");
   } else {
     quietPolls = done > lastDone ? 0 : quietPolls + 1;
     lastDone = Math.max(lastDone, done);
@@ -353,25 +353,26 @@ function apply(payload) {
 
 /**
  * What the job is doing right now, as a sentence, or "" when there is nothing
- * specific to say. `stage` and `stage_page` come from the server's status
- * payload: a page being drawn, drawn and being looked at, or being redrawn
- * because a check found something wrong.
+ * specific to say. The pages are drawn in parallel, so the caption names the
+ * step the whole book is on and how many pages are at each stage of it
+ * (`stage_counts` from the server's status payload), rather than one page that
+ * may already be finished by the time it is read.
  */
 function stageCaption(payload, done, total) {
+  const counts = payload.stage_counts || {};
+  const drawing = Number(counts.painting) || 0;
+  const checking = Number(counts.reviewing) || 0;
+  const redrawing = Number(counts.retrying) || 0;
   const page = Number(payload.stage_page);
-  const where = Number.isFinite(page) && page > 0 ? `page ${page}` : "the cover";
-  switch (payload.stage) {
-    case "painting":
-      return `Drawing ${where} — ${done} of ${total} pictures finished.`;
-    case "reviewing":
-      return `Checking ${where} — the picture is drawn and being looked at for stray words, extra people and anything frightening.`;
-    case "retrying": {
-      const attempt = Number(payload.stage_attempt) || 2;
-      return `Drawing ${where} again (try ${attempt}) — the first one did not pass its check.`;
-    }
-    default:
-      return "";
+  if (done === 0 && !(page > 0) && payload.stage) {
+    return "Step 1 of 3 · Drawing the cover — the pages start as soon as it is checked.";
   }
+  const parts = [];
+  if (drawing) parts.push(`${drawing} being drawn`);
+  if (checking) parts.push(`${checking} being checked`);
+  if (redrawing) parts.push(`${redrawing} being drawn again after a check`);
+  if (!parts.length) return "";
+  return `Step 2 of 3 · Drawing the pages — ${done} of ${total} finished. Right now: ${parts.join(", ")}.`;
 }
 
 function paint(position, entry) {

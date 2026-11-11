@@ -25,9 +25,10 @@ pass below.
 - [x] Transaction history: every credit and debit, and what caused it.
 - [x] Cost tracking: every image call, redraw, quality check and portrait is
       logged with its provider, model and price in `api_calls`
-      (`app/services/costs.py`). `/wallet` shows the average API spend per
-      finished book next to the $0.99, the per-category breakdown, and on each
-      book charge what that book cost to make. Agnes is $0, OpenAI is priced
+      (`app/services/costs.py`). The operator's status page shows the
+      average API spend per finished book next to the $0.99 and the
+      per-category breakdown. Not on `/wallet`: that page is the customer's,
+      and what a book costs to make is the operator's business. Agnes is $0, OpenAI is priced
       from its published per-image table; `IMAGE_CALL_COST_USD` /
       `REVIEW_CALL_COST_USD` cover anything else.
 - [ ] Set `REVIEW_CALL_COST_USD=0.0011` on Render (the blueprint declares it)
@@ -67,6 +68,13 @@ $0.024 (≈2,150 reference-image tokens, ≈1,450 prompt tokens, 144 out).
       book's 20 pictures, and that every redraw costs money, so they save a
       fail for what is grossly wrong. Deliberately untrue: nothing counts the
       vetoes, and a failed page is still redrawn.
+- [x] Jack pages 8, 11 and 13 failed every attempt. Book 735d (v1): the
+      judges called a standing giant or a missing harp "missing_character";
+      both now say a missing object, another pose or a partly hidden figure
+      is not a missing character. Book ac49 (v30) ran before the fixes above
+      and failed on the plate's chair and small props, which no longer fail;
+      the reviewer's face_obscured now spares a figure the caption crops
+      (page 13 shows only the giant's legs), as the decision judge already did.
 - [ ] Pre-made pages for pages without the star (maybe the biggest lever):
       a page that only shows fixed characters is the same in every book, so
       make it once from its plate in Gemini (in Chrome, free) and reuse it.

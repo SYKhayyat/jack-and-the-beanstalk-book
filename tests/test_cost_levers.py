@@ -97,6 +97,24 @@ class TestPicturePronouns:
         assert subs["Subject"] == "The child"
 
 
+def test_a_missing_object_is_not_a_missing_character() -> None:
+    """Book 735d failed pages 8, 11 and 13 nine times for missing_character
+    over a standing giant and a missing harp: pose and props, not people."""
+    review = PROMPTS["review"]["instruction"]
+    decision = PROMPTS["decision"]["questions"]["missing_character"]
+    for text in (review, decision):
+        assert "A missing object" in text
+        assert "partly hidden is present" in text
+
+
+def test_a_figure_the_caption_crops_is_not_an_obscured_face() -> None:
+    """Page 13 shows only the giant's legs on purpose; neither judge may fail it."""
+    review = PROMPTS["review"]["instruction"]
+    line = next(x for x in review.splitlines() if x.startswith('- "face_obscured"'))
+    assert "frame cuts off" in line
+    assert "frame cuts off" in PROMPTS["decision"]["questions"]["face_obscured"]
+
+
 def test_both_judges_are_told_a_redraw_costs() -> None:
     """Told they may veto only 4 of 20, the judges save a fail for gross faults."""
     for text in (PROMPTS["review"]["instruction"], PROMPTS["decision"]["intro"]):
