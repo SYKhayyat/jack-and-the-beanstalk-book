@@ -413,6 +413,11 @@ def test_a_refund_is_requested_and_waits_for_the_operator(browser) -> None:
     session_id = paid_session(stripe, 1000)
     client.get(f"/wallet/return?session_id={session_id}")
 
+    # U8: the money leaves the spendable balance on one POST, so the form
+    # asks first (the app's one data-confirm handler).
+    page = client.get("/wallet").text
+    assert 'data-confirm="Request $10.00 back?' in page
+
     response = client.post("/wallet/refund", follow_redirects=False)
     assert response.headers["location"].endswith("message=refund_requested")
     # Asking for the money does not move it through Stripe; the operator does.

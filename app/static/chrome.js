@@ -35,8 +35,9 @@ function parseMoment(value) {
   return Number.isNaN(moment.getTime()) ? null : moment;
 }
 
-/* Destructive admin forms ask once, in one place. A form opts in with
-   data-confirm, so no page needs an inline handler. */
+/* Destructive forms (an admin delete, a wallet refund) ask once, in one
+   place. A form opts in with data-confirm, so no page needs an inline
+   handler. */
 for (const form of document.querySelectorAll("form[data-confirm]")) {
   form.addEventListener("submit", (event) => {
     if (!window.confirm(form.dataset.confirm)) event.preventDefault();

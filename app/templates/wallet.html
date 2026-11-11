@@ -61,7 +61,8 @@
         Asking takes it out of your spendable balance so the same money cannot be
         asked for twice.
       </p>
-      <form method="post" action="/wallet/refund">
+      <form method="post" action="/wallet/refund"
+            data-confirm="Request {{ refundable_label }} back? It leaves your spendable balance now, and the operator sends it through Stripe. If the card refund fails, the money returns to your wallet.">
         <button type="submit" class="button secondary">Request {{ refundable_label }} back</button>
       </form>
       {% else %}
