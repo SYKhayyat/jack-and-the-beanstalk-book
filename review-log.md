@@ -24,3 +24,10 @@ Fix first:
 3. Average API cost per book vs $0.99 not visible on /wallet (Money, -3). to-do.md says it should be.
 4. Refund stays "Waiting for the operator"; the card is not credited until someone processes it (Money, -1).
 5. Check book 2's PDF and sign-out/sign-in persistence by hand: these are the unmeasured -17.
+
+## Run 1 addendum — 2026-11-11 — correction to "Avg cost per book"
+Run 1 listed the average cost as "not shown on /wallet". The api_calls ledger holds it, read from the live database:
+Jack (ac4967a5): cover + 20 pages 21 calls $0.595; retries 31 calls $0.940; reviews and decisions 96 calls $0.067; **$1.60**.
+Red Riding Hood (15657b73): cover + 20 pages 21 calls $0.601; retries 30 calls $0.898; reviews and decisions 85 calls $0.063; **$1.56**. (10 failed decision calls on this book, priced at 0.)
+Average **$1.58 per book against the $0.99 price: a loss of about $0.59 a book.** Two causes: about 52 image calls a book (not 22) because pages averaged 1–2 redraws, and live pricing of about $0.029 per image against the README's $0.00588.
+Fix first (Money): cut retries per page (stricter first draft, or a cheaper regenerate path), re-check the per-image price against the OpenAI bill, and reprice or cap before selling.
