@@ -17,7 +17,13 @@ from __future__ import annotations
 import base64
 import io
 
-__all__ = ["extension_for", "image_filename", "jpeg_data_url", "media_type_for"]
+__all__ = [
+    "extension_for",
+    "image_filename",
+    "jpeg_data_url",
+    "judge_jpeg",
+    "media_type_for",
+]
 
 #: Pictures sent to a judging model (the reviewer, the decision judge) are at
 #: most this many pixels on their long side. They read composition, people and
@@ -44,12 +50,18 @@ def image_filename(stem: str, data: bytes) -> str:
     return f"{stem}{extension_for(data)}"
 
 
-def jpeg_data_url(image: bytes, *, max_side: int = JUDGE_MAX_SIDE) -> str:
-    """The picture as an inline JPEG data URL, at most `max_side` on its long side."""
+def judge_jpeg(image: bytes, *, max_side: int = JUDGE_MAX_SIDE) -> bytes:
+    """The picture as a JPEG for a judging model, at most `max_side` on its long side."""
     from PIL import Image
 
     picture = Image.open(io.BytesIO(image)).convert("RGB")
     picture.thumbnail((max_side, max_side))
     buffer = io.BytesIO()
     picture.save(buffer, format="JPEG", quality=88)
-    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+    return buffer.getvalue()
+
+
+def jpeg_data_url(image: bytes, *, max_side: int = JUDGE_MAX_SIDE) -> str:
+    """The picture as an inline JPEG data URL, at most `max_side` on its long side."""
+    encoded = base64.b64encode(judge_jpeg(image, max_side=max_side)).decode("ascii")
+    return "data:image/jpeg;base64," + encoded

@@ -698,6 +698,14 @@ plate_rule = """The SECOND picture is the empty background plate the first pictu
 # shot, an angle or an expression is not.
 likeness_rule = """The picture right after this sentence is the approved portrait of the book's child. Add the fault "likeness" only if the child in the FIRST picture is clearly NOT the same child: an unmistakably different skin tone, hair colour, or hair length (long hair become short), or a plainly different age. A cartoon style, a different angle, expression, pose or distance, a face drawn small and simple, or hair hidden under a hood is not a fault. Name what differs in the note."""
 
+# Gemini in Chrome (the free local reviewer) takes every picture above the
+# text, so the rules' "after this sentence" is said once as an order. {order}
+# joins the names below that apply to this review.
+web_order = "The pictures are attached in this order: {order}. Every rule below that points at a picture means the one this list names."
+web_picture = "first, the picture to judge"
+web_plate = "second, the empty background plate"
+web_portrait = "last, the approved portrait of the book's child"
+
 page_title = "the picture book's page: "
 # Who may appear on the page, said plainly after the description. {named} is the
 # cast's bible labels, the star as "the child". The reviewer and the decision
@@ -724,6 +732,11 @@ intro = "A page of a children's picture book. The picture it must be: {brief}\n{
 # Added after the intro, with the portrait as the second image, on a page the
 # child is in; the likeness question is asked only then.
 likeness_intro = "The second image is the approved portrait of the book's child; the child in the first image must be this child."
+
+# Gemini in Chrome (the free local judge) has no probability API: it is asked
+# for them as JSON. {questions} is one "name: question" line per question asked;
+# {example} is a JSON object with those names.
+web_answer = "For each question below, give the probability from 0 to 1 that the answer is yes. Reply with one JSON object and nothing else, mapping each question's name to its probability, like {example}.\n\n{questions}"
 
 [decision.questions]
 # Each question asks whether something is GROSSLY wrong, the same bar as the

@@ -30,6 +30,12 @@ class ProviderName(StrEnum):
     GEMINI = "gemini"
     OPENAI = "openai"
     AGNES = "agnes"
+    #: Gemini at gemini.google.com in a local Chrome: free, slow, one machine.
+    GEMINI_WEB = "gemini_web"
+
+
+#: The dedicated Chrome profile Gemini's tab lives in, apart from any of yours.
+_GEMINI_WEB_PROFILE = Path.home() / ".local/share/jack-and-the-beanstalk/gemini-chrome"
 
 
 class Settings(BaseSettings):
@@ -125,12 +131,13 @@ class Settings(BaseSettings):
     )
     reviewer_provider: str = Field(
         default="openai",
-        pattern="^(off|gemini|openai)$",
+        pattern="^(off|gemini|openai|gemini_web)$",
         description=(
             "Which vision model checks each picture after the decision judge: "
             "openai (the default: gpt-6-luna; uses OPENAI_API_KEY and is shown "
-            "the plate as well), gemini, or off (the decision judge and tier 1 "
-            "decide alone)."
+            "the plate as well), gemini, gemini_web (Gemini in a local Chrome, "
+            "free; see GEMINI_WEB_ACCOUNT), or off (the decision judge and "
+            "tier 1 decide alone)."
         ),
     )
     reviewer_model: str = Field(
@@ -160,6 +167,15 @@ class Settings(BaseSettings):
             "OPENAI_API_KEY; off in mock mode."
         ),
     )
+    decision_judge_provider: str = Field(
+        default="openai",
+        pattern="^(openai|gemini_web)$",
+        description=(
+            "Who answers the decision questions: openai (the Decisions API) or "
+            "gemini_web (Gemini in a local Chrome, asked for the probabilities "
+            "as JSON; free, for local books)."
+        ),
+    )
     decision_judge_model: str = Field(
         default="gpt-6-luna",
         description="The decision model. gpt-6-luna is the one the Decisions API serves.",
@@ -168,6 +184,30 @@ class Settings(BaseSettings):
         default=0.10,
         ge=0,
         description="The decision model's price per million input tokens (output is free).",
+    )
+    gemini_web_account: str = Field(
+        default="",
+        description=(
+            "The Google account Gemini in Chrome must be signed in as; checked "
+            "before every job, and a job waits while it is not. Needed when any "
+            "of IMAGE_PROVIDER, REVIEWER_PROVIDER or DECISION_JUDGE_PROVIDER is "
+            "gemini_web."
+        ),
+    )
+    gemini_web_port: int = Field(
+        default=9333, ge=1024, le=65535, description="Chrome's debugging port."
+    )
+    gemini_web_profile_dir: Path = Field(
+        default=_GEMINI_WEB_PROFILE,
+        description="The Chrome profile kept signed in for Gemini (never your own).",
+    )
+    gemini_web_chrome: str = Field(
+        default="google-chrome", description="The Chrome binary started when none is running."
+    )
+    gemini_web_limit_wait_seconds: int = Field(
+        default=1800,
+        ge=1,
+        description="How long a job waits after Gemini says a limit is reached.",
     )
     reviewer_timeout_seconds: int = Field(
         default=90,
@@ -264,7 +304,9 @@ class Settings(BaseSettings):
         # No floor on purpose: this is the operator's control, and a test that
         # asserts the timeout fires should not have to wait minutes to do it.
         ge=1,
-        le=3600,
+        # A week: with GEMINI_WEB every page queues behind one browser and a
+        # job waits out Gemini's daily limit, so a page can take a day.
+        le=7 * 24 * 3600,
         description=(
             "Wall-clock ceiling for one API request, covering upload decoding and "
             "the model call. Also applied to the provider's HTTP client so an "
@@ -370,6 +412,12 @@ class Settings(BaseSettings):
         """`IMAGE_CALL_COST_USD=` (as `.env.example` ships it) means "not set"."""
         return None if isinstance(value, str) and not value.strip() else value
 
+    @field_validator("gemini_web_profile_dir", mode="before")
+    @classmethod
+    def _blank_profile_is_default(cls, value: object) -> object:
+        """`GEMINI_WEB_PROFILE_DIR=` means the default profile, not the working dir."""
+        return _GEMINI_WEB_PROFILE if isinstance(value, str) and not value.strip() else value
+
     @field_validator("storage_dir", mode="after")
     @classmethod
     def _make_storage_dir(cls, value: Path) -> Path:
@@ -393,10 +441,18 @@ class Settings(BaseSettings):
     @property
     def decision_judge_enabled(self) -> bool:
         """Whether the decision model looks first: asked for, keyed, and not mock."""
+        keyed = self.decision_judge_provider == "gemini_web" or bool(
+            self.openai_api_key.strip()
+        )
+        return self.decision_judge and keyed and self.image_provider is not ProviderName.MOCK
+
+    @property
+    def uses_gemini_web(self) -> bool:
+        """Whether any backend is Gemini in a local Chrome."""
         return (
-            self.decision_judge
-            and bool(self.openai_api_key.strip())
-            and self.image_provider is not ProviderName.MOCK
+            self.image_provider is ProviderName.GEMINI_WEB
+            or self.reviewer_provider == "gemini_web"
+            or (self.decision_judge_enabled and self.decision_judge_provider == "gemini_web")
         )
 
     @property
@@ -451,6 +507,7 @@ class Settings(BaseSettings):
             ProviderName.OPENAI: self.openai_model,
             ProviderName.GEMINI: self.gemini_model,
             ProviderName.AGNES: self.agnes_model,
+            ProviderName.GEMINI_WEB: "gemini-web",
         }.get(self.image_provider, "-")
 
     @property

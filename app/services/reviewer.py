@@ -38,15 +38,20 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Protocol, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict
 
 from app.prompt_data import prompt_text
+from app.services.gemini_web.attachment import Attachment
 from app.services.image_providers.base import ProviderError
-from app.services.media import jpeg_data_url
+from app.services.media import jpeg_data_url, judge_jpeg
+
+if TYPE_CHECKING:
+    from app.services.gemini_web.client import GeminiWeb
 
 __all__ = [
     "FAULTS",
     "MINOR_FAULTS",
+    "GeminiWebReviewer",
     "ImageReviewer",
     "OpenAIReviewer",
     "ReviewAnswer",
@@ -457,6 +462,59 @@ class OpenAIReviewer:
                 ) from None
             raise ProviderError(f"the reviewer could not be reached: {exc}") from None
         return parse_answer(response.choices[0].message.content or "")
+
+
+class GeminiWebReviewer:
+    """Tier 2 on Gemini in a local Chrome: free, for books made on this machine.
+
+    Shown what the OpenAI reviewer is shown (the picture, the plate, the
+    portrait) and asked the same instruction. Gemini puts every attached
+    picture above the text, so the rules' positions are said once as an order.
+    The client waits out signed-out spells and daily limits by itself; what
+    reaches here as an error is a real failure.
+    """
+
+    name = "gemini_web"
+
+    def __init__(self, client: GeminiWeb) -> None:
+        self._client = client
+
+    def review(
+        self,
+        image: bytes,
+        *,
+        media_type: str,
+        page_title: str,
+        story_line: str,
+        cast: str,
+        plate: bytes | None = None,
+        portrait: bytes | None = None,
+    ) -> ReviewAnswer:
+        del media_type  # every picture is re-encoded as a JPEG before it is sent
+        review = prompt_text()["review"]
+        images = [Attachment(judge_jpeg(image))]
+        order = [review["web_picture"]]
+        rules = [
+            review["instruction"].format(
+                page_title=page_title, story_line=story_line, cast=cast
+            )
+        ]
+        if plate is not None:
+            images.append(Attachment(judge_jpeg(plate)))
+            order.append(review["web_plate"])
+            rules.append(review["plate_rule"])
+        if portrait is not None:
+            images.append(Attachment(judge_jpeg(portrait)))
+            order.append(review["web_portrait"])
+            rules.append(review["likeness_rule"])
+        text = "\n\n".join([review["web_order"].format(order="; ".join(order)), *rules])
+        logger.info(
+            "review.call model=gemini-web page=%r plate=%s portrait=%s",
+            page_title,
+            plate is not None,
+            portrait is not None,
+        )
+        return parse_answer(self._client.ask(text, images))
 
 
 def parse_answer(text: str) -> ReviewAnswer:

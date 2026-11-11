@@ -11,6 +11,9 @@ install: ## Create the venv and install everything
 dev: ## Run with reload in mock mode (no API key, no database server needed)
 	$(VENV)/bin/uvicorn app.main:create_app --factory --reload --port 8000
 
+local-book: ## Serve on :8001 with Gemini in Chrome for every image and judgement (free; copies live art, reads only)
+	$(VENV)/bin/python -m app.scripts.local_book
+
 test: ## Run the suite in parallel, with coverage
 	$(VENV)/bin/python -m pytest -n auto --dist loadscope --cov=app --cov-report=term-missing
 

@@ -30,20 +30,27 @@ only, never named on a visitor-facing surface.
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from app.prompt_data import prompt_text
+from app.services.gemini_web.attachment import Attachment
 from app.services.image_providers.base import ProviderError
-from app.services.media import jpeg_data_url
+from app.services.media import jpeg_data_url, judge_jpeg
+
+if TYPE_CHECKING:
+    from app.services.gemini_web.client import GeminiWeb
 
 __all__ = [
     "QUESTIONS",
     "Decision",
     "DecisionJudge",
+    "GeminiWebDecisionJudge",
     "OpenAIDecisionJudge",
     "Outcome",
     "classify",
@@ -198,6 +205,65 @@ class OpenAIDecisionJudge:
         except Exception as exc:  # the SDK raises a wide range of types
             raise ProviderError(f"the decision judge could not be reached: {exc}") from None
         return _decision(response.model_dump(), model=self._model)
+
+
+class GeminiWebDecisionJudge:
+    """The judge on Gemini in a local Chrome, asked for its probabilities as JSON.
+
+    A chat model's stated probability is coarser than a decision model's, but
+    it answers the same questions at the same bar, and costs nothing: the right
+    trade for books made locally to test the pipeline.
+    """
+
+    name = "gemini-web-decisions"
+    model = "gemini-web"
+
+    def __init__(self, client: GeminiWeb) -> None:
+        self._client = client
+
+    def decide(
+        self, image: bytes, *, brief: str, cast: str, portrait: bytes | None = None
+    ) -> Decision:
+        words = prompt_text()["decision"]
+        asked = {
+            name: question
+            for name, question in QUESTIONS.items()
+            if name != LIKENESS or portrait is not None
+        }
+        parts = [str(words["intro"]).format(brief=brief, cast=cast)]
+        images = [Attachment(judge_jpeg(image))]
+        if portrait is not None:
+            parts.append(str(words["likeness_intro"]))
+            images.append(Attachment(judge_jpeg(portrait)))
+        parts.append(
+            str(words["web_answer"]).format(
+                example=json.dumps(dict.fromkeys(asked, 0.1)),
+                questions="\n".join(f"{name}: {q}" for name, q in asked.items()),
+            )
+        )
+        answer = self._client.ask("\n\n".join(parts), images)
+        return Decision(probabilities=_web_probabilities(answer, asked), model=self.model)
+
+
+_JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _web_probabilities(text: str, asked: Mapping[str, str]) -> dict[str, float]:
+    """Every asked question's probability out of a chat answer, or ProviderError."""
+    match = _JSON_OBJECT.search(text)
+    try:
+        raw = json.loads(match.group(0)) if match else None
+    except json.JSONDecodeError:
+        raw = None
+    if not isinstance(raw, dict):
+        raise ProviderError("the decision judge's answer had no JSON object in it")
+    probabilities: dict[str, float] = {}
+    for name in asked:
+        value = raw.get(name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ProviderError(f"the decision judge gave no probability for {name}")
+        probabilities[name] = max(0.0, min(1.0, float(value)))
+    return probabilities
 
 
 def _decision(payload: Mapping[str, Any], *, model: str) -> Decision:

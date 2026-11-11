@@ -212,6 +212,9 @@ def image_call_price(settings: Settings) -> CallPrice:
         model, listed = settings.agnes_model, 0.0
     elif provider == ProviderName.GEMINI:
         model, listed = settings.gemini_model, None
+    elif provider == ProviderName.GEMINI_WEB:
+        # Gemini in a local Chrome: the free app, not the billed API.
+        model, listed = "gemini-web", 0.0
     else:
         model, listed = "placeholder", 0.0
     if settings.image_call_cost_usd is not None:
@@ -221,6 +224,8 @@ def image_call_price(settings: Settings) -> CallPrice:
 
 def review_call_price(settings: Settings) -> CallPrice:
     """What one review call costs (None until REVIEW_CALL_COST_USD is set)."""
+    if settings.reviewer_provider == "gemini_web":
+        return CallPrice(usd=0.0, model="gemini-web")
     return CallPrice(usd=settings.review_call_cost_usd, model=settings.reviewer_model)
 
 

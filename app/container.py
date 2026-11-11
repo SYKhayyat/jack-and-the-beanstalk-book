@@ -30,14 +30,19 @@ from app.services.costs import (
 )
 from app.services.db_book_store import DatabaseBookStore
 from app.services.db_wallet_store import DatabaseWalletStore
-from app.services.decision_judge import DecisionJudge, OpenAIDecisionJudge
+from app.services.decision_judge import (
+    DecisionJudge,
+    GeminiWebDecisionJudge,
+    OpenAIDecisionJudge,
+)
+from app.services.gemini_web.factory import client_for
 from app.services.image_providers.base import ImageProvider
 from app.services.image_providers.registry import build_provider
 from app.services.payments import PaymentProvider, StripePaymentProvider
 from app.services.pipeline import GenerationPipeline
 from app.services.portrait_log import PortraitLog
 from app.services.rate_limit import GenerationRateLimiter
-from app.services.reviewer import ImageReviewer, build_reviewer
+from app.services.reviewer import GeminiWebReviewer, ImageReviewer, build_reviewer
 from app.services.storage import GenerationStore
 from app.services.template_store import TemplateStore
 from app.services.user_store import DatabaseUserStore, UserStore
@@ -174,6 +179,11 @@ def build_container(
             # than after (T9.6).
             reviewer=metered_reviewer(
                 reviewer
+                or (
+                    GeminiWebReviewer(client_for(settings))
+                    if settings.reviewer_provider == "gemini_web"
+                    else None
+                )
                 or build_reviewer(
                     api_key=(
                         settings.openai_api_key
@@ -191,13 +201,18 @@ def build_container(
             decision_judge=decision_judge
             or (
                 MeteredDecisionJudge(
-                    OpenAIDecisionJudge(
+                    GeminiWebDecisionJudge(client_for(settings))
+                    if settings.decision_judge_provider == "gemini_web"
+                    else OpenAIDecisionJudge(
                         settings.openai_api_key,
                         model=settings.decision_judge_model,
                         timeout_seconds=settings.reviewer_timeout_seconds,
                     ),
                     costs,
-                    settings.decision_judge_usd_per_million_tokens,
+                    # Free: the local judge reports no tokens, but say so.
+                    0.0
+                    if settings.decision_judge_provider == "gemini_web"
+                    else settings.decision_judge_usd_per_million_tokens,
                 )
                 if settings.decision_judge_enabled
                 else None

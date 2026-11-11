@@ -10,8 +10,9 @@ import logging
 
 from app.config import ProviderName, Settings
 from app.services.image_providers.agnes_provider import AgnesImageProvider
-from app.services.image_providers.base import ImageProvider, ProviderUnavailable
+from app.services.image_providers.base import ImageProvider, ProviderError, ProviderUnavailable
 from app.services.image_providers.gemini import GeminiImageProvider
+from app.services.image_providers.gemini_web_provider import GeminiWebImageProvider
 from app.services.image_providers.mock import MockImageProvider
 from app.services.image_providers.openai_provider import OpenAIImageProvider
 
@@ -24,6 +25,7 @@ KNOWN_PROVIDERS: dict[ProviderName, type[ImageProvider]] = {
     ProviderName.GEMINI: GeminiImageProvider,
     ProviderName.OPENAI: OpenAIImageProvider,
     ProviderName.AGNES: AgnesImageProvider,
+    ProviderName.GEMINI_WEB: GeminiWebImageProvider,
 }
 
 
@@ -62,4 +64,11 @@ def build_provider(settings: Settings) -> ImageProvider:
             timeout_seconds=settings.generation_timeout_seconds,
             size=settings.agnes_size,
         )
+    if provider_cls is GeminiWebImageProvider:
+        from app.services.gemini_web.factory import client_for
+
+        try:
+            return GeminiWebImageProvider(client_for(settings))
+        except ProviderError as exc:
+            raise ProviderUnavailable(str(exc)) from None
     return provider_cls()
