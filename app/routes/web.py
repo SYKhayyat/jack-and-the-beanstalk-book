@@ -223,6 +223,9 @@ def book_page(
             "about": record.about,
             "status": state,
             "error": status_payload.get("error") or "",
+            # Why it stopped, in one word: the reader shows the wallet notice
+            # for `out_of_funds` on first paint, before any poll (B4).
+            "error_code": status_payload.get("error_code") or "",
             "phase": status_payload.get("phase") or "",
             "tiles": tiles,
             "done_count": sum(1 for tile in tiles if tile["status"] == "done"),
@@ -241,8 +244,13 @@ def book_page(
             "art_ratio": record.settings.aspect_ratio.value.replace(":", " / "),
             "book_gender": record.settings.photo_gender.value,
             "story_pages": len(rendered),
-            # Edits are always free; only a deployment that charges says why.
-            "edit_note": "Changes are included — the book's fee was taken once."
+            # Each picture is bought as it is drawn; only a deployment that
+            # charges has a price to name (the book's own fee was taken once).
+            "edit_note": (
+                f"Each new picture costs {format_cents(container.wallet.picture_price_cents)}"
+                " — a page, the cover, or a face's pages, taken as it is drawn. "
+                "The book's own fee was taken once."
+            )
             if chrome["wallet_enabled"]
             else "Changes are free: redraw a page, the cover or a face as often as you need.",
             "pdf_url": f"/book-media/{book_id}/pdf" if state == BookStatus.COMPLETE else None,
@@ -336,6 +344,11 @@ def page_chrome(
         # is a separate question from whether the shelf may state the fee.
         "book_price": format_cents(container.wallet.price_cents) if payments_enabled else "",
         "price_label": format_cents(container.wallet.price_cents) if wallet_enabled else "",
+        # What one picture drawn on request costs. The book's own pictures are
+        # inside the fee, so this is the number a portrait or a redraw shows.
+        "picture_price": format_cents(container.wallet.picture_price_cents)
+        if payments_enabled
+        else "",
         "flash": wallet_message(request.query_params.get("message", ""))
         if request is not None
         else "",

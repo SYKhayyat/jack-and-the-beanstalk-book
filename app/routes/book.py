@@ -28,10 +28,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import itertools
 import json
 import logging
 import threading
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Form, Request, Response, status
@@ -65,7 +67,7 @@ from app.services.pipeline import UnknownGeneration
 from app.services.prompts import book_name_for, render_book_page
 from app.services.storage import Draft
 from app.services.story_settings import story_rules
-from app.services.wallet import format_cents
+from app.services.wallet import InsufficientFunds, OutOfFunds, format_cents
 
 __all__ = ["books_router", "router", "stories_router"]
 
@@ -438,6 +440,11 @@ async def edit_book(
 ) -> dict[str, object]:
     """Edit a finished book without starting a new one.
 
+    Each picture an image action draws is bought as it is drawn, at the
+    wallet's picture price; `about` and `delete` draw nothing and cost
+    nothing. When the wallet cannot cover the next picture the job stops with
+    the ones already made kept, and the book page shows how to finish it.
+
     Actions, and exactly what each one costs:
 
     * `page` — redraw one story page (up to the page-attempt limit if the
@@ -494,11 +501,21 @@ async def edit_book(
         await asyncio.to_thread(container.book_store.delete, book_id)
         return {"book_id": book_id, "deleted": True}
 
+    # Every action below draws pictures, and each picture is bought as it is
+    # drawn. Refusing the whole edit when even one is unaffordable is the
+    # friendliest version of that: nothing starts, nothing is charged, and the
+    # message names the price and the balance.
+    _require_picture_funds(container, user_id)
+    payment = _picture_payment(container, user_id, book_id=book_id)
     charge = lambda: container.rate_limiter.allow(_client_key(request), 1)  # noqa: E731
 
     if action == "cover":
         await container.book_runner.start_edit(
-            book_id, page_numbers=set(), draw_cover=True, page_charge=charge
+            book_id,
+            page_numbers=set(),
+            draw_cover=True,
+            page_charge=charge,
+            picture_payment=payment,
         )
         return _edit_started(book_id, "cover")
 
@@ -510,6 +527,7 @@ async def edit_book(
             draw_cover=has_cover is None,
             only_missing=True,
             page_charge=charge,
+            picture_payment=payment,
         )
         return _edit_started(book_id, "retry")
 
@@ -521,6 +539,7 @@ async def edit_book(
             draw_cover=False,
             requested_fixes={page.number: _page_faults(reason)},
             page_charge=charge,
+            picture_payment=payment,
         )
         return _edit_started(book_id, "page")
 
@@ -546,7 +565,11 @@ async def edit_book(
                 settings=record.settings,
             )
             await container.book_runner.start_edit(
-                book_id, page_numbers=None, draw_cover=True, page_charge=charge
+                book_id,
+                page_numbers=None,
+                draw_cover=True,
+                page_charge=charge,
+                picture_payment=payment,
             )
             return _edit_started(book_id, "character")
 
@@ -564,10 +587,66 @@ async def edit_book(
             page_numbers=affected,
             draw_cover=False,
             page_charge=charge,
+            picture_payment=payment,
         )
         return _edit_started(book_id, "character")
 
     raise InvalidSettings(f"Unknown edit action {action!r}.")
+
+
+def _require_picture_funds(container: Container, user_id: str | None) -> None:
+    """Refuse an edit this account cannot pay a single picture for.
+
+    The same rule the runner enforces picture by picture, asked up front so a
+    wallet with nothing in it gets a sentence instead of a render that stops
+    after its first try. Nothing is charged and nothing is drawn here.
+    """
+    if container.payments is None or not user_id:
+        return
+    price = container.wallet.picture_price_cents
+    balance = container.wallet.balance_cents(user_id)
+    if balance >= price:
+        return
+    raise PaymentRequired(
+        f"Each new picture costs {format_cents(price)} and your wallet has "
+        f"{format_cents(balance)}. Add money on your wallet page, then try again."
+    )
+
+
+def _picture_payment(
+    container: Container, user_id: str | None, *, book_id: str
+) -> Callable[[str], None] | None:
+    """The per-picture debit this edit's render is handed, or None when free.
+
+    A deployment without payments, and an unowned book, draw without charge,
+    exactly as they do for the book's own fee. With money on, each call takes
+    one picture's price before that picture is drawn; the wallet's own lock is
+    what makes two pictures racing each other unable to both spend the last
+    15¢. The reference is unique per draw, so the ledger shows which picture it
+    bought and a job retried with the same reference is not charged twice.
+    """
+    if container.payments is None or not user_id:
+        return None
+    price = container.wallet.picture_price_cents
+    job = uuid.uuid4().hex
+    drawn = itertools.count(1)
+
+    def pay(label: str) -> None:
+        try:
+            container.wallet.charge_picture(
+                user_id,
+                reference=f"picture:{book_id}:{job}:{next(drawn)}",
+                description=f"{label} — {format_cents(price)}",
+            )
+        except InsufficientFunds:
+            balance = container.wallet.balance_cents(user_id)
+            raise OutOfFunds(
+                f"Each new picture costs {format_cents(price)} and your wallet has "
+                f"{format_cents(balance)}. The pictures already made were kept — "
+                "add money on your wallet page, then press Finish this book."
+            ) from None
+
+    return pay
 
 
 def _edit_started(book_id: str, action: str) -> dict[str, object]:

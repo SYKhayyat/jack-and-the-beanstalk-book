@@ -13,7 +13,14 @@ The rules:
   pay for, and the fee is actually taken when the finished PDF is written — a
   book that never produces a document is never charged. A book and its fee are
   tied together by the book id in the transaction's `reference`, which also
-  makes the charge idempotent: the same book cannot be charged twice.
+  makes the charge idempotent: the same book cannot be charged twice. That fee
+  includes every picture the book draws for itself: its cover and its story
+  pages.
+* **A picture drawn after that costs 15¢.** A portrait, an extra candidate, a
+  page or cover redrawn on request or the pictures of a face swap are work
+  beyond the book, and each one is charged as it is about to be drawn. If the
+  balance cannot cover it the picture is not drawn, and the job stops with its
+  finished pictures kept — never a ledger that has gone negative.
 * **A refund is requested, then processed.** Requesting moves the money out of
   the spendable balance immediately and records a pending request. Processing
   sends it back through Stripe, one funding payment at a time, oldest first,
@@ -35,14 +42,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from app.pricing import PICTURE_PRICE_CENTS
 from app.services.payments import PaymentProvider
 
 __all__ = [
     "CURRENCY",
     "DOCUMENT_PRICE_CENTS",
     "FUNDING_AMOUNTS_CENTS",
+    "PICTURE_PRICE_CENTS",
     "DuplicateTransaction",
     "InsufficientFunds",
+    "OutOfFunds",
     "RefundRequest",
     "Wallet",
     "WalletError",
@@ -67,6 +77,8 @@ CURRENCY = "usd"
 # readable forever, and so a human reading the JSON knows what it is.
 KIND_FUNDING = "funding"
 KIND_CHARGE = "charge"
+KIND_PICTURE = "picture"
+KIND_PICTURE_REFUND = "picture_refund"
 KIND_REFUND = "refund"
 KIND_REFUND_REVERSAL = "refund_reversal"
 
@@ -86,6 +98,16 @@ class InsufficientFunds(WalletError):
 
 class DuplicateTransaction(WalletError):
     """This exact movement has already been recorded."""
+
+
+class OutOfFunds(Exception):
+    """A book's next picture could not be paid for, so the job stops here.
+
+    Carries the sentence the book page shows: what the picture cost, what the
+    balance is, and that the pictures already made were kept. Raised by the
+    per-picture payment a render is handed; the runner treats it as "stop and
+    keep what exists", never as a page that failed on its own.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,9 +208,16 @@ class Wallet:
     amounts are small enough that this is the honest implementation for it.
     """
 
-    def __init__(self, store: WalletStore, *, price_cents: int = DOCUMENT_PRICE_CENTS) -> None:
+    def __init__(
+        self,
+        store: WalletStore,
+        *,
+        price_cents: int = DOCUMENT_PRICE_CENTS,
+        picture_price_cents: int = PICTURE_PRICE_CENTS,
+    ) -> None:
         self._store = store
         self.price_cents = price_cents
+        self.picture_price_cents = picture_price_cents
         # Re-entrant: `request_refund` holds the lock while calling the
         # refundable-amount helper, which takes it again.
         self._lock = threading.RLock()
@@ -311,6 +340,83 @@ class Wallet:
             )
         logger.info(
             "wallet.charged owner=%s book=%s cents=%d", owner, book_id, self.price_cents
+        )
+        return transaction
+
+    # --- pictures drawn on request ---------------------------------------------
+
+    def charge_picture(
+        self, owner: str, *, reference: str, description: str, count: int = 1
+    ) -> WalletTransaction:
+        """Take the price of `count` pictures, once, if the balance covers it.
+
+        Called as each requested picture is about to be drawn (a portrait, a
+        redrawn page or cover, a face swap's pages). `reference` names the draw
+        that caused it, so a job retried with the same reference is not charged
+        twice.
+
+        Raises:
+            InsufficientFunds: when the balance cannot cover the pictures. The
+                caller draws nothing and stops, keeping the pictures already
+                made: a redraw is a purchase, not a debt.
+        """
+        if count < 1:
+            raise WalletError("A picture charge needs at least one picture.")
+        amount = self.picture_price_cents * count
+        with self._lock:
+            for entry in self._store.transactions(owner):
+                if entry.kind == KIND_PICTURE and entry.reference == reference:
+                    return entry
+            balance = self._store.balance_cents(owner)
+            if balance < amount:
+                raise InsufficientFunds(
+                    f"{count} picture{'s' if count != 1 else ''} cost "
+                    f"{format_cents(amount)} and the balance is "
+                    f"{format_cents(balance)}."
+                )
+            transaction = self._store.add(
+                owner=owner,
+                amount_cents=-amount,
+                kind=KIND_PICTURE,
+                description=description,
+                reference=reference,
+            )
+        logger.info(
+            "wallet.picture_charged owner=%s pictures=%d cents=%d",
+            owner,
+            count,
+            amount,
+        )
+        return transaction
+
+    def refund_picture(
+        self, owner: str, *, reference: str, description: str, count: int = 1
+    ) -> WalletTransaction | None:
+        """Give back pictures that were paid for but never drawn.
+
+        A provider that answers a three-candidate request with one picture is
+        the case this exists for. `reference` is the charge's, so the refund is
+        idempotent too and cannot credit the same pictures twice.
+        """
+        if count < 1:
+            return None
+        amount = self.picture_price_cents * count
+        with self._lock:
+            for entry in self._store.transactions(owner):
+                if entry.kind == KIND_PICTURE_REFUND and entry.reference == reference:
+                    return entry
+            transaction = self._store.add(
+                owner=owner,
+                amount_cents=amount,
+                kind=KIND_PICTURE_REFUND,
+                description=description,
+                reference=reference,
+            )
+        logger.info(
+            "wallet.picture_refunded owner=%s pictures=%d cents=%d",
+            owner,
+            count,
+            amount,
         )
         return transaction
 

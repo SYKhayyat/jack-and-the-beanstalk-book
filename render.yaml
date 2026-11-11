@@ -170,6 +170,12 @@ services:
       - key: OPENAI_IMAGES_PER_MINUTE
         value: "18"
 
+      # A picture drawn on request — a portrait, a redraw, a replaced face —
+      # costs 15¢ from the wallet as it is drawn. The book's own 22 pictures are
+      # inside its 99¢ fee.
+      - key: PICTURE_PRICE_CENTS
+        value: "15"
+
       - key: STORAGE_DIR
         value: /tmp/jack-and-the-beanstalk-book-storage
 

@@ -14,6 +14,10 @@
         One picture book — the cover, every story page, the About page and the PDF —
         costs {{ price_label }}. The fee is taken when the finished PDF is written,
         so a book that never finishes is never charged.
+        {% if picture_price %}Every picture drawn beyond that — a portrait, a redrawn
+        page or cover, a replaced face — costs {{ picture_price }}, taken from this
+        wallet as it is drawn. If the wallet cannot cover one, the drawing stops
+        there and the pictures already made are kept.{% endif %}
       </p>
       {% else %}
       <p class="field-help">
@@ -114,7 +118,8 @@
             <td>
               {% if entry.book_href %}
               <a href="{{ entry.book_href }}">{{ entry.book_title }}</a>
-              <span class="wallet-kind">Book fee</span>
+              <span class="wallet-kind">{{ entry.kind_label }}</span>
+              {% if entry.kind == "picture" %}<span class="wallet-what">{{ entry.description }}</span>{% endif %}
               {% else %}
               {{ entry.description }}
               {% endif %}

@@ -343,8 +343,14 @@ function apply(payload) {
     polling = false;
     caption(`${done} of ${total} pictures — ${payload.error || "this book stopped early."}`);
     document.getElementById("failed-row").classList.remove("hidden");
-    document.getElementById("failed-message").textContent =
-      payload.error || "Some pictures didn't make it.";
+    const message = payload.error || "Some pictures didn't make it.";
+    // Money is its own kind of stop: the wallet ran out, the pictures already
+    // made were kept, and finishing draws the rest once there is money. Said
+    // once in a notice that can be put away, not left over the page forever.
+    const broke = payload.error_code === "out_of_funds";
+    document.getElementById("failed-message").textContent = message;
+    document.getElementById("failed-message").classList.toggle("hidden", broke);
+    showFundsNotice(broke ? message : "");
     document.getElementById("edit-strip").classList.remove("hidden");
     return;
   }
@@ -637,6 +643,26 @@ function edit(fields) {
   return form;
 }
 
+//: Set when the visitor puts the out-of-money notice away. The book is polled
+//: every 1.5s, so a notice that came back on the next poll would be a nag.
+let fundsNoticeDismissed = false;
+
+/** Show (or take down) the "your wallet ran out" notice. */
+function showFundsNotice(text) {
+  const notice = document.getElementById("funds-notice");
+  if (!notice) return;
+  const wanted = Boolean(text) && !fundsNoticeDismissed;
+  if (wanted) document.getElementById("funds-notice-text").textContent = text;
+  notice.classList.toggle("hidden", !wanted);
+}
+
+function wireFundsNotice() {
+  document.getElementById("funds-dismiss")?.addEventListener("click", () => {
+    fundsNoticeDismissed = true;
+    document.getElementById("funds-notice")?.classList.add("hidden");
+  });
+}
+
 function wireEdits() {
   const redrawDialog = document.getElementById("redraw-dialog");
   const faceDialog = document.getElementById("face-dialog");
@@ -679,6 +705,7 @@ function wireEdits() {
   wireFaceDialog(faceDialog);
 
   document.getElementById("delete-book").addEventListener("click", () => void deleteBook());
+  wireFundsNotice();
 }
 
 async function saveAbout(fields) {

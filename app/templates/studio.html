@@ -83,7 +83,7 @@
           <figcaption>Storybook portrait</figcaption>
         </figure>
         <div class="comic-actions">
-          <button type="button" class="button primary" data-action="comic" disabled>Draw the portrait</button>
+          <button type="button" class="button primary" data-action="comic" disabled>Draw the portrait{% if picture_price %} — {{ picture_price }}{% endif %}</button>
           {% if section.required %}
           <button type="button" class="button primary big hidden" data-action="love">That's them! <span aria-hidden="true">→</span></button>
           {% endif %}
@@ -114,6 +114,7 @@
     <section class="screen-intro">
       <h1 id="photo-title">A photo of <span data-role="star-name">the star</span></h1>
       <p>We draw them as their storybook self. This face is on every page.</p>
+      {% if picture_price %}<p class="field-help">Each portrait is {{ picture_price }} a picture, taken from your wallet as it is drawn.</p>{% endif %}
     </section>
     {{ character(sections[0]) }}
     <div class="step-actions">

@@ -530,11 +530,17 @@ print-sized JPEGs, so a finished book is a few megabytes rather than the ~42 MB
 it used to be — small enough to assemble, download and view on a 512 MB
 instance.
 
-The wallet fee is taken once per book, so edits add no further fee. In image
-calls the edit surface is priced honestly: redrawing one page is one image call;
-replacing the star redraws the whole book and cover; replacing the mother, old
-man or giant redraws only the pages that cast them; rewriting the About text or
-changing the title rebuilds the PDF with no model call. The original photo,
+The wallet fee is taken once per book, and it includes the pictures the book
+draws for itself — its cover and every story page. Every picture drawn on
+request after that costs 15¢, taken from the wallet as it is drawn: a portrait,
+a redrawn page or cover, and each page a replaced face touches. The runner asks
+the wallet before every picture; when the balance cannot cover the next one the
+job stops, the pictures already made are kept, and the book page says so in a
+notice the visitor can dismiss. Finishing it later draws only the missing
+pictures and buys each one. Replacing the star redraws the whole book and
+cover; replacing the mother, old man or giant redraws only the pages that cast
+them; rewriting the About text or changing the title rebuilds the PDF with no
+model call and no charge. The original photo,
 portrait, settings and every supplied character face are stored with the book,
 so an edit still works after the upload draft has expired. One edit per book may
 run at a time (`409 book_busy`), and a session that expires mid-render sends the
@@ -1132,11 +1138,21 @@ and the wallet page does not exist — the rest of the app is unchanged.
   page, so card details never touch this app. On return, the session id is read
   back from Stripe with the secret key; only a **paid** session in that closed
   set is credited, once, keyed by session id.
-- **One picture book costs 99¢.** The start endpoint refuses a book the wallet
-  cannot cover (HTTP 402 with the price and the balance); the fee is actually
-  taken when the finished PDF is written, so a book that never finishes is
-  never charged. The charge is idempotent per book id, so edits that rebuild
-  the PDF do not charge twice.
+- **One picture book costs 99¢**, and that covers the cover and every story
+  page it draws. The start endpoint refuses a book the wallet cannot cover
+  (HTTP 402 with the price and the balance); the fee is actually taken when the
+  finished PDF is written, so a book that never finishes is never charged. The
+  charge is idempotent per book id, so edits that rebuild the PDF do not charge
+  twice.
+- **Every picture drawn on request costs 15¢** (`PICTURE_PRICE_CENTS`): a
+  portrait and its extra candidates, a redrawn page or cover, the pages a
+  replaced face touches, and the missing pictures of a book being finished.
+  Each is paid for just before it is drawn, so two pictures racing each other
+  cannot both spend the last 15¢. When the next one cannot be covered, the job
+  stops with what it has drawn kept (`error_code: out_of_funds` on the book's
+  status) and the reader offers the way back rather than a ledger gone
+  negative. A retry the reviewer causes is the app's own quality control and
+  is inside the picture's one charge.
 - **Refunds go back to the card.** Everything refundable is requested at once:
   the amount leaves the wallet immediately (so it cannot be requested twice),
   and is then sent through Stripe against the funding payments oldest first. A
@@ -1215,7 +1231,8 @@ A failed call is logged at no cost.
 | `DRAFT_RETENTION_HOURS` | `24` | How long an uploaded photo and the portraits made from it are kept. Swept on boot and hourly. |
 | `BOOK_RETENTION_DAYS` | `7` | How long a finished (or failed) book is kept after it started; then its portrait, pages and PDF are deleted. |
 | `DATABASE_URL` | *(empty)* | Postgres URL (Neon pooled endpoint). Set = the database is Postgres and survives redeploys; empty = a local SQLite file under `STORAGE_DIR`, created and migrated on boot. Both run the same schema and the same code. |
-| `STRIPE_SECRET_KEY` | *(empty)* | Stripe **sandbox** secret key (`sk_test_...`). Set = wallets, top-ups, a 99¢ per-book fee and card refunds; empty = free books, no wallet page. |
+| `STRIPE_SECRET_KEY` | *(empty)* | Stripe **sandbox** secret key (`sk_test_...`). Set = wallets, top-ups, a 99¢ per-book fee and card refunds; empty = free books, free pictures, no wallet page. |
+| `PICTURE_PRICE_CENTS` | `15` | What one picture drawn beyond a book's own fee costs (a portrait, a redraw, a replaced face's pages), taken from the wallet as it is drawn. The book's own cover and story pages are inside its fee. |
 
 `MAX_UPLOAD_MB` and `STORAGE_DIR` map to `MAX_UPLOAD_MB` and `STORAGE_DIR`.
 

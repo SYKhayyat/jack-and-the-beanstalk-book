@@ -66,8 +66,8 @@
     {#- The book is whole and downloadable; a picture in it is marked on paper
         as not drawn. This is the one press that fills it (B2). #}
     <div class="failed-row" id="finished-missing-row">
-      <p class="inline-message error">{{ "One picture" if missing_count == 1 else missing_count ~ " pictures" }} couldn’t be drawn. The book is ready without {{ "it" if missing_count == 1 else "them" }} — finishing takes one press.</p>
-      <button type="button" class="button primary" id="finish-missing">Finish this book</button>
+      <p class="inline-message error">{{ "One picture" if missing_count == 1 else missing_count ~ " pictures" }} couldn’t be drawn. The book is ready without {{ "it" if missing_count == 1 else "them" }} — finishing draws {{ "it" if missing_count == 1 else "them" }}{% if picture_price %}, {{ picture_price }} a picture{% endif %}.</p>
+      <button type="button" class="button primary" id="finish-missing">Finish this book{% if picture_price %} — {{ picture_price }} a picture{% endif %}</button>
     </div>
     {% endif %}
     <div class="finished-actions">
@@ -85,9 +85,15 @@
     <p class="progress-caption" id="progress-caption" role="status" aria-live="polite">
       {% if status == "failed" %}{{ done_count }} of {{ tiles|length }} pictures — this book stopped early.{% else %}Your book is being drawn. {{ done_count }} of {{ tiles|length }} pages finished.{% endif %}
     </p>
+    {#- Ran out of wallet money: said once, and easy to put away. The button
+        that reads the rest is in the failed row below (B4). #}
+    <div class="funds-notice{% if error_code != 'out_of_funds' %} hidden{% endif %}" id="funds-notice">
+      <p class="inline-message error" id="funds-notice-text">{{ error }}</p>
+      <button type="button" class="icon-button" id="funds-dismiss" aria-label="Dismiss this notice">✕</button>
+    </div>
     <div class="failed-row{% if status != 'failed' %} hidden{% endif %}" id="failed-row">
-      <p class="inline-message error" id="failed-message">{{ error or "Some pictures didn't make it." }}</p>
-      <button type="button" class="button primary" id="finish-book">Finish this book</button>
+      <p class="inline-message error{% if error_code == 'out_of_funds' %} hidden{% endif %}" id="failed-message">{{ error or "Some pictures didn't make it." }}</p>
+      <button type="button" class="button primary" id="finish-book">Finish this book{% if picture_price %} — {{ picture_price }} a picture{% endif %}</button>
     </div>
   </section>
 
@@ -109,9 +115,9 @@
     <h2 id="edit-title">Edit this book</h2>
     <p class="field-help">{{ edit_note }}</p>
     <div class="edit-actions">
-      <button type="button" class="button" id="edit-page">Redraw this page</button>
-      <button type="button" class="button" id="edit-cover">Redraw the cover</button>
-      <button type="button" class="button" id="edit-face">Replace a face</button>
+      <button type="button" class="button" id="edit-page">Redraw this page{% if picture_price %} — {{ picture_price }}{% endif %}</button>
+      <button type="button" class="button" id="edit-cover">Redraw the cover{% if picture_price %} — {{ picture_price }}{% endif %}</button>
+      <button type="button" class="button" id="edit-face">Replace a face{% if picture_price %} — {{ picture_price }} a picture{% endif %}</button>
       <button type="button" class="button" id="edit-about">Edit the About page</button>
       <button type="button" class="button danger" id="delete-book">Delete this book</button>
     </div>
@@ -127,7 +133,7 @@
         <label class="chip"><input type="checkbox" name="reason" value="{{ fault.value }}"><span>{{ fault.label }}</span></label>
         {% endfor %}
       </div>
-      <div class="modal-actions"><button type="submit" value="cancel" class="button">Cancel</button><button type="submit" value="save" class="button primary">Redraw it</button></div>
+      <div class="modal-actions"><button type="submit" value="cancel" class="button">Cancel</button><button type="submit" value="save" class="button primary">Redraw it{% if picture_price %} — {{ picture_price }}{% endif %}</button></div>
     </form>
   </dialog>
 
@@ -147,7 +153,7 @@
       <button type="button" class="button hidden" id="face-shutter">Take the picture</button>
       <span class="plate-frame small hidden" id="face-preview-frame"><img id="face-preview" alt="The replacement photo"></span>
       <p class="inline-message hidden" id="face-message" role="status" aria-live="polite"></p>
-      <div class="modal-actions"><button type="submit" value="cancel" class="button">Cancel</button><button type="submit" value="save" class="button primary">Replace this face</button></div>
+      <div class="modal-actions"><button type="submit" value="cancel" class="button">Cancel</button><button type="submit" value="save" class="button primary">Replace this face{% if picture_price %} — {{ picture_price }} a picture{% endif %}</button></div>
     </form>
   </dialog>
 

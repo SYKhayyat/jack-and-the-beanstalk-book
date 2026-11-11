@@ -15,6 +15,8 @@ from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.pricing import PICTURE_PRICE_CENTS
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -396,6 +398,17 @@ class Settings(BaseSettings):
             "How long a finished (or failed) book is kept before its pages, "
             "portrait and PDF are deleted. Books of a child's photographs should "
             "not be retained forever, and a database has a size limit."
+        ),
+    )
+
+    picture_price_cents: int = Field(
+        default=PICTURE_PRICE_CENTS,
+        ge=1,
+        le=10_000,
+        description=(
+            "What one picture drawn beyond a book's own fee costs: a portrait, "
+            "a redrawn page or cover, a face swap's pictures. The book's own "
+            "cover and story pages stay inside its document price."
         ),
     )
 

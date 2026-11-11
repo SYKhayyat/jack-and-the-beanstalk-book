@@ -79,11 +79,12 @@ def test_a_second_book_cannot_spend_the_fee_set_aside_for_the_first(
 ) -> None:
     provider = _HoldingProvider(free_calls=1)  # the portrait, then hold
     with wallet_app(settings, provider, stripe) as (client, _):
-        # The top-up route only offers $5/$10/$20, so fund the exact price the
-        # test needs through the wallet itself.
+        # The top-up route only offers $5/$10/$20, so fund the exact money the
+        # test needs through the wallet itself: one picture for the portrait
+        # and exactly one book's fee behind it.
         cast(Any, client.app).state.container.wallet.fund(
             SUB,
-            amount_cents=99,
+            amount_cents=99 + 15,
             session_id="cs_exact_price",
             payment_id="pi_exact_price",
             description="Test top-up",
@@ -148,5 +149,5 @@ def test_an_account_that_can_pay_for_two_books_may_start_two(
                 time.sleep(0.05)
             assert status == "complete", status
 
-    # Two documents, two fees.
-    assert "$8.02" in client.get("/wallet").text
+    # Two documents, two fees, and the portrait's one picture.
+    assert "$7.87" in client.get("/wallet").text

@@ -156,7 +156,7 @@ def build_container(
         persistence_mode(engine),
     )
     gate = ConcurrencyGate(settings.max_concurrent_generations)
-    wallet = Wallet(wallet_store)
+    wallet = Wallet(wallet_store, picture_price_cents=settings.picture_price_cents)
     return Container(
         settings=settings,
         provider=resolved,

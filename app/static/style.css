@@ -2422,6 +2422,20 @@ body.in-story-time {
 .failed-row p {
   margin: 0;
 }
+/* The out-of-money notice: one sentence and a ✕ to put it away (B4). */
+.funds-notice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+.funds-notice p {
+  margin: 0;
+}
+.funds-notice .icon-button {
+  flex: none;
+}
 .finished-title {
   margin-top: 0;
   font-size: 22px;
@@ -2541,6 +2555,12 @@ body.in-story-time {
   font-size: 14px;
 }
 .wallet-kind {
+  display: block;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+/* Which picture a charge bought ("Page 7 — $0.15"). */
+.wallet-what {
   display: block;
   font-size: 13px;
   color: var(--ink-soft);

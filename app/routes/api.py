@@ -13,7 +13,13 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
 
 from app.dependencies import ContainerDep
-from app.errors import GenerationRateLimited, GenerationTimeout, InvalidSettings, ServerBusy
+from app.errors import (
+    GenerationRateLimited,
+    GenerationTimeout,
+    InvalidSettings,
+    PaymentRequired,
+    ServerBusy,
+)
 from app.models import (
     REJECTION_LABELS,
     ApparentAge,
@@ -42,6 +48,7 @@ from app.services.images import InvalidImage, decode_upload
 from app.services.pipeline import UnknownGeneration
 from app.services.storage import Draft, candidate_url, draft_urls
 from app.services.story_settings import story_rules
+from app.services.wallet import InsufficientFunds, format_cents
 
 SettingsDep = Annotated[CartoonSettings, Depends(cartoon_settings_from_form)]
 
@@ -128,7 +135,22 @@ async def cartoonify(
     # Read the upload before billing anything: a missing, oversized or
     # unreadable file never reaches the model, so it must not spend quota.
     raw = await _read_upload(photo, container)
+    # The brake comes first: a request refused for being over this minute's
+    # allowance never touches the wallet, so there is nothing to give back.
     _check_generation_rate(request, container, tokens=settings.candidates)
+    # A portrait is a purchase like any other picture: its price is taken before
+    # the model is asked, so an account that cannot pay draws nothing. The
+    # reference comes back so unused candidates can be returned to the wallet.
+    owner = _user_id(session)
+    try:
+        portrait_charge = await asyncio.to_thread(
+            _charge_portrait, container, owner, settings.candidates
+        )
+    except PaymentRequired:
+        # Refused for money: the images were never drawn, so give the minute's
+        # allowance back rather than charging the next attempt for both.
+        container.rate_limiter.refund(_client_key(request), settings.candidates)
+        raise
     pipeline = container.pipeline
     budget = container.settings.generation_timeout_seconds
     feedback = _rejection_from_form(reasons or [])
@@ -148,9 +170,12 @@ async def cartoonify(
         draft = await _run_gated(container, work, "cartoonify")
     except (InvalidImage, ServerBusy):
         # Neither path reached the provider (the image failed to decode, or the
-        # gate refused the request before any call), so the admission is
-        # refunded in full.
+        # gate refused the request before any call), so the admission and the
+        # money are both returned in full.
         container.rate_limiter.refund(_client_key(request), settings.candidates)
+        await asyncio.to_thread(
+            _refund_portrait, container, owner, portrait_charge, settings.candidates
+        )
         raise
 
     # A provider that cannot return alternatives answers with fewer images
@@ -158,6 +183,7 @@ async def cartoonify(
     unused = settings.candidates - len(draft.candidates)
     if unused > 0:
         container.rate_limiter.refund(_client_key(request), unused)
+        await asyncio.to_thread(_refund_portrait, container, owner, portrait_charge, unused)
     await asyncio.to_thread(
         container.portraits.record_draw, draft, user_id=_user_id(session), rejection=feedback
     )
@@ -249,6 +275,67 @@ async def choose_candidate(
 
 
 # --- shared helpers ---------------------------------------------------------
+
+
+def _charge_portrait(container: ContainerDep, user_id: str | None, count: int) -> str | None:
+    """Take the price of a portrait's pictures, before any is drawn.
+
+    Each candidate is one picture and is paid for like any other picture drawn
+    on request. A deployment without payments, and a visitor with no account to
+    charge, draw for free — that is the local/demo behaviour and the promise a
+    password-only deployment makes.
+
+    Returns:
+        The charge's reference, so candidates the provider never returned can
+        be paid back; None when nothing was charged.
+    """
+    if container.payments is None or not user_id:
+        return None
+    price = container.wallet.picture_price_cents
+    balance = container.wallet.balance_cents(user_id)
+    amount = price * count
+    noun = "picture" if count == 1 else "pictures"
+    if balance < amount:
+        raise PaymentRequired(
+            f"A portrait is {format_cents(price)} a picture, so {count} {noun} "
+            f"cost{'s' if count == 1 else ''} {format_cents(amount)} — and your "
+            f"wallet has {format_cents(balance)}. Add money with the + $5 button "
+            "in the header, or on your wallet page, then upload the photo again."
+        )
+    reference = f"portrait:{uuid4().hex}"
+    try:
+        container.wallet.charge_picture(
+            user_id,
+            reference=reference,
+            count=count,
+            description=f"A portrait for a new book — {count} {noun}, {format_cents(amount)}",
+        )
+    except InsufficientFunds as exc:  # pragma: no cover - the balance was just read
+        raise PaymentRequired(
+            f"A portrait is {format_cents(price)} a picture and your wallet has "
+            f"{format_cents(container.wallet.balance_cents(user_id))}."
+        ) from exc
+    return reference
+
+
+def _refund_portrait(
+    container: ContainerDep, user_id: str | None, reference: str | None, count: int
+) -> None:
+    """Give back pictures the provider was paid for and did not return."""
+    if reference is None or not user_id or count < 1:
+        return
+    try:
+        container.wallet.refund_picture(
+            user_id,
+            reference=f"{reference}:unused-{count}",
+            count=count,
+            description=(
+                f"A portrait's {count} picture{'s' if count != 1 else ''} not drawn "
+                "— returned to your balance"
+            ),
+        )
+    except Exception:  # pragma: no cover - a returned fee must never fail a request
+        logger.warning("cartoonify.refund_failed user=%s", user_id, exc_info=True)
 
 
 def _rejection_from_form(reasons: list[str]) -> RejectionFeedback:

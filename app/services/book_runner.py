@@ -88,7 +88,7 @@ from app.services.reviewer import (
 from app.services.storage import GenerationStore
 from app.services.template_store import PlateArt, PremadeArt, TemplateStore
 from app.services.vitals import rss_mb
-from app.services.wallet import Wallet
+from app.services.wallet import OutOfFunds, Wallet
 
 __all__ = ["FIXABLE_FAULTS", "MAX_PAGE_ATTEMPTS", "BookRunner", "CharacterReference"]
 
@@ -348,6 +348,8 @@ class BookRunner:
                 draw_cover=True,
                 only_missing=False,
                 requested_fixes={},
+                # A new book's pictures are inside its own fee.
+                picture_payment=None,
                 resumed=False,
             ),
         )
@@ -361,6 +363,7 @@ class BookRunner:
         only_missing: bool = False,
         requested_fixes: Mapping[int, Sequence[str]] | None = None,
         page_charge: Callable[[], bool] | None = None,
+        picture_payment: Callable[[str], None] | None = None,
         resumed: bool = False,
     ) -> None:
         """Mark the edit as rendering, then schedule it; returns before any call.
@@ -379,9 +382,13 @@ class BookRunner:
         that already finished untouched (the retry path). `requested_fixes`
         maps a page to what its owner said was wrong with it — `PageFault`
         names, the same vocabulary the reviewer uses — and steers every attempt
-        at that page, the first one included. `resumed` is a restart picking
-        the job up again (`recover`): its window and resume count are kept, and
-        finished pictures outside the job's own pages count as done.
+        at that page, the first one included. `picture_payment` is asked for
+        the price of each picture the job is about to draw, and raises
+        `OutOfFunds` when the wallet cannot cover it: the job then stops with
+        the pictures already made kept, rather than drawing on credit. `resumed`
+        is a restart picking the job up again (`recover`): its window and resume
+        count are kept, and finished pictures outside the job's own pages count
+        as done.
         """
         self._ensure_idle(book_id)
         fixes = dict(requested_fixes or {})
@@ -398,6 +405,7 @@ class BookRunner:
                 draw_cover=draw_cover,
                 only_missing=only_missing,
                 requested_fixes=fixes,
+                picture_payment=picture_payment,
                 resumed=resumed,
             )
 
@@ -654,6 +662,7 @@ class BookRunner:
         draw_cover: bool,
         only_missing: bool,
         requested_fixes: Mapping[int, Sequence[str]],
+        picture_payment: Callable[[str], None] | None,
         resumed: bool,
     ) -> None:
         record = await asyncio.to_thread(self._book_store.load_record, book_id)
@@ -802,6 +811,10 @@ class BookRunner:
                 premade = _premade_for(page, artwork, requested_fixes)
                 if premade is not None:
                     return await _use_premade(page, premade)
+                # Paid for once per page, before any attempt: a retry the
+                # reviewer causes is the app's own quality control and is part
+                # of what the one charge buys.
+                await _pay_for_picture(picture_payment, f"Page {page.number}")
                 page_photos = [name for name in page.cast if name in artwork.characters]
                 photo_only = frozenset(
                     ([""] if artwork.photo_is_portrait and page.star_in_picture else [])
@@ -994,7 +1007,13 @@ class BookRunner:
             async def run_cover() -> bytes:
                 async with in_flight:
                     return await self._render_cover(
-                        record, edition, artwork, page_charge, mark, set_stage
+                        record,
+                        edition,
+                        artwork,
+                        page_charge,
+                        mark,
+                        set_stage,
+                        picture_payment=picture_payment,
                     )
 
             cover_job = [run_cover()] if draw_cover else []
@@ -1019,6 +1038,10 @@ class BookRunner:
                     if isinstance(result, BaseException):
                         if not isinstance(result, Exception):
                             raise result  # a cancellation must still stop the job
+                        if isinstance(result, OutOfFunds):
+                            # Money, not a bad picture: stop with what exists so
+                            # the wallet can be topped up and the book finished.
+                            raise result
                         if (
                             await asyncio.to_thread(
                                 self._book_store.read_page, book_id, page.number
@@ -1103,6 +1126,18 @@ class BookRunner:
                 user=user,
                 elapsed_ms=(monotonic() - started) * 1000,
             )
+        except OutOfFunds as exc:
+            # A redraw is a purchase: the wallet could not cover the next
+            # picture, so nothing more was drawn and everything made so far is
+            # kept. The book page shows this sentence and the way back.
+            logger.warning("book.out_of_funds user=%s book=%s", user, book_id)
+            await self._fail_off_loop(
+                book_id,
+                str(exc),
+                user=user,
+                elapsed_ms=(monotonic() - started) * 1000,
+                code="out_of_funds",
+            )
         except Exception as exc:  # keep the completed pages visible whatever happened
             logger.exception("book.failed user=%s book=%s", user, book_id)
             await self._fail_off_loop(
@@ -1113,7 +1148,13 @@ class BookRunner:
             )
 
     async def _fail_off_loop(
-        self, book_id: str, message: str, *, user: str, elapsed_ms: float
+        self,
+        book_id: str,
+        message: str,
+        *,
+        user: str,
+        elapsed_ms: float,
+        code: str | None = None,
     ) -> None:
         """`_fail`, on a worker thread: it reads and writes the database.
 
@@ -1121,7 +1162,7 @@ class BookRunner:
         server shuts down, when there is nothing left on the loop to starve.
         """
         await asyncio.to_thread(
-            partial(self._fail, book_id, message, user=user, elapsed_ms=elapsed_ms)
+            partial(self._fail, book_id, message, user=user, elapsed_ms=elapsed_ms, code=code)
         )
 
     async def _render_cover(
@@ -1132,6 +1173,8 @@ class BookRunner:
         page_charge: Callable[[], bool] | None,
         mark: Callable[[int, str], Awaitable[None]],
         set_stage: Callable[[str, int, int], Awaitable[None]],
+        *,
+        picture_payment: Callable[[str], None] | None = None,
     ) -> bytes:
         """Draw and persist the cover, alongside the pages.
 
@@ -1199,6 +1242,7 @@ class BookRunner:
                 self._page_call(sent, sent_types, prompt, artwork.settings, "book-cover")
             )
 
+        await _pay_for_picture(picture_payment, "The cover")
         attempts = await self._draw_until_pass(
             book_id=record.book_id,
             page_number=COVER_NUMBER,
@@ -1839,7 +1883,13 @@ class BookRunner:
         return characters
 
     def _fail(
-        self, book_id: str, message: str, *, user: str = "-", elapsed_ms: float = 0.0
+        self,
+        book_id: str,
+        message: str,
+        *,
+        user: str = "-",
+        elapsed_ms: float = 0.0,
+        code: str | None = None,
     ) -> None:
         # The book may have been deleted while its job was unwinding. There is
         # nothing to report to and nowhere to write it: stay quiet.
@@ -1862,6 +1912,9 @@ class BookRunner:
             pages,
             error=message,
             title=record.title,
+            # A machine-readable "why": the reader shows the wallet warning for
+            # `out_of_funds` and leaves every other failure to its own message.
+            extra={"error_code": code} if code else None,
         )
         done = sum(1 for entry in pages if entry.get("status") == "done")
         logger.error(
@@ -1983,6 +2036,18 @@ def _rendered(edition: StoryEdition, record: BookRecord) -> tuple[BookPage, ...]
         render_book_page(page, record.settings, prompt_name=record.about.prompt_name)
         for page in edition.pages
     )
+
+
+async def _pay_for_picture(payment: Callable[[str], None] | None, label: str) -> None:
+    """Pay for the picture about to be drawn, or raise `OutOfFunds`.
+
+    The callable is the route's: it knows the price and the wallet and raises
+    `OutOfFunds` with the sentence the book page shows. This wrapper only gets
+    it off the event loop, because the wallet reads and writes the database.
+    """
+    if payment is None:
+        return
+    await asyncio.to_thread(payment, label)
 
 
 async def _await_page_charge(charge: Callable[[], bool] | None) -> None:

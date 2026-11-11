@@ -13,6 +13,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -438,6 +439,15 @@ def test_a_refund_is_requested_and_waits_for_the_operator(browser) -> None:
 
 def test_with_nothing_in_the_wallet_a_book_is_refused_before_it_renders(browser) -> None:
     client, _ = browser
+    # A picture is bought before it is drawn, so the wallet needs the portrait's
+    # 15¢ to see one; it is the book's 99¢ that is still missing.
+    cast(Any, client.app).state.container.wallet.fund(
+        SUB,
+        amount_cents=15,
+        session_id="cs_one_portrait",
+        payment_id="pi_one_portrait",
+        description="Test top-up",
+    )
     portrait = client.post(
         "/api/cartoonify",
         files={"photo": ("me.png", make_photo_bytes(), "image/png")},
@@ -484,9 +494,11 @@ def test_a_funded_book_is_charged_when_its_pdf_is_written(browser) -> None:
     assert status == "complete"
 
     page = client.get("/wallet").text
-    assert "$9.01" in page
+    # $10, less the portrait's picture and the book's fee.
+    assert "$8.86" in page
     assert "Book" in page
     assert "\u2212$0.99" in page
+    assert "\u2212$0.15" in page
 
 
 class _StallingProvider(RecordingProvider):
@@ -574,7 +586,7 @@ def test_a_book_a_restart_interrupts_resumes_and_is_charged_once(
         assert {number: after[number] for number in kept} == kept
         page = client.get("/wallet").text
     assert page.count("\u2212$0.99") == 1
-    assert "$9.01" in page
+    assert "$8.86" in page  # $10, less the portrait and the one fee
     resumed = [
         record.getMessage()
         for record in caplog.records

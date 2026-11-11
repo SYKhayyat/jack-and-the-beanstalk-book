@@ -45,6 +45,8 @@ from app.services.wallet import (
     FUNDING_AMOUNTS_CENTS,
     KIND_CHARGE,
     KIND_FUNDING,
+    KIND_PICTURE,
+    KIND_PICTURE_REFUND,
     KIND_REFUND,
     KIND_REFUND_REVERSAL,
     REFUND_FAILED,
@@ -71,6 +73,8 @@ _KIND_FILTERS = (
     ("all", "All"),
     (KIND_FUNDING, "Top-ups"),
     (KIND_CHARGE, "Book fees"),
+    (KIND_PICTURE, "Pictures"),
+    (KIND_PICTURE_REFUND, "Returned pictures"),
     (KIND_REFUND, "Refunds"),
     (KIND_REFUND_REVERSAL, "Adjustments"),
 )
@@ -151,7 +155,7 @@ def wallet_page(
     kind_filter = kind if kind in _KIND_LABELS else "all"
     # A top-up or a refund is not tied to a book; ignore a book filter that a
     # hand-written URL pairs with one of those kinds.
-    if kind_filter not in ("all", KIND_CHARGE):
+    if kind_filter not in ("all", KIND_CHARGE, KIND_PICTURE, KIND_PICTURE_REFUND):
         book_filter = "all"
     else:
         book_filter = book if book in book_options else "all"
@@ -189,7 +193,8 @@ def wallet_page(
             ],
             # A top-up or a refund is not tied to a book; only offer the book
             # filter where it can actually change the list.
-            "book_filter_relevant": kind_filter in ("all", KIND_CHARGE),
+            "book_filter_relevant": kind_filter
+            in ("all", KIND_CHARGE, KIND_PICTURE, KIND_PICTURE_REFUND),
             "filters_active": filters_active,
             "clear_href": _filter_href("all", "all"),
             "refunds": [
@@ -391,9 +396,17 @@ def _filter_href(kind: str, book: str) -> str:
 
 
 def _book_id(reference: str | None) -> str:
-    """The book id behind a ledger entry, or an empty string."""
-    if reference and reference.startswith("book:"):
+    """The book id behind a ledger entry, or an empty string.
+
+    A book fee names it as `book:<id>`, a picture bought for a book as
+    `picture:<id>:<job>:<n>`, so the history can link either back to its book.
+    """
+    if not reference:
+        return ""
+    if reference.startswith("book:"):
         return reference.removeprefix("book:")
+    if reference.startswith("picture:"):
+        return reference.removeprefix("picture:").split(":", 1)[0]
     return ""
 
 
