@@ -52,7 +52,6 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
-FONTS_DIR = BASE_DIR / "assets" / "fonts"
 
 
 def _short_date(stamp: object) -> str:
@@ -295,9 +294,9 @@ def create_app(
     # not the configured operator.
     app.include_router(admin.router)
     app.include_router(admin_status.router)
-    # The book face the PDF already bundles, served to the pages too. Mounted
-    # under /static so the login page (which is pre-session) can load it.
-    app.mount("/static/fonts", RevalidatedStaticFiles(directory=FONTS_DIR), name="fonts")
+    # The web faces are WOFF2 copies in app/static/webfonts, served by the
+    # static mounts below under the fingerprinted prefix (S6). The TTFs in
+    # app/assets/fonts are the PDF's own and are not served to a browser.
     # The fingerprinted path pages link (see `static_build`) comes before the
     # plain one, which stays for the favicon, the covers and anything typed.
     app.mount(

@@ -5,15 +5,30 @@
 
 /* --- tokens ------------------------------------------------------------------ */
 
+/* WOFF2 of the same two faces the PDF embeds (S6): 203 KB together instead of
+   640 KB of TTF, which a browser revalidated on every visit. The URLs are
+   relative, so they resolve under whatever prefix the page loaded the
+   stylesheet from — the fingerprinted `/static/<build>/` in a page, which the
+   app serves immutable, or plain `/static/`.
+
+   Regenerate after replacing a face (needs `pip install brotli`):
+     python - <<'PY'
+     from fontTools.ttLib import TTFont
+     for name in ("Literata-Regular", "Literata-Bold"):
+         font = TTFont(f"app/assets/fonts/{name}.ttf")
+         font.flavor = "woff2"
+         font.save(f"app/static/webfonts/{name}.woff2")
+     PY
+   The TTFs stay in app/assets/fonts for the PDF only. */
 @font-face {
   font-family: "Literata";
-  src: url("/static/fonts/Literata-Regular.ttf") format("truetype");
+  src: url("webfonts/Literata-Regular.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: "Literata";
-  src: url("/static/fonts/Literata-Bold.ttf") format("truetype");
+  src: url("webfonts/Literata-Bold.woff2") format("woff2");
   font-weight: 600 800;
   font-display: swap;
 }

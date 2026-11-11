@@ -9,6 +9,11 @@
   <title>{% block title %}Storybook Studio{% endblock %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <meta name="description" content="Snap one photo and get a real picture book starring your kid: Jack and the Beanstalk or Little Red Riding Hood, their face on every page.">
+  {#- Both faces are used above the fold; starting them beside the stylesheet
+      saves a round trip on every visit (S6). The href must match the URL the
+      CSS resolves to, fingerprint included, or the browser downloads twice. #}
+  <link rel="preload" href="{{ static_url }}/webfonts/Literata-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="{{ static_url }}/webfonts/Literata-Bold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ static_url }}/style.css">
 </head>
 <body {% block body_attrs %}{% endblock %}>

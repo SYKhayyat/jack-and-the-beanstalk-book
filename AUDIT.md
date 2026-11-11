@@ -211,6 +211,8 @@ See B12. Measured 0.28 s (800 px) and 0.38 s (1600 px) per 1152×864 image on a 
 ### S6 — P2: fonts are still 300 KB TTFs, revalidated every load
 `@font-face` points at `Literata-Regular.ttf` (316 KB) and `Literata-Bold.ttf` (324 KB); `/static/fonts` is mounted `no-cache` (`app/main.py:288`, `app/static/style.css:8–18`). A browser must revalidate two large files on each visit. Convert to WOFF2 subsets (30–40 KB), fingerprint and cache immutably, and preload the bold face used for headings.
 
+**Done (11 Nov 2026):** both web faces are WOFF2 in `app/static/webfonts/` — 203 KB for the pair instead of 640 KB — and the stylesheet points at them with a relative URL, so they load under the fingerprinted `/static/<build>/` prefix and are served `immutable`. `_layout.html` preloads both faces, and the TTF mount under `/static/fonts` is gone: the TTFs in `app/assets/fonts` are the PDF's only. Not subsetted: a visitor may type any name into the About page (Hebrew included), so dropping glyphs would break their book. Pinned by `test_the_web_fonts_are_woff2_under_the_fingerprint`.
+
 ### S7 — P2: the PDF is built at the very end and served as one in-memory blob
 `assemble` reads every page blob and builds the PDF after all pages are done (`book_runner.py:812`); the 4.7 MB result is then served by `book_pdf` as one `Response`. Fine at this scale, but a 21-page book's PDF is the last thing to appear and there is no progress for it. If books grow, stream or cache the PDF bytes in the row (they already live there) and show “putting the book together” progress (the UI already has the phase).
 

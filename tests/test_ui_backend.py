@@ -307,7 +307,7 @@ class TestSignedOutShelf:
         with _locked(tmp_path) as client:
             for path in (
                 "/static/style.css",
-                "/static/fonts/Literata-Bold.ttf",
+                "/static/webfonts/Literata-Bold.woff2",
                 "/static/covers/little_red_riding_hood/ava.jpg",
                 "/static/carousel.js",
             ):

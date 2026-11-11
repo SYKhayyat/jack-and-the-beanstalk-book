@@ -605,8 +605,37 @@ def test_the_generation_response_does_not_name_the_backend(
     assert "model" not in response.json()
 
 
+def test_the_web_fonts_are_woff2_under_the_fingerprint(
+    client: TestClient, shelf_html: str
+) -> None:
+    """S6: 640 KB of TTF revalidated on every visit became 203 KB of WOFF2.
+
+    The stylesheet points at the WOFF2 copies, the page preloads both faces
+    from the fingerprinted prefix, and that prefix serves them immutable. The
+    PDF's TTFs are no longer offered to a browser at all.
+    """
+    css = _read("style.css")
+    assert 'url("webfonts/Literata-Regular.woff2") format("woff2")' in css
+    assert 'url("webfonts/Literata-Bold.woff2") format("woff2")' in css
+    sources = re.findall(r'src: url\("([^"]+)"\)', css)
+    assert sources and all(source.endswith(".woff2") for source in sources), sources
+    build = re.search(r'href="(/static/[0-9a-f]{12})/style\.css"', shelf_html)
+    assert build, "the stylesheet link lost its fingerprint"
+    prefix = build.group(1)
+    for face in ("Regular", "Bold"):
+        assert (
+            f'<link rel="preload" href="{prefix}/webfonts/Literata-{face}.woff2"'
+            in shelf_html
+        )
+        response = client.get(f"{prefix}/webfonts/Literata-{face}.woff2")
+        assert response.status_code == 200, face
+        assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+        assert response.headers["content-type"] == "font/woff2"
+    assert client.get("/static/fonts/Literata-Regular.ttf").status_code == 404
+
+
 def test_static_files_are_revalidated_so_a_deploy_is_never_stale(client: TestClient) -> None:
-    for path in ("/static/studio.js", "/static/fonts/Literata-Regular.ttf"):
+    for path in ("/static/studio.js", "/static/webfonts/Literata-Regular.woff2"):
         response = client.get(path)
         assert response.status_code == 200, path
         assert response.headers["cache-control"] == "no-cache"
