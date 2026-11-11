@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from app.services.book_store import BookStatus
 from app.services.pictures import (
     THUMB_WIDTH,
     VARIANT_WIDTHS,
@@ -145,6 +146,7 @@ def test_the_reader_sets_every_page_as_a_book(finished: tuple[TestClient, str]) 
     assert 'aria-label="Page 2,' in html
     assert 'class="map-number">2<' in html
     assert 'class="spread-story story-text drop-cap"' in html
+    assert 'class="reader-tools" id="reader-tools"' in html
     assert "srcset=" in html and "?w=800&amp;v=" in html
     # The page picker stays, folded, once the book is finished (U9).
     assert re.search(r'<details class="page-picker" id="page-picker">', html)
@@ -152,6 +154,20 @@ def test_the_reader_sets_every_page_as_a_book(finished: tuple[TestClient, str]) 
     # Nothing straight where a printer would curl it.
     for story in re.findall(r'<p class="spread-story[^"]*">(.*?)</p>', html):
         assert "'" not in story and "&#39;" not in story
+
+
+def test_the_reader_tools_wait_for_the_first_story_page(
+    finished: tuple[TestClient, str],
+) -> None:
+    """The cover is not something to read aloud or turn (U2)."""
+    client, book_id = finished
+    client.app.state.container.book_store.save_status(
+        book_id,
+        BookStatus.RENDERING,
+        [{"number": 0, "status": "done"}],
+    )
+    html = client.get(f"/books/{book_id}").text
+    assert 'class="reader-tools hidden" id="reader-tools"' in html
 
 
 def test_a_finished_book_opens_on_its_cover() -> None:

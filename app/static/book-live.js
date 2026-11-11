@@ -316,6 +316,13 @@ function apply(payload) {
   const total = lastIndex;
   const inFlight = Object.values(stages);
   setProgress(done, total, inFlight);
+  // Read to me, page sound and Story time need a page to act on. The cover
+  // alone is not one, so the tools wait for the first finished story page
+  // (U2); the server renders the same initial state.
+  const readable =
+    state === "complete" ||
+    pages.some((entry) => Number(entry.number) >= 1 && entry.status === "done");
+  document.getElementById("reader-tools")?.classList.toggle("hidden", !readable);
 
   if (state === "complete") {
     // The finished book has an About spread and downloads the server renders;

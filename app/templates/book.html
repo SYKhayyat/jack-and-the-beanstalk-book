@@ -51,7 +51,8 @@
     </div>
     <div class="reader-bar">
       <span class="reader-where"><span id="page-label">Cover</span> <span class="attempt-chip hidden" id="attempt-chip"></span></span>
-      <span class="reader-tools">
+      {# Nothing to read aloud or turn yet while only the cover exists (U2). #}
+      <span class="reader-tools{% if status != 'complete' and done_count <= 1 %} hidden{% endif %}" id="reader-tools">
         <button type="button" class="tool-button" id="read-aloud" aria-pressed="false" hidden><span aria-hidden="true">🔊</span> <span data-role="label">Read to me</span></button>
         <button type="button" class="tool-button" id="page-sound" aria-pressed="false" title="A soft page-turn sound"><span aria-hidden="true">♪</span> <span data-role="label">Sound off</span></button>
         <button type="button" class="tool-button" id="story-time" aria-pressed="false"><span aria-hidden="true">⛶</span> <span data-role="label">Story time</span></button>
