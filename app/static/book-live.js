@@ -752,3 +752,26 @@ async function deleteBook() {
     say(error.message || "The book couldn't be deleted.", true);
   }
 }
+
+// --- the share link (W3) -------------------------------------------------------
+
+/* Copy, with the input as the fallback: a browser without the clipboard API (or
+   a page not served over HTTPS) still lets someone select the text. Delegated
+   from the document because the button only exists on the page that was asked
+   for a link, and a page that never asked still loads this module. */
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-copy]");
+  if (!button) return;
+  const field = document.getElementById(button.dataset.copy || "");
+  if (!field) return;
+  field.select();
+  try {
+    await navigator.clipboard.writeText(field.value);
+    button.textContent = "Copied";
+  } catch {
+    button.textContent = "Press Ctrl+C";
+  }
+  setTimeout(() => {
+    button.textContent = "Copy link";
+  }, 2500);
+});

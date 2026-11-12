@@ -85,6 +85,19 @@
     {% endif %}
     {% endif %}
     <p class="field-help"><a href="/book-media/{{ book.book_id }}/prompts.json" target="_blank" rel="noopener">See exactly what the artist was asked to draw</a></p>
+    {#- W3: a grandparent has no account here. One signed link, read-only, no
+        photo, no editing, and it stops working when the book is swept. #}
+    <div class="share-row" id="share-row">
+      {% if share_url %}
+      <label class="field-help" for="share-link">Anyone with this link can read the book until {{ share_until|short_date }}. It cannot change anything.</label>
+      <div class="share-controls">
+        <input class="share-link" id="share-link" type="text" value="{{ share_url }}" readonly spellcheck="false" onclick="this.select()">
+        <button type="button" class="button" id="copy-share-link" data-copy="share-link">Copy link</button>
+      </div>
+      {% else %}
+      <a class="button" id="make-share-link" href="/books/{{ book.book_id }}/share">Share a read-only link</a>
+      {% endif %}
+    </div>
   </section>
 
   <section class="progress-block{% if status == 'complete' %} hidden{% endif %}" id="progress-block" aria-label="Progress">

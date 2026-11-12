@@ -7,6 +7,7 @@
   <meta name="theme-color" content="#fff9f0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#17141c" media="(prefers-color-scheme: dark)">
   <title>{% block title %}Storybook Studio{% endblock %}</title>
+  {% if noindex %}{# A shared book is a child's, for whoever was sent the link. #}<meta name="robots" content="noindex, nofollow">{% endif %}
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <meta name="description" content="Snap one photo and get a real picture book starring your kid: Jack and the Beanstalk or Little Red Riding Hood, their face on every page.">
   {#- Both faces are used above the fold; starting them beside the stylesheet

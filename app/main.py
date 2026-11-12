@@ -34,7 +34,18 @@ from app.logging_context import (
     set_request_id,
 )
 from app.redaction import install_secret_redaction
-from app.routes import admin, admin_status, api, auth, book, book_media, media, wallet, web
+from app.routes import (
+    admin,
+    admin_status,
+    api,
+    auth,
+    book,
+    book_media,
+    media,
+    share,
+    wallet,
+    web,
+)
 from app.routes.auth import install_auth_gate
 from app.services.alerts import log_alerts, operator_alerts
 from app.services.google_oauth import GoogleOAuthClient
@@ -313,6 +324,7 @@ def create_app(
     app.include_router(book_media.router)
     app.include_router(media.router)
     app.include_router(wallet.router)
+    app.include_router(share.router)
     app.include_router(auth.router)
     # Operator-only, and hidden from the schema: the review screen is not part
     # of the visitor-facing app, and every route in it 404s for anybody who is

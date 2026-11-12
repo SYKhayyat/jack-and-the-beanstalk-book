@@ -44,6 +44,7 @@ from app.routes.book_access import book_edition
 from app.services.book_store import BookStatus, BookSummary
 from app.services.pictures import picture_set
 from app.services.prompts import render_book_page
+from app.services.share_links import read
 from app.services.story_settings import story_rules
 from app.services.typography import book_text
 from app.services.wallet import REFUND_REQUESTED, format_cents
@@ -195,7 +196,11 @@ def _steps(edition: StoryEdition) -> list[tuple[str, str]]:
 
 @router.get("/books/{book_id}", response_class=HTMLResponse)
 def book_page(
-    book_id: str, request: Request, container: ContainerDep, session: CurrentSessionDep
+    book_id: str,
+    request: Request,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    share: str = "",
 ) -> HTMLResponse:
     """The book: drawn live, flippable, then downloadable and editable."""
     owner = session.user_id if session else None
@@ -218,6 +223,7 @@ def book_page(
         record.created_at, container.settings.book_retention_days
     )
     heading, *sentences = (book_text(line) for line in record.about.rendered_about_lines())
+    share_url, share_until = _share_link(request, container, book_id, share)
     chrome = page_chrome(container, session, request)
     return _render(
         request,
@@ -272,6 +278,10 @@ def book_page(
             "about_photo_choices": _ABOUT_PHOTO_LABELS,
             "max_upload_mb": container.settings.max_upload_mb,
             "max_attempts": container.settings.page_attempts,
+            # A read-only link minted for this book, shown with the download
+            # buttons (W3). Empty until the owner asks for one.
+            "share_url": share_url,
+            "share_until": share_until,
         },
     )
 
@@ -322,6 +332,25 @@ async def healthz(container: ContainerDep) -> dict[str, object]:
 
 
 # --- shared context ------------------------------------------------------------
+
+
+def _share_link(
+    request: Request, container: Container, book_id: str, token: str
+) -> tuple[str, str]:
+    """The read-only link this page was asked to show, and when it stops working.
+
+    The book page is where a link is handed over: `/books/{id}/share` mints one
+    and redirects here with it, so the owner sees the URL to copy. A token for
+    another book, or an expired one, is simply not shown — the page still works.
+    """
+    if not token:
+        return "", ""
+    link = read(token, key=container.settings.session_signing_key())
+    if link is None or link.book_id != book_id:
+        return "", ""
+    base = str(request.base_url).rstrip("/")
+    until = datetime.fromtimestamp(link.expires_at, UTC).isoformat()
+    return f"{base}/share/{token}", until
 
 
 def _render(request: Request, name: str, context: dict[str, Any]) -> HTMLResponse:

@@ -3421,3 +3421,90 @@ body.in-story-time {
     font-size: 13px;
   }
 }
+
+/* --- a shared book: the gift link, read-only (W3) ----------------------------- */
+
+/* Not the reader: one scroll of a finished book for somebody with no account,
+   so it has no page turning and nothing to poll. The paper and the story type
+   are the reader's, borrowed through the same tokens. */
+.shared-book {
+  --story-size: 19px;
+  display: grid;
+  gap: 24px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px var(--gutter) 64px;
+}
+.shared-note {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+  text-align: center;
+}
+.shared-spread {
+  position: relative;
+  margin: 0;
+  padding: 18px;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+}
+.shared-spread img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: calc(var(--radius-card) - 8px);
+}
+.shared-cover {
+  text-align: center;
+}
+.shared-title {
+  margin: 14px 0 0;
+  font-size: clamp(22px, 4vw, 30px);
+}
+.shared-subtitle {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+.shared-spread .story-text {
+  margin: 16px 0 0;
+}
+/* The folio is a corner mark in the reader; here it is a line under the words,
+   so it cannot overlap them on a long page. */
+.shared-spread .folio {
+  position: static;
+  display: block;
+  margin-top: 10px;
+  color: var(--ink-soft);
+}
+.shared-about h2 {
+  margin: 0 0 8px;
+}
+.shared-actions {
+  margin: 0;
+  text-align: center;
+}
+.share-row {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.share-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.share-link {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-input);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}

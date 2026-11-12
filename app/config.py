@@ -21,7 +21,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def _random_signing_key() -> bytes:
-    """A key that lives exactly as long as the process that made it."""
+    """A key that lives exactly as long as the process that made it.
+
+    Cached on purpose: everything this key signs is verified by a later call —
+    a session cookie, the OAuth state cookie, a share link — so "a key per
+    process" only works if every call in the process sees the same bytes. A
+    fresh key per call would make every cookie and every link unreadable the
+    moment it was issued.
+    """
+    return _ephemeral_signing_key()
+
+
+@lru_cache(maxsize=1)
+def _ephemeral_signing_key() -> bytes:
     return secrets.token_bytes(32)
 
 

@@ -121,10 +121,17 @@ class TestSettingsConfig:
         assert settings.session_signing_key() != other.session_signing_key()
 
     def test_a_keyless_deployment_says_so(self) -> None:
-        """No secret at all means a per-process key, and the app must know."""
+        """No secret at all means one key per process, and the app must know.
+
+        One key per *process*, not per call: this key signs cookies and share
+        links that a later request verifies, so every caller in the process has
+        to see the same bytes. What is lost is surviving a restart, and the
+        operator is told about exactly that.
+        """
         settings = Settings(_env_file=None)
         assert settings.session_key_is_ephemeral
-        assert settings.session_signing_key() != settings.session_signing_key()
+        assert settings.session_signing_key() == settings.session_signing_key()
+        assert settings.session_signing_key() == Settings(_env_file=None).session_signing_key()
 
 
 def make_draft(generation_id: str = "abc123") -> Draft:

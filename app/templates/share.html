@@ -1,0 +1,41 @@
+{% extends "_layout.html" %}
+{% block title %}{{ title }}{% if subtitle %}, {{ subtitle }}{% endif %}{% endblock %}
+{% block header_title %}<span class="header-title">{{ title }}</span>{% endblock %}
+{% block main_class %}page share-screen{% endblock %}
+{% block content %}
+  {#- A gift link, not the reader: no page turning, no polling, no edit strip.
+      It is one scroll of the finished book for somebody with no account, and
+      the only thing it can do is read (W3). #}
+  <section class="shared-book" aria-label="{{ title }}">
+    <p class="shared-note">
+      <span class="footer-star" aria-hidden="true">✦</span>
+      A picture book made with Storybook Studio. This link works until {{ good_until|short_date }}.
+    </p>
+
+    <article class="shared-spread shared-cover">
+      <img src="{{ cover_url }}" alt="The cover: {{ title }}" decoding="async">
+      <h1 class="shared-title">{{ title }}</h1>
+      {% if subtitle %}<p class="shared-subtitle">{{ subtitle }}</p>{% endif %}
+    </article>
+
+    {% for page in pages %}
+    <article class="shared-spread" data-number="{{ page.number }}">
+      {% if page.drawn %}
+      <img src="{{ page.art }}" alt="{{ page.title }}" loading="lazy" decoding="async">
+      {% endif %}
+      <p class="story-text{% if page.number == 1 %} drop-cap{% endif %}">{{ page.story }}</p>
+      <span class="folio" aria-hidden="true">{{ page.number + 1 }}</span>
+    </article>
+    {% endfor %}
+
+    <article class="shared-spread shared-about">
+      <h2>{{ about_heading }}</h2>
+      {% for sentence in about_sentences %}<p class="story-text">{{ sentence }}</p>{% endfor %}
+      <p class="the-end">The End</p>
+    </article>
+
+    <p class="shared-actions">
+      <a class="button primary big" href="{{ pdf_url }}" download>Download the book (PDF)</a>
+    </p>
+  </section>
+{% endblock %}
