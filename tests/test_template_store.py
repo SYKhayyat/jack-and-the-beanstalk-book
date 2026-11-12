@@ -25,7 +25,7 @@ from app.db import (
     StoryCharacterRow,
     StoryPageRow,
     build_engine,
-    enforce_sqlite_foreign_keys,
+    configure_sqlite,
 )
 from app.models.book import AboutMe
 from app.services.book_store import BookStatus
@@ -66,7 +66,7 @@ VERDICT = [{"attempt": 1, "tier": 2, "passed": True, "faults": []}]
 )
 def engine(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Engine]:
     if request.param == "sqlite":
-        built = enforce_sqlite_foreign_keys(build_engine(f"sqlite:///{tmp_path / 't.sqlite'}"))
+        built = configure_sqlite(build_engine(f"sqlite:///{tmp_path / 't.sqlite'}"))
     else:
         built = build_engine(POSTGRES_URL)
         with built.begin() as conn:

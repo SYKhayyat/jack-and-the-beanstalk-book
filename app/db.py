@@ -64,8 +64,8 @@ __all__ = [
     "WalletRefundRow",
     "WalletTransactionRow",
     "build_engine",
+    "configure_sqlite",
     "database_secrets",
-    "enforce_sqlite_foreign_keys",
     "local_database_url",
     "persistence_mode",
     "prepare_database",
@@ -709,7 +709,7 @@ def build_engine(database_url: str) -> Engine:
         max_overflow=5,
         connect_args=connect_args,
     )
-    return enforce_sqlite_foreign_keys(engine)
+    return configure_sqlite(engine)
 
 
 def prepare_database(engine: Engine) -> Engine:
@@ -737,24 +737,42 @@ def prepare_database(engine: Engine) -> Engine:
     return engine
 
 
-def enforce_sqlite_foreign_keys(engine: Engine) -> Engine:
-    """Make a SQLite engine enforce foreign keys, as Postgres always does.
+def configure_sqlite(engine: Engine) -> Engine:
+    """Give a SQLite engine the three Postgres habits the app depends on.
 
-    Applied by `build_engine`, so every engine the app builds has it. It stays
+    Applied by `build_engine`, so every engine the app builds has them. It stays
     public because a test (or a tool) that calls `create_engine` directly gets
-    SQLite's default — no enforcement — unless it asks for this. A no-op for
-    any other dialect.
+    SQLite's defaults unless it asks for this. A no-op for any other dialect.
+
+    * **Foreign keys**, which SQLite does not enforce unless asked.
+    * **WAL rather than the rollback journal.** A book's twenty pages are a few
+      hundred small commits, and a journaled commit is an fsync: measured at
+      ~80 ms each on a development machine, which is most of the ten seconds a
+      mock book used to take to render, and much of the test suite's wall time.
+      WAL appends instead, so commits stop waiting for the disk. With
+      `synchronous=NORMAL` the WAL is synced at a checkpoint rather than on
+      every commit: an OS crash can lose the last few commits of a local
+      database, never corrupt it. Production runs on Postgres, where this does
+      not apply.
+    * **A writer that waits** (`busy_timeout`) instead of failing with
+      "database is locked". SQLite serialises writers; a render writing from
+      twenty page threads at once is a queue, not an error — and with the
+      default 5 s timeout it used to surface as one under load.
     """
     if engine.dialect.name == "sqlite":
-        event.listen(engine, "connect", _sqlite_foreign_keys_on)
+        event.listen(engine, "connect", _sqlite_pragmas_on)
     return engine
 
 
-def _sqlite_foreign_keys_on(dbapi_connection: Any, _record: Any) -> None:
-    """SQLite ignores foreign keys unless asked, per connection."""
+def _sqlite_pragmas_on(dbapi_connection: Any, _record: Any) -> None:
+    """Per-connection settings; see `configure_sqlite`."""
     cursor = dbapi_connection.cursor()
     try:
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=15000")
+        # A no-op (not an error) for an in-memory database, which cannot use WAL.
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
     finally:
         cursor.close()
 

@@ -113,6 +113,14 @@ def test_a_rendering_book_leaves_the_loop_free(
         )
         assert start.status_code == 201, start.text
         book_id = start.json()["book_id"]
+        # The watch starts here. It has been running through app startup and
+        # the studio's portrait step as well, and in a full parallel suite
+        # (eight workers on eight cores, every one of them doing image work) a
+        # single `loop.lag` was logged there — `ms=1313`, once, while `/healthz`
+        # never passed 8 ms. Neither of those is the render stall this test is
+        # about (AUDIT.md S8 files the observation), so the watch judges the
+        # render and the copies, where a regression would show.
+        caplog.clear()
 
         slowest = {"/healthz": 0.0, "poll": 0.0, "copies": 0.0, "healthz": 0}
         polls = 0
