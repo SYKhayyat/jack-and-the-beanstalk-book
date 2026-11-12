@@ -53,6 +53,8 @@ With `MAX_GENERATIONS_PER_MINUTE=200` and roughly $0.024 per image, a determined
 
 **Fix:** require a wallet balance (or take a small hold) before a paid portrait, cap free edits per book (e.g. one page redraw and one cover redraw), and add a per-account/per-day generation budget separate from the per-IP rate limit. At minimum, alert the operator when one account crosses a cost threshold.
 
+**Done (11 Nov 2026, `412cb07`):** both taps are shut by selling the pictures rather than by a hold. `POST /api/cartoonify` takes `PICTURE_PRICE_CENTS` (15¢) per candidate before the model is asked, refuses a wallet that cannot cover them and names the price and the balance, and pays back candidates the provider never returned (`_charge_portrait` / `_refund_portrait`, `app/routes/api.py`). `edit_book` refuses up front when the wallet cannot pay for one picture (`_require_picture_funds`) and then debits each picture as it is drawn (`_picture_payment`, reference `picture:<book>:<job>:<n>`, so a job retried with the same reference is not charged twice) — a star swap is one bought picture per page plus the cover, and repeating it costs the same again. An account that runs out mid-redraw stops, keeps the pictures already made, and is told the price and the way to finish (`OutOfFunds`). A book's own cover and story pages stay inside its fee. The fix's third ask — a per-account/per-day budget and an operator threshold alert — is C4, still open. Pinned by `tests/test_picture_charges.py`: a portrait costs one picture; a portrait the wallet cannot pay for is not drawn; only the candidates actually drawn are charged; a new book's own pictures are inside its fee; a redrawn cover costs a picture; a redraw with no money left is refused before it starts; running out mid-redraw stops and keeps what was drawn.
+
 ### B5 — P1: mock/demo mode is deterministically “broken” by the tier-1 collage check
 Every page the mock provider draws gets `collage` from tier 1. Verified directly:
 
@@ -121,6 +123,8 @@ On the first view of any newly completed book, every image URL is a `?w=1600&v=�
 ### U1 — P1: the attempt record is on the reader, not hidden
 See B6. The chip sits next to “Page 1 of 20” and on every tile; on the cover it can read “Best of 1 tries”. This is the most visible “debug UI” in the product.
 
+**Done (11 Nov 2026):** closed with B6 (`8dad299`, `6fa847d`) — the chip, the count on each tile and the in-flight try count are all gone from the reader; the record stays in the poll, in `data-attempts` and in full on `/admin/books/{id}`.
+
 ### U2 — P2: the progress screen shows reader tools before there is anything to read
 While the cover is still being drawn, the bar already shows **Read to me**, **Sound off** and **Story time** (observed on the local book page), and the page map's tiles all say “being drawn…”. The cover has a title but no story, so “Read to me” has nothing useful to say and Story time opens an empty surface. Hide the reader toolbar until the first page is done, or label it for the cover.
 
@@ -155,6 +159,8 @@ The shared step header links **4 Make it** directly to `/stories/<story>/about` 
 ### U11 — P2: the reader shows a cover label where the page counter belongs
 On the cover the bar says “Cover”; on page 1 it says “Page 1 of 20” plus the attempt chip. The page map's first item is also labelled “Cover”, while the PDF's cover is page 1. Covered by B7; listed here because it is the first thing a reader sees.
 
+**Done (11 Nov 2026):** closed with B7 (`da262db`) — the cover is page 1 in the reader, in the page map and in the PDF, so the cover label and the page counter no longer disagree.
+
 ### U12 — P2: the sample-book dots are 8×8 px tap targets on a phone
 Measured at 390×844 with touch emulation: `.dot-button` is 8×8 with no padding (`app/static/style.css:950–963`), and the six dots are the only way to jump to a specific sample book. The arrows beside them are 40×40, so the dots are the one control on the landing page that needs a fingertip rather than a finger. The header's ✦ menu button measures 36×36, just under the usual 44×44. Fix: keep the 8 px round mark but give the button a 44×44 transparent hit area (padding plus `background-clip: content-box`, or a pseudo-element), and raise the header button to 44 px.
 
@@ -170,6 +176,8 @@ The shelf and studio never show the fee; the About step shows “Your book is on
 ### I2 — P1: a zero-balance user can spend portrait money before being told they cannot buy a book
 The first paid call (the portrait) does not check funds; the book start does. The About step then shows the 402 only after the user has invested time. Add a balance check to the portrait action (and a clear “you'll need $0.99 to finish” hint), or let the portrait be free but tiny/low-res until the book is paid for.
 
+**Done (11 Nov 2026):** closed with B4. The portrait is now the first thing that can refuse for money: it is charged per candidate before anything is drawn, and the 402 names both the price and the balance. The About step repeats the fee, the per-picture price afterwards and the shortfall when the wallet is short, so no paid call is reached by an account that cannot finish. Pinned by `test_a_portrait_the_wallet_cannot_pay_for_is_not_drawn`.
+
 ### I3 — P2: “tries”, “checks”, “best effort”, “plate”, “comic”
 These are engineering words in a product for families. Use “redrawn”, “we had a look”, “the best version”, “the book's artwork”, “portrait”. The admin page can keep the technical vocabulary.
 
@@ -184,6 +192,8 @@ The footer says it, and the store enforces it (`main.py` sweeper, `db_book_store
 
 ### I7 — P2: a failed page's redraw reasons are asked for after the fact, with no examples
 The redraw dialog says “Tick what went wrong” and offers chips (`book.html:123–128`), but the chips are the reviewer's fault names (`PageFault`). A parent knows “her face looks wrong”, not `face_changed`. Use parent wording in the chips and map it to the closed set server-side.
+
+**Checked (11 Nov 2026):** the chips already use parent wording. `PAGE_FAULT_LABELS` — “Doesn't look like my child”, “Doesn't show this part of the story”, “Someone is missing”, “Several little pictures, not one” — has been in `app/models/feedback.py` since `0741f01` (9 Nov), two days before the audit; `web.py` builds the chip list from it and `book.html` renders `fault.label`. The audit quoted an older tree. No change was needed.
 
 ---
 
@@ -268,8 +278,12 @@ The code comment and prior audit both note “no print service yet”; the finis
 ### C2 — P1: free, unlimited redraws after the sale
 `edit_book` treats every image action as included (`book.py:422–570`): `character=star` redraws 21 pages + cover, repeatedly, for one $0.99 fee. This is generous to a fault and directly exploitable. Cap free edits (one cover + one page, or one “replace a face” per book), or charge the documented per-image cost.
 
+**Done (11 Nov 2026, `412cb07`):** the second option was taken — the per-image price is charged, rather than a cap added. Every picture an edit draws is bought at 15¢ as it is drawn (`_picture_payment`), a star swap included, and an edit the wallet cannot cover is refused before it starts, so “free and unlimited” no longer exists. No separate per-book edit cap was added: with each picture paid for there is nothing left to cap, and a book-wide ceiling belongs to C4.
+
 ### C3 — P0: portraits are not gated by the wallet
 See B4. Zero-balance portraits are pure operator cost with no path to revenue.
+
+**Done (11 Nov 2026):** closed with B4 — a portrait is charged per candidate before anything is drawn, so an account that cannot pay draws none.
 
 ### C4 — P1: no per-account or per-book budget
 The only brakes are per-IP rate limits (`MAX_GENERATIONS_PER_MINUTE`, `OPENAI_IMAGES_PER_MINUTE`) and `MAX_CONCURRENT_GENERATIONS`; none of them knows what a book has spent or what an account has paid. A single account can open multiple books, generate retries, and redraw for hours. Add a cost ceiling per book (stop retrying at, say, 1.2× the price) and a daily account ceiling; surface both in the error copy.
