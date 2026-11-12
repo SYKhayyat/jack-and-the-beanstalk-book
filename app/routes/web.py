@@ -13,6 +13,7 @@ Every page shares one header (wordmark, My books, wallet, sign out) built by
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -20,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from app.container import Container
 from app.dependencies import ContainerDep
 from app.models import (
     ApparentAge,
@@ -44,13 +46,15 @@ from app.services.pictures import picture_set
 from app.services.prompts import render_book_page
 from app.services.story_settings import story_rules
 from app.services.typography import book_text
-from app.services.wallet import format_cents
+from app.services.wallet import REFUND_REQUESTED, format_cents
 from app.stories import NOT_READY, Story, shelf_story
 from app.stories import shelf as shelf_cards
 
 __all__ = ["page_chrome", "router"]
 
 router = APIRouter(tags=["web"])
+
+logger = logging.getLogger(__name__)
 
 _ABOUT_PHOTO_LABELS = (
     (AboutPhotoChoice.CARTOON, "The cartoon"),
@@ -325,6 +329,25 @@ def _render(request: Request, name: str, context: dict[str, Any]) -> HTMLRespons
     return templates.TemplateResponse(request=request, name=name, context=context)
 
 
+def _waiting_refunds(container: Container) -> int:
+    """How many refunds are recorded and not yet sent back; never raises.
+
+    A badge is not worth failing a page for: a deployment without payments has
+    none by definition, and a ledger hiccup shows no badge rather than a 500.
+    """
+    if container.payments is None:
+        return 0
+    try:
+        return sum(
+            1
+            for item in container.wallet.all_refund_requests(limit=100)
+            if item.status == REFUND_REQUESTED
+        )
+    except Exception:
+        logger.warning("wallet.refund_badge_failed", exc_info=True)
+        return 0
+
+
 def page_chrome(
     container: ContainerDep,
     session: CurrentSessionDep,
@@ -353,6 +376,10 @@ def page_chrome(
         "user_name": session.name if session else "",
         "user_initials": _initials(session.name or session.email) if session else "",
         "is_operator": is_operator,
+        # A refund waits for a human and nothing else nudges them, so every
+        # operator page carries the count in the header (W4); /admin/status
+        # opens with it too, for the page that has to be opened to act.
+        "waiting_refunds": _waiting_refunds(container) if is_operator else 0,
         "provider": container.provider_status(),
         "library_enabled": bool(owner),
         "books": container.book_store.list_for_owner(owner) if owner else [],

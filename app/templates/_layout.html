@@ -31,6 +31,11 @@
       </a>
       {% block header_title %}{% endblock %}
       <div class="header-actions">
+        {% if waiting_refunds %}
+        {#- W4: nothing else tells the operator a refund is waiting, so the
+            header of every page they see carries the count. #}
+        <a class="pill wallet-add" id="refunds-badge" href="/admin/status#refunds" title="Refunds waiting to be sent back">{{ waiting_refunds }} refund{{ "s" if waiting_refunds != 1 }} to send</a>
+        {% endif %}
         {% if library_enabled %}{% include "_books_drawer.html" %}{% endif %}
         {% if wallet_visible %}
         <div class="wallet-chip">

@@ -380,6 +380,16 @@ async def refund(container: ContainerDep, session: CurrentSessionDep) -> Redirec
         request_refund.amount_cents,
         request_refund.id,
     )
+    # A refund waits for a human, and nothing else in the app asks for one, so
+    # this line — at a level the operator's log keeps — is the notification
+    # (W4). `/admin/status` says the same thing at the top of the page, because
+    # a log line nobody watches is not an alert either.
+    logger.warning(
+        "operator.refund_waiting owner=%s cents=%d id=%s — send it back from /admin/status",
+        owner,
+        request_refund.amount_cents,
+        request_refund.id,
+    )
     return _back("refund_requested")
 
 

@@ -155,6 +155,9 @@ async def status_page(
             ],
             "notice": _NOTICES.get(notice, ""),
             "cost_alerts": cost_alerts,
+            # Refunds wait for a human, and nothing nudges the operator but this
+            # page: a waiting refund is the first thing on it (W4).
+            "waiting_refunds": [item for item in refunds if item.status == REFUND_REQUESTED],
             "cost_alert_label": format_cents(alert_cents),
             "costs": cost_panel(container, container.wallet.price_cents),
         },

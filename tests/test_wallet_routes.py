@@ -649,15 +649,27 @@ def test_the_wallet_has_no_page_without_an_identity(settings: Settings, provider
         assert client.get("/wallet", follow_redirects=False).status_code == 404
 
 
-def test_the_operator_processes_a_refund_once(settings, provider, stripe) -> None:
+def test_the_operator_processes_a_refund_once(settings, provider, stripe, caplog) -> None:
+    caplog.set_level(logging.WARNING, logger="app.routes.wallet")
     with wallet_app(settings, provider, stripe, operator_sub=SUB) as (client, fake):
         session_id = paid_session(fake, 1000)
         client.get(f"/wallet/return?session_id={session_id}")
         client.post("/wallet/refund")
 
+        # The log keeps it too: the operator's dashboard is where a warning
+        # like this is seen when nobody has the admin page open.
+        waiting = [r for r in caplog.records if "operator.refund_waiting" in r.getMessage()]
+        assert len(waiting) == 1, [r.getMessage() for r in caplog.records]
+
         admin = client.get("/admin/status").text
         assert "Refund requests" in admin
         assert "Waiting to be sent" in admin
+        # W4: the page starts with the queue, because nothing else tells the
+        # operator a refund is waiting for them.
+        assert 'id="refunds-waiting"' in admin
+        assert "1 refund waiting to be sent back" in admin
+        # And on every page the operator opens, not only that one.
+        assert 'id="refunds-badge"' in client.get("/").text
         # The queue names the person, not their internal sign-in id.
         queue = admin.split('id="refunds"', 1)[1].split("</section>", 1)[0]
         assert "Shai" in queue

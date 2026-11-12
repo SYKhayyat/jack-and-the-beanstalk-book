@@ -33,6 +33,14 @@
 
   {% if notice %}<p class="flash" role="status" aria-live="polite">{{ notice }}</p>{% endif %}
 
+  {% if waiting_refunds %}
+  {#- W4: nothing in the app nudges the operator about a refund, so the page
+      starts with it. The requests themselves are below, under Refunds. #}
+  <p class="flash" role="status" aria-live="polite" id="refunds-waiting">
+    {{ waiting_refunds|length }} refund{{ "s" if waiting_refunds|length != 1 }} waiting to be sent back — <a href="#refunds">send {{ "them" if waiting_refunds|length != 1 else "it" }} back</a>.
+  </p>
+  {% endif %}
+
   {% if cost_alerts %}
   <section class="card" id="cost-alerts" aria-labelledby="cost-alerts-heading">
     <div class="admin-card-head">

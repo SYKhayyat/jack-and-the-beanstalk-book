@@ -296,6 +296,8 @@ The viewer is URL-based (`/books/{id}`) and ownership is enforced server-side, b
 ### W4 — P2: refunds wait for a human with no alert
 A refund request is recorded and the wallet is debited immediately (`wallet.py:319–345`); the operator must visit `/admin/status` and press process. There is no e-mail/Slack/webhook, so a request can sit indefinitely while the copy promises “the operator sends it through Stripe”. At minimum, surface a count/badge in the header for operators and send a notification.
 
+**Done (11 Nov 2026):** both of the “at minimum” asks, with the log as the notification, because this deployment has no mail channel (W7). A request now writes `operator.refund_waiting` at warning level, `/admin/status` opens with “1 refund waiting to be sent back” and a link to the queue, and every page the operator sees carries the count in the header. Pinned by `test_the_operator_processes_a_refund_once` (the log line, the banner and the header badge).
+
 ### W5 — P2: payments are still a deployment setting, not a finished flow
 `render.yaml` does not declare `STRIPE_SECRET_KEY`, and `to-do.md` still has “Confirm STRIPE_SECRET_KEY is set in the Render dashboard”. Conditional on that being unset, the live site runs with payments off: no fee, no funding, no refunds, and the story cards have no price. Verify the dashboard; if payments are intentionally off for the hand-in, say so on the site instead of “Payments are not configured on this deployment” in a customer-facing wallet.
 
