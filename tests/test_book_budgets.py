@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from app.services import book_runner as book_runner_module
 from app.services.book_runner import BookRunner
 from app.services.image_providers.base import ProviderError
 from app.services.user_store import User
@@ -182,8 +183,20 @@ def test_a_budget_of_zero_never_rests_the_reviewer() -> None:
     assert verdict.judged_by == "reviewer"
 
 
-def test_the_budget_is_read_from_the_ledger_once_in_a_while(caplog: Any) -> None:
-    """Not once per picture: the cache answers, and the rest is said once."""
+def test_the_budget_is_read_from_the_ledger_once_in_a_while(
+    caplog: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not once per picture: the cache answers, and the rest is said once.
+
+    The clock is the test's own. Three reviews on a loaded machine can outlast
+    the ten-second cache — measured at load 14 here on 12 Nov 2026, where the
+    ledger was read three times and the warning said three times — and that
+    measures the host, not the cache. With the clock held still the cache is
+    the only thing being asserted, and moving it forward past the window
+    checks the other half: the budget is re-read when it is stale.
+    """
+    now = [100.0]
+    monkeypatch.setattr(book_runner_module, "monotonic", lambda: now[0])
     reviewer = ScriptedReviewer()
     runner = _budgeted(99 * 10_000, reviewer)
     with caplog.at_level(logging.WARNING, logger="app.services.book_runner"):
@@ -194,6 +207,11 @@ def test_the_budget_is_read_from_the_ledger_once_in_a_while(caplog: Any) -> None
     assert runner._costs.reads == 1
     rested = [r for r in caplog.records if "book.review_budget" in r.getMessage()]
     assert len(rested) == 1, [r.getMessage() for r in rested]
+
+    # Past the cache window it asks the ledger again.
+    now[0] += 11.0
+    _judged(runner)
+    assert runner._costs.reads == 2
 
 
 # --- the retry budget ----------------------------------------------------------------
