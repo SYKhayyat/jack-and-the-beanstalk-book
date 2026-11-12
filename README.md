@@ -1253,6 +1253,7 @@ A failed call is logged at no cost.
 | `DATABASE_URL` | *(empty)* | Postgres URL (Neon pooled endpoint). Set = the database is Postgres and survives redeploys; empty = a local SQLite file under `STORAGE_DIR`, created and migrated on boot. Both run the same schema and the same code. |
 | `STRIPE_SECRET_KEY` | *(empty)* | Stripe **sandbox** secret key (`sk_test_...`). Set = wallets, top-ups, a 99¢ per-book fee and card refunds; empty = free books, free pictures, no wallet page. |
 | `PICTURE_PRICE_CENTS` | `15` | What one picture drawn beyond a book's own fee costs (a portrait, a redraw, a replaced face's pages), taken from the wallet as it is drawn. The book's own cover and story pages are inside its fee. |
+| `ALLOW_UNREVIEWED` | `0` | A production deployment that pays for pictures (`openai`, `gemini`) must have a reviewer: with `REVIEWER_PROVIDER=off` it refuses to start unless this is `1`. The free backends and development are exempt. |
 | `REVIEWER_BUDGET_PERCENT` | `0` | Past this share of the book's 99¢ fee (100 = the whole fee), the reviewer is rested for the rest of that book: tier 1 and the decision judge still decide and every verdict says the reviewer did not run. `0` never rests it for money. |
 | `BOOK_COST_ALERT_CENTS` | `100` | A book whose measured model spend passes this many cents writes one `book.cost_alert` line and is named on `/admin/status`. `0` turns the alert off. |
 

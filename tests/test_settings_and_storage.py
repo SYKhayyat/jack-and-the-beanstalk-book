@@ -380,6 +380,28 @@ class TestTheSweep:
         assert container.book_store.load_status("fresh-book") is not None
 
 
+def test_a_paid_production_deployment_must_check_its_pictures() -> None:
+    """W9/C7: buying pictures and never looking at them is refused at start-up.
+
+    The review loop is a product promise and the app's cost control, so a
+    production deployment that pays per image cannot quietly turn it off. The
+    free providers are exempt (nothing to waste), and so is development.
+    """
+    paid = {"image_provider": "openai", "reviewer_provider": "off", "_env_file": None}
+    with pytest.raises(ValidationError, match="ALLOW_UNREVIEWED=1"):
+        Settings(app_env="production", **paid)
+
+    chosen = Settings(app_env="production", allow_unreviewed=True, **paid)
+    assert chosen.allow_unreviewed
+
+    # The free backends, and development, are not policed: there is nothing to
+    # protect and no promise broken.
+    Settings(
+        app_env="production", image_provider="mock", reviewer_provider="off", _env_file=None
+    )
+    Settings(app_env="development", **paid)
+
+
 def get_settings_cache_clear() -> None:
     """Clear the settings singleton so an env change is observed."""
     from app.config import get_settings

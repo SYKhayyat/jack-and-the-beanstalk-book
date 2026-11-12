@@ -975,6 +975,7 @@ class TestTheReviewer:
             app_env="production",
             image_provider="openai",
             reviewer_provider="off",
+            allow_unreviewed=True,
             _env_file=None,
         )
         assert not settings.reviewer_required

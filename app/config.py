@@ -12,7 +12,7 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.pricing import PICTURE_PRICE_CENTS
@@ -140,6 +140,15 @@ class Settings(BaseSettings):
             "the plate as well), gemini, gemini_web (Gemini in a local Chrome, "
             "free; see GEMINI_WEB_ACCOUNT), or off (the decision judge and "
             "tier 1 decide alone)."
+        ),
+    )
+    allow_unreviewed: bool = Field(
+        default=False,
+        description=(
+            "Run a production deployment that pays for pictures with the reviewer "
+            "off. Off by default: paid images with no review loop is either a "
+            "deliberate saving or a mistake, and only the operator can say which, "
+            "so the app refuses to start unless this is set (W9, C7)."
         ),
     )
     reviewer_model: str = Field(
@@ -571,6 +580,30 @@ class Settings(BaseSettings):
     def payments_enabled(self) -> bool:
         """Whether money is on: a Stripe key is configured."""
         return bool(self.stripe_secret_key)
+
+    @model_validator(mode="after")
+    def _a_paid_book_is_checked(self) -> Settings:
+        """Refuse to start buying pictures nobody will look at (W9, C7).
+
+        The review loop is both a product promise and the app's cost control; a
+        deployment that turns it off while paying for images is either making a
+        deliberate saving or has lost a setting. The free backends (mock, Agnes,
+        Gemini in Chrome) are exempt: there is no money there to waste.
+        Development may run unreviewed, because there is nothing to protect.
+        """
+        paid = self.image_provider in {ProviderName.OPENAI, ProviderName.GEMINI}
+        if (
+            self.is_production
+            and paid
+            and self.reviewer_provider == "off"
+            and not self.allow_unreviewed
+        ):
+            raise ValueError(
+                "REVIEWER_PROVIDER=off with a paid image provider in production: "
+                "every picture would be bought and never checked. Set "
+                "ALLOW_UNREVIEWED=1 if that is what you want."
+            )
+        return self
 
     @property
     def is_production(self) -> bool:

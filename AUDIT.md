@@ -12,8 +12,8 @@
 | Severity | Count | Meaning |
 | --- | ---: | --- |
 | P0 | 4 | Can lose a book, lose money, or stop the service |
-| P1 | 12 | Significant bug / cost / usability damage |
-| P2 | 17 | Polish, edge cases, maintainability |
+| P1 | 13 | Significant bug / cost / usability damage |
+| P2 | 18 | Polish, edge cases, maintainability |
 | Idea | 12 | Not defects; the product levers not yet taken |
 
 ---
@@ -127,6 +127,12 @@ On the first view of any newly completed book, every image URL is a `?w=1600&v=�
 **Fix:** generate the 800 and 240 variants immediately after `save_page`/`save_cover` (in the image pool), and keep the 1600 copy lazy; or make variant generation part of the book's “assembling” phase.
 
 **Done (11 Nov 2026):** `warm_variants` (`app/services/pictures.py`) runs on the render's image pool right after each page, premade page and cover is saved, filing the 240 px and 800 px copies under the hash the store recorded; the 1600 px copy stays lazy, and the warm-up and the media route share one lock. Pinned by `test_a_finished_book_arrives_with_its_screen_copies_already_made`.
+### B13 — P1: a picture whose verdict never lands takes the whole book down with it
+`save_page` and `record_page_review` are two transactions (`app/services/db_book_store.py:571` and `:592`). The first deletes the page row and re-inserts it — review columns included — so between them the page has a picture and no verdict; if the second write fails, the page stays that way. `save_status(COMPLETE)` refuses to complete a book with an unreviewed picture (`_unreviewed`, `db_book_store.py:1051`), so the whole book fails. Observed in a parallel test run: `book.failed … cannot complete: no review for page(s) [5]`, after page 5 raised `OperationalError` (a SQLite write lock) **after** its picture was saved, with the other twenty pages finished.
+
+That is B2's promise broken by another route, and “Finish this book” does not help: it redraws pages that are *missing*, not pages whose picture exists without a verdict. The book and the money already spent on it are stuck.
+
+**Fix:** write the picture and its verdict in one transaction (`save_page(..., review=…, attempt_count=…, chosen_attempt=…, best_effort=…)`), so a page can never be saved without them. As a safety net, treat a page that exists without a review as missing: let the book assemble, mark that page “couldn't be checked”, and let Finish redraw it.
 
 ---
 
@@ -144,6 +150,8 @@ While the cover is still being drawn, the bar already shows **Read to me**, **So
 
 ### U3 — P2: price is missing from the signed-out shelf
 `page_chrome` sets `price_label` only when `wallet_enabled`, which requires a signed-in owner (`app/routes/web.py:320–326`). The story card renders the price only from `price_label` (`app/templates/_story_card.html:37`). So the one page that has to sell the book — the public landing/shelf — never shows `$0.99`, even on a deployment where payments are live. A signed-in user sees it. Set `price_label` from `payments_enabled`, independent of the owner.
+
+**Done (11 Nov 2026):** `page_chrome` now carries `book_price`, set from `payments_enabled` and independent of who is looking, and the story card prints it: “$0.99 · 20 pages and a cover · their name on it” on the public shelf as well as inside. Pinned by the story-card assertion in `test_frontend_structure.py`.
 
 ### U4 — P2: “Keep the photos and comics (zip)” still uses the old vocabulary
 
@@ -193,6 +201,8 @@ Measured at 390×844 with touch emulation: `.dot-button` is 8×8 with no padding
 ### I1 — P1: the price is only revealed at the last step
 The shelf and studio never show the fee; the About step shows “Your book is one fee of $0.99” only when `price_label` exists, and the wallet page is where the transaction history lives (`app/templates/about_page.html:58–65`). A visitor has already uploaded a photo and generated a portrait before learning the price. Put the price on the story card (publicly, see U3) and repeat the balance/fee on the photo step.
 
+**Done (11 Nov 2026):** the price is on the story card the visitor picks from (U3's `book_price`), so it is known before any photo is uploaded, and the About step still repeats the fee, the balance and the per-picture price before the book starts. The portrait step also names the per-portrait price beside the button (`templates/studio.html`).
+
 ### I2 — P1: a zero-balance user can spend portrait money before being told they cannot buy a book
 The first paid call (the portrait) does not check funds; the book start does. The About step then shows the 402 only after the user has invested time. Add a balance check to the portrait action (and a clear “you'll need $0.99 to finish” hint), or let the portrait be free but tiny/low-res until the book is paid for.
 
@@ -200,6 +210,8 @@ The first paid call (the portrait) does not check funds; the book start does. Th
 
 ### I3 — P2: “tries”, “checks”, “best effort”, “plate”, “comic”
 These are engineering words in a product for families. Use “redrawn”, “we had a look”, “the best version”, “the book's artwork”, “portrait”. The admin page can keep the technical vocabulary.
+
+**Done (11 Nov 2026, `8c451ed` then `6fa847d`):** the reader carries none of them — no try count, no “best of”, no “checks”, no “plate”, no “comic”; the download says “portraits”, the studio says “pictures”, and the technical vocabulary is left on `/admin`. Pinned by `test_the_pages_show_no_provider_internals` and the vocabulary assertions in `test_frontend_structure.py`.
 
 ### I4 — P2: “Read it from the start” is the only action on a finished book
 The completion card offers PDF, ZIP and prompts, but no “Make another”, “Share”, “Print” or “Read again” path (`app/templates/book.html:62–70`). The bookshelf is the only way back; a parent who just finished a book has no obvious next step. Add “Make another adventure” (with the same child, see ideas) and “Share”.
@@ -255,6 +267,13 @@ See B12. Measured 0.28 s (800 px) and 0.38 s (1600 px) per 1152×864 image on a 
 ### S8 — P2: the test suite is slow enough to hide regressions
 The full suite did not complete in 400 s here, while the app's own mock books are 3× slower than necessary because of B5. The suite is broad (65 test files) and worth keeping; parallelize the slow book tests and fix the mock review false positive so the full run stays under a CI-friendly budget.
 
+**Done (11 Nov 2026):** the suite's wall time was disk time, not CPU time. Every SQLite commit is an fsync of the rollback journal — measured at ~80 ms here — and a mock book makes about 245 of them (a page save, two variant writes, twenty-one prompt appends, a verdict, a status tick), so a single book test spent 19.8 s of its 21 s waiting for the disk. SQLite now opens in WAL mode with `synchronous=NORMAL` and a 15 s `busy_timeout` (`configure_sqlite`, `app/db.py`); Postgres is untouched. One book test went 18 s → 5 s, and the full suite 285 s → 199 s wall (1248 s CPU, 8 workers, on a machine also running another agent's suite). The same change removes the suite's “database is locked” flake: 20 page threads writing at once is now a queue, and the test that hit the old 5 s timeout no longer can (B13 records the book that lost). The timing test's loop watch now starts at the render rather than at app boot, because a single `loop.lag ms=1313` logged during startup/the portrait step made a green suite red under load (S9 files the observation). Parallelism was already there — the Makefile has run `-n auto --dist loadscope` since before the audit; B5's mock fix (already done) had removed the 3× redraw cost.
+
+### S9 — P2: the studio's portrait step can hold the loop for a second under load
+While measuring S8, one `loop.lag ms=1313 rss_mb=328 tasks=10` was logged in a full parallel run, before the render started — during app startup or the portrait request (`POST /api/cartoonify` took 1722 ms there). `/healthz` stayed under 8 ms throughout, so this is a brief GIL hold rather than the render stall of B1, but it is the same class of work: full-size image decode/resize/encode, which under an eight-worker test run can take a second of CPU. Not yet attributed to a single call site: candidate suspects are the portrait's variant encode (`encode_variant` → `warm_variants`), the studio's `decode_upload` (still synchronous in `app/routes/api.py:159`, while the same call is threaded at `:216`), and Pillow's resize/decode, which does not release the GIL for its whole run.
+
+**To verify:** time the portrait request phase by phase with a 1024×1536 picture on a loaded machine (the test provider already has one), and move `decode_upload` at `api.py:159` behind `asyncio.to_thread` as its twin at `:216` already is. A 1.3 s stall is not a health-check threat on Render (B1's was 20–50 s), but it is a second of frozen reader UI.
+
 ---
 
 ## 5. Things that are not wired in
@@ -285,6 +304,8 @@ The code comment and prior audit both note “no print service yet”; the finis
 
 ### W9 — P2: the mock reviewer/decision settings can silently weaken production
 `REVIEWER_PROVIDER=off` is a supported configuration, and `tier2_failed` is recorded, but a deployment can ship with no tier-2 review and the only signal is the operator status page. If the review loop is a product promise (“every generated image is analysed”), fail closed for a production deployment with no reviewer, or show a visible “not being checked” state on the book. Currently the app degrades quietly.
+
+**Done (11 Nov 2026):** it fails closed where money is at stake. A production deployment whose image provider is billed (`openai`, `gemini`) refuses to start with `REVIEWER_PROVIDER=off` unless `ALLOW_UNREVIEWED=1` says the saving is deliberate — the same setting C7 asked for, so one guard covers both. The free backends (mock, Agnes, Gemini in Chrome) and development are exempt: there is nothing to waste, and `/admin/status` still prints which reviewer is live. Pinned by `test_a_paid_production_deployment_must_check_its_pictures`.
 
 ---
 
@@ -318,6 +339,8 @@ The decision judge and reviewer run inside each page attempt; a failed book stil
 
 ### C7 — P2: the demo path can burn paid reviewer calls if misconfigured
 With `IMAGE_PROVIDER=mock` and `REVIEWER_PROVIDER=openai`, tier 1 fails every mock page **before** tier 2 (so no review calls), which is lucky. The inverse (`IMAGE_PROVIDER=openai`, `REVIEWER_PROVIDER=off`) is supported and silently ships unreviewed pages (W9). The deployment should validate this combination at boot: paid images + reviewer off is either a deliberate cost saving or a mistake; require an explicit `ALLOW_UNREVIEWED=1`.
+
+**Done (11 Nov 2026):** the validation is in `Settings`, so it fails at start-up rather than per call: paid image provider + `REVIEWER_PROVIDER=off` in production needs `ALLOW_UNREVIEWED=1`, and the error says so. Mock needs nothing (B5 made a placeholder pass tier 1, so a demo no longer spends reviews on pages it would fail first). Pinned by `test_a_paid_production_deployment_must_check_its_pictures`.
 
 ### C8 — P2: long prompts (if still ~18 K characters/page) multiply input tokens
 UI.org measured ~17.8 K characters per page prompt; the prompt builder still assembles the identity block, cast sheet and boilerplate for every page (`app/services/prompts.py:445–480`). The output cost dominates with image models, but the input tokens are paid on every retry. Re-measure after the recent prompt cuts; if still large, put the page's moment first and trim the repeated cast block. (This audit did not re-measure the prompt lengths, so treat it as a to-verify item.)
