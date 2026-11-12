@@ -531,6 +531,26 @@ def test_the_book_stage_shows_every_picture_and_the_about_page(book_html: str) -
     assert "The End" in book_html
 
 
+def test_the_reader_tools_are_one_transport_and_a_fullscreen(book_html: str) -> None:
+    """No mute toggle for a page-turn rustle (W12): the one audio button plays
+    the page and pauses it — both glyphs, and the pressed state picks which —
+    and Story time is the fullscreen icon, in and out."""
+    read = re.search(r'<button[^>]*id="read-aloud".*?</button>', book_html, re.DOTALL)
+    assert read is not None
+    assert "tool-icon-play" in read.group(0) and "tool-icon-pause" in read.group(0)
+    assert "Read to me" in read.group(0)
+    story = re.search(r'<button[^>]*id="story-time".*?</button>', book_html, re.DOTALL)
+    assert story is not None
+    assert "tool-icon-expand" in story.group(0) and "tool-icon-compress" in story.group(0)
+    for gone in ("Sound off", "Sound on", "page-sound"):
+        assert gone not in book_html, f"the reader still offers {gone!r}"
+    # The rustle went with the toggle: nothing here generates audio at all.
+    assert "AudioContext" not in _strip_js_comments(_read("page-turn.js"))
+    # And the button says what the next press does, not only what it is.
+    live = _strip_js_comments(_read("book-live.js"))
+    assert '"Pause"' in live and '"Read to me"' in live
+
+
 def test_a_finished_book_offers_both_downloads_and_hides_progress(book_html: str) -> None:
     assert re.search(r'class="progress-block hidden"', book_html)
     assert re.search(r'class="finished-block"', book_html)
