@@ -13,6 +13,7 @@ Every page shares one header (wordmark, My books, wallet, sign out) built by
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -209,6 +210,9 @@ def book_page(
         for page in edition.pages
     ]
     tiles = _tiles(status_payload.get("pages", []), rendered)
+    expires_at, expiring_soon = _expiry(
+        record.created_at, container.settings.book_retention_days
+    )
     heading, *sentences = (book_text(line) for line in record.about.rendered_about_lines())
     chrome = page_chrome(container, session, request)
     return _render(
@@ -255,6 +259,10 @@ def book_page(
             else "Changes are free: redraw a page, the cover or a face as often as you need.",
             "pdf_url": f"/book-media/{book_id}/pdf" if state == BookStatus.COMPLETE else None,
             "sources_url": f"/book-media/{book_id}/sources.zip",
+            # The footer has always promised seven days; this book says which
+            # day that is, and raises its voice when the day is close (I6).
+            "expires_at": expires_at,
+            "expiring_soon": expiring_soon,
             "characters": [(member.key, member.label) for member in edition.photoable_cast],
             "page_faults": _page_faults(),
             "about_photo_choices": _ABOUT_PHOTO_LABELS,
@@ -262,6 +270,24 @@ def book_page(
             "max_attempts": container.settings.page_attempts,
         },
     )
+
+
+def _expiry(created_at: str, days: int) -> tuple[str, bool]:
+    """When this book's pictures and PDF are deleted, and whether that is near.
+
+    The same clock the sweep uses (`BOOK_RETENTION_DAYS` from the moment the
+    book started), said on the page rather than only in the footer: a promise
+    with no date on it is not a clock (I6). "Soon" is the last two days, which
+    is when a download is worth nagging about.
+    """
+    try:
+        started = datetime.fromisoformat(created_at)
+    except ValueError:
+        return "", False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    expires = started + timedelta(days=days)
+    return expires.isoformat(), expires - datetime.now(UTC) < timedelta(days=2)
 
 
 @router.get("/healthz")

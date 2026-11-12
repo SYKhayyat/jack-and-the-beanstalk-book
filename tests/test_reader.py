@@ -213,6 +213,33 @@ def test_the_reader_sets_every_page_as_a_book(finished: tuple[TestClient, str]) 
         assert "'" not in story and "&#39;" not in story
 
 
+def test_a_finished_book_says_when_it_goes_and_what_to_do_next(
+    finished: tuple[TestClient, str],
+) -> None:
+    """I6/I4: the footer promises seven days; the page says which day, and the
+    finished book offers somewhere to go next as well as something to read."""
+    client, book_id = finished
+    html = client.get(f"/books/{book_id}").text
+    assert 'id="book-expiry"' in html
+    assert "stays here until" in html
+    assert 'id="make-another"' in html
+
+
+def test_the_expiry_is_the_day_this_book_goes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Six days old means tomorrow, and that is soon; a fresh book is not."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.routes.web import _expiry
+
+    now = datetime.now(UTC)
+    stale, soon = _expiry((now - timedelta(days=6)).isoformat(), 7)
+    assert soon
+    assert stale
+    fresh, quiet = _expiry(now.isoformat(), 7)
+    assert fresh and not quiet
+    assert _expiry("not a timestamp", 7) == ("", False)
+
+
 def test_the_reader_tools_wait_for_the_first_story_page(
     finished: tuple[TestClient, str],
 ) -> None:

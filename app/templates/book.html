@@ -74,7 +74,16 @@
       <button type="button" class="button primary big" id="read-book">Read it from the start</button>
       <a class="button big" id="download-pdf" href="/book-media/{{ book.book_id }}/pdf" download>Download the book (PDF)</a>
       <a class="button big" id="download-sources" href="{{ sources_url }}" download>Keep the photos and portraits (zip)</a>
+      <a class="button big" id="make-another" href="/">Make another book</a>
     </div>
+    {% if expires_at %}
+    {#- The clock behind the footer's promise (I6): the day this book goes,
+        quiet until the last two days, when a download is worth nagging about. #}
+    <p class="field-help" id="book-expiry">This book stays here until {{ expires_at|short_date }}. After that its pictures, words and PDF are deleted — download what you want to keep.</p>
+    {% if expiring_soon %}
+    <p class="inline-message error" id="expiring-soon">This book goes in the next two days. Download the PDF, or keep the pictures, to have them for good.</p>
+    {% endif %}
+    {% endif %}
     <p class="field-help"><a href="/book-media/{{ book.book_id }}/prompts.json" target="_blank" rel="noopener">See exactly what the artist was asked to draw</a></p>
   </section>
 

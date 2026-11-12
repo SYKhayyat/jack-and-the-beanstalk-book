@@ -216,11 +216,15 @@ These are engineering words in a product for families. Use “redrawn”, “we 
 ### I4 — P2: “Read it from the start” is the only action on a finished book
 The completion card offers PDF, ZIP and prompts, but no “Make another”, “Share”, “Print” or “Read again” path (`app/templates/book.html:62–70`). The bookshelf is the only way back; a parent who just finished a book has no obvious next step. Add “Make another adventure” (with the same child, see ideas) and “Share”.
 
+**Done (11 Nov 2026), partly:** the finished card has “Make another book” beside Read, Download the PDF and Keep the pictures, so the shelf is one press away. Sharing (W3) and printing (W6) are still open as their own entries.
+
 ### I5 — P2: the wallet is a 404 in password/open mode
 `wallet_visible` is `bool(owner)`, and password/open deployments have no owner (`app/routes/web.py:292–326`). `GET /wallet` therefore answers **404** (“There is no wallet without a signed-in account” — `app/routes/wallet.py:91–97`), verified in the local password run, and the footer's wallet link is hidden. That is consistent with “no identity, no wallet”, but a 404 is indistinguishable from a broken route; if this mode is meant for demos, document the absence so a grader does not think the wallet is broken.
 
 ### I6 — P2: “Books are kept for 7 days” is a promise with no visible clock
 The footer says it, and the store enforces it (`main.py` sweeper, `db_book_store.expire`), but a book page does not show when it expires, and there is no “download before it goes” nudge near the end of the window. Show “available until <date>” on the finished book; it turns a limitation into a reason to act.
+
+**Done (11 Nov 2026):** a finished book says “This book stays here until 18 Nov” — the sweep's own clock (`created_at` + `BOOK_RETENTION_DAYS`), not a second rule — and in the last two days adds a warning that the book goes soon and that the PDF or the pictures are the way to keep it. Pinned by `test_a_finished_book_says_when_it_goes_and_what_to_do_next` and `test_the_expiry_is_the_day_this_book_goes`.
 
 ### I7 — P2: a failed page's redraw reasons are asked for after the fact, with no examples
 The redraw dialog says “Tick what went wrong” and offers chips (`book.html:123–128`), but the chips are the reviewer's fault names (`PageFault`). A parent knows “her face looks wrong”, not `face_changed`. Use parent wording in the chips and map it to the closed set server-side.
