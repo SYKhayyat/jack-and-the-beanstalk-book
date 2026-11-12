@@ -1177,14 +1177,17 @@ and the wallet page does not exist — the rest of the app is unchanged.
   negative. A retry the reviewer causes is the app's own quality control and
   is inside the picture's one charge.
 - **A book's spend is watched while it is made.** Every model call is in the
-  ledger against its book, and `/admin/status` shows what each one cost. Two
+  ledger against its book, and `/admin/status` shows what each one cost. Three
   knobs read that ledger: `REVIEWER_BUDGET_PERCENT` rests the reviewer for a
   book that has spent a share of its fee (tier 1 and the decision judge still
-  decide, and the verdict says so), and `BOOK_COST_ALERT_CENTS` (a dollar by
-  default) writes one `book.cost_alert` line and names the book at the top of
-  the operator's page, so a book that cost more than it sells for is not
-  discovered by reading the ledger. There is no mail channel, so the log and
-  that page are the notification.
+  decide, and the verdict says so), `BOOK_RETRY_BUDGET_PERCENT` (1.2 times the
+  fee in the blueprint) stops *redrawing* a page once the book has spent that
+  much — the best picture it has is kept, marked best-effort, and the book
+  still finishes, because retries are where a book's money goes — and
+  `BOOK_COST_ALERT_CENTS` (a dollar by default) writes one `book.cost_alert`
+  line and names the book at the top of the operator's page, so a book that
+  cost more than it sells for is not discovered by reading the ledger. There
+  is no mail channel, so the log and that page are the notification.
 - **Refunds go back to the card.** Everything refundable is requested at once:
   the amount leaves the wallet immediately (so it cannot be requested twice),
   and is then sent through Stripe against the funding payments oldest first. A
@@ -1267,6 +1270,7 @@ A failed call is logged at no cost.
 | `PICTURE_PRICE_CENTS` | `15` | What one picture drawn beyond a book's own fee costs (a portrait, a redraw, a replaced face's pages), taken from the wallet as it is drawn. The book's own cover and story pages are inside its fee. |
 | `ALLOW_UNREVIEWED` | `0` | A production deployment that pays for pictures (`openai`, `gemini`) must have a reviewer: with `REVIEWER_PROVIDER=off` it refuses to start unless this is `1`. The free backends and development are exempt. |
 | `REVIEWER_BUDGET_PERCENT` | `0` | Past this share of the book's 99¢ fee (100 = the whole fee), the reviewer is rested for the rest of that book: tier 1 and the decision judge still decide and every verdict says the reviewer did not run. `0` never rests it for money. |
+| `BOOK_RETRY_BUDGET_PERCENT` | `120` in the blueprint, `0` in code | Past this share of the fee (120 = 1.2 times), a page that did not pass is not drawn again: the best attempt is kept, marked best-effort, and the book finishes. A page with no picture is always drawn once. `0` never stops a redraw for money. |
 | `BOOK_COST_ALERT_CENTS` | `100` | A book whose measured model spend passes this many cents writes one `book.cost_alert` line and is named on `/admin/status`. `0` turns the alert off. |
 
 `MAX_UPLOAD_MB` and `STORAGE_DIR` map to `MAX_UPLOAD_MB` and `STORAGE_DIR`.
