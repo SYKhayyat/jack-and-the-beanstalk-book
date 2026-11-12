@@ -221,6 +221,8 @@ The completion card offers PDF, ZIP and prompts, but no “Make another”, “S
 ### I5 — P2: the wallet is a 404 in password/open mode
 `wallet_visible` is `bool(owner)`, and password/open deployments have no owner (`app/routes/web.py:292–326`). `GET /wallet` therefore answers **404** (“There is no wallet without a signed-in account” — `app/routes/wallet.py:91–97`), verified in the local password run, and the footer's wallet link is hidden. That is consistent with “no identity, no wallet”, but a 404 is indistinguishable from a broken route; if this mode is meant for demos, document the absence so a grader does not think the wallet is broken.
 
+**Done (11 Nov 2026):** documented, as asked: the README's password section now says there is no wallet in that mode by design — a wallet belongs to a person, the shared password carries none, `/wallet` is a 404 and the header hides its link; money appears when Google signs people in. The behaviour itself is unchanged and pinned by `test_the_wallet_has_no_page_without_an_identity`.
+
 ### I6 — P2: “Books are kept for 7 days” is a promise with no visible clock
 The footer says it, and the store enforces it (`main.py` sweeper, `db_book_store.expire`), but a book page does not show when it expires, and there is no “download before it goes” nudge near the end of the window. Show “available until <date>” on the finished book; it turns a limitation into a reason to act.
 

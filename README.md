@@ -81,6 +81,11 @@ APP_PASSWORD=a-good-long-password
   form (`APP_LOGIN_MAX_ATTEMPTS`).
 - Leave `APP_PASSWORD` empty and the gate is open. That is fine for local
   development and reckless for anything else.
+- **There is no wallet in this mode, by design.** A wallet belongs to a person,
+  and the shared password carries no identity, so `/wallet` answers `404` and
+  the header hides its link (I5). That is the intent, not a broken route: books
+  and pictures are free here, and money only exists once Google signs people
+  in. If a deployment needs wallets, configure Google.
 
 On Render the blueprint prompts for both the Google variables and
 `APP_PASSWORD` at apply time, so the values live in the dashboard and never
