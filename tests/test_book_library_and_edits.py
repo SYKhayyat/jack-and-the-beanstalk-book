@@ -303,6 +303,7 @@ class TestEditing:
                     "about_age": "7",
                     "about_title": "a stargazer",
                     "details": "Loves the moon.",
+                    "dedication": "For Grandpa, who reads it twice.",
                 },
             )
             assert response.status_code == 202, response.text
@@ -313,6 +314,9 @@ class TestEditing:
             text = _pdf_text(pdf.content)
             assert "a stargazer" in text
             assert "Loves the moon." in text
+            # The dedication is a line of the About page, so an edit rewrites
+            # it with the rest and draws nothing (Idea 5).
+            assert "For Grandpa, who reads it twice." in text
 
     def test_an_about_edit_during_a_render_reaches_the_pdf(self, client_factory) -> None:
         """B10: the job assembles from the latest record, not its own snapshot.
@@ -551,7 +555,14 @@ def test_an_edit_is_refused_while_another_worker_holds_the_book(
         book_id = _start(client)
         assert _wait(client, book_id)["status"] == "complete"
         store = client.app.state.container.book_store  # type: ignore[attr-defined]
-        assert store.claim_job(book_id, "other-instance:9", ttl_seconds=600) is True
+        # "Complete" is written before the runner's done callback returns the
+        # lease, so a loaded suite can still see it held for a few milliseconds
+        # (the same race test_reader.py waits out). Waiting is the property;
+        # the lease being instant is not.
+        deadline = time.monotonic() + 5
+        while not store.claim_job(book_id, "other-instance:9", ttl_seconds=600):
+            assert time.monotonic() < deadline, "the finished book still holds its lease"
+            time.sleep(0.01)
 
         response = client.post(f"/api/book/{book_id}/edit", data={"action": "retry"})
         assert response.status_code == 409, response.text
