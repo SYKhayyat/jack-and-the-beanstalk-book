@@ -189,6 +189,7 @@
         <div class="field"><label for="edit-about-name">Name</label><input type="text" id="edit-about-name" name="about_name" maxlength="60" value="{{ about.about_name }}"></div>
         <div class="field narrow"><label for="edit-about-age">Age</label><input type="number" id="edit-about-age" name="about_age" min="0" max="99" value="{{ about.about_age if about.about_age is not none else '' }}"></div>
         <div class="field"><label for="edit-about-title">What do they want to be?</label><input type="text" id="edit-about-title" name="about_title" maxlength="60" value="{{ about.title or '' }}"></div>
+        <div class="field wide"><label for="edit-dedication">A dedication (printed first on the About page)</label><input type="text" id="edit-dedication" name="dedication" maxlength="140" value="{{ about.dedication }}"></div>
         <div class="field wide"><label for="edit-details">Anything else?</label><textarea id="edit-details" name="details" rows="4" maxlength="1000">{{ about.details }}</textarea></div>
       </div>
       <fieldset class="segmented">

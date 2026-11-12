@@ -283,6 +283,7 @@ class TestBookEndToEnd:
                 "child_age": "7",
                 "child_gender": "a boy",
                 "details": "Loves dinosaurs\nLives in Jerusalem",
+                "dedication": "For Grandma, who tells the best stories.",
             },
         )
         assert start.status_code == 201, start.text
@@ -316,6 +317,10 @@ class TestBookEndToEnd:
         assert pdf.content[:5] == b"%PDF-"
         reader = PdfReader(io.BytesIO(pdf.content))
         assert len(reader.pages) == PAGE_COUNT + 2  # cover + story pages + About
+        # The dedication is the gift line, printed on the About page and shown
+        # in the reader beside it (Idea 5).
+        assert "For Grandma" in reader.pages[-1].extract_text().replace("\n", " ")
+        assert "For Grandma" in client.get(f"/books/{book_id}").text
 
     def test_portrait_media_available(self, client: TestClient) -> None:
         portrait = make_portrait(client)
@@ -550,6 +555,7 @@ class TestBookErrors:
     def test_about_me_never_reaches_any_prompt(self, client: TestClient) -> None:
         """The free text the uploader types is PDF-only: no prompt may contain it."""
         marker = "dinosaurs-and-beanstalks-marker"
+        dedication = "for-grandma-who-tells-the-best-stories"
         portrait = make_portrait(client)
         start = client.post(
             "/api/book/start",
@@ -558,7 +564,7 @@ class TestBookErrors:
                 "generation_id": portrait["generation_id"],
                 "child_name": "Shai",
             }
-            | {"details": marker},
+            | {"details": marker, "dedication": dedication},
         )
         book_id = start.json()["book_id"]
         wait_for_book(client, book_id)
@@ -566,6 +572,7 @@ class TestBookErrors:
         prompts = client.get(f"/book-media/{book_id}/prompts.json")
         assert prompts.status_code == 200
         assert marker not in prompts.text
+        assert dedication not in prompts.text
 
 
 class BlockingPageProvider(ImageProvider):

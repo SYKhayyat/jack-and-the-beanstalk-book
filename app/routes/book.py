@@ -181,6 +181,7 @@ async def start_book(
     about_age: int | None = Form(None, ge=0, le=99),
     about_title: str | None = Form(None, max_length=60),
     details: str = Form("", max_length=1000),
+    dedication: str = Form("", max_length=140),
     about_photo: str = Form(
         AboutPhotoChoice.CARTOON,
         description="What the About page frames: `cartoon`, `photo` or `both`.",
@@ -253,7 +254,15 @@ async def start_book(
         )
     settings = _with_page_shape(draft.settings, aspect_ratio, edition)
     about = _about_from_form(
-        edition, child_name, about_name, about_age, about_title, details, settings, about_photo
+        edition,
+        child_name,
+        about_name,
+        about_age,
+        about_title,
+        details,
+        settings,
+        about_photo,
+        dedication,
     )
     characters = await asyncio.to_thread(_character_references, character, container, edition)
     # The person the book belongs to. In Google mode every request here has a
@@ -435,6 +444,7 @@ async def edit_book(
     about_age: int | None = Form(None, ge=0, le=99),
     about_title: str | None = Form(None, max_length=60),
     details: str = Form("", max_length=1000),
+    dedication: str = Form("", max_length=140),
     about_photo: str = Form(""),
     reason: list[str] = Form(default=[]),
 ) -> dict[str, object]:
@@ -480,6 +490,7 @@ async def edit_book(
             details,
             record.settings,
             about_photo or record.about.about_photo,
+            dedication,
         )
         await asyncio.to_thread(
             lambda: container.book_store.update_about(
@@ -813,6 +824,7 @@ def _about_from_form(
     details: str,
     settings: CartoonSettings,
     about_photo: str = AboutPhotoChoice.CARTOON,
+    dedication: str = "",
 ) -> AboutMe:
     """Resolve blank names and validate the uploader's words.
 
@@ -838,6 +850,7 @@ def _about_from_form(
                 "title": about_title,
                 "details": details,
                 "about_photo": about_photo,
+                "dedication": dedication,
             }
         )
     except ValidationError as exc:

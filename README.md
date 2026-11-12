@@ -440,8 +440,10 @@ edge to edge on top, the fairy-tale prose set beneath it in a parchment margin
 of the same height on every page, at one font size for the whole book, as
 real, selectable text (fpdf2, Literata + Noto Sans Hebrew bundled, HarfBuzz
 shaping when available). Text never covers the art. The last page frames the
-child's portrait above a few sentences built from the About fields. The About free text you type is PDF-only and never reaches a
-prompt — that is enforced by a test.
+child's portrait above a few sentences built from the About fields, and an
+optional **dedication** ("For Grandma, who tells the best stories.") prints
+first, in the giver's own words. The About free text and the dedication you
+type are PDF-only and never reach a prompt — that is enforced by a test.
 
 - The UI is four screens, one job each (see
   [`docs/ui-redesign-plan.md`](docs/ui-redesign-plan.md)):

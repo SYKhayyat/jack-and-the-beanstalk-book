@@ -178,6 +178,19 @@ class TestAboutMe:
         assert title_line("Author", 1)[2] == "Shaul is 1 year old."
         assert title_line("Author", 24)[2] == "Shaul is 24 years old."
 
+    def test_a_dedication_is_the_first_line_after_the_heading(self) -> None:
+        """Idea 5: a gift line, as typed, before the facts about the child."""
+        about = AboutMe(
+            prompt_name="Shai",
+            about_name="Shai",
+            dedication="  For Grandma,\n  who tells the best stories. ",
+        )
+        assert about.rendered_about_lines() == [
+            "About Shai",
+            "For Grandma, who tells the best stories.",
+            "This book stars Shai.",
+        ]
+
     def test_the_cover_credit_names_the_reader(self) -> None:
         assert AboutMe(prompt_name="Eli", about_name="Eli").cover_credit() == "A story for Eli"
 

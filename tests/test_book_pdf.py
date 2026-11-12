@@ -157,6 +157,18 @@ class TestAssembly:
         assert "Loves the sea" in last
         assert "Tells jokes" in last
 
+    def test_a_dedication_is_printed_first_on_the_page(self) -> None:
+        """Idea 5: the gift line is the first thing after the heading."""
+        data = build_book_pdf(
+            "Jack and the Beanstalk",
+            about(about_name="Noa", dedication="For Grandma, who tells the best stories."),
+            pages(),
+        )
+        last = PdfReader(io.BytesIO(data)).pages[-1].extract_text().replace("\n", " ")
+        heading = last.index("About Noa")
+        line = last.index("For Grandma")
+        assert heading < line < last.index("This book stars Noa.")
+
     @pytest.mark.skipif(not HAS_SHAPING, reason="RTL text shaping needs uharfbuzz")
     def test_hebrew_details_render_glyphs(self) -> None:
         data = build_book_pdf(

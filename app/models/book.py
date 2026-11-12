@@ -128,6 +128,11 @@ class AboutMe(BaseModel):
     #: Defaulted, so a record written before the choice existed still
     #: validates and renders exactly as it did: the cartoon alone.
     about_photo: AboutPhotoChoice = AboutPhotoChoice.CARTOON
+    #: An optional gift line, printed first on the About page ("For Grandma,
+    #: who tells the best stories."). One line, as typed — a book given to a
+    #: child usually is given by somebody. Defaulted, so every stored book
+    #: written before this existed still validates and prints as it did.
+    dedication: str = Field(default="", max_length=140)
 
     @field_validator("prompt_name")
     @classmethod
@@ -153,6 +158,12 @@ class AboutMe(BaseModel):
             return None
         return _sanitize(value) or None
 
+    @field_validator("dedication")
+    @classmethod
+    def _clean_dedication(cls, value: str) -> str:
+        """One line, blank meaning "no dedication"; it is drawn as typed."""
+        return _sanitize(value)
+
     @field_validator("details")
     @classmethod
     def _clean_details(cls, value: str) -> str:
@@ -174,7 +185,10 @@ class AboutMe(BaseModel):
         about = prompt_text()["book"]["about"]
         name = self.about_name
         heading = about["heading"].format(about_name=name)
-        lines: list[str] = [about["star_line"].format(about_name=name)]
+        # The gift line comes first: it is what the person who gave the book
+        # wants the child to read before the facts about them (Idea 5).
+        lines: list[str] = [self.dedication] if self.dedication else []
+        lines.append(about["star_line"].format(about_name=name))
         if self.about_age is not None:
             unit = "year" if self.about_age == 1 else "years"
             lines.append(

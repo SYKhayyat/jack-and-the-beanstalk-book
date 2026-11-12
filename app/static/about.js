@@ -15,7 +15,7 @@ const button = document.getElementById("make-book");
 const headlineName = document.getElementById("about-headline-name");
 const NAMES = JSON.parse(document.body.dataset.names || "{}");
 const message = document.getElementById("about-message");
-const TEXT_FIELDS = ["about_age", "about_title", "details"];
+const TEXT_FIELDS = ["about_age", "about_title", "dedication", "details"];
 let starting = false;
 
 restoreFields();
@@ -42,7 +42,7 @@ function restoreFields() {
   for (const name of TEXT_FIELDS) {
     if (saved[name] !== undefined) field(name).value = saved[name];
   }
-  if (saved.details) document.getElementById("about-more").open = true;
+  if (saved.details || saved.dedication) document.getElementById("about-more").open = true;
   for (const name of ["about_photo"]) {
     if (!saved[name]) continue;
     const radio = form.querySelector(`input[name="${name}"][value="${saved[name]}"]`);
@@ -119,7 +119,7 @@ async function startBook() {
     body.append("child_name", name);
     body.append("about_name", name);
   }
-  for (const key of ["about_age", "about_title", "details"]) {
+  for (const key of ["about_age", "about_title", "dedication", "details"]) {
     const value = field(key).value.trim();
     if (value) body.append(key, value);
   }
