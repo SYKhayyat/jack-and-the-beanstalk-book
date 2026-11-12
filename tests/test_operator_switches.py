@@ -72,7 +72,9 @@ def _pull(client: TestClient, name: str, on: bool = True, *, sub: str = OPERATOR
     client.cookies.set(SESSION_COOKIE, "")  # a fresh sign-in below
     _sign_in(client, sub)
     response = client.post(
-        "/admin/switches", data={"name": name, "on": "1" if on else "0"}, follow_redirects=False
+        "/admin/switches",
+        data={"name": name, "on": "1" if on else "0"},
+        follow_redirects=False,
     )
     return response.status_code
 
@@ -184,7 +186,11 @@ def test_an_about_edit_and_a_delete_still_work_while_new_books_are_stopped(
         portrait = _portrait(client)
         started = client.post(
             "/api/book/start",
-            data={"story": JACK_KEY, "generation_id": portrait["generation_id"], "child_name": "Mia"},
+            data={
+                "story": JACK_KEY,
+                "generation_id": portrait["generation_id"],
+                "child_name": "Mia",
+            },
         )
         book_id = started.json()["book_id"]
         assert _wait_done(client, book_id)["status"] == "complete"
@@ -194,9 +200,7 @@ def test_an_about_edit_and_a_delete_still_work_while_new_books_are_stopped(
             f"/api/book/{book_id}/edit", data={"action": "about", "about_name": "Mia"}
         )
         assert about.status_code == 202, about.text
-        redraw = client.post(
-            f"/api/book/{book_id}/edit", data={"action": "cover"}
-        )
+        redraw = client.post(f"/api/book/{book_id}/edit", data={"action": "cover"})
         assert redraw.status_code == 503, redraw.text
         removed = client.post(f"/api/book/{book_id}/edit", data={"action": "delete"})
         assert removed.status_code == 202, removed.text
@@ -234,7 +238,8 @@ ALERTS = [Alert(code="refunds_waiting", message="1 refund waiting to be sent bac
 def test_an_alert_is_mailed_once_and_again_only_when_it_changes() -> None:
     mailer = _Mailer()
     post = OperatorPost(
-        mailer=mailer, users=_Users({"op-sub": User(sub="op-sub", email="op@example.com")}),
+        mailer=mailer,
+        users=_Users({"op-sub": User(sub="op-sub", email="op@example.com")}),
         operator="op-sub",
     )
 
@@ -246,7 +251,10 @@ def test_an_alert_is_mailed_once_and_again_only_when_it_changes() -> None:
     assert "needs a look" in subject.lower()
     assert ALERTS[0].message in text
 
-    more = [*ALERTS, Alert(code="cost_per_book", message="A book costs more than it sells for.")]
+    more = [
+        *ALERTS,
+        Alert(code="cost_per_book", message="A book costs more than it sells for."),
+    ]
     assert post.deliver(more) is True
     assert len(mailer.sent) == 2
 
@@ -271,7 +279,9 @@ def test_no_channel_or_no_address_sends_nothing() -> None:
 
 
 def test_the_mail_lists_every_alert() -> None:
-    subject, text = alert_mail(ALERTS + [Alert("x", "second thing")], site_url="https://e.test")
+    subject, text = alert_mail(
+        [*ALERTS, Alert("x", "second thing")], site_url="https://e.test"
+    )
     assert "2 things" in subject
     for alert in ALERTS:
         assert alert.message in text
