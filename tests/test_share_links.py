@@ -13,10 +13,15 @@ from __future__ import annotations
 
 import re
 import time
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.config import Settings
+from app.main import create_app
 from app.services.share_links import issue, read
+from app.services.user_store import User
+from app.sessions import SESSION_COOKIE
 
 KEY = b"test-share-key"
 NOW = 1_800_000_000
@@ -166,6 +171,47 @@ def test_a_link_opens_nothing_but_the_book(client: TestClient) -> None:
         and "GET" not in route.methods
     ]
     assert writes == []
+
+
+def test_a_link_works_in_a_deployment_that_requires_sign_in(tmp_path: Path) -> None:
+    """The one place a share link is for: a deployment with Google sign-in on.
+
+    The auth gate turns away everything unauthenticated, so the share routes
+    have to be open beside it — otherwise the grandparent the feature exists
+    for is sent to a login page. The owner's own pages stay shut.
+    """
+    settings = Settings(
+        image_provider="mock",  # type: ignore[arg-type]
+        gemini_api_key="",
+        app_env="test",
+        storage_dir=tmp_path / "storage",
+        google_client_id="cid",
+        google_client_secret="cs",
+        session_secret="session-secret",
+        max_generations_per_minute=1000,
+    )
+    with TestClient(create_app(settings)) as owner:
+        owner.app.state.container.user_store.upsert(User(sub="owner-1", name="owner-1"))
+        owner.cookies.set(
+            SESSION_COOKIE,
+            owner.app.state.sessions.issue_google(
+                sub="owner-1", name="owner-1", ttl_seconds=600
+            ),
+        )
+        book_id = _start_book(owner)
+        assert _wait(owner, book_id)["status"] == "complete"
+        token = (
+            owner.get(f"/books/{book_id}/share", follow_redirects=False)
+            .headers["location"]
+            .partition("?share=")[2]
+        )
+
+        stranger = TestClient(owner.app)
+        assert stranger.get(f"/books/{book_id}", follow_redirects=False).status_code == 303
+        shared = stranger.get(f"/share/{token}")
+        assert shared.status_code == 200, shared.text
+        assert "Shai" in shared.text
+        assert stranger.get(f"/share/{token}/cover").status_code == 200
 
 
 def test_an_expired_link_is_a_404(client: TestClient) -> None:

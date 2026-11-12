@@ -61,8 +61,12 @@ router = APIRouter(tags=["auth"])
 _OPEN_PATHS = frozenset(
     {"/login", "/healthz", "/favicon.ico", "/auth/google/login", "/auth/callback"}
 )
-# Prefixes that stay open: the static assets the login page needs.
-_OPEN_PREFIXES = ("/static/",)
+# Prefixes that stay open: the static assets the login page needs, and the
+# share links. `/share/{token}` is a book somebody was *sent* — a grandparent
+# with no account is the whole point of it (W3) — and the signed token, not a
+# session, is what authorises the request. Minting one stays behind the owner's
+# session: that is `/books/{id}/share`, which is not under this prefix.
+_OPEN_PREFIXES = ("/static/", "/share/")
 
 # The state cookie remembers where the visitor was going, plus the random state
 # Google will echo back. Short-lived: it only has to survive one round trip.
