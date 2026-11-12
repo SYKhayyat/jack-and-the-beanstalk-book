@@ -176,6 +176,15 @@ services:
       - key: PICTURE_PRICE_CENTS
         value: "15"
 
+      # A book whose measured model spend passes a dollar is named on
+      # /admin/status and writes one book.cost_alert line (C4).
+      - key: BOOK_COST_ALERT_CENTS
+        value: "100"
+      # 0 keeps the reviewer for the whole book; 100 rests it once the book has
+      # spent its 99¢ fee, with tier 1 and the decision judge still deciding.
+      - key: REVIEWER_BUDGET_PERCENT
+        value: "0"
+
       - key: STORAGE_DIR
         value: /tmp/jack-and-the-beanstalk-book-storage
 

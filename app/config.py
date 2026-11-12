@@ -412,6 +412,30 @@ class Settings(BaseSettings):
         ),
     )
 
+    reviewer_budget_percent: int = Field(
+        default=0,
+        ge=0,
+        le=1000,
+        description=(
+            "Stop paying the reviewer for a book once its measured spend has "
+            "reached this percentage of the book's own price (a setting of 100 "
+            "rests it at the price). Tier 1 and the decision judge still look, "
+            "so a picture is never passed unchecked and every verdict says the "
+            "reviewer did not run. 0, the default, never rests it for money."
+        ),
+    )
+    book_cost_alert_cents: int = Field(
+        default=100,
+        ge=0,
+        le=100_000,
+        description=(
+            "A book whose measured model spend passes this many cents is named "
+            "on /admin/status and in one log line, so a book that costs more "
+            "than it sells for is noticed without reading the ledger. 0 turns "
+            "the alert off."
+        ),
+    )
+
     stripe_secret_key: str = Field(
         default="",
         # A sandbox key (sk_test_...), which moves no real money. It is a

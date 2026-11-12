@@ -36,7 +36,7 @@ from app.db import (
     BookRow,
     UserRow,
 )
-from app.services.costs import format_microusd
+from app.services.costs import CostLedger, format_microusd
 from app.services.db_book_store import unreviewed_images
 
 __all__ = [
@@ -106,6 +106,10 @@ class BookLine:
     best_effort: int
     tier2_unavailable: int
     providers: str
+    #: Measured model spend, in micro-dollars, and the same as a label. 0 when
+    #: the row was read without the ledger (the one-book detail page).
+    spend_microusd: int = 0
+    spend: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,6 +286,7 @@ _BOOK_COLUMNS = (
 
 
 def recent_books(engine: Engine, *, limit: int = 30) -> list[BookLine]:
+    """The newest books, with what each one cost to make (C4)."""
     with engine.connect() as conn:
         books = conn.execute(
             select(*_BOOK_COLUMNS, UserRow.email)
@@ -291,7 +296,8 @@ def recent_books(engine: Engine, *, limit: int = 30) -> list[BookLine]:
         ).all()
         ids = [row.id for row in books]
         pages = _page_reviews(conn, ids)
-    return [_book_line(row, pages.get(row.id, [])) for row in books]
+    spend = CostLedger(engine).book_costs_microusd(ids)
+    return [_book_line(row, pages.get(row.id, []), spend.get(row.id, 0)) for row in books]
 
 
 def book_detail(engine: Engine, book_id: str) -> BookDetail | None:
@@ -366,7 +372,9 @@ def _page_reviews(
 
 
 def _book_line(
-    row: Any, pages: Iterable[tuple[int, list[dict[str, Any]] | None, bool]]
+    row: Any,
+    pages: Iterable[tuple[int, list[dict[str, Any]] | None, bool]],
+    spend_microusd: int | None = None,
 ) -> BookLine:
     reviews = [(row.cover_review, bool(row.cover_best_effort))] + [
         (review, best) for _, review, best in pages
@@ -398,6 +406,8 @@ def _book_line(
         best_effort=best_effort,
         tier2_unavailable=unavailable,
         providers=", ".join(providers) or "—",
+        spend_microusd=spend_microusd or 0,
+        spend=format_microusd(spend_microusd) if spend_microusd is not None else "—",
     )
 
 

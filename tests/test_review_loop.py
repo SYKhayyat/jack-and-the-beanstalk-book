@@ -248,6 +248,15 @@ def runner_with(reviewer: Any, attempts: int = MAX_PAGE_ATTEMPTS) -> BookRunner:
     runner._decision_judge = None
     runner._reviewer_rests_until = None
     runner._image_pool = _IMAGE_POOL
+    # C4's knobs, at their "off" settings: no ledger, no budget, no alert. A
+    # test that wants one sets it.
+    runner._costs = None
+    runner._book_price_cents = 0
+    runner._reviewer_budget_percent = 0
+    runner._cost_alert_cents = 0
+    runner._spend = {}
+    runner._alerted = set()
+    runner._budget_rested = set()
     return runner
 
 

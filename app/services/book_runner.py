@@ -141,6 +141,15 @@ logger = logging.getLogger(__name__)
 #: How long a reviewer that has just failed is left alone before it is asked again.
 _REVIEWER_COOLDOWN = timedelta(minutes=2)
 
+#: Micro-dollars in a cent: the ledger counts in the smallest unit, the two
+#: operator knobs (a percentage of the price, an alert in cents) do not.
+_MICROUSD_PER_CENT = 10_000
+
+#: How often a book's measured spend is re-read while it renders. A verdict asks
+#: for it up to three times a page and the answer barely moves; reading it every
+#: time would put a query behind every picture (C4).
+_SPEND_REFRESH_SECONDS = 10.0
+
 _T = TypeVar("_T")
 
 # How often a page re-asks the per-minute brake for one billable token while a
@@ -241,6 +250,9 @@ class BookRunner:
         page_concurrency: int = 6,
         image_threads: int = 2,
         costs: CostLedger | None = None,
+        book_price_cents: int = 0,
+        reviewer_budget_percent: int = 0,
+        cost_alert_cents: int = 0,
     ) -> None:
         self._provider = provider
         # Read once per resume, to log what the restart threw away.
@@ -282,6 +294,21 @@ class BookRunner:
         #: is what keeps two workers off one book; the id is how the row says
         #: whose job it is (B9).
         self._owner = _worker_id()
+        #: What the book is sold for, in cents: the review budget is a
+        #: percentage of it (C4).
+        self._book_price_cents = book_price_cents
+        #: Percentage of the price the reviewer may spend before it is rested
+        #: for that book; 0 never rests it (C4).
+        self._reviewer_budget_percent = reviewer_budget_percent
+        #: The measured spend, in cents, at which one book is reported to the
+        #: operator; 0 turns the report off (C4).
+        self._cost_alert_cents = cost_alert_cents
+        #: Each book's spend as last read from the ledger, and when; the books
+        #: already reported, and those whose budget has already been said out
+        #: loud. One line a book, not one per page.
+        self._spend: dict[str, tuple[float, int]] = {}
+        self._alerted: set[str] = set()
+        self._budget_rested: set[str] = set()
         self._heartbeats: dict[str, asyncio.Task[None]] = {}
         # Set by `close`: a job cancelled because the server is stopping is
         # paused for the next boot to resume, not failed.
@@ -292,6 +319,95 @@ class BookRunner:
         return await asyncio.get_running_loop().run_in_executor(
             self._image_pool, partial(func, *args, **kwargs)
         )
+
+    async def _book_spend(self, book_id: str, *, fresh: bool = False) -> int | None:
+        """What this book has cost the operator so far, in micro-dollars.
+
+        Read from the ledger rather than counted here: the portraits drawn
+        before the book started, its pages, its retries and both tiers are
+        already rows, and a book resumed after a restart must not begin its
+        budget from zero. None when the ledger cannot be read — a ledger
+        hiccup never rests the reviewer or reports a book.
+        """
+        cached = self._spend.get(book_id)
+        now = monotonic()
+        if not fresh and cached is not None and now - cached[0] < _SPEND_REFRESH_SECONDS:
+            return cached[1]
+        if self._costs is None:
+            return cached[1] if cached is not None else None
+        try:
+            totals = await asyncio.to_thread(self._costs.book_costs_microusd, [book_id])
+        except Exception:
+            logger.warning("book.spend_unavailable book=%s", book_id, exc_info=True)
+            return cached[1] if cached is not None else None
+        total = totals.get(book_id, 0)
+        self._spend[book_id] = (now, total)
+        return total
+
+    async def _review_budget_spent(self, book_id: str, user: str) -> bool:
+        """True once this book has spent its review budget (C4).
+
+        `REVIEWER_BUDGET_PERCENT` is a share of the book's own fee; past it,
+        tier 2 is rested for the rest of this book and tier 1 and the decision
+        judge decide. The book keeps every picture it has: the reviewer's
+        words are what a tight budget gives up, never a picture already drawn.
+        A verdict that ran without tier 2 says so in its note.
+        """
+        if self._reviewer_budget_percent <= 0 or self._book_price_cents <= 0:
+            return False
+        spend = await self._book_spend(book_id)
+        if spend is None:
+            return False
+        budget = (
+            self._book_price_cents * _MICROUSD_PER_CENT * self._reviewer_budget_percent // 100
+        )
+        if spend < budget:
+            return False
+        if book_id not in self._budget_rested:
+            self._budget_rested.add(book_id)
+            logger.warning(
+                "book.review_budget user=%s book=%s spend_usd=%.4f budget_usd=%.4f "
+                "outcome=rested",
+                user,
+                book_id,
+                spend / 1_000_000,
+                budget / 1_000_000,
+            )
+        return True
+
+    async def _report_book_cost(self, book_id: str, user: str) -> None:
+        """Tell the operator when a book cost more than the alert allows.
+
+        Runs when a job ends however it ends: a book stopped half-drawn has
+        spent money too. This deployment has no mail channel (W7), so the
+        report is one `book.cost_alert` line the operator's log keeps, and
+        `/admin/status` draws its banner from the same threshold. Never
+        raises: the job's own ending matters more than the notice.
+        """
+        limit = self._cost_alert_cents * _MICROUSD_PER_CENT
+        if limit <= 0 or book_id in self._alerted:
+            return
+        try:
+            spend = await self._book_spend(book_id, fresh=True)
+        except Exception:
+            logger.warning("book.cost_alert_failed book=%s", book_id, exc_info=True)
+            return
+        if spend is None or spend < limit:
+            return
+        self._alerted.add(book_id)
+        logger.error(
+            "book.cost_alert user=%s book=%s spend_usd=%.4f alert_usd=%.2f",
+            user,
+            book_id,
+            spend / 1_000_000,
+            limit / 1_000_000,
+        )
+
+    def _forget_book_costs(self, book_id: str) -> None:
+        """Drop one book's spend cache when its job ends: the ledger keeps it."""
+        self._spend.pop(book_id, None)
+        self._budget_rested.discard(book_id)
+        self._alerted.discard(book_id)
 
     async def _claim(self, book_id: str) -> None:
         """Take the book's job lease, or refuse because a live worker has it.
@@ -697,6 +813,7 @@ class BookRunner:
 
         def _finished(done: asyncio.Task[None]) -> None:
             self._tasks.discard(done)
+            self._forget_book_costs(book_id)
             if self._active.get(book_id) is done:
                 self._active.pop(book_id, None)
             beat = self._heartbeats.pop(book_id, None)
@@ -1256,6 +1373,10 @@ class BookRunner:
                 user=user,
                 elapsed_ms=(monotonic() - started) * 1000,
             )
+        finally:
+            # However the job ended, what it spent is already spent: the
+            # operator hears about a book over the alert line here, once (C4).
+            await self._report_book_cost(book_id, user)
 
     async def _fail_off_loop(
         self,
@@ -1461,7 +1582,14 @@ class BookRunner:
             )
 
         answer: ReviewAnswer | None = None
-        if self._reviewer.name != "off" and self.reviewer_resting_until is None:
+        # Asked before the call, not after: the point of the budget is not to
+        # pay for it (C4). A verdict that ran without tier 2 says so below.
+        rested_for_money = await self._review_budget_spent(book_id, user)
+        if (
+            self._reviewer.name != "off"
+            and self.reviewer_resting_until is None
+            and not rested_for_money
+        ):
             try:
                 answer = await asyncio.to_thread(
                     self._reviewer.review,
@@ -1502,13 +1630,20 @@ class BookRunner:
         if answer is None:
             if decision is None:
                 # Neither vision check could look: tier 1 alone, and said so.
+                # A budget that rested the reviewer is the operator's choice,
+                # not an outage, so it is named differently and does not count
+                # towards "the reviewer could not judge" (C4).
                 return Verdict(
                     attempt=attempt,
                     passed=tier1.passed,
                     score=tier1.score,
                     faults=tuple(tier1.faults),
-                    note="tier 2 did not run",
-                    tier2_failed=True,
+                    note=(
+                        "the reviewer was rested on the book's review budget"
+                        if rested_for_money
+                        else "tier 2 did not run"
+                    ),
+                    tier2_failed=not rested_for_money,
                 )
             # The reviewer is down, resting or not set: the decision makes the call on
             # its own, a confident rejection as it is, an unsure one at halfway.

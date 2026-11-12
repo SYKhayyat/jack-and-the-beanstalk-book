@@ -33,6 +33,25 @@
 
   {% if notice %}<p class="flash" role="status" aria-live="polite">{{ notice }}</p>{% endif %}
 
+  {% if cost_alerts %}
+  <section class="card" id="cost-alerts" aria-labelledby="cost-alerts-heading">
+    <div class="admin-card-head">
+      <h2 id="cost-alerts-heading">Books over {{ cost_alert_label }}</h2>
+      <span class="field-help">Measured model spend — pictures, redraws and checks — not the price. BOOK_COST_ALERT_CENTS sets the line, and each one also wrote a <code>book.cost_alert</code> line to the log.</span>
+    </div>
+    <ul class="admin-story-list">
+      {% for book in cost_alerts %}
+      <li>
+        <div class="admin-story-main">
+          <a href="/admin/books/{{ book.book_id }}">{{ book.title or book.story_key }}</a>
+          <span class="field-help">{{ book.spend }} to make · {{ book.status }} · {{ book.owner }}</span>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
   <section class="admin-tiles" aria-label="At a glance">
     <a class="admin-tile" href="#review-heading">
       <span class="admin-tile-figure">{{ week.books }}</span>
@@ -172,7 +191,7 @@
     <div class="admin-scroll">
       <table class="wallet-table">
         <thead>
-          <tr><th scope="col">Made</th><th scope="col">Book</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Plates</th><th scope="col">Pictures</th><th scope="col">Attempts</th><th scope="col">Best effort</th><th scope="col">Reviewer down</th><th scope="col">Drawn by</th></tr>
+          <tr><th scope="col">Made</th><th scope="col">Book</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Spend</th><th scope="col">Plates</th><th scope="col">Pictures</th><th scope="col">Attempts</th><th scope="col">Best effort</th><th scope="col">Reviewer down</th><th scope="col">Drawn by</th></tr>
         </thead>
         <tbody>
           {% for book in books %}
@@ -181,6 +200,7 @@
             <td><a href="/admin/books/{{ book.book_id }}">{{ book.title or book.story_key }}</a></td>
             <td>{{ book.owner }}</td>
             <td><span class="admin-state{% if book.status == "complete" %} is-good{% elif book.status == "failed" %} is-bad{% endif %}">{{ book.status }}</span></td>
+            <td class="wallet-amount{% if book in cost_alerts %} admin-bad{% endif %}">{{ book.spend }}</td>
             <td>{{ "yes" if book.plated else "no" }}</td>
             <td class="wallet-amount">{{ book.pictures }}</td>
             <td class="wallet-amount">{{ book.attempts }}</td>

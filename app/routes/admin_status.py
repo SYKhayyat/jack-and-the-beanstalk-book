@@ -118,6 +118,15 @@ async def status_page(
         for owner, user in zip(owners, users, strict=True)
     }
     stories = await asyncio.to_thread(container.templates.stories)
+    # C4: the books that cost more than the alert line, newest first — the same
+    # threshold the runner writes its `book.cost_alert` line against, so the
+    # banner and the log never disagree.
+    alert_cents = container.settings.book_cost_alert_cents
+    cost_alerts = [
+        book
+        for book in books
+        if alert_cents > 0 and book.spend_microusd >= alert_cents * 10_000
+    ]
     response = render_admin(
         request,
         "admin_status.html",
@@ -145,6 +154,8 @@ async def status_page(
                 for item in refunds
             ],
             "notice": _NOTICES.get(notice, ""),
+            "cost_alerts": cost_alerts,
+            "cost_alert_label": format_cents(alert_cents),
             "costs": cost_panel(container, container.wallet.price_cents),
         },
     )
