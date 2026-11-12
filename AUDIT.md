@@ -134,6 +134,8 @@ That is B2's promise broken by another route, and “Finish this book” does no
 
 **Fix:** write the picture and its verdict in one transaction (`save_page(..., review=…, attempt_count=…, chosen_attempt=…, best_effort=…)`), so a page can never be saved without them. As a safety net, treat a page that exists without a review as missing: let the book assemble, mark that page “couldn't be checked”, and let Finish redraw it.
 
+**Done (11 Nov 2026):** both halves. `save_page` and `save_cover` take the verdict and write it in the same transaction as the art, and the runner passes it there (`_verdict` → `save_page`/`save_cover`; `_record` is now `_record_prompts` and only logs the prompts). `record_page_review`/`record_cover_review` remain as the late path for a picture that is already stored. For art that is already in that state, `unreviewed_pages` is now what the job treats as unfinished: a page whose picture has no verdict is drawn again by Finish or by a resume, instead of the book being stuck with no way forward. Pinned by `test_a_page_and_its_verdict_land_together`, `test_a_cover_and_its_verdict_land_together` and `test_a_picture_with_no_verdict_is_drawn_again` (which fails with the safety net removed).
+
 ---
 
 ## 2. Display and UI
@@ -164,6 +166,8 @@ The app mostly says **portrait** / **storybook self**, but the download button s
 The empty state says “Re-roll below”, the button says “Paint a new candidate”, and the panel title says “Paint this page again” (`app/templates/admin_plate_review.html`). Operator-facing, but it makes a simple action feel like three. Use “paint” consistently, or use “try another” consistently.
 
 ### U6 — P2: the wallet page repeats the header top-up control
+
+**Done (11 Nov 2026, `f10b0c1`):** the header's quick + $5 is not rendered on `/wallet`, where the Add money card owns the amount choice, so the same decision is not offered twice on one screen.
 The header shows a `+ $5` button on the wallet page, directly above an “Add money” card with the same $5 option (`app/templates/_layout.html:33–39`, `wallet.html`). Minor, but the wallet page should be the one place where amount choice lives; hide the header quick-add there (or turn it into a link to the Add money card).
 
 ### U7 — P2: the first view of a failed book does not explain “Finish this book”
@@ -268,6 +272,8 @@ See B12. Measured 0.28 s (800 px) and 0.38 s (1600 px) per 1152×864 image on a 
 **Done (11 Nov 2026):** both web faces are WOFF2 in `app/static/webfonts/` — 203 KB for the pair instead of 640 KB — and the stylesheet points at them with a relative URL, so they load under the fingerprinted `/static/<build>/` prefix and are served `immutable`. `_layout.html` preloads both faces, and the TTF mount under `/static/fonts` is gone: the TTFs in `app/assets/fonts` are the PDF's only. Not subsetted: a visitor may type any name into the About page (Hebrew included), so dropping glyphs would break their book. Pinned by `test_the_web_fonts_are_woff2_under_the_fingerprint`.
 
 ### S7 — P2: the PDF is built at the very end and served as one in-memory blob
+
+**Done (11 Nov 2026):** the assembly is its own reported phase: the runner publishes `phase: "assembling"` before it builds the document, and the reader says “Step 2 of 2 · Putting the book together — every picture is drawn” instead of a progress bar that stopped, pinned by `test_the_book_counts_its_cover_and_reports_the_pdf_phase` (a poll taken mid-assembly). The finished PDF is stored with the book's row and the download route serves it from there — a mock book is ~70 KB — so no page view ever re-assembles it.
 `assemble` reads every page blob and builds the PDF after all pages are done (`book_runner.py:812`); the 4.7 MB result is then served by `book_pdf` as one `Response`. Fine at this scale, but a 21-page book's PDF is the last thing to appear and there is no progress for it. If books grow, stream or cache the PDF bytes in the row (they already live there) and show “putting the book together” progress (the UI already has the phase).
 
 ### S8 — P2: the test suite is slow enough to hide regressions
