@@ -74,6 +74,13 @@ and in the local logs every page of every demo book was reviewed as `faults=coll
 
 **Done (11 Nov 2026):** the mock banners are inset 14 % a side, so the hard edge covers 72 % of the width — under the detector’s 75 % threshold — and a placeholder page passes tier 1; and a placeholder provider gets one attempt, since there is no model to steer and a retry would be three identical placeholders. The demo is now the happy path it was meant to be: one attempt, a passing verdict, no “best of three”. Pinned by `test_a_placeholder_page_passes_the_free_review`; the detector itself is still calibrated by C5.
 
+### B15 — P1: the page around a child's picture had no cache policy
+`book_access.no_store` and the media routes say `private, no-store` for every child-derived *picture*, and the docstring there states the rule — “none of it may be cached by a shared browser or proxy”. The HTML did not follow it: `/books/{id}` (the child's name, their words, the story) and every other page were sent with no `Cache-Control` at all, so a proxy in front of the custom domain, or a browser's own disk cache, was free to keep a book page indefinitely. On the new `/share/{token}` this was sharper: a cached copy would outlive the link's own expiry, which is the one guarantee the token makes.
+
+Found while setting the share page's `Referrer-Policy`, which was the only header that page was missing.
+
+**Done (12 Nov 2026):** HTML responses now get `private, no-store` from one place (`_request_context` in `app/main.py`) unless the response set its own policy, so every page agrees with the media it carries — a shared cache never keeps it, and a link that has expired cannot be read from a stale copy. Static files keep their own `immutable`/`no-cache` policies. Pinned by `test_the_pages_around_the_pictures_are_not_cached_either`.
+
 ### B6 — P1: every page badge exposes internal quality-control language, and one string is ungrammatical
 `app/static/book-live.js:447–501` writes the attempt record into the visitor's UI:
 
