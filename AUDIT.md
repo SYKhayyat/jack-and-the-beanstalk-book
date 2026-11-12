@@ -100,6 +100,8 @@ The first story page is labelled `Page 1 of 20`, while its printed folio is `2` 
 
 **Fix:** on boot, re-enqueue failed books that have a cover or at least one saved page and are still inside their retention window, or at least surface “resume” prominently on the failed book page. This turns a restart from a loss into a delay. It also needs the multi-worker caveat in B9.
 
+**Done (11 Nov 2026), both halves, with B9:** with the job lease in the database, a book a dead worker left behind is *paused*, not failed — `resume_incomplete` picks it up at boot when the lease has expired, inside the resume window and under the resume limit — and a failed book that is not resumed says how to finish it on its own page and in the library (W8). The limit is deliberate: a book that kills the server must stop doing so. Pinned by `test_the_boot_resumes_a_book_whose_worker_died` and `test_a_book_a_live_worker_is_rendering_is_left_alone`.
+
 ### B9 — P1 (scaling): single-process assumptions are load-bearing
 `reap_incomplete()` fails *all* pending/rendering books on every boot, including books another live worker may be rendering. `_start_lock`, `_active` jobs, `BookRunner._reviewer_rests_until`, the rate limiter and `Wallet._lock` are all in-memory. With more than one Render instance or Uvicorn worker, duplicate starts, double charges and cross-worker reaping are possible. The blueprint currently runs one free instance, so this is a latent scaling bug, not a live incident.
 
@@ -190,6 +192,8 @@ On a failed book the primary recovery is a button labelled **Finish this book** 
 ### U9 — P2: dark-mode coverage is present, but check the paper metaphor
 `prefers-color-scheme: dark` is implemented (style.css:74+), which is a real improvement. The book reader, however, is a deliberately cream “paper” surface; in dark mode the surrounding chrome goes dark while the page stays cream. That is defensible for a picture book, but the contrast between the two surfaces is now a design decision that should be intentional (and checked for the cream-on-dark outline). Low priority.
 
+**Checked (12 Nov 2026), no change:** the decision is written down in the stylesheet and it is the one asked for — the dark block changes the chrome's paper, ink and tints, and keeps `--cream` at `#fff9eb` on purpose (“The art keeps its warmth; only the paper, ink and tints change, so a child's picture is never inverted”). A cream page on a dark surround is the paper metaphor, and the card's border and shadow (`--shadow-book`) are what separate the two surfaces; nothing in the reader inherits the dark ink value onto the cream page, so the mode cannot produce light-on-light text. What is not checked here is how it *looks* on a real phone in dark mode — that is a visual judgement, not a code one.
+
 ### U10 — P2: the studio can be jumped to the end without a star
 The shared step header links **4 Make it** directly to `/stories/<story>/about` (`app/templates/_steps.html`). The About page correctly disables “Make the book” and shows “Go back to the faces”, but the user reaches a dead end. The header's step links should respect `firstUnfinished()` and land on the first step that still needs work (or show the About page in a read-only “answer the earlier steps first” state).
 
@@ -263,6 +267,8 @@ See B12. Measured 0.28 s (800 px) and 0.38 s (1600 px) per 1152×864 image on a 
 
 **Fix:** either make the product promise match reality (“a few minutes”), or raise the image-per-minute cap and run on a paid instance with enough memory; overlap review with the next paint; and keep the cover in the same `gather` (it already is).
 
+**Checked (12 Nov 2026), no throughput change, on purpose:** the arithmetic says the pacer is not what made a book take 16 minutes. 52 calls at 18 a minute is 173 s of pacing; the rest is the provider's own latency and the second and third attempt per page. Raising `OPENAI_IMAGES_PER_MINUTE` would therefore buy minutes at the cost of 429s and a burst of billable calls on a free instance that has already OOM'd at 8 concurrent generations — the wrong lever. The right one is the call count: C1's retries are 31 of those 52 calls, and C4's `REVIEWER_BUDGET_PERCENT` already bounds the checks. What *was* wrong is the promise, and the product no longer makes it: no visitor-facing screen promises a minute (the reader names the stage and the counts — “16 being drawn, 2 being checked” — rather than promising a time, and the only span of time said to a visitor is the failed row's “a few minutes”). The “under 60 seconds” line in `to-do.md` is history from the Agnes trial, and the 16–17 minutes are recorded in `review-log.md`.
+
 ### S4 — P2: the full status document is rewritten on every progress tick
 `status_payload` includes each page's full story text (`app/services/book_document.py:127–160`), and `save_status` rewrites the whole JSON on every stage change; the browser polls it every 1.5 s (`app/static/book-live.js:16`). That is ~10–12 KB × dozens of writes per book, plus the poll payload, all over the network to Neon. Store story text once (book/story page rows) and keep the poll document to ids/status/URLs, or only update the changed page.
 
@@ -315,6 +321,8 @@ A refund request is recorded and the wallet is debited immediately (`wallet.py:3
 
 ### W5 — P2: payments are still a deployment setting, not a finished flow
 `render.yaml` does not declare `STRIPE_SECRET_KEY`, and `to-do.md` still has “Confirm STRIPE_SECRET_KEY is set in the Render dashboard”. Conditional on that being unset, the live site runs with payments off: no fee, no funding, no refunds, and the story cards have no price. Verify the dashboard; if payments are intentionally off for the hand-in, say so on the site instead of “Payments are not configured on this deployment” in a customer-facing wallet.
+
+**Checked (12 Nov 2026), one half closed:** the blueprint *does* declare it now (`render.yaml`, `STRIPE_SECRET_KEY` with `sync: false`, so Render prompts for the value and it never lands in git), and the audit's premise that the cards must be priceless when payments are off was closed by U3 — the shelf shows the price from `payments_enabled`, not from a signed-in owner. What remains is the part no code can settle: whether the value is actually set in the dashboard, which `to-do.md` keeps as an operator check. If it is not, the site is already honest about it: the wallet says payments are not configured and that books are free to make, rather than showing a price it cannot take.
 
 ### W6 — P2: printing has no path
 The code comment and prior audit both note “no print service yet”; the finished book offers PDF/ZIP only (`book.html:62–70`). The natural upsell (a printed hardcover) is not wired.
