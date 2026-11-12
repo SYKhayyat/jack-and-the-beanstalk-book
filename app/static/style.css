@@ -2261,14 +2261,18 @@ dialog.modal form {
   flex: none;
 }
 /* A tool's pressed state decides which of its two glyphs shows: play while
-   stopped, pause while reading. */
-.tool-icon-pause {
+   stopped and pause while reading; corners out for Story time, corners in
+   while the book has the screen. */
+.tool-icon-pause,
+.tool-icon-compress {
   display: none;
 }
-.tool-button[aria-pressed="true"] .tool-icon-play {
+.tool-button[aria-pressed="true"] .tool-icon-play,
+.tool-button[aria-pressed="true"] .tool-icon-expand {
   display: none;
 }
-.tool-button[aria-pressed="true"] .tool-icon-pause {
+.tool-button[aria-pressed="true"] .tool-icon-pause,
+.tool-button[aria-pressed="true"] .tool-icon-compress {
   display: block;
 }
 /* Story time: the book alone, filling the screen. */

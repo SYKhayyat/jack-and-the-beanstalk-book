@@ -186,9 +186,9 @@ paper in Literata at one size for the whole book, a gold rule and a folio, as
 in the PDF); two-page spread on wide, short windows, stacked on phones; sized
 to the window by =reader-layout.js=; a drop cap on page 1; typographic quotes
 in reader and PDF (=app/services/typography.py=); a peel-and-shadow page turn
-(=page-turn.js=); full-screen story time (Esc leaves); tap left third = back;
-a play/pause "Read to me" that highlights each sentence and turns the page
-on (=read-aloud.js=).
+(=page-turn.js=); full-screen story time on a fullscreen icon (Esc leaves);
+tap left third = back; a play/pause "Read to me" that highlights each
+sentence and turns the page on (=read-aloud.js=).
 
 Your three specifics, all visible on the live book:
 1. *The text isn't on the page.* It's a =<figcaption>= in a white strip under
