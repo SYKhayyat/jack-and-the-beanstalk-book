@@ -1,5 +1,5 @@
 /* Turning a page: the leaf lifts from its spine and falls over, with the
-   shadow a real page throws, and (only if asked for) a soft paper sound.
+   shadow a real page throws.
 
    Forward, the page you are on peels away to the left and reveals the next
    one beneath it. Back, the previous page falls back over from the left onto
@@ -7,7 +7,6 @@
 
 const TURN_MS = 620;
 const EASE = "cubic-bezier(0.33, 0.0, 0.2, 1)";
-const SOUND_KEY = "book.pageSound";
 
 /**
  * Show `next` in place of `current`. Resolves when the turn is over.
@@ -68,64 +67,4 @@ export function createPageTurner(slot, { reducedMotion }) {
   }
 
   return { turn, settle };
-}
-
-/**
- * A page-turn rustle, made from filtered noise so no sound file ships. Off
- * until the reader turns it on; the choice is remembered on this device.
- */
-export function createPageSound() {
-  let context = null;
-  let enabled = readEnabled();
-
-  function readEnabled() {
-    try {
-      return window.localStorage.getItem(SOUND_KEY) === "on";
-    } catch {
-      return false;
-    }
-  }
-
-  function setEnabled(value) {
-    enabled = Boolean(value);
-    try {
-      window.localStorage.setItem(SOUND_KEY, enabled ? "on" : "off");
-    } catch {
-      // private mode: the choice lasts for this visit only
-    }
-  }
-
-  function play() {
-    if (!enabled) return;
-    const Context = window.AudioContext || window.webkitAudioContext;
-    if (!Context) return;
-    context = context || new Context();
-    if (context.state === "suspended") void context.resume();
-    const seconds = 0.42;
-    const buffer = context.createBuffer(1, Math.floor(context.sampleRate * seconds), context.sampleRate);
-    const samples = buffer.getChannelData(0);
-    for (let i = 0; i < samples.length; i += 1) samples[i] = Math.random() * 2 - 1;
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    const filter = context.createBiquadFilter();
-    filter.type = "bandpass";
-    filter.Q.value = 0.8;
-    const now = context.currentTime;
-    filter.frequency.setValueAtTime(3200, now);
-    filter.frequency.exponentialRampToValueAtTime(700, now + seconds);
-    const gain = context.createGain();
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.16, now + 0.05);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + seconds);
-    source.connect(filter).connect(gain).connect(context.destination);
-    source.start(now);
-  }
-
-  return {
-    play,
-    get enabled() {
-      return enabled;
-    },
-    setEnabled,
-  };
 }

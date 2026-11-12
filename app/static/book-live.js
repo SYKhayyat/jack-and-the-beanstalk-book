@@ -9,7 +9,7 @@ import { createBookClient } from "./api.js";
 import { createCameraSource, isTouchDevice } from "./photo.js";
 import { preparePhoto } from "./downscale.js";
 import { createReaderLayout } from "./reader-layout.js";
-import { createPageSound, createPageTurner } from "./page-turn.js";
+import { createPageTurner } from "./page-turn.js";
 import { createReadAloud, speechAvailable } from "./read-aloud.js";
 import { celebrate } from "./celebrate.js";
 
@@ -39,7 +39,6 @@ const MAX_ATTEMPTS = Number(body.dataset.maxAttempts) || 3;
 
 const layout = createReaderLayout(reader, slot);
 const turner = createPageTurner(slot, { reducedMotion });
-const sound = createPageSound();
 const voice = createReadAloud({ onPageRead: () => readOn() });
 
 let index = 0;
@@ -105,7 +104,6 @@ function show(wanted, { animate = true } = {}) {
   const previous = spreads[index];
   const direction = next >= index ? "forward" : "back";
   index = next;
-  if (animate && previous !== spreads[index]) sound.play();
   void turner.turn(animate ? previous : null, spreads[index], direction);
   if (!animate) spreads.forEach((spread, position) => (spread.hidden = position !== index));
   const { hash, label } = spreadName(index);
@@ -191,10 +189,13 @@ function wireTurning() {
   });
 }
 
-/* --- reading tools: read to me, page sound, story time ------------------------- */
+/* --- reading tools: play/pause, story time ------------------------------------ */
 
+/* A pressed tool is a running tool: the glyph and the word both say what the
+   next press does. */
 function setPressed(button, pressed, label) {
   button.setAttribute("aria-pressed", pressed ? "true" : "false");
+  button.setAttribute("aria-label", label);
   button.querySelector('[data-role="label"]').textContent = label;
 }
 
@@ -209,18 +210,10 @@ function wireTools() {
         return;
       }
       voice.start();
-      setPressed(readButton, true, "Stop reading");
+      setPressed(readButton, true, "Pause");
       voice.readLeaf(spreads[index], bookTitle);
     });
   }
-
-  const soundButton = document.getElementById("page-sound");
-  setPressed(soundButton, sound.enabled, sound.enabled ? "Sound on" : "Sound off");
-  soundButton.addEventListener("click", () => {
-    sound.setEnabled(!sound.enabled);
-    setPressed(soundButton, sound.enabled, sound.enabled ? "Sound on" : "Sound off");
-    sound.play();
-  });
 
   document.getElementById("story-time").addEventListener("click", () => {
     setStoryTime(!reader.classList.contains("story-time"));
@@ -332,7 +325,7 @@ function apply(payload) {
   const total = lastIndex;
   const inFlight = Object.values(stages);
   setProgress(done, total, inFlight);
-  // Read to me, page sound and Story time need a page to act on. The cover
+  // Read to me and Story time need a page to act on. The cover
   // alone is not one, so the tools wait for the first finished story page
   // (U2); the server renders the same initial state.
   const readable =

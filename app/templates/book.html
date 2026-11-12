@@ -63,8 +63,14 @@
       <span class="reader-where"><span id="page-label">Cover</span></span>
       {# Nothing to read aloud or turn yet while only the cover exists (U2). #}
       <span class="reader-tools{% if status != 'complete' and done_count <= 1 %} hidden{% endif %}" id="reader-tools">
-        <button type="button" class="tool-button" id="read-aloud" aria-pressed="false" hidden><span aria-hidden="true">🔊</span> <span data-role="label">Read to me</span></button>
-        <button type="button" class="tool-button" id="page-sound" aria-pressed="false" title="A soft page-turn sound"><span aria-hidden="true">♪</span> <span data-role="label">Sound off</span></button>
+        {#- One transport button, not a mute toggle: it plays the page and pauses
+            it, and the glyph says which is next. Hidden where the browser has
+            no speech, which read-aloud.js decides (W12). #}
+        <button type="button" class="tool-button" id="read-aloud" aria-pressed="false" aria-label="Read to me" hidden>
+          <svg class="tool-icon tool-icon-play" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.6 13 8l-8.5 5.4z" fill="currentColor"/></svg>
+          <svg class="tool-icon tool-icon-pause" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="4" y="2.5" width="3" height="11" rx="1" fill="currentColor"/><rect x="9" y="2.5" width="3" height="11" rx="1" fill="currentColor"/></svg>
+          <span data-role="label">Read to me</span>
+        </button>
         <button type="button" class="tool-button" id="story-time" aria-pressed="false"><span aria-hidden="true">⛶</span> <span data-role="label">Story time</span></button>
       </span>
     </div>

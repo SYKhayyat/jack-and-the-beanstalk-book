@@ -2255,6 +2255,22 @@ dialog.modal form {
 .tool-button[hidden] {
   display: none;
 }
+.tool-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+/* A tool's pressed state decides which of its two glyphs shows: play while
+   stopped, pause while reading. */
+.tool-icon-pause {
+  display: none;
+}
+.tool-button[aria-pressed="true"] .tool-icon-play {
+  display: none;
+}
+.tool-button[aria-pressed="true"] .tool-icon-pause {
+  display: block;
+}
 /* Story time: the book alone, filling the screen. */
 .reader.story-time {
   position: fixed;
