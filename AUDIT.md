@@ -313,6 +313,8 @@ The code comment and prior audit both note “no print service yet”; the finis
 ### W7 — P2: operator alerting is missing
 `/admin/status` shows unreviewed images, restart-reaped books, review pass rates and average cost, but only when someone opens it. There is no threshold alert (“review pass rate fell below X”, “average book cost above $0.99”, “a render was reaped”, “a refund is waiting”). The data already exists; a scheduled check plus one notification channel would catch B1/B5/B8 before a customer does.
 
+**Done (11 Nov 2026), with the log as the channel:** `app/services/alerts.py` holds three rules — the share of pictures passing their first check falling below 50 % once 40 have been reviewed, a book averaging more than its price to make, and refunds waiting to be sent back. `check_alerts` runs them at boot and on the existing hourly sweep and writes one `operator.alert` line each; `/admin/status` renders the same list as “Worth a look” at the top of the page, from the same function, so the page and the log cannot disagree. There is no mail or webhook channel in this deployment, so a real push notification is still W2/W4's separate question. Pinned by `tests/test_operator_alerts.py` and the alert assertions in `test_the_operator_processes_a_refund_once`.
+
 ### W8 — P2: failed-render recovery is a button, not a workflow
 “Finish this book” exists, but there is no automatic resume (B8), no e-mail when it recovers, and no visible distinction between “failed and resumable” and “failed and hopeless” in the library list. The store knows which pages are saved; the UI does not use that.
 

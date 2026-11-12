@@ -670,6 +670,9 @@ def test_the_operator_processes_a_refund_once(settings, provider, stripe, caplog
         assert "1 refund waiting to be sent back" in admin
         # And on every page the operator opens, not only that one.
         assert 'id="refunds-badge"' in client.get("/").text
+        # W7's alert list carries it too, so the page and the log agree.
+        assert 'id="operator-alerts"' in admin
+        assert "refunds_waiting" in admin
         # The queue names the person, not their internal sign-in id.
         queue = admin.split('id="refunds"', 1)[1].split("</section>", 1)[0]
         assert "Shai" in queue

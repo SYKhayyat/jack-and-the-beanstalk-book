@@ -34,6 +34,7 @@ from app.routes.admin import admin_chrome, operator_or_404, render_admin
 from app.routes.auth import CurrentSessionDep
 from app.routes.book_access import no_store
 from app.routes.wallet import cost_panel
+from app.services.alerts import operator_alerts
 from app.services.costs import image_call_price
 from app.services.media import media_type_for
 from app.services.operator_status import (
@@ -121,6 +122,14 @@ async def status_page(
     # C4: the books that cost more than the alert line, newest first — the same
     # threshold the runner writes its `book.cost_alert` line against, so the
     # banner and the log never disagree.
+    # The same thresholds the boot and the hourly sweep log (W7), so the page
+    # and the log never disagree about what is wrong.
+    alerts = await asyncio.to_thread(
+        operator_alerts,
+        engine,
+        price_cents=container.wallet.price_cents,
+        wallet=container.wallet,
+    )
     alert_cents = container.settings.book_cost_alert_cents
     cost_alerts = [
         book
@@ -155,6 +164,7 @@ async def status_page(
             ],
             "notice": _NOTICES.get(notice, ""),
             "cost_alerts": cost_alerts,
+            "alerts": alerts,
             # Refunds wait for a human, and nothing nudges the operator but this
             # page: a waiting refund is the first thing on it (W4).
             "waiting_refunds": [item for item in refunds if item.status == REFUND_REQUESTED],

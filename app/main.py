@@ -36,6 +36,7 @@ from app.logging_context import (
 from app.redaction import install_secret_redaction
 from app.routes import admin, admin_status, api, auth, book, book_media, media, wallet, web
 from app.routes.auth import install_auth_gate
+from app.services.alerts import log_alerts, operator_alerts
 from app.services.google_oauth import GoogleOAuthClient
 from app.services.image_providers.base import ImageProvider
 from app.services.payments import PaymentProvider
@@ -145,6 +146,19 @@ def expire_once(container: Container) -> tuple[int, int]:
     return drafts, books
 
 
+def check_alerts(container: Container) -> int:
+    """Run the operator's thresholds and log what they say; returns the count.
+
+    One place for both callers — the boot and the hourly sweep — so the log and
+    `/admin/status` cannot disagree about what is wrong (W7).
+    """
+    alerts = operator_alerts(
+        container.engine, price_cents=container.wallet.price_cents, wallet=container.wallet
+    )
+    log_alerts(alerts)
+    return len(alerts)
+
+
 async def _sweep_expired(container: Container) -> None:
     """Run `expire_once` for as long as the server lives.
 
@@ -158,6 +172,12 @@ async def _sweep_expired(container: Container) -> None:
             await asyncio.to_thread(expire_once, container)
         except Exception:
             logger.warning("storage.expire_failed", exc_info=True)
+        # The thresholds worth a line in the log: the same ones the operator's
+        # page shows, so a deployment can be trusted without being watched (W7).
+        try:
+            await asyncio.to_thread(check_alerts, container)
+        except Exception:
+            logger.warning("operator.alert_check_failed", exc_info=True)
 
 
 @asynccontextmanager
@@ -176,6 +196,11 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     # At boot, directly and before serving: a restart is the one moment the
     # process is guaranteed idle, so the sweep cannot race a live render.
     expire_once(container)
+    # A boot is a good moment to say what is wrong, loudly and once (W7).
+    try:
+        await asyncio.to_thread(check_alerts, container)
+    except Exception:
+        logger.warning("operator.alert_check_failed", exc_info=True)
     sweeper = asyncio.create_task(_sweep_expired(container))
     # Logs `loop.lag` only when the event loop falls behind; silence is health.
     vitals = asyncio.create_task(watch_loop())

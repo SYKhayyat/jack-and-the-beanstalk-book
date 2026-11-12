@@ -644,6 +644,13 @@ workshop is one click away, and a book can be opened attempt by attempt. The
 operator can also **delete** a book from its detail page — the copy a visitor
 can no longer reach.
 
+**Worth a look.** A small set of thresholds is checked at boot and on the hourly
+sweep, written to the log as one `operator.alert` line each and shown as a card
+at the top of `/admin/status`: pictures passing their first check below 50 %
+(once 40 have been reviewed), a book that averages more than its price to make,
+and refunds waiting to be sent back (W7). This deployment has no mail channel,
+so the log and that page are the notification.
+
 ### Reviewing plates
 
 Every story page is painted once as an empty **plate** — the place, the props

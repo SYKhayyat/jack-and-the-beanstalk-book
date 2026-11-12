@@ -33,6 +33,22 @@
 
   {% if notice %}<p class="flash" role="status" aria-live="polite">{{ notice }}</p>{% endif %}
 
+  {% if alerts %}
+  {#- W7: the thresholds that are worth saying out loud, first on the page —
+      the same list the boot and the hourly sweep write to the log. #}
+  <section class="card" id="operator-alerts" aria-labelledby="operator-alerts-heading">
+    <div class="admin-card-head">
+      <h2 id="operator-alerts-heading">Worth a look</h2>
+      <span class="field-help">Each of these is also one <code>operator.alert</code> line in the log, at boot and hourly.</span>
+    </div>
+    <ul class="admin-story-list">
+      {% for alert in alerts %}
+      <li><div class="admin-story-main"><strong class="admin-bad">{{ alert.code }}</strong><span class="field-help">{{ alert.message }}</span></div></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
   {% if waiting_refunds %}
   {#- W4: nothing in the app nudges the operator about a refund, so the page
       starts with it. The requests themselves are below, under Refunds. #}
