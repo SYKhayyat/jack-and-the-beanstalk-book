@@ -586,6 +586,14 @@ class TestLibrary:
         """Password and open mode have no identity to file a book under."""
         assert client.get("/library").status_code == 404
 
+    def test_the_shelf_stays_behind_the_sign_in_gate(self, tmp_path: Path) -> None:
+        """A shelf of one person's children is not a page to serve anyone."""
+        with _google_client(tmp_path) as app:
+            stranger = TestClient(app.app)
+            response = stranger.get("/library", follow_redirects=False)
+        assert response.status_code == 303, response.text
+        assert response.headers["location"].startswith("/login")
+
     def test_password_mode_has_no_library(self, client: TestClient) -> None:
         book_id = _start(client)
         _wait(client, book_id)
