@@ -49,6 +49,7 @@ from app.models.settings import CartoonSettings, HairColour, HairStyle
 from app.models.story import StoryEdition
 from app.prompt_data import prompt_text
 from app.services.book_document import COVER_KEY, COVER_NUMBER, BookDocument
+from app.services.book_notice import BookReadyNotice
 from app.services.book_store import (
     INTERRUPTED_MESSAGE,
     BookRecord,
@@ -268,6 +269,7 @@ class BookRunner:
         reviewer_budget_percent: int = 0,
         retry_budget_percent: int = 0,
         cost_alert_cents: int = 0,
+        notice: BookReadyNotice | None = None,
     ) -> None:
         self._provider = provider
         # Read once per resume, to log what the restart threw away.
@@ -322,6 +324,9 @@ class BookRunner:
         #: The measured spend, in cents, at which one book is reported to the
         #: operator; 0 turns the report off (C4).
         self._cost_alert_cents = cost_alert_cents
+        #: The one message a book sends its owner when it is finished (W2);
+        #: None when this deployment has no mail channel.
+        self._notice = notice
         #: Each book's spend as last read from the ledger, and when; the books
         #: already reported, and those whose budget has already been said out
         #: loud. One line a book, not one per page.
@@ -959,6 +964,11 @@ class BookRunner:
         record = loaded
         user = record.user_id or "-"
         started = monotonic()
+        # "Your book is ready" is a message about a book that has just been
+        # finished. An edit of a book that was already complete redraws a
+        # picture and must not send it again (W2).
+        before = await asyncio.to_thread(self._book_store.load_status, book_id)
+        announce = (before or {}).get("status") != BookStatus.COMPLETE
         try:
             artwork = await asyncio.to_thread(self._artwork, record)
             artwork = replace(
@@ -1394,6 +1404,8 @@ class BookRunner:
                 (monotonic() - started) * 1000,
                 rss_mb(),
             )
+            if announce:
+                await self._tell_the_parent(record, user=user)
         except asyncio.CancelledError:
             # A shutdown pauses the job: the book stays rendering, and the next
             # boot resumes it. A delete cancels the job and removes the book,
@@ -1457,6 +1469,23 @@ class BookRunner:
             # However the job ended, what it spent is already spent: the
             # operator hears about a book over the alert line here, once (C4).
             await self._report_book_cost(book_id, user)
+
+    async def _tell_the_parent(self, record: BookRecord, *, user: str) -> None:
+        """One mail a book, after its PDF is written and it says complete (W2).
+
+        Never before: the message says "read it here", and a link to a book
+        that is still assembling is a lie. Never a reason to fail a book
+        either — the notice swallows its own errors, and this catches the
+        rest, so a mail outage costs a warning line and nothing else.
+        """
+        if self._notice is None or not record.user_id:
+            return
+        try:
+            await self._notice.send(record=record, user=record.user_id)
+        except Exception:  # a mail outage must never fail a finished book
+            logger.warning(
+                "book.ready_mail_failed user=%s book=%s", user, record.book_id, exc_info=True
+            )
 
     async def _fail_off_loop(
         self,

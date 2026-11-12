@@ -17,6 +17,7 @@ from app.blobs import install_blob_store
 from app.books import SEEDS
 from app.config import Settings
 from app.db import build_engine, persistence_mode, prepare_database
+from app.services.book_notice import BookReadyNotice
 from app.services.book_runner import BookRunner
 from app.services.book_store import BookStore
 from app.services.concurrency import ConcurrencyGate
@@ -38,6 +39,7 @@ from app.services.decision_judge import (
 from app.services.gemini_web.factory import client_for
 from app.services.image_providers.base import ImageProvider
 from app.services.image_providers.registry import build_provider
+from app.services.mailer import Mailer, ResendMailer
 from app.services.payments import PaymentProvider, StripePaymentProvider
 from app.services.pipeline import GenerationPipeline
 from app.services.portrait_log import PortraitLog
@@ -157,6 +159,24 @@ def build_container(
     )
     gate = ConcurrencyGate(settings.max_concurrent_generations)
     wallet = Wallet(wallet_store, picture_price_cents=settings.picture_price_cents)
+    # The one mail this app sends (W2). Off — no key, or no From address — is a
+    # complete answer: a book finishes and nothing is mailed, exactly as a
+    # deployment without a Stripe key still makes free books.
+    mailer: Mailer | None = (
+        ResendMailer(settings.resend_api_key, settings.mail_from)
+        if settings.resend_api_key.strip() and settings.mail_from.strip()
+        else None
+    )
+    notice = (
+        BookReadyNotice(
+            mailer=mailer,
+            users=user_store,
+            site_url=settings.public_site_url,
+            retention_days=settings.book_retention_days,
+        )
+        if mailer is not None
+        else None
+    )
     return Container(
         settings=settings,
         provider=resolved,
@@ -227,6 +247,7 @@ def build_container(
             reviewer_budget_percent=settings.reviewer_budget_percent,
             retry_budget_percent=settings.book_retry_budget_percent,
             cost_alert_cents=settings.book_cost_alert_cents,
+            notice=notice,
         ),
         wallet=wallet,
         payments=resolved_payments,

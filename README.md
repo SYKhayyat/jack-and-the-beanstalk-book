@@ -1225,6 +1225,21 @@ quality. `IMAGE_CALL_COST_USD` overrides the image price, and
 counted as *unpriced* and the page says how many, rather than calling it free.
 A failed call is logged at no cost.
 
+## Telling the parent the book is ready (optional)
+
+A book is minutes of drawing, and a parent who closes the tab hears nothing.
+Set `RESEND_API_KEY` and `MAIL_FROM` (and `PUBLIC_SITE_URL` for the link) and
+the render job mails the person who made the book the moment it is finished and
+its PDF is written — once, never on a later redraw of an already-finished book.
+The message is plain text: the title, the link, and the day the book is swept.
+
+It is one transactional message, not a notification platform: no list, no
+template editor, no preferences, and no new place a child's name is stored —
+the address is the signed-in person's own Google address, looked up at send
+time and never written to a log. A deployment without those settings mails
+nothing and works exactly as before, and a send the provider rejects is one
+warning line, never a failed book.
+
 ## Configuration reference
 
 | Variable | Default | Notes |
@@ -1272,6 +1287,9 @@ A failed call is logged at no cost.
 | `REVIEWER_BUDGET_PERCENT` | `0` | Past this share of the book's 99¢ fee (100 = the whole fee), the reviewer is rested for the rest of that book: tier 1 and the decision judge still decide and every verdict says the reviewer did not run. `0` never rests it for money. |
 | `BOOK_RETRY_BUDGET_PERCENT` | `120` in the blueprint, `0` in code | Past this share of the fee (120 = 1.2 times), a page that did not pass is not drawn again: the best attempt is kept, marked best-effort, and the book finishes. A page with no picture is always drawn once. `0` never stops a redraw for money. |
 | `BOOK_COST_ALERT_CENTS` | `100` | A book whose measured model spend passes this many cents writes one `book.cost_alert` line and is named on `/admin/status`. `0` turns the alert off. |
+| `RESEND_API_KEY` | *(empty)* | Resend key for the one mail this app sends — "your book is ready". Needs `MAIL_FROM` too; empty means nothing is mailed and a book still finishes. |
+| `MAIL_FROM` | *(empty)* | The From address of that mail (`Storybook Studio <books@example.com>`), on a domain verified with Resend. Empty disables the mail. |
+| `PUBLIC_SITE_URL` | *(empty)* | This site's absolute address (`https://book.example.com`), used for the link in the ready mail. Empty sends the mail without a link. |
 
 `MAX_UPLOAD_MB` and `STORAGE_DIR` map to `MAX_UPLOAD_MB` and `STORAGE_DIR`.
 

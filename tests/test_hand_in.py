@@ -61,6 +61,7 @@ SECRET_KEYS = (
     "SESSION_SECRET",
     "APP_PASSWORD",
     "DATABASE_URL",
+    "RESEND_API_KEY",
 )
 
 

@@ -482,6 +482,32 @@ class Settings(BaseSettings):
         ),
     )
 
+    resend_api_key: str = Field(
+        default="",
+        # A bearer credential like the Stripe key: pasted into the dashboard,
+        # never committed, never logged. Empty — or an empty MAIL_FROM — means
+        # no mail is sent, and the book is finished and downloadable anyway.
+        description=(
+            "Resend API key for the one mail this app sends: 'your book is "
+            "ready'. Empty disables it."
+        ),
+    )
+    mail_from: str = Field(
+        default="",
+        description=(
+            "From address of the ready mail, e.g. 'Storybook Studio "
+            "<books@example.com>'. The domain must be verified with Resend. "
+            "Empty disables the mail."
+        ),
+    )
+    public_site_url: str = Field(
+        default="",
+        description=(
+            "This site's absolute address, for the link in the ready mail "
+            "(https://book.example.com). Empty sends the mail without a link."
+        ),
+    )
+
     database_url: str = Field(
         default="",
         # Pasted whole (e.g. a Neon pooled connection string); it embeds the

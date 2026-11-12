@@ -215,6 +215,19 @@ services:
       - key: STRIPE_SECRET_KEY
         sync: false
 
+      # The one mail this app sends — "your book is ready" — through Resend
+      # (W2). Both are needed: the key to send, the From address to send as
+      # (its domain must be verified in Resend). Leave either unset and no mail
+      # is sent; the book is finished and downloadable either way.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      # Absolute address of this site, for the link in that mail. Unset sends
+      # it without a link. Use the custom domain, not the onrender.com one.
+      - key: PUBLIC_SITE_URL
+        sync: false
+
       # The Postgres URL (Neon's pooled connection string). Set it and books,
       # pages, PDFs, signed-in people and the story templates survive restarts.
       # Leave it unset and the app uses a SQLite file on Render's ephemeral
