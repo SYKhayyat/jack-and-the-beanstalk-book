@@ -280,7 +280,22 @@ class BookStore:
     def read_source_photo(self, book_id: str) -> bytes | None:
         raise NotImplementedError
 
-    def save_cover(self, book_id: str, data: bytes) -> None:
+    def save_cover(
+        self,
+        book_id: str,
+        data: bytes,
+        *,
+        review: list[dict[str, Any]] | None = None,
+        attempt_count: int = 1,
+        chosen_attempt: int = 1,
+        best_effort: bool = False,
+    ) -> None:
+        """Store the cover's art, and its verdict with it when one is given.
+
+        The two land in one transaction. A cover saved without a verdict, as a
+        redraw briefly is, has none: `record_cover_review` fills it later, and a
+        book cannot complete until it does (B13).
+        """
         raise NotImplementedError
 
     def read_cover(self, book_id: str) -> bytes | None:
@@ -298,8 +313,25 @@ class BookStore:
         """Add or replace one photographed cast member."""
         raise NotImplementedError
 
-    def save_page(self, book_id: str, page_number: int, data: bytes) -> None:
-        """Persist one page's art. Raises on a bad page number, never on disk."""
+    def save_page(
+        self,
+        book_id: str,
+        page_number: int,
+        data: bytes,
+        *,
+        review: list[dict[str, Any]] | None = None,
+        attempt_count: int = 1,
+        chosen_attempt: int = 1,
+        best_effort: bool = False,
+    ) -> None:
+        """Persist one page's art, and its verdict with it when one is given.
+
+        The two land in one transaction, so there is never a moment where the
+        picture exists and its verdict does not: a book refuses to complete
+        with an unreviewed picture, and a write that failed between the two
+        used to leave exactly that (B13). Raises on a bad page number, never on
+        disk.
+        """
         raise NotImplementedError
 
     def record_page_review(
@@ -329,6 +361,15 @@ class BookStore:
         best_effort: bool = False,
     ) -> None:
         """Store the cover's verdicts and which attempt was kept (T9)."""
+        raise NotImplementedError
+
+    def unreviewed_pages(self, book_id: str) -> set[int]:
+        """Pictures of a book that have none, 0 for the cover (B13).
+
+        A page counts only once its art exists; the answer is what makes a
+        stuck book recoverable — Finish redraws them rather than leaving the
+        book incomplete with no way to finish it.
+        """
         raise NotImplementedError
 
     def read_page(self, book_id: str, page_number: int) -> bytes | None:

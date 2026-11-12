@@ -455,8 +455,36 @@ class DatabaseBookStore(BookStore):
                 select(BookRow.source_photo).where(BookRow.id == book_id)
             ).scalar_one_or_none()
 
-    def save_cover(self, book_id: str, data: bytes) -> None:
+    def save_cover(
+        self,
+        book_id: str,
+        data: bytes,
+        *,
+        review: list[dict[str, Any]] | None = None,
+        attempt_count: int = 1,
+        chosen_attempt: int = 1,
+        best_effort: bool = False,
+    ) -> None:
+        """Store the cover's art and, when given, its verdict in one write.
+
+        `review=None` is a redraw that has not been judged yet: the old verdict
+        is cleared with the old picture, and the book cannot complete until a
+        new one lands (`_unreviewed`).
+        """
+        _check_verdict(review, attempt_count=attempt_count, chosen_attempt=chosen_attempt)
         stored = stash(data)
+        verdict: dict[str, Any] = (
+            {
+                "cover_review": review,
+                "cover_attempt_count": attempt_count,
+                "cover_chosen_attempt": chosen_attempt,
+                "cover_best_effort": best_effort,
+            }
+            if review
+            # The counters are not nullable and keep the last verdict's numbers;
+            # a null review is what says there is no verdict for this picture.
+            else {"cover_review": null()}
+        )
         with self._engine.begin() as conn:
             conn.execute(
                 update(BookRow)
@@ -464,8 +492,8 @@ class DatabaseBookStore(BookStore):
                 .values(
                     cover=stored,
                     cover_sha256=_sha(data),
-                    cover_review=null(),
                     updated_at=_now(),
+                    **verdict,
                 )
             )
 
@@ -481,12 +509,10 @@ class DatabaseBookStore(BookStore):
         """Store the cover's verdicts and which attempt was kept (T9).
 
         A new cover clears them, exactly as a re-saved page does: a redraw must
-        never ride on its predecessor's verdict.
+        never ride on its predecessor's verdict. A render passes its verdict to
+        `save_cover` instead, so the two are one write.
         """
-        if not review:
-            raise ValueError("a review records at least one verdict")
-        if not 1 <= chosen_attempt <= attempt_count:
-            raise ValueError("chosen_attempt must be one of the attempts made")
+        _check_verdict(review, attempt_count=attempt_count, chosen_attempt=chosen_attempt)
         with self._engine.begin() as conn:
             result = conn.execute(
                 update(BookRow)
@@ -568,10 +594,27 @@ class DatabaseBookStore(BookStore):
             for row in rows
         }
 
-    def save_page(self, book_id: str, page_number: int, data: bytes) -> None:
-        """Persist one page's art. Raises on a bad page number, never on disk."""
+    def save_page(
+        self,
+        book_id: str,
+        page_number: int,
+        data: bytes,
+        *,
+        review: list[dict[str, Any]] | None = None,
+        attempt_count: int = 1,
+        chosen_attempt: int = 1,
+        best_effort: bool = False,
+    ) -> None:
+        """Persist one page's art and, when given, its verdict in one write.
+
+        The picture and its verdict are one row written once. They used to be
+        two transactions, and a failure between them left a page with art and
+        no verdict — which no book can complete with, and which Finish would
+        not pick up either (B13).
+        """
         if page_number < 1:
             raise ValueError("page_number counts from 1")
+        _check_verdict(review, attempt_count=attempt_count, chosen_attempt=chosen_attempt)
         stored = stash(data)
         with self._engine.begin() as conn:
             conn.execute(
@@ -586,6 +629,16 @@ class DatabaseBookStore(BookStore):
                     image=stored,
                     media_type=media_type_for(data),
                     image_sha256=_sha(data),
+                    **({"review": review} if review else {}),
+                    **(
+                        {
+                            "attempt_count": attempt_count,
+                            "chosen_attempt": chosen_attempt,
+                            "best_effort": best_effort,
+                        }
+                        if review
+                        else {}
+                    ),
                 )
             )
 
@@ -602,12 +655,11 @@ class DatabaseBookStore(BookStore):
         """Store a page's verdicts and which attempt was kept (T9).
 
         Re-saving the page's image (`save_page`) clears all of this, so a
-        redrawn page can never ride on its predecessor's verdict.
+        redrawn page can never ride on its predecessor's verdict. A render
+        passes its verdict to `save_page` instead, so the two are one write;
+        this is the late path, for a picture that is already stored.
         """
-        if not review:
-            raise ValueError("a review records at least one verdict")
-        if not 1 <= chosen_attempt <= attempt_count:
-            raise ValueError("chosen_attempt must be one of the attempts made")
+        _check_verdict(review, attempt_count=attempt_count, chosen_attempt=chosen_attempt)
         with self._engine.begin() as conn:
             result = conn.execute(
                 update(BookPageRow)
@@ -621,6 +673,11 @@ class DatabaseBookStore(BookStore):
             )
             if result.rowcount != 1:
                 raise LookupError(f"book {book_id} has no page {page_number} to review")
+
+    def unreviewed_pages(self, book_id: str) -> set[int]:
+        """Pictures of this book with no verdict; 0 is the cover (B13)."""
+        with self._engine.connect() as conn:
+            return set(_unreviewed(conn, book_id))
 
     def read_page(self, book_id: str, page_number: int) -> bytes | None:
         if page_number < 1:
@@ -1046,6 +1103,18 @@ def _delete_book(conn: Connection, book_id: str) -> None:
     conn.execute(delete(BookStoryPageRow).where(BookStoryPageRow.book_id == book_id))
     conn.execute(delete(BookStoryCharacterRow).where(BookStoryCharacterRow.book_id == book_id))
     conn.execute(delete(BookRow).where(BookRow.id == book_id))
+
+
+def _check_verdict(
+    review: list[dict[str, Any]] | None, *, attempt_count: int, chosen_attempt: int
+) -> None:
+    """Refuse a verdict that is not one, before anything is written."""
+    if review is None:
+        return
+    if not review:
+        raise ValueError("a review records at least one verdict")
+    if not 1 <= chosen_attempt <= attempt_count:
+        raise ValueError("chosen_attempt must be one of the attempts made")
 
 
 def _unreviewed(conn: Connection, book_id: str) -> list[int]:

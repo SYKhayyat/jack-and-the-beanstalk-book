@@ -188,6 +188,20 @@ class _Attempts:
     best_effort: bool
 
 
+def _verdict(attempts: _Attempts) -> dict[str, Any]:
+    """The verdict arguments `save_page` and `save_cover` take with the art.
+
+    One write, not two: a page whose art landed and whose verdict did not is a
+    book that can never complete and cannot be finished either (B13).
+    """
+    return {
+        "review": [dict(verdict) for verdict in attempts.verdicts],
+        "attempt_count": len(attempts.verdicts),
+        "chosen_attempt": attempts.chosen,
+        "best_effort": attempts.best_effort,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class _Drawn:
     """A finished page as the job keeps it: its formatted text and its size.
@@ -700,6 +714,10 @@ class BookRunner:
         if resumed:
             job = target | ({COVER_NUMBER} if draw_cover else set())
             done |= self._book_store.saved_page_numbers(book_id) - job
+        # A picture whose verdict never landed is not finished: the store refuses
+        # to complete a book with one, so Finish and a resume draw it again
+        # rather than leaving the book stuck with no way forward (B13).
+        done -= self._book_store.unreviewed_pages(book_id)
         if only_missing:
             target -= done
             draw_cover = draw_cover and COVER_NUMBER not in done
@@ -890,10 +908,14 @@ class BookRunner:
         picture_payment: Callable[[str], None] | None,
         resumed: bool,
     ) -> None:
-        record = await asyncio.to_thread(self._book_store.load_record, book_id)
-        if record is None:
+        loaded = await asyncio.to_thread(self._book_store.load_record, book_id)
+        if loaded is None:
             logger.warning("book.edit_missing id=%s", book_id)
             return
+        # Bound to a name mypy can narrow: the page and cover closures below use
+        # it, and a variable that a nested function captures keeps its union
+        # type however it was checked outside.
+        record = loaded
         user = record.user_id or "-"
         started = monotonic()
         try:
@@ -1139,10 +1161,14 @@ class BookRunner:
                     requested=tuple(requested_fixes.get(page.number, ())),
                 )
                 await asyncio.to_thread(
-                    self._book_store.save_page, book_id, page.number, attempts.image
+                    self._book_store.save_page,
+                    book_id,
+                    page.number,
+                    attempts.image,
+                    **_verdict(attempts),
                 )
                 await self._warm_picture(book_id, page_slot(page.number))
-                await self._record(book_id, page.number, page.key or "", attempts)
+                await self._record_prompts(book_id, page.number, page.key or "", attempts)
                 costs[page.number] = (
                     "edit" if plate is not None else "compose",
                     len(attempts.prompt),
@@ -1162,15 +1188,20 @@ class BookRunner:
                 It was approved by an operator when it was made, so it is not
                 reviewed again; the verdict says so, and names the picture used.
                 """
+                premade_attempts = _premade_attempts(premade)
                 await asyncio.to_thread(
-                    self._book_store.save_page, book_id, page.number, premade.image
+                    self._book_store.save_page,
+                    book_id,
+                    page.number,
+                    premade.image,
+                    **_verdict(premade_attempts),
                 )
                 await self._warm_picture(book_id, page_slot(page.number))
-                await self._record(
+                await self._record_prompts(
                     book_id,
                     page.number,
                     page.key or "",
-                    _premade_attempts(premade),
+                    premade_attempts,
                 )
                 costs[page.number] = ("premade", 0, 0)
                 await mark(page.number, "done")
@@ -1497,9 +1528,14 @@ class BookRunner:
             paint_areas=edition.cover.paint_areas,
             on_stage=on_stage,
         )
-        await asyncio.to_thread(self._book_store.save_cover, record.book_id, attempts.image)
+        await asyncio.to_thread(
+            self._book_store.save_cover,
+            record.book_id,
+            attempts.image,
+            **_verdict(attempts),
+        )
         await self._warm_picture(record.book_id, page_slot(COVER_NUMBER))
-        await self._record(record.book_id, COVER_NUMBER, COVER_KEY, attempts)
+        await self._record_prompts(record.book_id, COVER_NUMBER, COVER_KEY, attempts)
         await mark(COVER_NUMBER, "done")
         return attempts.image
 
@@ -1936,13 +1972,13 @@ class BookRunner:
             best_effort=best_effort,
         )
 
-    async def _record(
+    async def _record_prompts(
         self, book_id: str, page_number: int, key: str, attempts: _Attempts
     ) -> None:
-        """Write one page's prompt record and verdicts (T9, and the prompt log).
+        """Write one page's prompt record, in attempt order (the prompt log).
 
-        Both together, in attempt order, because they are two halves of one
-        statement: *this text* produced *this verdict*. Written later than the
+        The verdicts went in with the picture (`_verdict` → `save_page`), so
+        the log is what is left: *this text* asked for it. Written after the
         attempt, which is why a failed book still keeps what it had got to.
         """
         for index, verdict in enumerate(attempts.verdicts):
@@ -1957,47 +1993,6 @@ class BookRunner:
                     "prompt": sent,
                 },
             )
-        await self._record_verdicts(
-            book_id, page_number, attempts.verdicts, attempts.chosen, attempts.best_effort
-        )
-
-    async def _record_verdicts(
-        self,
-        book_id: str,
-        page_number: int,
-        verdicts: Sequence[Mapping[str, Any]],
-        chosen: int,
-        best_effort: bool,
-    ) -> None:
-        """Store every attempt's verdict and which one was kept (T9.1, T9.5).
-
-        All attempts are kept, not just the winner: a page that took three tries
-        is a page worth looking at again, and the record is what makes that
-        visible. `chosen_attempt` says which picture is on the page now, and
-        `best_effort` says the loop ran out of tries without a pass — the store
-        refuses to call such a page approved, so a book that needs a human's eye
-        says so instead of hiding it.
-        """
-        rows = [dict(verdict) for verdict in verdicts]
-        if page_number == COVER_NUMBER:
-            await asyncio.to_thread(
-                self._book_store.record_cover_review,
-                book_id,
-                rows,
-                attempt_count=len(rows),
-                chosen_attempt=chosen,
-                best_effort=best_effort,
-            )
-            return
-        await asyncio.to_thread(
-            self._book_store.record_page_review,
-            book_id,
-            page_number,
-            review=rows,
-            attempt_count=len(rows),
-            chosen_attempt=chosen,
-            best_effort=best_effort,
-        )
 
     async def _on_worker_thread_with_slot(
         self, work: Callable[[], _T], *, on_slot: Callable[[], Awaitable[None]] | None = None

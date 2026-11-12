@@ -612,3 +612,38 @@ class TestFinishAFailedBook:
             # Not one story page was drawn again: only the cover was missing.
             assert not _page_calls(provider)[before:], "a finished page was redrawn"
             assert 'class="failed-row hidden"' in client.get(f"/books/{book_id}").text
+
+    def test_a_picture_with_no_verdict_is_drawn_again(self, client_factory) -> None:  # type: ignore[no-untyped-def]
+        """B13: art whose verdict never landed is unfinished, not stuck.
+
+        This is the state a failed second write used to leave: the page has a
+        picture, no verdict, and the store refuses to complete the book with
+        one. Finish has to draw that page again rather than leave the book with
+        no way forward.
+        """
+        provider = RecordingProvider()
+        with client_factory(provider) as client:
+            book_id = _start(client)
+            assert _wait(client, book_id)["status"] == "complete"
+            store = client.app.state.container.book_store  # type: ignore[attr-defined]
+            page = store.read_page(book_id, 5)
+            assert page is not None
+            # Saving the art without a verdict is exactly what the old race did.
+            store.save_page(book_id, 5, page)
+            assert store.unreviewed_pages(book_id) == {5}
+
+            before = len(_page_calls(provider))
+            # The finished job gives its lease back a moment after the last
+            # status write, so a 409 here is "wait for it", not a failure.
+            deadline = time.monotonic() + 10
+            while True:
+                response = client.post(f"/api/book/{book_id}/edit", data={"action": "retry"})
+                if response.status_code == 202:
+                    break
+                assert response.status_code == 409, response.text
+                assert time.monotonic() < deadline, "the job never gave its lease back"
+                time.sleep(0.02)
+            finished = _wait(client, book_id)
+            assert finished["status"] == "complete", finished.get("error")
+            assert len(_page_calls(provider)[before:]) == 1, "only the verdictless page"
+            assert store.unreviewed_pages(book_id) == set()

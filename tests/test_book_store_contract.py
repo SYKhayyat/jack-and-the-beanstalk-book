@@ -137,6 +137,33 @@ def test_a_page_number_of_zero_is_refused(store: BookStore) -> None:
         store.save_page(book_id, 0, b"nope")
 
 
+def test_a_page_and_its_verdict_land_together(store: BookStore) -> None:
+    """B13: a page is never left with a picture and no verdict.
+
+    The two used to be separate writes, and a failure between them produced a
+    page no book can complete with — and that Finish would not pick up either.
+    One call writes both, and re-saving the art clears it with the picture it
+    described.
+    """
+    book_id = seed(store)
+    verdict = [{"attempt": 1, "tier": 1, "passed": True, "faults": []}]
+    store.save_page(book_id, 3, PNG, review=verdict, attempt_count=1, chosen_attempt=1)
+    assert store.unreviewed_pages(book_id) == set()
+
+    store.save_page(book_id, 3, JPEG)
+    assert store.unreviewed_pages(book_id) == {3}
+
+
+def test_a_cover_and_its_verdict_land_together(store: BookStore) -> None:
+    """B13, the cover's half: the same one write, and 0 names it."""
+    book_id = seed(store)
+    store.save_cover(book_id, PNG, review=[{"attempt": 1, "tier": 1, "passed": True}])
+    assert store.unreviewed_pages(book_id) == set()
+
+    store.save_cover(book_id, JPEG)
+    assert store.unreviewed_pages(book_id) == {0}
+
+
 def test_the_identity_artefacts_round_trip(store: BookStore) -> None:
     book_id = seed(store)
     store.save_portrait(book_id, b"portrait")
