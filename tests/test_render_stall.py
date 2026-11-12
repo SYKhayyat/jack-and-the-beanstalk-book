@@ -8,6 +8,10 @@ and full-size pictures — the real Pillow work: decode, downscale, re-encode
 for every page and every review — and checks that the loop kept up the whole
 time: its lag watcher (sampling far faster than in production) never fired,
 and the health check and the poll answered promptly throughout.
+
+Then it asks for every page's 1600 px copy at once, which is the one size the
+reader makes for itself on first view (the 240 and 800 px copies are made as
+each page is saved), under the same watch.
 """
 
 from __future__ import annotations
@@ -15,7 +19,9 @@ from __future__ import annotations
 import io
 import logging
 import random
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 import pytest
@@ -108,7 +114,7 @@ def test_a_rendering_book_leaves_the_loop_free(
         assert start.status_code == 201, start.text
         book_id = start.json()["book_id"]
 
-        slowest = {"/healthz": 0.0, "poll": 0.0}
+        slowest = {"/healthz": 0.0, "poll": 0.0, "copies": 0.0, "healthz": 0}
         polls = 0
         status: dict = {}
         deadline = time.monotonic() + 180
@@ -124,11 +130,47 @@ def test_a_rendering_book_leaves_the_loop_free(
                 break
             time.sleep(0.05)
 
+        # Now the reader's first large view: nothing is stored at 1600 px, so
+        # every page is a decode and a LANCZOS resize of a full-size picture,
+        # twenty-one of them asked for at once (B1).
+        urls = [
+            f"/book-media/{book_id}/pages/{page['number']}?w=1600"
+            for page in status["pages"]
+            if page["status"] == "done"
+        ]
+        assert len(urls) == 21, urls
+        made = threading.Event()
+
+        def watch_health() -> None:
+            while not made.is_set():
+                asked = time.monotonic()
+                answered = client.get("/healthz")
+                slowest["/healthz"] = max(slowest["/healthz"], time.monotonic() - asked)
+                slowest["healthz"] += 1
+                assert answered.status_code == 200, answered.text
+                time.sleep(0.01)
+
+        watcher = threading.Thread(target=watch_health)
+        watcher.start()
+        try:
+            with ThreadPoolExecutor(max_workers=len(urls)) as pool:
+                asked = time.monotonic()
+                copies = list(pool.map(client.get, urls))
+                slowest["copies"] = time.monotonic() - asked
+        finally:
+            made.set()
+            watcher.join()
+
     assert status["status"] == "complete", status.get("error")
     assert len(status["pages"]) == 21  # the cover and twenty story pages
     assert polls > 10, "the book finished before the server was watched"
     assert slowest["/healthz"] < HEALTH_LIMIT_SECONDS, slowest
     assert slowest["poll"] < POLL_LIMIT_SECONDS, slowest
+    # The copies were really made (the loop was watched all the while):
+    assert slowest["healthz"] > 5, slowest
+    assert [(copy.status_code, copy.headers["content-type"]) for copy in copies] == [
+        (200, "image/webp")
+    ] * 21
     stalls = [
         record.getMessage() for record in caplog.records if "loop.lag" in record.getMessage()
     ]

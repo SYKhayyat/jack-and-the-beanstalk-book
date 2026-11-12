@@ -31,6 +31,8 @@ Once the health check fails and Render restarts the process, `reap_incomplete()`
 
 **Fix:** run tier 1 through the existing `_image_work`/thread pool, and make variant encoding a threaded job (or pre-compute the 800/1600 copies right after `save_page`/`save_cover`). Add a regression test that a 21-page mock book leaves the event loop responsive (e.g. a concurrent `/healthz` under 100 ms).
 
+**Done (11 Nov 2026):** both paths were already off the loop when the audit was filed, which cited a tree older than `a6e4a20`; checked rather than re-fixed, and the missing assertion added. Tier 1 runs on the runner's own bounded image pool (`BookRunner._image_work`, `book_runner.py`), never in a coroutine, and JPEGs are saved without `optimize`/`progressive` (pinned by `test_no_jpeg_is_encoded_in_one_gil_holding_call`). The media routes (`book_page`, `book_cover`, `book_portrait`, `_sized` → `_make_variant`) are sync handlers, so Starlette runs the encode on a worker thread, and the encode holds one of the process's two `transcoding()` slots, so a first view cannot flood the pool or the memory. `test_a_rendering_book_leaves_the_loop_free` now also asks for every page's 1600 px copy at once — the one size still made on first view (B12 makes the 240 and 800 px copies at save time) — while sampling `/healthz` and the loop's lag watcher: 21 copies served, health check under 0.5 s throughout, no `loop.lag` record. The watcher was verified to log a deliberate 500 ms block, so the assertion is live.
+
 ### B2 — P0: one failed page aborts a finished-but-uneven book and no PDF is produced
 `asyncio.gather(..., return_exceptions=True)` collects every page, then `fatal = [...]` and `raise fatal[0]` (`app/services/book_runner.py:829–831`). A single provider timeout, moderation block that never recovers, or reviewer error therefore throws away the other 20 pages' progress from the user's point of view: no PDF, and the book is marked failed. Completed page rows are kept, and “Finish this book” can retry the missing pages, but the user has to discover and press it, and the render time/cost already spent is lost.
 
@@ -189,6 +191,8 @@ The redraw dialog says “Tick what went wrong” and offers chips (`book.html:1
 
 ### S1 — P0: synchronous image work on the event loop
 See B1. This is the one that turns a slow book into a lost book.
+
+**Done (11 Nov 2026):** the same finding as B1, closed with it: tier 1 and the media encodes are off the loop, and the render-and-first-view test now watches `/healthz` and the loop's lag through both.
 
 ### S2 — P1: image variants are encoded on first view, serially
 See B12. Measured 0.28 s (800 px) and 0.38 s (1600 px) per 1152×864 image on a development CPU; 21 pages × two widths = ~14 s of CPU before thumbnails and the first page are all warm, on top of the image download. On the free Render CPU this is much worse and happens while the reader is open. Precompute after save; keep the 1600 copy lazy.
