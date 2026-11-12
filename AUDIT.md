@@ -38,10 +38,14 @@ Once the health check fails and Render restarts the process, `reap_incomplete()`
 
 **Fix:** keep a page-level failure and assemble the book from the pages that exist (a clearly marked “couldn't draw this one” page), or retry provider errors once automatically before failing the whole job. The UI already has a per-page `failed` state and a retry action, so the backend should match it.
 
+**Done (11 Nov 2026, `e2a361e`):** the first option, as asked. A story page that never draws is marked `failed`, the other pages are kept and the book is assembled with a clearly marked page in its place; the book page names how many pictures could not be drawn and “Finish this book” draws only those, at the picture price. A cover failure still stops the job, because the cover is the book’s face and the “Finish this book” path draws it later. Pinned by `test_one_failed_page_does_not_lose_the_book`.
+
 ### B3 — P1: the wallet can go negative when two books are started at once
 `_require_funds` runs at start (`app/routes/book.py:366`), but the actual charge happens when the PDF is written with `require_funds=False` (`app/services/book_document.py:169–186`). Two tabs (or two requests) with exactly $0.99 both pass the check; both books finish; the ledger ends at −$0.99. This is documented as “the account owes the difference”, but nothing ever collects it: the next book is refused until the user tops up, which is fine for an honest user and a loss for anyone who does not.
 
 **Fix:** reserve/hold the fee atomically at start (a `KIND_HOLD` row or a `book:<id>` pending charge), release it when the job fails and apply it when the PDF is written; or refuse the second start if `balance − open_books × price < price`.
+
+**Done (11 Nov 2026, `e2dc15e`):** the second option, made a set-aside rather than a new ledger kind. `_require_funds` now counts the account’s open books (pending or rendering) and refuses a start unless `balance − open_books × price ≥ price`, under the same `_start_lock` that holds the reuse lookup, so two tabs in one process cannot both read the same count before either records its book. The fee itself is still taken when the PDF is written, so a book that never finishes is never charged, and the refusal names the amount already set aside and the way to wait or top up. Pinned by `test_a_second_book_cannot_spend_the_fee_set_aside_for_the_first` and `test_an_account_that_can_pay_for_two_books_may_start_two`.
 
 ### B4 — P0 (cost): a $0 account can spend real money on portraits, and any buyer gets unlimited redraws
 Two gaps combine into an open spending tap:
@@ -68,6 +72,8 @@ and in the local logs every page of every demo book was reviewed as `faults=coll
 
 **Fix:** skip tier 1/2 for `provider.draws_placeholders` (or add a `review=False` to `ImageRequest`), and make the mock banners not span the full width. Add a test that mock pages pass review. Longer term, make the seam detector ignore a small set of strong horizontal bands or require a grid of seams in both directions.
 
+**Done (11 Nov 2026):** the mock banners are inset 14 % a side, so the hard edge covers 72 % of the width — under the detector’s 75 % threshold — and a placeholder page passes tier 1; and a placeholder provider gets one attempt, since there is no model to steer and a retry would be three identical placeholders. The demo is now the happy path it was meant to be: one attempt, a passing verdict, no “best of three”. Pinned by `test_a_placeholder_page_passes_the_free_review`; the detector itself is still calibrated by C5.
+
 ### B6 — P1: every page badge exposes internal quality-control language, and one string is ungrammatical
 `app/static/book-live.js:447–501` writes the attempt record into the visitor's UI:
 
@@ -86,6 +92,8 @@ The book is a gift for a child; “checks”, “tries” and “best effort” 
 The first story page is labelled `Page 1 of 20`, while its printed folio is `2` (`app/templates/book.html:32`, `app/static/book-live.js:90–93`). The cover is counted as page 1 in the PDF folio (`app/services/pdf.py:386–390`) but not in the reader's page counter, and the shelf copy says “20 pages and a cover”. Three numbering schemes are visible at once.
 
 **Fix:** pick one: “Page 2 of 21” with the cover as 1, or folio `1` for the first story page. Apply the same rule to the PDF, the reader label and the page map.
+
+**Done (11 Nov 2026):** the first rule everywhere: the cover is page 1, story pages are folios 2–21, and the reader bar, the page map and the PDF all use it. Pinned by `test_the_reader_sets_every_page_as_a_book` and `test_the_reader_bar_counts_the_cover_as_page_one`.
 
 ### B8 — P1: a restart does not resume a book; it fails it, even when most pages are saved
 `reap_incomplete()` (`app/services/db_book_store.py:745`) marks all `PENDING`/`RENDERING` books failed at boot. The message says the finished pages were kept, and “Finish this book” can retry the missing ones — but the user must click it, and the rendering time already paid for is not reused automatically. The Run 2 incident lost 14 of 21 pages and $0.36 of spend this way.
@@ -126,15 +134,21 @@ See B6. The chip sits next to “Page 1 of 20” and on every tile; on the cover
 **Done (11 Nov 2026):** closed with B6 (`8dad299`, `6fa847d`) — the chip, the count on each tile and the in-flight try count are all gone from the reader; the record stays in the poll, in `data-attempts` and in full on `/admin/books/{id}`.
 
 ### U2 — P2: the progress screen shows reader tools before there is anything to read
+
+**Done (11 Nov 2026):** the reader tools stay hidden until a story page exists — the cover is not something to read aloud or turn. Pinned by `test_the_reader_tools_wait_for_the_first_story_page`.
 While the cover is still being drawn, the bar already shows **Read to me**, **Sound off** and **Story time** (observed on the local book page), and the page map's tiles all say “being drawn…”. The cover has a title but no story, so “Read to me” has nothing useful to say and Story time opens an empty surface. Hide the reader toolbar until the first page is done, or label it for the cover.
 
 ### U3 — P2: price is missing from the signed-out shelf
 `page_chrome` sets `price_label` only when `wallet_enabled`, which requires a signed-in owner (`app/routes/web.py:320–326`). The story card renders the price only from `price_label` (`app/templates/_story_card.html:37`). So the one page that has to sell the book — the public landing/shelf — never shows `$0.99`, even on a deployment where payments are live. A signed-in user sees it. Set `price_label` from `payments_enabled`, independent of the owner.
 
 ### U4 — P2: “Keep the photos and comics (zip)” still uses the old vocabulary
+
+**Done (11 Nov 2026, `8c451ed`):** the download says “Keep the photos and portraits (zip)”, and the archive’s own README uses the same word. Pinned by the book-page assertion in `test_frontend_structure.py`.
 The app mostly says **portrait** / **storybook self**, but the download button says **comics** and the ZIP help refers to “comics” (`app/templates/book.html:68`, `app/routes/book_media.py` `_SOURCES_README`). The studio's internal `comic` wording also survives in a few places. Pick one word and use it everywhere.
 
 ### U5 — P2: admin plate review mixes “re-roll” and “paint”
+
+**Done (11 Nov 2026):** the plate screen says “paint” throughout — the candidate action, the retry copy and the confirmation — and no “re-roll” is left in any template.
 The empty state says “Re-roll below”, the button says “Paint a new candidate”, and the panel title says “Paint this page again” (`app/templates/admin_plate_review.html`). Operator-facing, but it makes a simple action feel like three. Use “paint” consistently, or use “try another” consistently.
 
 ### U6 — P2: the wallet page repeats the header top-up control
@@ -146,6 +160,8 @@ On a failed book the primary recovery is a button labelled **Finish this book** 
 **Done (11 Nov 2026):** the failed row now says, in one line under the error, “Finished pages are kept. Finishing draws only the pictures that are missing, <price> each as they are drawn, and takes a few minutes.” Pinned in `TestFinishAFailedBook`.
 
 ### U8 — P2: the “refund” button debits the wallet with one click and no confirmation
+
+**Done (11 Nov 2026, `6594539`):** the request carries `data-confirm`, the app’s one confirm handler, saying that the money leaves the spendable balance now and comes back if Stripe’s refund fails. Pinned in `test_wallet_routes.py` (`data-confirm="Request $10.00 back?`).
 `POST /wallet/refund` immediately creates the request and reduces the spendable balance (`app/routes/wallet.py:323–345`). The page copy explains this, but the button is one click and there is no confirmation or amount choice; a parent who taps it by accident cannot cancel. Add a confirm step (the app already has `data-confirm` for destructive admin forms) or a small review screen.
 
 ### U9 — P2: dark-mode coverage is present, but check the paper metaphor
