@@ -175,3 +175,22 @@ class TestPipelineThroughMockProvider:
         stored_draft = GenerationStore(settings.storage_dir).load_draft(draft.generation_id)
         assert stored_draft is not None
         assert stored_draft.cartoon_image == draft.cartoon_image
+
+
+def test_the_real_covers_pass_tier_one() -> None:
+    """C5's calibration, on the only real pictures in the repository.
+
+    The sample covers under `app/static/covers/` are finished illustrations made
+    by the model the site uses — sky above ground, window frames, table edges:
+    exactly the legitimate full-width bands a seam detector can mistake for a
+    contact sheet. All six passed tier 1 when this was measured; if a change to
+    the detector starts failing them, it is failing real pages too.
+    """
+    from pathlib import Path
+
+    covers = sorted(Path("app/static/covers").rglob("*"))
+    covers = [path for path in covers if path.suffix in {".jpg", ".png"}]
+    assert len(covers) >= 6, covers
+    for path in covers:
+        result = review_image(path.read_bytes())
+        assert result.passed, (path.name, result.score, result.faults)
