@@ -53,6 +53,7 @@ __all__ = [
     "BookRow",
     "BookStoryCharacterRow",
     "BookStoryPageRow",
+    "ChildProfileRow",
     "StoryCharacterRow",
     "StoryPageRow",
     "StoryRow",
@@ -249,6 +250,43 @@ class BookCharacterRow(Base):
     #: The look settings the portrait was drawn with (`CartoonSettings` as
     #: JSON): this member's gender, style, age and the rest, not the star's.
     settings: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+
+class ChildProfileRow(Base):
+    """A child the studio was asked to remember, so the next book skips the photo.
+
+    One row per account: the name, the boy/girl answer, the approved portrait
+    and the photograph it was drawn from. A saved portrait is handed back to
+    the studio as a fresh draft, so a second book costs no upload and no image
+    call. The story key is stored with it because a portrait is drawn in its
+    tale's costume (Red's cloak is not Jack's tunic), so it can only be reused
+    by the story that made it.
+
+    Only the star is ever saved here. A cast member's face is part of a book,
+    not of the person who made it.
+    """
+
+    __tablename__ = "child_profiles"
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.sub", ondelete="CASCADE"), primary_key=True
+    )
+    name: Mapped[str] = mapped_column(String(60), default="", server_default="")
+    #: "boy" or "girl", the studio's one required answer; "" if never given.
+    photo_gender: Mapped[str] = mapped_column(String(10), default="", server_default="")
+    story_key: Mapped[str] = mapped_column(String(64), default=DEFAULT_STORY_KEY)
+    #: The look settings the portrait was drawn with (`CartoonSettings` as JSON).
+    settings: Mapped[dict[str, Any]] = mapped_column(JSON)
+    portrait: Mapped[bytes] = mapped_column(BlobRef)
+    portrait_media_type: Mapped[str] = mapped_column(String(50))
+    #: Hex SHA-256 of `portrait`, so the studio's URL changes when it does.
+    portrait_sha256: Mapped[str] = mapped_column(String(64))
+    #: The photograph behind the portrait: the second identity anchor a page
+    #: sends, and what a new tale's portrait would be drawn from.
+    photo: Mapped[bytes] = mapped_column(BlobRef)
+    photo_media_type: Mapped[str] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
 class PortraitAttemptRow(Base):

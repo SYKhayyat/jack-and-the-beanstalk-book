@@ -23,6 +23,7 @@ __all__ = [
     "BookNotReady",
     "GenerationRateLimited",
     "InvalidSettings",
+    "NoSavedChild",
     "PaymentRequired",
     "UnknownBook",
     "register_exception_handlers",
@@ -140,6 +141,19 @@ class StoryNotReady(AppError):
 
     status_code = 409
     error_code = "story_not_ready"
+
+
+class NoSavedChild(AppError):
+    """There is no remembered child to use here.
+
+    404 for both halves of the same fact: this account has not asked the studio
+    to remember a child, or this deployment has no account to remember one for
+    (password/module mode has no identity at all). The message names the way
+    forward — upload a photo — so the studio can show it as it is.
+    """
+
+    status_code = 404
+    error_code = "no_saved_child"
 
 
 def register_exception_handlers(app: FastAPI) -> None:

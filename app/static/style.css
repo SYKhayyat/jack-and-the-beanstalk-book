@@ -1487,6 +1487,60 @@ legend {
 .adjust-summary {
   color: var(--ink-soft);
 }
+.remember-child {
+  margin: 12px 0 0;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+.remember-child label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.remember-child input {
+  accent-color: var(--berry);
+  width: 18px;
+  height: 18px;
+}
+
+/* The child this account asked to remember: offered before the photo step. */
+.saved-child {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding: 16px;
+  background: var(--card);
+  border: 2px dashed var(--warn-line);
+  border-radius: var(--radius-card);
+}
+.saved-child-portrait {
+  flex: 0 0 auto;
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: var(--cream);
+}
+.saved-child-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.saved-child-body h2 {
+  margin: 0 0 4px;
+  font-size: 19px;
+}
+.saved-child-body .field-help {
+  margin: 0 0 10px;
+}
+.saved-child-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
 
 .next-bar {
   position: sticky;

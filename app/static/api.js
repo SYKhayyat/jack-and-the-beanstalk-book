@@ -70,6 +70,10 @@ export function createStudioClient() {
       return response.blob();
     },
     startBook: (body) => postForm("/api/book/start", body),
+    /* The remembered child: keep the star, use the saved portrait, forget it. */
+    rememberChild: (body) => postForm("/api/child-profile", body),
+    useSavedChild: (body) => postForm("/api/child-profile/use", body),
+    forgetChild: () => deleteResource("/api/child-profile"),
   };
 }
 

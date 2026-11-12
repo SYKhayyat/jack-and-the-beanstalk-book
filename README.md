@@ -950,6 +950,36 @@ repeatedly. The inputs are billed once and each returned picture adds $0.00588,
 so three options cost about $0.012 more than one; it is off by default
 and worth turning on while settling a likeness.
 
+### A second book for the same child
+
+Under the star's portrait there is one checkbox, **Remember Maya for your next
+book**. Tick it and the studio keeps the four things the next book would
+otherwise ask for again: the name, the boy/girl answer, the approved portrait,
+and the photograph it was drawn from (`child_profiles`, one row per account,
+with the same blob storage a book's pictures use).
+
+The next visit's photo step opens with **Maya, remembered** and **Use this
+portrait**. That hands the saved picture back as a fresh draft, so the book
+starts with no upload and no portrait call — nothing is drawn, so nothing is
+charged. The rest of the flow (the About page, the fee, the pages) is exactly as
+before.
+
+What it deliberately does not do:
+
+- **One child per account.** Remembering another child replaces the record.
+  There is no list, no profile manager, no second place a child's name lives.
+- **The star only.** A cast member's face belongs to one book; remembering the
+  mother would put her face on every page of the next one, so that is refused.
+- **Only the story that drew it.** A portrait wears its tale's costume — Red's
+  cloak is not Jack's tunic — so the portrait card appears only in that story.
+  The name and the boy/girl answer are prefilled in every story, which is the
+  useful half when making a different tale.
+- **Opt-in, owner-only, and forgettable.** It is written only when the box is
+ticked, served at `/api/child-profile/portrait` under the owner's session with
+`Cache-Control: private, no-store`, and **Forget it** deletes the row and both
+pictures with it. A deployment with no accounts (password/open mode) shows no
+checkbox and has nothing to save.
+
 ## Stress testing, for free
 
 `scripts/stress_test.py` drives `POST /api/cartoonify` concurrently and reports

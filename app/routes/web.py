@@ -41,6 +41,7 @@ from app.models.story import COVER_NUMBER, StoryEdition
 from app.prompt_data import prompt_text
 from app.routes.auth import CurrentSessionDep
 from app.routes.book_access import book_edition
+from app.routes.child_profile import portrait_url
 from app.services.book_store import BookStatus, BookSummary
 from app.services.pictures import picture_set
 from app.services.prompts import render_book_page
@@ -111,6 +112,12 @@ def studio(
     """
     story, edition = _startable_or_404(container, story_key)
     rules = story_rules(edition)
+    # The child this account asked to remember (Idea 2). Only the star's
+    # portrait is reusable, and only by the story that drew it; the name and the
+    # boy/girl answer are useful in every story. Password/open mode has no
+    # account, so there is nothing to offer and nothing to save.
+    owner = session.user_id if session else None
+    remembered = container.child_profiles.get(owner) if owner else None
     sections = [
         {"key": "star", "label": "The star", "required": True},
         *(
@@ -150,6 +157,18 @@ def studio(
             "backgrounds": choices_for(PortraitBackground),
             "rejection_reasons": _rejection_reasons(),
             "max_upload_mb": container.settings.max_upload_mb,
+            "can_remember": bool(owner),
+            "child_profile": (
+                {
+                    "name": remembered.name,
+                    "photo_gender": remembered.photo_gender,
+                    "story_key": remembered.story_key,
+                    "for_this_story": remembered.story_key == story.key,
+                    "portrait_url": portrait_url(remembered),
+                }
+                if remembered
+                else None
+            ),
         },
     )
 

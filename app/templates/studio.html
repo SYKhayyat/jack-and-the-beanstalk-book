@@ -2,7 +2,7 @@
 {% from "_cover.html" import book_cover %}
 {% from "_steps.html" import step_header %}
 {% block title %}Who's the star? — {{ story.title }}{% endblock %}
-{% block body_attrs %}data-page="studio" data-story="{{ story.key }}" data-max-upload-mb="{{ max_upload_mb }}"{% endblock %}
+{% block body_attrs %}data-page="studio" data-story="{{ story.key }}" data-max-upload-mb="{{ max_upload_mb }}" data-child-profile='{{ child_profile|tojson if child_profile else "null" }}'{% endblock %}
 {% block header_title %}<span class="header-title">{{ story.title }}</span>{% endblock %}
 {% block main_class %}page studio{% endblock %}
 {% block content %}
@@ -104,6 +104,14 @@
       </div>
 
       <p class="adjust"><button type="button" class="link-button" data-action="advanced">Fine-tune the look</button> <span class="adjust-summary" data-role="summary"></span></p>
+      {% if section.required and can_remember %}
+      {# One child per account: the star's portrait and photo are kept so the
+         next book starts without an upload. Opt-in, and forgetting is one press
+         on the card above. #}
+      <p class="remember-child">
+        <label><input type="checkbox" data-role="remember"> Remember <span data-role="remember-name">them</span> for your next book</label>
+      </p>
+      {% endif %}
       <p class="inline-message hidden" data-role="message" role="status" aria-live="polite"></p>
     </div>
   </section>
@@ -116,6 +124,19 @@
       <p>We draw them as their storybook self. This face is on every page.</p>
       {% if picture_price %}<p class="field-help">Each portrait is {{ picture_price }} a picture, taken from your wallet as it is drawn.</p>{% endif %}
     </section>
+    {% if child_profile and child_profile.for_this_story %}
+    <section class="saved-child" id="saved-child" data-saved-child aria-labelledby="saved-child-title">
+      <img class="saved-child-portrait" src="{{ child_profile.portrait_url }}" alt="The saved portrait of {{ child_profile.name or 'the star' }}" decoding="async">
+      <div class="saved-child-body">
+        <h2 id="saved-child-title">{{ child_profile.name or "Your child" }}, remembered</h2>
+        <p class="field-help">The portrait you already made for this book. Using it needs no photo and draws nothing, so nothing is charged. It stays saved until you forget it.</p>
+        <div class="saved-child-actions">
+          <button type="button" class="button primary" data-action="use-saved">Use this portrait</button>
+          <button type="button" class="link-button" data-action="forget-saved">Forget it</button>
+        </div>
+      </div>
+    </section>
+    {% endif %}
     {{ character(sections[0]) }}
     <div class="step-actions">
       <button type="button" class="link-button" data-go="name">← Back</button>

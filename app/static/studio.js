@@ -25,6 +25,9 @@ const MAX_UPLOAD = Number(document.body.dataset.maxUploadMb || 10) * 1024 * 1024
 
 const api = createStudioClient();
 const draft = loadDraft(story);
+/* The child this account asked the studio to remember, or null. It is offered
+   by name in every story and by portrait only in the story that drew it. */
+const profile = JSON.parse(document.body.dataset.childProfile || "null");
 const photos = new Map(); // section key -> prepared Blob, this visit only
 const objectUrls = new Map();
 const busy = new Set();
@@ -57,6 +60,7 @@ wireNameStep();
 wireSteps();
 wireCamera();
 wireAdvanced();
+wireSavedChild();
 wireFooter();
 renderFooter();
 showStep(stepFromHash(), { initial: true });
@@ -128,6 +132,11 @@ function wireSection(key, el) {
   });
   action(el, "advanced").addEventListener("click", () => openAdvanced(key));
   action(el, "again").addEventListener("click", () => void makeComic(key));
+  part(el, "remember")?.addEventListener("change", (event) => {
+    draft.remember = event.target.checked;
+    persist();
+    if (draft.remember) void rememberChild();
+  });
   action(el, "love")?.addEventListener("click", () => {
     if (STEPS.includes("friends")) location.hash = "friends";
     else window.location.assign(document.getElementById("studio-next").href);
@@ -147,6 +156,19 @@ function shownName() {
 }
 
 function wireNameStep() {
+  // A remembered child answers the name step already: the name and the
+  // boy/girl answer are useful in every story, even one that cannot reuse the
+  // portrait (a portrait wears its own story's costume).
+  let filled = false;
+  if (!draft.about?.about_name && profile?.name) {
+    draft.about = { ...(draft.about || {}), about_name: profile.name };
+    filled = true;
+  }
+  if (!draft.sections.star?.photoGender && profile?.photo_gender) {
+    sectionData("star").photoGender = profile.photo_gender;
+    filled = true;
+  }
+  if (filled) persist();
   nameInput.value = draft.about?.about_name || "";
   const saved = draft.sections.star?.photoGender;
   if (saved) {
@@ -332,6 +354,10 @@ function renderSection(key) {
   thumb.style.backgroundImage = thumbUrl ? `url("${thumbUrl}")` : "";
   thumb.classList.toggle("filled", Boolean(thumbUrl));
 
+  const remember = part(el, "remember");
+  if (remember) remember.checked = Boolean(draft.remember ?? Boolean(profile));
+  if (remember) part(el, "remember-name").textContent = starName() || "them";
+
   const state = part(el, "state");
   let word = required ? "no photo" : "optional";
   if (expired.has(key) && !hasPhoto) word = "expired";
@@ -463,6 +489,87 @@ function cameraOpenMessage(error) {
   return "The camera didn't open — uploading a photo still works.";
 }
 
+/* --- the remembered child --------------------------------------------------- */
+
+function wireSavedChild() {
+  const card = document.querySelector("[data-saved-child]");
+  if (!card) return;
+  card
+    .querySelector('[data-action="use-saved"]')
+    ?.addEventListener("click", () => void useSavedPortrait());
+  card
+    .querySelector('[data-action="forget-saved"]')
+    ?.addEventListener("click", () => void forgetSavedChild());
+}
+
+/* The saved portrait, handed back as a fresh draft: no upload, no drawing. */
+async function useSavedPortrait() {
+  if (busy.has("star")) return;
+  busy.add("star");
+  renderSection("star");
+  showMessage("star", "Getting the portrait you saved…");
+  try {
+    const body = new FormData();
+    body.append("story", story);
+    const payload = await api.useSavedChild(body);
+    const data = sectionData("star");
+    objectUrls.delete("star");
+    data.generationId = payload.generation_id;
+    data.chosenId = payload.generation_id;
+    delete data.photoOnly;
+    data.chosenIndex = 0;
+    data.candidateUrls = payload.images?.candidate_urls || [];
+    expired.delete("star");
+    persist();
+    showMessage("star", "That's the portrait you saved — nothing to upload.");
+  } catch (error) {
+    if (error.status === 401) {
+      goSignIn();
+      return;
+    }
+    showMessage("star", friendlyError(error, "That portrait couldn't be used — add a photo instead."), true);
+  } finally {
+    busy.delete("star");
+    renderSection("star");
+    renderFooter();
+  }
+}
+
+/* Keep the child for the next book, if the box is ticked and there is a
+   portrait to keep. Never fails loudly: remembering must not block a book. */
+async function rememberChild() {
+  if (!draft.remember) return;
+  const data = draft.sections.star;
+  if (!data?.chosenId || !starGender()) return;
+  const body = new FormData();
+  body.append("generation_id", data.chosenId);
+  body.append("name", starName());
+  body.append("photo_gender", starGender());
+  try {
+    await api.rememberChild(body);
+  } catch {
+    // A deployment with no account, or a draft that just expired: the book is
+    // still perfectly makeable, so the visitor is told nothing.
+  }
+}
+
+async function forgetSavedChild() {
+  if (!window.confirm("Forget this child? Their saved portrait and photo will be deleted.")) {
+    return;
+  }
+  const card = document.querySelector("[data-saved-child]");
+  try {
+    await api.forgetChild();
+    card?.classList.add("hidden");
+    draft.remember = false;
+    persist();
+    renderSection("star");
+    showMessage("star", "Forgotten. The next book will ask for a photo again.");
+  } catch (error) {
+    showMessage("star", friendlyError(error, "That couldn't be forgotten — try again."), true);
+  }
+}
+
 /* --- portraits ------------------------------------------------------------- */
 
 function settingsBody(key) {
@@ -514,6 +621,7 @@ async function makeComic(key, reasons = []) {
       key,
       data.candidateUrls.length > 1 ? "Pick the take you like best." : "",
     );
+    if (key === "star") void rememberChild();
     return true;
   } catch (error) {
     if (error.status === 401) {
@@ -540,6 +648,7 @@ async function chooseTake(key, index) {
     data.chosenIndex = index;
     persist();
     showMessage(key, `Take ${index + 1} it is.`);
+    if (key === "star") void rememberChild();
   } catch (error) {
     if (error.status === 401) {
       goSignIn();
@@ -656,6 +765,7 @@ async function keepPhoto(key) {
     data.chosenIndex = 0;
     data.candidateUrls = [];
     persist();
+    if (key === "star") void rememberChild();
     return true;
   } catch (error) {
     if (error.status === 401) {

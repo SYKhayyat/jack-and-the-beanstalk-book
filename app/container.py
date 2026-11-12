@@ -20,6 +20,7 @@ from app.db import build_engine, persistence_mode, prepare_database
 from app.services.book_notice import BookReadyNotice
 from app.services.book_runner import BookRunner
 from app.services.book_store import BookStore
+from app.services.child_profiles import ChildProfileStore, DatabaseChildProfileStore
 from app.services.concurrency import ConcurrencyGate
 from app.services.costs import (
     CostLedger,
@@ -88,6 +89,9 @@ class Container:
     costs: CostLedger
     #: Every portrait shown in the studio and every take picked (operator only).
     portraits: PortraitLog
+    #: The one child each account asked the studio to remember, so the next
+    #: book starts without a photo (Idea 2). Empty until somebody ticks it.
+    child_profiles: ChildProfileStore
     # Bounds concurrent generations per process. Image models are slow and
     # rate-limited, so without a ceiling a burst of traffic becomes a burst of
     # billable requests and 429s.
@@ -253,6 +257,7 @@ def build_container(
         payments=resolved_payments,
         costs=costs,
         portraits=PortraitLog(engine),
+        child_profiles=DatabaseChildProfileStore(engine),
         gate=gate,
         rate_limiter=GenerationRateLimiter(settings.max_generations_per_minute),
     )

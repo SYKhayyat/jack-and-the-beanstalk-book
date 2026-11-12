@@ -41,6 +41,7 @@ from app.routes import (
     auth,
     book,
     book_media,
+    child_profile,
     media,
     share,
     wallet,
@@ -322,6 +323,7 @@ def create_app(
     app.include_router(book.books_router)
     app.include_router(book.stories_router)
     app.include_router(book_media.router)
+    app.include_router(child_profile.router)
     app.include_router(media.router)
     app.include_router(wallet.router)
     app.include_router(share.router)
