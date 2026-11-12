@@ -1918,9 +1918,15 @@ class BookRunner:
         previous: GeneratedImage | None = None
         for attempt in range(1, self._page_attempts + 1):
             # The book's retry budget (C4): a page that did not pass is only
-            # drawn again while the book can still afford it. The best picture
-            # it already has is kept, and the record says why it stopped.
-            if attempt > 1 and await self._retry_budget_spent(book_id, user):
+            # drawn again while the book can still afford it — and only when
+            # there is a picture to keep. A first attempt the provider's safety
+            # system blocked leaves nothing behind, so the page is still drawn
+            # once: the ceiling is about redraws, never a hole in the book.
+            if (
+                attempt > 1
+                and best is not None
+                and await self._retry_budget_spent(book_id, user)
+            ):
                 if verdicts:
                     verdicts[-1]["retry_budget_stopped"] = True
                 break

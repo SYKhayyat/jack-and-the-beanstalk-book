@@ -28,10 +28,19 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.main import create_app
 from app.services.book_runner import BookRunner
+from app.services.image_providers.base import ProviderError
 from app.services.user_store import User
 from app.sessions import SESSION_COOKIE
-from tests.helpers import JACK_KEY, RecordingProvider, make_photo_bytes
-from tests.test_review_loop import ScriptedReviewer, artwork, grain, runner_with, said
+from tests.helpers import JACK_KEY, RecordingProvider, isolated_settings, make_photo_bytes
+from tests.test_plate_import_and_edit import _approved_plates, _start_a_book
+from tests.test_review_loop import (
+    ABigPainter,
+    ScriptedReviewer,
+    artwork,
+    grain,
+    runner_with,
+    said,
+)
 
 OPERATOR = "operator-sub"
 
@@ -260,6 +269,96 @@ def test_a_retry_budget_of_zero_never_stops_a_redraw() -> None:
     _attempts, sent = _page_loop(_retry_budgeted(500 * 10_000, percent=0))
 
     assert len(sent) == 3
+
+
+def test_a_page_with_no_picture_is_drawn_even_over_the_retry_budget() -> None:
+    """The ceiling stops a redraw, never the page's only picture.
+
+    A first draw the provider's safety system blocked leaves nothing to keep.
+    Stopping there would save a page with no art at all — a hole the PDF
+    cannot embed — so the book would fail while assembling instead of
+    finishing. The budget is about the money redraws cost, and a redraw needs
+    a picture to have been drawn already.
+    """
+    runner = _retry_budgeted(99 * 10_000)
+    sent: list[str] = []
+
+    async def draw(prompt: str, mend: Any) -> Any:
+        sent.append(prompt)
+        if len(sent) == 1:
+            raise ProviderError("moderation_blocked: the safety system refused it")
+        return _Drawn(grain(seed=2))
+
+    attempts = asyncio.run(
+        runner._draw_until_pass(
+            book_id="book",
+            page_number=5,
+            user="-",
+            page_title="the kitchen",
+            story_line="the mother sends Jack to market",
+            cast_note="Only these people may be in the picture: the child.",
+            star_in_picture=True,
+            plate=None,
+            artwork=artwork(plated=False),
+            draw=draw,
+            prompt_for=prompt_only,
+        )
+    )
+
+    assert len(sent) == 2, "the page is still drawn past the budget when it has no picture"
+    assert attempts.image, "a page must never be kept with no art"
+    assert attempts.verdicts[0]["attempt"] == 2
+
+
+def _book_status(client: TestClient, book_id: str) -> str:
+    """Wait for a book to settle, and say how it ended."""
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        payload = client.get(f"/api/book/{book_id}").json()
+        if payload["status"] in {"complete", "failed"}:
+            return str(payload["status"])
+        time.sleep(0.05)
+    raise AssertionError("the book never settled")
+
+
+def test_a_book_over_its_retry_budget_still_finishes(
+    tmp_path: Path, seeded_template: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Past the ceiling a book loses redraws, not itself: it ends complete.
+
+    The mock's pages do not pass, so every page wants its three tries; with
+    the ceiling at the fee and a quarter a picture, the book is over its
+    budget before the first page is done. It must still assemble — a visitor
+    who paid for a book gets the book, with the best pictures it could make.
+    """
+    caplog.set_level(logging.WARNING, logger="app.services.book_runner")
+    # A real painter and a reviewer that rejects every picture, because a
+    # placeholder provider never retries at all — the ceiling has to be
+    # reachable for this test to mean anything. One percent of the fee is
+    # about a cent, so the book is over it after its first picture.
+    settings = isolated_settings(tmp_path, seeded_template).model_copy(
+        update={"image_call_cost_usd": 0.01, "book_retry_budget_percent": 1}
+    )
+    app = create_app(
+        settings,
+        provider=ABigPainter(),
+        reviewer=ScriptedReviewer(default=said(False, 20, ("text_in_image",))),
+    )
+    with TestClient(app) as client:
+        _approved_plates(client.app.state.container.templates, tmp_path)  # type: ignore[attr-defined]
+        book_id = _start_a_book(client)
+        status = _book_status(client, book_id)
+
+    assert status == "complete"
+    # This book's own line, and only one of it. A book another test left
+    # rendering in this worker can still log its own budget line here, which is
+    # why the id is part of the filter rather than the count.
+    stopped = [
+        r.getMessage()
+        for r in caplog.records
+        if "book.retry_budget" in r.getMessage() and book_id in r.getMessage()
+    ]
+    assert len(stopped) == 1, stopped
 
 
 def test_the_retry_budget_is_said_once_a_book(caplog: pytest.LogCaptureFixture) -> None:

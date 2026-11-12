@@ -184,17 +184,11 @@ services:
       # spent its 99¢ fee, with tier 1 and the decision judge still deciding.
       - key: REVIEWER_BUDGET_PERCENT
         value: "0"
-      # Past 1.2 times the fee, a page that did not pass keeps the best picture
-      # it has instead of being drawn again (C4). Run 1 cost $1.60 a book: the
-      # retries are the money. The free providers spend nothing, so this never
-      # bites in mock or Gemini-in-Chrome mode.
-      - key: BOOK_RETRY_BUDGET_PERCENT
-        value: "120"
-      # The other half of the same ceiling: past 1.2× the fee, a page that did
-      # not pass is not drawn again — it keeps the best picture it has and the
-      # book still finishes. Run 1 (2026-11-11) spent $1.58 a book against the
-      # 99¢ price, $0.94 of it redraws; the ceiling is what stops one bad page
-      # from eating a book's margin. 0 turns it off.
+      # Past 1.2× the fee, a page that did not pass is not drawn again — it
+      # keeps the best picture it has and the book still finishes. Run 1
+      # (2026-11-11) spent $1.58 a book against the 99¢ price, $0.94 of it
+      # redraws; the ceiling is what stops one bad page from eating a book's
+      # margin. 0 turns it off.
       - key: BOOK_RETRY_BUDGET_PERCENT
         value: "120"
 
