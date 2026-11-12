@@ -351,6 +351,8 @@ With `IMAGE_PROVIDER=mock` and `REVIEWER_PROVIDER=openai`, tier 1 fails every mo
 ### C8 — P2: long prompts (if still ~18 K characters/page) multiply input tokens
 UI.org measured ~17.8 K characters per page prompt; the prompt builder still assembles the identity block, cast sheet and boilerplate for every page (`app/services/prompts.py:445–480`). The output cost dominates with image models, but the input tokens are paid on every retry. Re-measure after the recent prompt cuts; if still large, put the page's moment first and trim the repeated cast block. (This audit did not re-measure the prompt lengths, so treat it as a to-verify item.)
 
+**Checked (11 Nov 2026), no change to the order, on purpose.** Re-measured with the current builder: a composed page prompt is 21,375 characters, and the book-level block — identity, likeness, coherence, style, the cast sheet, the world, the story's rules — is byte-identical across pages to 16,298 of them (76 %). The builder orders exactly that block first (`prompts.py`, the `shared` list) so a provider can serve it from its prefix cache; the audit's suggestion to put the page's moment first would make all nineteen calls, and every retry, a cache miss and would cost more, not less. The production path is shorter still: a plated page is a plate edit, 2,217 characters, because the plate is the picture being edited. The property is now pinned by `test_the_book_level_block_comes_first_so_it_can_be_cached`.
+
 ---
 
 ## 7. Good ideas not implemented (the product levers)

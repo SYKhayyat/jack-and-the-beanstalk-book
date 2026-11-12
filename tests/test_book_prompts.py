@@ -847,3 +847,24 @@ def test_time_of_day_only_moves_forward_within_each_day() -> None:
                 )
             )
         assert ranks == sorted(ranks), (day, ranks)
+
+
+def test_the_book_level_block_comes_first_so_it_can_be_cached() -> None:
+    """C8: the prompt is long, but three quarters of it is the same every page.
+
+    A composed page prompt is ~21 K characters, of which the book-level block
+    (identity, style, cast sheet, world, rules) is byte-identical on every page.
+    Ordering it first is what lets a provider serve it from its prefix cache
+    instead of charging for it again on each of the nineteen calls and each
+    retry; putting the page's moment first, as the audit suggested, would make
+    every page a cache miss. This pins the property rather than the wording.
+    """
+    settings = CartoonSettings()
+    first = _prompt(BOOK_PAGES[2], settings, 3)
+    ninth = _prompt(BOOK_PAGES[8], settings, 9)
+    shared = 0
+    for left, right in zip(first, ninth, strict=False):
+        if left != right:
+            break
+        shared += 1
+    assert shared > 0.7 * len(first), (shared, len(first))
