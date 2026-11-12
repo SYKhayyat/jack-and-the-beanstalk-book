@@ -16,6 +16,14 @@
         approved set is a template version; new books are drawn on it. The start gate
         decides whether a story may begin books before it has one.
       </p>
+      {#- W1: the pipeline is built and unused, and this page is the only place an
+          operator meets it. Saying so is cheaper than a flag nobody reads: a story
+          with no approved version still composes every page from scratch. #}
+      <p class="inline-message" data-plates-experimental>
+        <strong>Experimental.</strong> No story ships with the gate on yet: it waits on a
+        real-provider trial of the plate edit (T8). With the gate off, a new book is
+        composed from scratch and none of these plates is used.
+      </p>
     </div>
   </header>
 
