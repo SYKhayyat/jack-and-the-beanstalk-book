@@ -624,8 +624,7 @@ def test_the_web_fonts_are_woff2_under_the_fingerprint(
     prefix = build.group(1)
     for face in ("Regular", "Bold"):
         assert (
-            f'<link rel="preload" href="{prefix}/webfonts/Literata-{face}.woff2"'
-            in shelf_html
+            f'<link rel="preload" href="{prefix}/webfonts/Literata-{face}.woff2"' in shelf_html
         )
         response = client.get(f"{prefix}/webfonts/Literata-{face}.woff2")
         assert response.status_code == 200, face

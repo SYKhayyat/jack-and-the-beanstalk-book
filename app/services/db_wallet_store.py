@@ -262,9 +262,7 @@ class DatabaseWalletStore(WalletStore):
             )
 
 
-def _ledger_where(
-    owner: str, *, kinds: Sequence[str] | None = None, book_id: str = ""
-) -> Any:
+def _ledger_where(owner: str, *, kinds: Sequence[str] | None = None, book_id: str = "") -> Any:
     """The WHERE clause the history page reads with.
 
     A book's rows are its fee (`book:<id>`) and the pictures bought for it
