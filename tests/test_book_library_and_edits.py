@@ -583,6 +583,37 @@ class FlakyCoverProvider(ImageProvider):
 
 
 class TestFinishAFailedBook:
+    def test_the_library_says_a_stopped_book_can_be_finished(self, tmp_path: Path) -> None:
+        """W8: "stopped" in the drawer used to say nothing about what next.
+
+        A book whose cover was refused still has pictures; the row says so and
+        says it can be finished, which is what the book page then offers. The
+        other state — nothing drawn at all — says exactly that instead.
+        """
+        provider = FlakyCoverProvider()
+        with TestClient(create_app(_google_settings(tmp_path), provider=provider)) as client:
+            _sign_in(client, "owner-1")
+            book_id = _start(client)
+            stopped = _wait(client, book_id)
+            assert stopped["status"] == "failed"
+            drawn = sum(
+                1
+                for tile in stopped["pages"]  # type: ignore[union-attr]
+                if isinstance(tile, dict) and tile.get("status") == "done"
+            )
+            assert drawn > 0, "this provider is refused at the cover, after the pages"
+
+            shelf = client.get("/").text
+            assert f"stopped · {drawn} of 21 pictures · open it to finish" in shelf
+
+            # The same row, one state earlier: nothing was drawn.
+            store = client.app.state.container.book_store  # type: ignore[attr-defined]
+            empty_id = _start(client)
+            _wait(client, empty_id)
+            store.save_status(empty_id, "failed", [], error="stopped")
+            shelf = client.get("/").text
+            assert "stopped before any picture was drawn" in shelf
+
     def test_finish_button_draws_only_the_missing_page(self, client_factory) -> None:
         provider = FlakyCoverProvider()
         with client_factory(provider) as client:

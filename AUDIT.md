@@ -327,6 +327,8 @@ The code comment and prior audit both note “no print service yet”; the finis
 ### W8 — P2: failed-render recovery is a button, not a workflow
 “Finish this book” exists, but there is no automatic resume (B8), no e-mail when it recovers, and no visible distinction between “failed and resumable” and “failed and hopeless” in the library list. The store knows which pages are saved; the UI does not use that.
 
+**Done (12 Nov 2026), except the e-mail:** the automatic resume landed with B9 (a boot picks a book up when its worker's lease has expired, up to the resume limit), and the library now uses the number of saved pictures it already had: a stopped book with pictures reads “stopped · 20 of 21 pictures · open it to finish”, and one that never drew anything says “stopped before any picture was drawn” instead of pretending they are the same. What is still missing is the notification (W2), which needs a mail channel this deployment does not have. Pinned by `test_the_library_says_a_stopped_book_can_be_finished`.
+
 ### W9 — P2: the mock reviewer/decision settings can silently weaken production
 `REVIEWER_PROVIDER=off` is a supported configuration, and `tier2_failed` is recorded, but a deployment can ship with no tier-2 review and the only signal is the operator status page. If the review loop is a product promise (“every generated image is analysed”), fail closed for a production deployment with no reviewer, or show a visible “not being checked” state on the book. Currently the app degrades quietly.
 

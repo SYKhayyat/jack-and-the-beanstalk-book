@@ -16,7 +16,10 @@
             {% if item.subtitle %}<span class="drawer-subtitle">{{ item.subtitle }}</span>{% endif %}
             <span class="drawer-meta">
               {% if item.status == "complete" %}finished <time datetime="{{ item.updated_at }}" data-format="day-month">{{ item.updated_at|short_date }}</time> · {{ (item.page_count or 21) - 1 }} pages + cover
-              {% elif item.status == "failed" %}stopped · {{ item.pages_done }} of {{ item.page_count or 21 }} pictures
+              {#- W8: a stopped book is not a dead one. Say which kind it is —
+                  one that still has pictures to keep, and the way forward
+                  behind the row, or one that never got going. #}
+              {% elif item.status == "failed" %}{% if item.pages_done %}stopped · {{ item.pages_done }} of {{ item.page_count or 21 }} pictures · open it to finish{% else %}stopped before any picture was drawn{% endif %}
               {% else %}<span class="dot" aria-hidden="true"></span>being drawn · {{ item.pages_done }} of {{ item.page_count or 21 }} pictures{% endif %}
             </span>
           </span>
