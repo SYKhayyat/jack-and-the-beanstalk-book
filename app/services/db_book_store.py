@@ -28,7 +28,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import Connection, delete, null, select, update
+from sqlalchemy import Connection, delete, null, or_, select, update
 from sqlalchemy import insert as sa_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
@@ -785,8 +785,37 @@ class DatabaseBookStore(BookStore):
                 .values(job_started_at=_now(), resume_count=0)
             )
 
+    # --- the job lease (B9) ------------------------------------------------------
+
+    def claim_job(self, book_id: str, owner: str, *, ttl_seconds: float) -> bool:
+        now = _now()
+        with self._engine.begin() as conn:
+            taken = conn.execute(
+                update(BookRow)
+                .where(BookRow.id == book_id, _lease_free(now, owner=owner))
+                .values(job_owner=owner, job_expires_at=now + timedelta(seconds=ttl_seconds))
+            ).rowcount
+        return taken == 1
+
+    def renew_job(self, book_id: str, owner: str, *, ttl_seconds: float) -> bool:
+        with self._engine.begin() as conn:
+            renewed = conn.execute(
+                update(BookRow)
+                .where(BookRow.id == book_id, BookRow.job_owner == owner)
+                .values(job_expires_at=_now() + timedelta(seconds=ttl_seconds))
+            ).rowcount
+        return renewed == 1
+
+    def release_job(self, book_id: str, owner: str) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(
+                update(BookRow)
+                .where(BookRow.id == book_id, BookRow.job_owner == owner)
+                .values(job_owner=None, job_expires_at=None)
+            )
+
     def resume_incomplete(
-        self, *, max_resumes: int, window_seconds: float
+        self, *, owner: str, ttl_seconds: float, max_resumes: int, window_seconds: float
     ) -> list[ResumedBook]:
         """See `BookStore.resume_incomplete`.
 
@@ -796,8 +825,15 @@ class DatabaseBookStore(BookStore):
         than its window, or one already resumed `max_resumes` times, is not
         tried again: the one thing worse than losing a book is a book that
         kills the server on every boot. Those fail, finished pages kept.
+
+        A book whose lease is still good belongs to a live worker — another
+        instance, or this one before a rolling restart — and is left completely
+        alone: not resumed, and not failed either (B9). The lease is taken in
+        the same transaction that counts the resume, so two boots racing for the
+        same book cannot both schedule it.
         """
-        oldest = _now() - timedelta(seconds=window_seconds)
+        now = _now()
+        oldest = now - timedelta(seconds=window_seconds)
         resumed: list[ResumedBook] = []
         with self._engine.begin() as conn:
             orphans = conn.execute(
@@ -807,23 +843,41 @@ class DatabaseBookStore(BookStore):
                     BookRow.portrait_sha256,
                     BookRow.job_started_at,
                     BookRow.resume_count,
+                    BookRow.job_owner,
+                    BookRow.job_expires_at,
                 ).where(BookRow.status.in_((BookStatus.PENDING, BookStatus.RENDERING)))
             ).all()
             for row in orphans:
                 book_id = str(row.id)
                 job_started: datetime | None = row.job_started_at
                 count = int(row.resume_count or 0)
+                # A book another worker still holds is not an orphan: leave it,
+                # and its lease, exactly as it is so it can finish (B9).
+                if row.job_owner not in (None, owner) and (
+                    row.job_expires_at is None or row.job_expires_at >= now
+                ):
+                    logger.warning("book.reaped_skipped id=%s (worker still alive)", book_id)
+                    continue
                 if (
                     row.portrait_sha256 is not None
                     and count < max_resumes
                     and job_started is not None
                     and job_started >= oldest
                 ):
-                    conn.execute(
+                    # Two boots could read this row at the same moment; only the
+                    # one whose conditional update lands gets to render it.
+                    taken = conn.execute(
                         update(BookRow)
-                        .where(BookRow.id == book_id)
-                        .values(resume_count=count + 1)
-                    )
+                        .where(BookRow.id == book_id, _lease_free(now, owner=owner))
+                        .values(
+                            resume_count=count + 1,
+                            job_owner=owner,
+                            job_expires_at=now + timedelta(seconds=ttl_seconds),
+                        )
+                    ).rowcount
+                    if taken != 1:
+                        logger.warning("book.resume_skipped id=%s (another worker)", book_id)
+                        continue
                     resumed.append(
                         ResumedBook(
                             book_id=book_id, job_started_at=job_started, resume=count + 1
@@ -1054,6 +1108,20 @@ def _sha(data: bytes) -> str:
 
 def _now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _lease_free(now: datetime, *, owner: str) -> Any:
+    """A SQL condition: nobody holds this book's job lease, or this worker does.
+
+    An expiry that was never written counts as free: a row that predates the
+    lease, or one inserted between the claim and its heartbeat.
+    """
+    return or_(
+        BookRow.job_owner.is_(None),
+        BookRow.job_owner == owner,
+        BookRow.job_expires_at.is_(None),
+        BookRow.job_expires_at < now,
+    )
 
 
 def _subtitle(template: str | None, about: Mapping[str, Any] | None) -> str:

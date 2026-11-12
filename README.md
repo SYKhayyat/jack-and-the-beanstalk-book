@@ -1004,6 +1004,17 @@ Two details that are easy to get wrong and expensive to get wrong:
 global limit there; if you ever scale to several workers, the effective limit
 is the setting times the worker count.
 
+A book's render is guarded by a **lease in the database**, not by a flag in the
+process. A start claims the book (`books.job_owner` / `books.job_expires_at`)
+with one conditional `UPDATE`, a heartbeat renews the claim every 30 seconds
+while the job runs, and the claim is released when the job ends — finished,
+failed or cancelled. Two instances therefore cannot draw the same book at once
+(an edit answers `409 book_busy`), and a boot resumes only books whose worker is
+gone: a book another instance is still drawing is left alone instead of being
+reaped. What is still per process is the rate limiter, the concurrency gate and
+the wallet's read-then-write lock; the money stays right regardless, because
+the balance is the ledger's own sum and every charge is unique per reference.
+
 ## Tests
 
 ```bash

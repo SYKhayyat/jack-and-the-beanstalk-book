@@ -320,11 +320,64 @@ def test_find_started_ignores_a_record_without_a_fingerprint(
 
 
 _HOUR = 3600.0
+_BOOT = "boot:1"
 
 
-def _resume(store: DatabaseBookStore, *, max_resumes: int = 2) -> list[str]:
-    books = store.resume_incomplete(max_resumes=max_resumes, window_seconds=_HOUR)
+def _resume(
+    store: DatabaseBookStore, *, max_resumes: int = 2, owner: str = _BOOT
+) -> list[str]:
+    books = store.resume_incomplete(
+        owner=owner, ttl_seconds=_HOUR, max_resumes=max_resumes, window_seconds=_HOUR
+    )
     return [book.book_id for book in books]
+
+
+def test_one_worker_at_a_time_holds_the_job_lease(store: DatabaseBookStore) -> None:
+    """B9: a claim is a conditional write, so a second worker cannot take it."""
+    book_id = _seed(store)
+    store.save_portrait(book_id, b"PORTRAIT")
+
+    assert store.claim_job(book_id, "worker-a", ttl_seconds=_HOUR) is True
+    # A second worker is refused; the holder renews and keeps it.
+    assert store.claim_job(book_id, "worker-b", ttl_seconds=_HOUR) is False
+    assert store.renew_job(book_id, "worker-b", ttl_seconds=_HOUR) is False
+    assert store.renew_job(book_id, "worker-a", ttl_seconds=_HOUR) is True
+    # Only the holder can give it up.
+    store.release_job(book_id, "worker-b")
+    assert store.claim_job(book_id, "worker-b", ttl_seconds=_HOUR) is False
+    store.release_job(book_id, "worker-a")
+    assert store.claim_job(book_id, "worker-b", ttl_seconds=_HOUR) is True
+
+
+def test_an_expired_lease_can_be_taken_over(store: DatabaseBookStore) -> None:
+    book_id = _seed(store)
+    # A worker that died: its claim ran out a moment ago.
+    assert store.claim_job(book_id, "worker-a", ttl_seconds=-1) is True
+    assert store.claim_job(book_id, "worker-b", ttl_seconds=_HOUR) is True
+
+
+def test_a_book_a_live_worker_is_rendering_is_left_alone(store: DatabaseBookStore) -> None:
+    """The boot must not resume — or fail — another instance's live book."""
+    book_id = _seed(store)
+    store.save_portrait(book_id, b"PORTRAIT")
+    assert store.claim_job(book_id, "worker-a", ttl_seconds=_HOUR) is True
+
+    assert _resume(store, owner="worker-b") == []
+    status = store.load_status(book_id)
+    assert status is not None
+    # Neither resumed nor reaped: it is still being drawn somewhere.
+    assert status["status"] == BookStatus.PENDING
+    assert store.renew_job(book_id, "worker-a", ttl_seconds=_HOUR) is True
+
+
+def test_the_boot_resumes_a_book_whose_worker_died(store: DatabaseBookStore) -> None:
+    book_id = _seed(store)
+    store.save_portrait(book_id, b"PORTRAIT")
+    assert store.claim_job(book_id, "worker-a", ttl_seconds=-1) is True
+
+    assert _resume(store, owner="boot:2") == [book_id]
+    # The boot now holds the book, so a second boot leaves it alone too.
+    assert _resume(store, owner="boot:3") == []
 
 
 def test_a_mid_render_book_is_resumed_twice_then_failed(store: DatabaseBookStore) -> None:
@@ -343,7 +396,9 @@ def test_a_mid_render_book_is_resumed_twice_then_failed(store: DatabaseBookStore
     )
     store.save_status("book-2", BookStatus.COMPLETE, [])
 
-    first = store.resume_incomplete(max_resumes=2, window_seconds=_HOUR)
+    first = store.resume_incomplete(
+        owner=_BOOT, ttl_seconds=_HOUR, max_resumes=2, window_seconds=_HOUR
+    )
     assert [(book.book_id, book.resume) for book in first] == [(book_id, 1)]
     # A resumed book is left as it was, for the runner to pick up.
     resumed = store.load_status(book_id)

@@ -93,6 +93,8 @@ The first story page is labelled `Page 1 of 20`, while its printed folio is `2` 
 
 **Fix:** document/enforce a single instance, or move job state, locks and leases to the database (a lease/heartbeat column and a `SELECT ... FOR UPDATE` start transaction).
 
+**Done (11 Nov 2026):** the job lease is in the database. `books.job_owner` / `books.job_expires_at` (migration 0016) are claimed with one conditional `UPDATE` before a job is scheduled, renewed by a heartbeat every 30 s (lease 120 s), and released when the job ends, including on a graceful shutdown. A second instance's edit answers `409 book_busy`, a boot resumes only books whose lease is free or expired, and a book another instance is still drawing is left completely alone rather than reaped. The remaining per-process pieces — rate limiter, concurrency gate, wallet lock — are documented in the README; the ledger itself is already safe by unique reference and summed balance. Pinned by `test_one_worker_at_a_time_holds_the_job_lease`, `test_an_expired_lease_can_be_taken_over`, `test_a_book_a_live_worker_is_rendering_is_left_alone`, `test_the_boot_resumes_a_book_whose_worker_died`, `test_a_finished_book_has_given_its_job_lease_back` and `test_an_edit_is_refused_while_another_worker_holds_the_book`.
+
 ### B10 — P2: an About-page edit during a render can be silently overwritten
 `action=about` updates the record and only rebuilds the PDF if the book is already complete (`app/routes/book.py:459–490`). A render in progress has already loaded the old `BookRecord` and assembles the PDF from that snapshot, so an About edit made mid-render is lost when the job finishes. The UI hides the edit strip while rendering, so this needs a direct API call, but it is a real data-loss path.
 

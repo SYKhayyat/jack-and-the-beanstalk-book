@@ -437,18 +437,44 @@ class BookStore:
     def delete(self, book_id: str) -> None:
         raise NotImplementedError
 
+    def claim_job(self, book_id: str, owner: str, *, ttl_seconds: float) -> bool:
+        """Take the book's job lease, if no live worker holds it.
+
+        The one rule that keeps a book from being rendered twice: the claim is
+        a conditional write in the store, not a flag in the process, so a second
+        instance — or a restart — cannot start drawing the same pages. Returns
+        whether this caller now holds the lease; a lease already held by the
+        same `owner` is renewed rather than refused, so a resume can re-claim
+        what the boot path reserved for it.
+        """
+        raise NotImplementedError
+
+    def renew_job(self, book_id: str, owner: str, *, ttl_seconds: float) -> bool:
+        """Extend this worker's lease. False when the book is no longer ours.
+
+        The heartbeat's answer: a False means another worker took the book (or
+        the lease ran out and the boot path resumed it), so the job must stop
+        rather than keep paying for pictures nobody will use.
+        """
+        raise NotImplementedError
+
+    def release_job(self, book_id: str, owner: str) -> None:
+        """Give the lease up: the job finished, failed, or was cancelled."""
+        raise NotImplementedError
+
     def resume_incomplete(
-        self, *, max_resumes: int, window_seconds: float
+        self, *, owner: str, ttl_seconds: float, max_resumes: int, window_seconds: float
     ) -> list[ResumedBook]:
         """Pick up the books a restart interrupted, or fail them for good.
 
         A book is resumed when it was still pending or rendering, has its
         portrait (everything a render draws from), has not been resumed
-        `max_resumes` times already, and its job started within
-        `window_seconds`. Its resume is counted, it is left as it was, and it
-        is returned for the caller to schedule; its finished pages will be
-        skipped. Every other such book is marked failed, its finished pages
-        kept, and its owner told to finish it.
+        `max_resumes` times already, its job started within `window_seconds`,
+        and its lease is free or expired — a live worker's book is left alone
+        (B9). Its resume is counted, the lease is taken for `owner`, and it is
+        returned for the caller to schedule; its finished pages will be
+        skipped. Every other such book, whose worker is gone, is marked failed,
+        its finished pages kept, and its owner told to finish it.
 
         Returns:
             The books to render again, in the order found.

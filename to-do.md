@@ -6,6 +6,15 @@ text placement, UI and self-grading) against what is actually built. Everything
 below "Earlier iterations" is the record of the work before it, kept for
 history.
 
+## Taking work off AUDIT.md
+
+`AUDIT.md` is the queue of problems the audit found; this file is the list of
+what is built. One item at a time: implement it, write its outcome into its
+extry (`**Done (date):** …`), and commit `AUDIT.md` **in the same commit as the
+fix**. An item only counts as taken once that commit is in — a code change with
+the audit entry still open is an untracked claim. Before starting the next one,
+ask which item to take; do not silently pick from the queue.
+
 ## Hand-in links (all four must open in a private window)
 
 1. **Live site** — <https://jack-and-the-beanstalk-book.onrender.com/>

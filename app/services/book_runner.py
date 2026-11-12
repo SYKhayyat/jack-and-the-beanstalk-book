@@ -32,6 +32,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import socket
+import uuid
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
@@ -99,6 +102,14 @@ __all__ = ["FIXABLE_FAULTS", "MAX_PAGE_ATTEMPTS", "BookRunner", "CharacterRefere
 #: that never passes keeps its best attempt and is marked `best_effort`, because
 #: a book with one imperfect picture is worth more than no book.
 MAX_PAGE_ATTEMPTS = 3
+
+#: How long a worker's claim on a book lasts, and how often it is renewed
+#: (B9). The lease lives in the database, so a boot can tell a book whose
+#: worker died from one another instance is still drawing. It only has to
+#: outlive a heartbeat, not the whole render.
+_JOB_LEASE_SECONDS = 120.0
+_JOB_HEARTBEAT_SECONDS = 30.0
+
 
 #: Faults that live in one part of a picture, so the second attempt sends that
 #: picture back to be mended rather than drawing the page again from the plate:
@@ -267,6 +278,11 @@ class BookRunner:
         self._document = BookDocument(book_store=book_store, wallet=wallet)
         self._tasks: set[asyncio.Task[None]] = set()
         self._active: dict[str, asyncio.Task[None]] = {}
+        #: This process's name on the books it renders. The lease, not this id,
+        #: is what keeps two workers off one book; the id is how the row says
+        #: whose job it is (B9).
+        self._owner = _worker_id()
+        self._heartbeats: dict[str, asyncio.Task[None]] = {}
         # Set by `close`: a job cancelled because the server is stopping is
         # paused for the next boot to resume, not failed.
         self._stopping = False
@@ -276,6 +292,49 @@ class BookRunner:
         return await asyncio.get_running_loop().run_in_executor(
             self._image_pool, partial(func, *args, **kwargs)
         )
+
+    async def _claim(self, book_id: str) -> None:
+        """Take the book's job lease, or refuse because a live worker has it.
+
+        The in-process `_active` check only knows this process. The lease is a
+        conditional write in the database, so a second instance cannot start
+        drawing the same book behind this one's back (B9).
+        """
+        claimed = await asyncio.to_thread(
+            self._book_store.claim_job,
+            book_id,
+            self._owner,
+            ttl_seconds=_JOB_LEASE_SECONDS,
+        )
+        if not claimed:
+            raise BookBusy("This book is already being worked on. Wait for it to finish.")
+
+    async def _keep_lease(self, book_id: str) -> None:
+        """Renew the book's lease while its job runs; stop the job if it is lost.
+
+        A False from the store means the book is no longer ours — the lease ran
+        out and the boot resume (or another instance) took it — so the job is
+        cancelled rather than paying for pictures nobody will keep.
+        """
+        while True:
+            await asyncio.sleep(_JOB_HEARTBEAT_SECONDS)
+            try:
+                renewed = await asyncio.to_thread(
+                    self._book_store.renew_job,
+                    book_id,
+                    self._owner,
+                    ttl_seconds=_JOB_LEASE_SECONDS,
+                )
+            except Exception:
+                logger.warning("book.lease_renew_failed id=%s", book_id, exc_info=True)
+                continue
+            if renewed:
+                continue
+            logger.warning("book.lease_lost id=%s owner=%s", book_id, self._owner)
+            task = self._active.get(book_id)
+            if task is not None and not task.done():
+                task.cancel()
+            return
 
     async def _warm_picture(self, book_id: str, slot: str) -> None:
         """Make a picture's usual screen copies while the book is still rendering.
@@ -301,9 +360,13 @@ class BookRunner:
         (`recover`). Called once, from the app's lifespan.
         """
         self._stopping = True
+        for beat in list(self._heartbeats.values()):
+            beat.cancel()
         tasks = list(self._tasks)
         for task in tasks:
             task.cancel()
+        # Each job's done callback releases its lease, so a redeploy hands its
+        # books straight back to the next boot (B9).
         await asyncio.gather(*tasks, return_exceptions=True)
         self._image_pool.shutdown(wait=False, cancel_futures=True)
 
@@ -355,6 +418,7 @@ class BookRunner:
         await asyncio.to_thread(
             self._book_store.save_characters, record.book_id, resolved_characters
         )
+        await self._claim(record.book_id)
         self._schedule(
             record.book_id,
             lambda: self._render(
@@ -407,6 +471,7 @@ class BookRunner:
         as done.
         """
         self._ensure_idle(book_id)
+        await self._claim(book_id)
         fixes = dict(requested_fixes or {})
         started = asyncio.Event()
 
@@ -425,7 +490,13 @@ class BookRunner:
                 resumed=resumed,
             )
 
-        task = self._schedule(book_id, job)
+        try:
+            task = self._schedule(book_id, job)
+        except BaseException:
+            # The lease was taken for a job that never started: give it back now
+            # rather than leaving the book locked out until it expires.
+            await asyncio.to_thread(self._book_store.release_job, book_id, self._owner)
+            raise
         try:
             await asyncio.to_thread(
                 partial(
@@ -539,6 +610,8 @@ class BookRunner:
         books = await asyncio.to_thread(
             partial(
                 self._book_store.resume_incomplete,
+                owner=self._owner,
+                ttl_seconds=_JOB_LEASE_SECONDS,
                 max_resumes=max_resumes,
                 window_seconds=window_minutes * 60,
             )
@@ -546,6 +619,11 @@ class BookRunner:
         for book in books:
             try:
                 await self._resume(book)
+            except BookBusy:
+                # Another instance holds it: not ours to fail, and not ours to
+                # draw (B9).
+                logger.warning("book.resume_skipped id=%s (another worker)", book.book_id)
+                continue
             except Exception:
                 logger.exception("book.resume_failed id=%s", book.book_id)
                 await self._fail_off_loop(
@@ -613,11 +691,25 @@ class BookRunner:
         task = asyncio.create_task(make_coro())
         self._active[book_id] = task
         self._tasks.add(task)
+        # The claim is the store's; the heartbeat is what keeps it while a
+        # twenty-page book is drawn (B9).
+        self._heartbeats[book_id] = asyncio.create_task(self._keep_lease(book_id))
 
         def _finished(done: asyncio.Task[None]) -> None:
             self._tasks.discard(done)
             if self._active.get(book_id) is done:
                 self._active.pop(book_id, None)
+            beat = self._heartbeats.pop(book_id, None)
+            if beat is not None:
+                beat.cancel()
+            # Released whoever ended the job — done, failed, cancelled — so the
+            # next boot or instance may pick the book up.
+            try:
+                done.get_loop().run_in_executor(
+                    None, self._book_store.release_job, book_id, self._owner
+                )
+            except RuntimeError:
+                logger.warning("book.lease_release_failed id=%s", book_id, exc_info=True)
 
         task.add_done_callback(_finished)
         return task
@@ -1944,6 +2036,15 @@ class BookRunner:
             elapsed_ms,
             message,
         )
+
+
+def _worker_id() -> str:
+    """This process's name on the books it renders: `host:pid:random`.
+
+    Unique per process, so a restart can never mistake its predecessor's claim
+    for its own; the host and pid are there for an operator reading the row.
+    """
+    return f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
 
 #: The star as the reviewer hears of them: never by name (see `reviewer.py`).

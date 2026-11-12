@@ -515,6 +515,27 @@ class TestLibrary:
         assert 'id="books-drawer"' not in client.get("/").text
 
 
+def test_an_edit_is_refused_while_another_worker_holds_the_book(
+    client_factory,
+) -> None:
+    """B9: the lease, not this process's dict, is what guards a book.
+
+    A second Render instance cannot see `_active`; it can see the database.
+    """
+    with client_factory(RecordingProvider()) as client:
+        book_id = _start(client)
+        assert _wait(client, book_id)["status"] == "complete"
+        store = client.app.state.container.book_store  # type: ignore[attr-defined]
+        assert store.claim_job(book_id, "other-instance:9", ttl_seconds=600) is True
+
+        response = client.post(f"/api/book/{book_id}/edit", data={"action": "retry"})
+        assert response.status_code == 409, response.text
+        assert "already being worked on" in response.text
+
+        # Once the other worker lets go, the edit is accepted as usual.
+        store.release_job(book_id, "other-instance:9")
+
+
 class FlakyCoverProvider(ImageProvider):
     """Refuses the cover until `healed`, like a moderation block that lifts.
 

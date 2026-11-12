@@ -61,6 +61,20 @@ def test_the_poll_document_carries_no_story_text(
     assert "Milky-White" in html
 
 
+def test_a_finished_book_has_given_its_job_lease_back(
+    finished: tuple[TestClient, str],
+) -> None:
+    """B9: the lease is released when the job ends, whoever ended it.
+
+    Otherwise a finished book would stay locked out for the length of the
+    lease, and the next boot could not resume a paused one.
+    """
+    client, book_id = finished
+    store = client.app.state.container.book_store  # type: ignore[attr-defined]
+    assert store.claim_job(book_id, "another-worker", ttl_seconds=60) is True
+    store.release_job(book_id, "another-worker")
+
+
 def test_a_finished_book_arrives_with_its_screen_copies_already_made(
     finished: tuple[TestClient, str],
 ) -> None:

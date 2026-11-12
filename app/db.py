@@ -120,6 +120,12 @@ class BookRow(Base):
     #: How many times a restart has picked this book up again. Bounded, so a
     #: book that is what kills the server cannot keep killing it.
     resume_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    #: The worker rendering this book, and when its claim runs out (B9). A job
+    #: lives in the process but its lease lives here, so a restart — or a
+    #: second instance — can tell an abandoned book from one still being drawn.
+    #: Renewed by a heartbeat while the job runs, and cleared when it ends.
+    job_owner: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    job_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     about: Mapped[dict[str, Any]] = mapped_column(JSON)
     #: The settings the portrait and pages were made with, so a single page can
     #: be regenerated after the original draft has expired.
