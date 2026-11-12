@@ -15,6 +15,7 @@ from pypdf import PdfReader
 
 from app.config import Settings
 from app.main import create_app
+from app.services.book_store import BookSummary
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
@@ -585,6 +586,54 @@ class TestLibrary:
     def test_an_anonymous_visitor_has_no_library_page(self, client: TestClient) -> None:
         """Password and open mode have no identity to file a book under."""
         assert client.get("/library").status_code == 404
+
+    def test_a_book_that_is_not_finished_still_has_a_card(
+        self, completed_library: tuple[TestClient, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rendering and stopped books get their own action, not "Read again".
+
+        The three states are rendered from fixed summaries rather than a real
+        race, so the sentence on each card is what is asserted, not whether a
+        mock book happened to still be drawing.
+        """
+        client, _ = completed_library
+        _sign_in(client, "owner-1")
+        store = client.app.state.container.book_store  # type: ignore[attr-defined]
+        shared = {
+            "story_key": "jack_and_the_beanstalk",
+            "created_at": "2026-11-12T09:00:00Z",
+            "updated_at": "2026-11-12T09:04:00Z",
+            "page_count": 21,
+            "cover_url": None,
+            "pdf_url": None,
+        }
+        monkeypatch.setattr(
+            store,
+            "list_for_owner",
+            lambda _owner: [
+                BookSummary(
+                    book_id="drawing",
+                    title="Being made",
+                    status="rendering",
+                    pages_done=4,
+                    **shared,
+                ),
+                BookSummary(
+                    book_id="stopped",
+                    title="Stopped",
+                    status="failed",
+                    pages_done=6,
+                    **shared,
+                ),
+            ],
+        )
+
+        shelf = client.get("/library").text
+        assert "Being drawn · 4 of 21 pictures" in shelf
+        assert 'href="/books/drawing"' in shelf and "Watch it" in shelf
+        assert "Stopped at 6 of 21 pictures" in shelf
+        assert 'href="/books/stopped"' in shelf and "Finish it" in shelf
+        assert "Read it again" not in shelf
 
     def test_the_shelf_stays_behind_the_sign_in_gate(self, tmp_path: Path) -> None:
         """A shelf of one person's children is not a page to serve anyone."""
