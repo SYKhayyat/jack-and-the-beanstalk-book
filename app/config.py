@@ -445,6 +445,18 @@ class Settings(BaseSettings):
             "reviewer did not run. 0, the default, never rests it for money."
         ),
     )
+    book_retry_budget_percent: int = Field(
+        default=0,
+        ge=0,
+        le=1000,
+        description=(
+            "Stop redrawing a book's pages once its measured spend has reached "
+            "this percentage of the book's own price (120 is 1.2 times the fee). A "
+            "page keeps the best picture it already has, marked best-effort, "
+            "and the book still finishes. 0, the default, never stops a "
+            "redraw for money."
+        ),
+    )
     book_cost_alert_cents: int = Field(
         default=100,
         ge=0,

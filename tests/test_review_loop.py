@@ -253,10 +253,12 @@ def runner_with(reviewer: Any, attempts: int = MAX_PAGE_ATTEMPTS) -> BookRunner:
     runner._costs = None
     runner._book_price_cents = 0
     runner._reviewer_budget_percent = 0
+    runner._retry_budget_percent = 0
     runner._cost_alert_cents = 0
     runner._spend = {}
     runner._alerted = set()
     runner._budget_rested = set()
+    runner._retry_rested = set()
     return runner
 
 

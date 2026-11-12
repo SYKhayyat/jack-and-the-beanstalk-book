@@ -187,6 +187,91 @@ def test_the_budget_is_read_from_the_ledger_once_in_a_while(caplog: Any) -> None
     assert len(rested) == 1, [r.getMessage() for r in rested]
 
 
+# --- the retry budget ----------------------------------------------------------------
+
+
+class _Drawn:
+    """The little of a GeneratedImage the loop reads after a draw."""
+
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+        self.media_type = "image/png"
+        self.model = "test"
+
+
+def prompt_only(faults: Any, findings: str, mend: bool) -> str:
+    """Every attempt asks for the same thing: this test is about the count."""
+    return "draw it"
+
+
+def _page_loop(runner: BookRunner) -> tuple[Any, list[str]]:
+    """Run one page's attempt loop against a reviewer that never passes it."""
+    sent: list[str] = []
+
+    async def draw(prompt: str, mend: Any) -> Any:
+        sent.append(prompt)
+        return _Drawn(grain(seed=len(sent)))
+
+    attempts = asyncio.run(
+        runner._draw_until_pass(
+            book_id="book",
+            page_number=5,
+            user="-",
+            page_title="the kitchen",
+            story_line="the mother sends Jack to market",
+            cast_note="Only these people may be in the picture: the child.",
+            star_in_picture=True,
+            plate=None,
+            artwork=artwork(plated=False),
+            draw=draw,
+            prompt_for=prompt_only,
+        )
+    )
+    return attempts, sent
+
+
+def _retry_budgeted(spend_microusd: int, *, percent: int = 100) -> BookRunner:
+    runner = runner_with(
+        ScriptedReviewer(answers=[said(False, 20, faults=("extra_person",))] * 6)
+    )
+    runner._costs = _Ledger(spend_microusd)
+    runner._book_price_cents = 99
+    runner._retry_budget_percent = percent
+    return runner
+
+
+def test_a_book_over_its_retry_budget_keeps_the_picture_it_has() -> None:
+    """C4: past 100 % of the 99¢ fee, a page is drawn once and kept."""
+    attempts, sent = _page_loop(_retry_budgeted(99 * 10_000))
+
+    assert len(sent) == 1, "a page with no picture is still drawn once"
+    assert attempts.best_effort is True
+    assert attempts.verdicts[-1].get("retry_budget_stopped") is True
+
+
+def test_under_the_retry_budget_a_failing_page_is_drawn_again() -> None:
+    attempts, sent = _page_loop(_retry_budgeted(50 * 10_000))
+
+    assert len(sent) == 3, "up to the page's own attempt ceiling, as before"
+    assert not attempts.verdicts[-1].get("retry_budget_stopped")
+
+
+def test_a_retry_budget_of_zero_never_stops_a_redraw() -> None:
+    _attempts, sent = _page_loop(_retry_budgeted(500 * 10_000, percent=0))
+
+    assert len(sent) == 3
+
+
+def test_the_retry_budget_is_said_once_a_book(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.WARNING, logger="app.services.book_runner")
+    runner = _retry_budgeted(99 * 10_000)
+    for _ in range(3):
+        _page_loop(runner)
+
+    lines = [r.getMessage() for r in caplog.records if "book.retry_budget" in r.getMessage()]
+    assert len(lines) == 1, lines
+
+
 # --- the alert -----------------------------------------------------------------------
 
 

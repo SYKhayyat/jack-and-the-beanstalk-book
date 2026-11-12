@@ -225,6 +225,7 @@ def build_container(
             # is told about (C4).
             book_price_cents=wallet.price_cents,
             reviewer_budget_percent=settings.reviewer_budget_percent,
+            retry_budget_percent=settings.book_retry_budget_percent,
             cost_alert_cents=settings.book_cost_alert_cents,
         ),
         wallet=wallet,

@@ -266,6 +266,7 @@ class BookRunner:
         costs: CostLedger | None = None,
         book_price_cents: int = 0,
         reviewer_budget_percent: int = 0,
+        retry_budget_percent: int = 0,
         cost_alert_cents: int = 0,
     ) -> None:
         self._provider = provider
@@ -314,6 +315,10 @@ class BookRunner:
         #: Percentage of the price the reviewer may spend before it is rested
         #: for that book; 0 never rests it (C4).
         self._reviewer_budget_percent = reviewer_budget_percent
+        #: Percentage of the price after which a page is not drawn again: the
+        #: best picture it has is kept and the book finishes (C4's retry
+        #: ceiling, the other half of the same budget).
+        self._retry_budget_percent = retry_budget_percent
         #: The measured spend, in cents, at which one book is reported to the
         #: operator; 0 turns the report off (C4).
         self._cost_alert_cents = cost_alert_cents
@@ -323,6 +328,7 @@ class BookRunner:
         self._spend: dict[str, tuple[float, int]] = {}
         self._alerted: set[str] = set()
         self._budget_rested: set[str] = set()
+        self._retry_rested: set[str] = set()
         self._heartbeats: dict[str, asyncio.Task[None]] = {}
         # Set by `close`: a job cancelled because the server is stopping is
         # paused for the next boot to resume, not failed.
@@ -389,6 +395,40 @@ class BookRunner:
             )
         return True
 
+    async def _retry_budget_spent(self, book_id: str, user: str) -> bool:
+        """True once this book may not pay for another drawing (C4).
+
+        `BOOK_RETRY_BUDGET_PERCENT` is a share of the book's own fee, the same
+        arithmetic as the reviewer's budget: past it, a page that did not pass
+        is not drawn again — the best attempt it already has is kept, marked
+        best-effort, and the book still finishes. A first draw is never
+        stopped: a page with no picture at all would leave a hole in the book,
+        and the ceiling is about retries, which are where the money goes (31 of
+        a real book's 52 image calls). A ledger that cannot be read never stops
+        a retry.
+        """
+        if self._retry_budget_percent <= 0 or self._book_price_cents <= 0:
+            return False
+        spend = await self._book_spend(book_id)
+        if spend is None:
+            return False
+        budget = (
+            self._book_price_cents * _MICROUSD_PER_CENT * self._retry_budget_percent // 100
+        )
+        if spend < budget:
+            return False
+        if book_id not in self._retry_rested:
+            self._retry_rested.add(book_id)
+            logger.warning(
+                "book.retry_budget user=%s book=%s spend_usd=%.4f budget_usd=%.4f "
+                "outcome=no_more_redraws",
+                user,
+                book_id,
+                spend / 1_000_000,
+                budget / 1_000_000,
+            )
+        return True
+
     async def _report_book_cost(self, book_id: str, user: str) -> None:
         """Tell the operator when a book cost more than the alert allows.
 
@@ -421,6 +461,7 @@ class BookRunner:
         """Drop one book's spend cache when its job ends: the ledger keeps it."""
         self._spend.pop(book_id, None)
         self._budget_rested.discard(book_id)
+        self._retry_rested.discard(book_id)
         self._alerted.discard(book_id)
 
     async def _claim(self, book_id: str) -> None:
@@ -1847,6 +1888,13 @@ class BookRunner:
         # that picture can be mended.
         previous: GeneratedImage | None = None
         for attempt in range(1, self._page_attempts + 1):
+            # The book's retry budget (C4): a page that did not pass is only
+            # drawn again while the book can still afford it. The best picture
+            # it already has is kept, and the record says why it stopped.
+            if attempt > 1 and await self._retry_budget_spent(book_id, user):
+                if verdicts:
+                    verdicts[-1]["retry_budget_stopped"] = True
+                break
             mend = (
                 previous
                 if (

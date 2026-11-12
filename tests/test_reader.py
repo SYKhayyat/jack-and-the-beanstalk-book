@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import re
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,6 +31,11 @@ from app.services.pictures import (
 )
 from app.services.typography import book_text
 from tests.test_frontend_structure import STATIC, _book, _wait
+
+#: How long a finished book may take to hand its job lease back: the release
+#: runs in an executor after the task ends, so it is never in the same tick as
+#: the status write that says the book is done.
+LEASE_RELEASE_SECONDS = 5.0
 
 
 @pytest.fixture
@@ -71,7 +77,15 @@ def test_a_finished_book_has_given_its_job_lease_back(
     """
     client, book_id = finished
     store = client.app.state.container.book_store  # type: ignore[attr-defined]
-    assert store.claim_job(book_id, "another-worker", ttl_seconds=60) is True
+    # The status says "complete" before the task's done callback returns the
+    # lease (it is released in an executor), so a test that counted pictures
+    # and asked immediately was racing the runner by a few milliseconds under
+    # a loaded suite. Waiting for the release is the property; asking for it to
+    # be instantaneous is not.
+    deadline = time.monotonic() + LEASE_RELEASE_SECONDS
+    while not store.claim_job(book_id, "another-worker", ttl_seconds=60):
+        assert time.monotonic() < deadline, "the finished book still holds its lease"
+        time.sleep(0.01)
     store.release_job(book_id, "another-worker")
 
 
