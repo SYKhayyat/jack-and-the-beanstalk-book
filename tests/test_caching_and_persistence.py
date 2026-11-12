@@ -164,6 +164,21 @@ class TestRevalidatingAPicture:
         assert photo.headers["cache-control"] == "private, no-store"
         assert "etag" not in photo.headers
 
+    def test_the_pages_around_the_pictures_are_not_cached_either(
+        self, owned_book: tuple[TestClient, str]
+    ) -> None:
+        """The page carries the child's name and words, not only the pictures.
+
+        A browser or a proxy keeping a book page would outlive both the book's
+        retention and (for a share link) the link's own expiry, so every HTML
+        page says `no-store` unless it chose a policy itself.
+        """
+        client, book_id = owned_book
+        for path in ("/", f"/books/{book_id}"):
+            page = client.get(path)
+            assert page.status_code == 200, path
+            assert page.headers["cache-control"] == "private, no-store", path
+
     def test_downloading_the_portrait_is_always_a_file(
         self, owned_book: tuple[TestClient, str]
     ) -> None:

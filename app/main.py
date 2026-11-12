@@ -382,6 +382,18 @@ def create_app(
             )
             reset_request_id(token)
             raise
+        # Every page is built for the person looking at it — their name in the
+        # header, their books in the drawer — and a book page carries a child's
+        # name, their words and their pictures. The media routes already say
+        # `no-store` for exactly that reason (book_access); without this the
+        # page around them did not, so a shared proxy or a browser's disk cache
+        # could keep a child's book (and, for `/share/{token}`, a link past the
+        # day it expires). A response that set its own policy keeps it.
+        if (
+            response.headers.get("content-type", "").startswith("text/html")
+            and "cache-control" not in response.headers
+        ):
+            response.headers["Cache-Control"] = "private, no-store"
         duration_ms = (monotonic() - started) * 1000
         response.headers["X-Request-ID"] = request_id
         logger.info(
