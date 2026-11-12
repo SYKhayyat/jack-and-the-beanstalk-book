@@ -243,6 +243,11 @@ def book_page(
     )
     heading, *sentences = (book_text(line) for line in record.about.rendered_about_lines())
     share_url, share_until = _share_link(request, container, book_id, share)
+    # The child's approved portrait is on the book from the first second, so
+    # the stage shows who the book is for while the cover is still being drawn
+    # (Idea 9). Sized and versioned like the About page's copy.
+    portrait_sha = container.book_store.picture_sha(book_id, "portrait")
+    stage = picture_set(f"/book-media/{book_id}/portrait", portrait_sha)
     chrome = page_chrome(container, session, request)
     return _render(
         request,
@@ -267,10 +272,11 @@ def book_page(
             "missing_count": sum(1 for tile in tiles if tile["status"] == "failed"),
             "about_heading": heading,
             "about_sentences": sentences,
+            "stage_portrait": {"src": stage.src, "srcset": stage.srcset},
             "about_images": _about_images(
                 book_id,
                 record.about.about_photo,
-                container.book_store.picture_sha(book_id, "portrait"),
+                portrait_sha,
             ),
             # The page's shape, until the first picture says exactly (the
             # reader measures it); CSS takes "4 / 3".

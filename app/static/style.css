@@ -2112,6 +2112,18 @@ dialog.modal form {
   animation: none;
   background: var(--berry);
 }
+/* The cover's wait is the child, framed: the portrait is already on the book
+   and it is the one thing worth looking at before the cover is drawn (Idea 9). */
+.waiting-portrait {
+  width: min(42%, 260px);
+  max-height: 58%;
+  object-fit: cover;
+  aspect-ratio: 3 / 4;
+  border: 6px solid var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-book);
+  background: var(--cream);
+}
 
 /* The About page: the framed portrait where a picture would be. */
 .about-spread {
@@ -2394,6 +2406,39 @@ body.in-story-time {
   font-weight: 600;
   color: var(--ink-soft);
   text-shadow: 0 0 3px var(--card), 0 0 3px var(--card);
+}
+/* A page waiting for its picture says what happens on it (Idea 9). */
+.map-title {
+  position: absolute;
+  inset: 4px 4px 16px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--ink-soft);
+}
+/* A picture that has just arrived drops into its tile. Transform and opacity
+   only, so the animation runs off the main thread. */
+@keyframes land {
+  from {
+    opacity: 0;
+    transform: scale(1.18) translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.map-tile img.landed {
+  animation: land 480ms var(--ease, cubic-bezier(0.33, 0, 0.2, 1)) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-tile img.landed {
+    animation: none;
+  }
 }
 .map-tile.done {
   border: 2px solid var(--bean);

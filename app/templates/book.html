@@ -23,7 +23,17 @@
             {% elif tile.url %}
             <img src="{{ tile.src }}"{% if tile.srcset %} srcset="{{ tile.srcset }}" sizes="(min-width: 900px) 50vw, 100vw"{% endif %} alt="{{ tile.label }}: {{ tile.title }}" decoding="async" loading="{{ 'eager' if loop.first else 'lazy' }}">
             {% else %}
-            <span class="spread-waiting"><span class="pencil" aria-hidden="true"></span><span data-role="waiting-text">{{ "This one didn't make it." if tile.status == "failed" else "being drawn…" }}</span>{% if is_cover %}<span class="waiting-title">{{ title }}</span>{% endif %}</span>
+            {#- The cover's wait shows the child, not a pencil: the portrait is
+                already on the book, so the first thing on the stage is who the
+                book is for (Idea 9). #}
+            <span class="spread-waiting">
+              {% if is_cover and stage_portrait %}
+              <img class="waiting-portrait" src="{{ stage_portrait.src }}"{% if stage_portrait.srcset %} srcset="{{ stage_portrait.srcset }}" sizes="(min-width: 900px) 50vw, 100vw"{% endif %} alt="" decoding="async">
+              {% else %}
+              <span class="pencil" aria-hidden="true"></span>
+              {% endif %}
+              <span data-role="waiting-text">{{ "This one didn't make it." if tile.status == "failed" else "being drawn…" }}</span>{% if is_cover %}<span class="waiting-title">{{ title }}</span>{% endif %}
+            </span>
             {% endif %}
           </div>
           {% if not is_cover %}
@@ -131,6 +141,10 @@
       <li><button type="button" class="map-tile {{ tile.status }}" data-goto="{{ loop.index0 }}" data-attempts="{{ tile.attempts }}" data-chosen-attempt="{{ tile.chosen_attempt }}" data-best-effort="{{ 'true' if tile.best_effort else 'false' }}" aria-label="{{ tile.label }}, {{ tile.status }}">
         {% if tile.url %}<img src="{{ tile.thumb }}" alt="" loading="lazy" decoding="async">{% endif %}
         <span class="map-number">{{ tile.short }}</span>
+        {#- While a page waits for its picture it says what happens on it, so
+            the map reads as the story being made rather than a row of empty
+            boxes (Idea 9). #}
+        {% if not tile.url %}<span class="map-title">{{ tile.title }}</span>{% endif %}
       </button></li>
       {% endfor %}
     </ol>

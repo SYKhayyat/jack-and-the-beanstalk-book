@@ -268,6 +268,38 @@ def test_the_reader_tools_wait_for_the_first_story_page(
     assert 'class="reader-tools hidden" id="reader-tools"' in html
 
 
+def test_the_waiting_stage_shows_the_child_and_names_each_page(
+    finished: tuple[TestClient, str],
+) -> None:
+    """Idea 9: the cover's wait is the portrait, and a waiting tile says its scene.
+
+    A finished book has the pictures themselves, so neither appears there.
+    """
+    client, book_id = finished
+    done = client.get(f"/books/{book_id}").text
+    assert 'class="map-title"' not in done
+    assert 'class="waiting-portrait"' not in done
+
+    # A book being drawn: every picture still pending, the portrait already on
+    # the book (it is saved when the book starts).
+    client.app.state.container.book_store.save_status(
+        book_id,
+        BookStatus.RENDERING,
+        [{"number": number, "status": "pending"} for number in range(0, 21)],
+    )
+    waiting = client.get(f"/books/{book_id}").text
+
+    assert 'class="waiting-portrait"' in waiting
+    assert f"/book-media/{book_id}/portrait" in waiting
+    assert len(re.findall(r'class="map-title"', waiting)) == 21
+
+
+def test_the_show_stops_the_moment_the_reader_turns_a_page() -> None:
+    """Idea 9: the stage follows the pictures only until the reader takes over."""
+    source = (STATIC / "book-live.js").read_text()
+    assert 'if (userNavigated || document.hidden || state !== "rendering") return;' in source
+
+
 def test_a_finished_book_opens_on_its_cover() -> None:
     source = (STATIC / "book-live.js").read_text()
     assert 'if (status === "complete") return 0;' in source

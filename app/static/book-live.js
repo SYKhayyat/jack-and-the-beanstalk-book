@@ -44,6 +44,9 @@ const voice = createReadAloud({ onPageRead: () => readOn() });
 
 let index = 0;
 let status = body.dataset.bookStatus;
+// Set the moment the visitor turns a page themselves: from then on the stage
+// stays where they put it instead of following the pictures (Idea 9).
+let userNavigated = false;
 let polling = false;
 let awaitingEdit = false;
 let editing = false; // an edit is redrawing part of a book that was finished
@@ -129,17 +132,27 @@ function preloadAround(position) {
 }
 
 function wireTurning() {
-  document.getElementById("turn-back").addEventListener("click", () => show(index - 1));
-  document.getElementById("turn-next").addEventListener("click", () => show(index + 1));
+  document.getElementById("turn-back").addEventListener("click", () => {
+    userNavigated = true;
+    show(index - 1);
+  });
+  document.getElementById("turn-next").addEventListener("click", () => {
+    userNavigated = true;
+    show(index + 1);
+  });
   // Tap the left third to go back, anywhere else to go on, as with a book.
   slot.addEventListener("click", (event) => {
     if (event.target.closest("a, button")) return;
     if (swiped) return;
     const box = slot.getBoundingClientRect();
+    userNavigated = true;
     show(event.clientX - box.left < box.width / 3 ? index - 1 : index + 1);
   });
   document.addEventListener("keydown", (event) => {
     if (event.target.closest("input, textarea, select, dialog")) return;
+    if (["ArrowRight", "PageDown", "ArrowLeft", "PageUp", "Home", "End"].includes(event.key)) {
+      userNavigated = true;
+    }
     if (event.key === "ArrowRight" || event.key === "PageDown") show(index + 1);
     else if (event.key === "ArrowLeft" || event.key === "PageUp") show(index - 1);
     else if (event.key === "Home") show(0);
@@ -148,6 +161,7 @@ function wireTurning() {
   });
   for (const tile of mapTiles) {
     tile.addEventListener("click", () => {
+      userNavigated = true;
       show(Number(tile.dataset.goto));
       reader.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
     });
@@ -155,7 +169,10 @@ function wireTurning() {
   // A link to #page-7 on this same page (or the back button) moves the book.
   window.addEventListener("hashchange", () => {
     const wanted = spreadFromHash();
-    if (wanted !== null && wanted !== index) show(wanted);
+    if (wanted !== null && wanted !== index) {
+      userNavigated = true;
+      show(wanted);
+    }
   });
   let startX = null;
   let swiped = false;
@@ -169,6 +186,7 @@ function wireTurning() {
     startX = null;
     if (Math.abs(dx) < 40) return;
     swiped = true;
+    userNavigated = true;
     show(dx < 0 ? index + 1 : index - 1);
   });
 }
@@ -310,6 +328,7 @@ function apply(payload) {
     if (entry.status === "done") done += 1;
     paint(position, entry, stages[String(position)]);
   }
+  followThePictures(pages, state);
   const total = lastIndex;
   const inFlight = Object.values(stages);
   setProgress(done, total, inFlight);
@@ -399,6 +418,21 @@ function stageCaption(payload, inFlight, done, total) {
   return `Step 1 of 2 · Drawing the pictures — ${tally}. Right now: ${parts.join(", ")}.`;
 }
 
+/* While the book is being drawn, follow it: once the page being looked at has
+   its picture, the stage moves to the newest finished page, so the arriving
+   pictures are seen rather than waited behind. The first page the visitor
+   turns themselves ends the show — a reader is never moved off their page. */
+function followThePictures(pages, state) {
+  if (userNavigated || document.hidden || state !== "rendering") return;
+  if (spreads[index].dataset.status !== "done") return;
+  let newest = index;
+  for (const entry of pages) {
+    const position = Number(entry.number);
+    if (entry.status === "done" && position > newest && position < lastIndex) newest = position;
+  }
+  if (newest > index) show(newest, { animate: !reducedMotion });
+}
+
 function countStages(inFlight) {
   const counts = {};
   for (const { stage } of inFlight) counts[stage] = (counts[stage] || 0) + 1;
@@ -436,6 +470,10 @@ function paint(position, entry, inFlight) {
       thumb.src = entry.thumb || entry.url;
       thumb.alt = "";
       thumb.decoding = "async";
+      // The picture lands in its tile rather than appearing there, so the map
+      // reads as the book filling up (Idea 9).
+      if (!reducedMotion) thumb.classList.add("landed");
+      tile.querySelector(".map-title")?.remove();
       tile.prepend(thumb);
     }
   }
