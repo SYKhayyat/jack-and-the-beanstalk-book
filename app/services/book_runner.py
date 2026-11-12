@@ -1294,6 +1294,14 @@ class BookRunner:
             # progress bar that has stopped moving.
             phase = _PHASE_ASSEMBLING
             await paint()
+            # The About page and the title are written from the freshest
+            # record, not the one this job started with: an About edit made
+            # while the pictures were drawing used to be overwritten by the
+            # job's own snapshot when the PDF was assembled (B10). Only the
+            # words change here; the pictures are the ones this job drew.
+            latest = await asyncio.to_thread(self._book_store.load_record, book_id)
+            if latest is not None:
+                record = latest
             pdf_bytes = await asyncio.to_thread(
                 partial(
                     self._document.assemble,

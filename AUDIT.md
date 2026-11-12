@@ -112,10 +112,14 @@ The first story page is labelled `Page 1 of 20`, while its printed folio is `2` 
 
 **Fix:** reject `about` edits (409) while an edit/render is active, or make the render re-read the record before assembly.
 
+**Done (11 Nov 2026):** the second option, which keeps the edit rather than refusing it: the job re-reads the record just before the PDF is assembled, so an About edit made while the pictures were drawing is the text the finished book carries (title and subtitle too). The pictures are still the ones that job drew. Pinned by `test_an_about_edit_during_a_render_reaches_the_pdf`, which fails without the re-read.
+
 ### B11 — P2: the PDF can silently truncate the About page while the web reader shows all of it
 `_fit_text` shrinks the About body and, at the floor, drops lines and appends an ellipsis (`app/services/pdf.py:518–540`). The About form allows 1,000 characters of “details”, and the web About spread renders all of it. A family who writes a long dedication gets a different (shorter) book in the download.
 
 **Fix:** warn and limit at the form (or add a dedicated “dedication” page), or paginate the About text across a second PDF page so the PDF matches the reader.
+
+**Done (11 Nov 2026):** the About text is paginated: `_fit_text_pages` lays the sentences out at the largest size that fits and, when they do not, continues them on another page with the same text column and the same room kept for “The End”, so a 1,000-character dedication prints every word the reader saw instead of an ellipsis. Pinned by `test_a_long_about_text_flows_onto_another_page_instead_of_being_cut`.
 
 ### B12 — P2: a demo/mock book's first paint is slow because variants are built on demand
 On the first view of any newly completed book, every image URL is a `?w=1600&v=…` URL; the server creates and stores each WebP variant when first requested. A 21-page book therefore pays 42 encodes (800/1600) plus 21 thumbnails, one request at a time, with no background warm-up (`app/routes/book_media.py:227–260`). On a slow instance the page turns feel stalled even though the images are local.

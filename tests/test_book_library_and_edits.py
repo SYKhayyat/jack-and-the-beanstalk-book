@@ -314,6 +314,31 @@ class TestEditing:
             assert "a stargazer" in text
             assert "Loves the moon." in text
 
+    def test_an_about_edit_during_a_render_reaches_the_pdf(self, client_factory) -> None:
+        """B10: the job assembles from the latest record, not its own snapshot.
+
+        The UI hides the edit strip while a book renders, but the API takes the
+        edit, and the render had already loaded the record — so the new words
+        were overwritten when the PDF was written from that snapshot.
+        """
+        provider = BlockingPageProvider()
+        with client_factory(provider) as client:
+            provider.block = True
+            book_id = _start(client)
+            assert provider.entered.wait(10), "the book never started drawing"
+            assert client.get(f"/api/book/{book_id}").json()["status"] == "rendering"
+
+            edited = client.post(
+                f"/api/book/{book_id}/edit",
+                data={"action": "about", "details": "Loves the moon."},
+            )
+            assert edited.status_code == 202, edited.text
+
+            provider.release.set()
+            assert _wait(client, book_id)["status"] == "complete"
+            text = _pdf_text(client.get(f"/book-media/{book_id}/pdf").content)
+            assert "Loves the moon." in text, "the About edit was overwritten"
+
     def test_delete_removes_the_book(self, client: TestClient) -> None:
         book_id = _start(client)
         _wait(client, book_id)
