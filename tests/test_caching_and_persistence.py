@@ -9,6 +9,7 @@ it (which would mean paying for the pictures a second time).
 from __future__ import annotations
 
 import hashlib
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -16,9 +17,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
+from app.container import build_container
 from app.main import create_app
+from app.models.book import AboutMe
+from app.services.book_store import BookStatus
 from app.services.image_providers.base import GeneratedImage
-from tests.helpers import RecordingProvider, make_photo_bytes
+from tests.helpers import RecordingProvider, edition_in, make_photo_bytes, tiny_png_bytes
 from tests.test_book_library_and_edits import _google_client, _sign_in, _wait
 from tests.test_ui_backend import _comic, _start
 
@@ -283,3 +287,56 @@ class TestABookOutlivesTheProcess:
                 )
             client.get(f"/book-media/{book_id}/pdf")
             assert len(provider.requests) == calls
+
+    def test_a_render_a_restart_interrupted_is_finished_by_the_next_boot(
+        self, tmp_path: Path
+    ) -> None:
+        """B8: a deploy mid-render is a pause, not a loss.
+
+        The store's own tests prove `resume_incomplete` picks the row up; this
+        one proves the app is wired to it — a book whose worker died comes back
+        as a job at the next boot, finishes, and does not buy the page that was
+        already saved a second time.
+        """
+        settings = _settings_for(tmp_path)
+        dead = build_container(settings)
+        try:
+            store = dead.book_store
+            store.save_record(
+                edition=edition_in(store),
+                book_id="interrupted",
+                user_id=None,
+                about=AboutMe.model_validate({"prompt_name": "Jack", "about_name": "Jack"}),
+                generation_id="gen-1",
+            )
+            store.save_portrait("interrupted", tiny_png_bytes())
+            store.save_page(
+                "interrupted", 1, tiny_png_bytes(), review=[{"attempt": 1, "passed": True}]
+            )
+            store.begin_job("interrupted")
+            store.save_status(
+                "interrupted",
+                BookStatus.RENDERING,
+                [{"number": 1, "status": "done", "url": None}],
+            )
+            # The worker died holding the lease; it ran out with it.
+            assert store.claim_job("interrupted", "worker-a", ttl_seconds=-1)
+        finally:
+            dead.engine.dispose()
+
+        provider = RecordingProvider()
+        with TestClient(create_app(settings, provider=provider)) as boot:
+            booted = boot.app.state.container.book_store
+            deadline = time.monotonic() + 90
+            status = booted.load_status("interrupted") or {}
+            while (
+                status.get("status") not in (BookStatus.COMPLETE, BookStatus.FAILED)
+                and time.monotonic() < deadline
+            ):
+                time.sleep(0.1)
+                status = booted.load_status("interrupted") or {}
+
+        assert status.get("status") == BookStatus.COMPLETE, status.get("error")
+        assert booted.read_pdf("interrupted") is not None
+        # The page the dead worker had saved was kept, not drawn again.
+        assert booted.read_page("interrupted", 1) == tiny_png_bytes()
