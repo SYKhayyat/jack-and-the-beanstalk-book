@@ -16,9 +16,13 @@ if (drawer) {
   document.addEventListener("click", (event) => {
     if (drawer.open && !drawer.contains(event.target)) drawer.open = false;
   });
-  for (const button of drawer.querySelectorAll("[data-delete-book]")) {
-    button.addEventListener("click", () => void deleteFromDrawer(button));
-  }
+}
+
+/* The × is not only in the drawer: the library page (Idea 8) puts one on every
+   card, and a page that is not the drawer still has to be able to put a book
+   away. One listener for every × the page renders. */
+for (const button of document.querySelectorAll("[data-delete-book]")) {
+  button.addEventListener("click", () => void deleteFromDrawer(button));
 }
 
 async function deleteFromDrawer(button) {
@@ -33,7 +37,18 @@ async function deleteFromDrawer(button) {
       window.location.assign("/");
       return;
     }
-    button.closest(".drawer-row")?.remove();
+    // Whichever row the × was on: the drawer's, or a shelf card's.
+    (button.closest(".drawer-row") ?? button.closest(".shelf-card"))?.remove();
+    // A shelf that just lost its only book should say so, not stand empty.
+    const grid = document.querySelector(".shelf-grid");
+    if (grid && !grid.querySelector(".shelf-card")) {
+      grid.replaceWith(
+        Object.assign(document.createElement("p"), {
+          className: "library-empty",
+          textContent: "No books yet. Start one — it takes a photo and a few minutes.",
+        }),
+      );
+    }
   } catch (error) {
     button.disabled = false;
     if (error.status === 401) {

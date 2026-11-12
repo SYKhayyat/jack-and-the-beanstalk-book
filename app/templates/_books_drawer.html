@@ -31,5 +31,11 @@
     {% else %}
     <p class="drawer-empty">Your books will collect here.</p>
     {% endif %}
+    {#- Idea 8: the drawer is a peek; the shelf page is the collection. Not
+        linked from the shelf itself, where it would point at the page you are
+        already on. #}
+    {% if not on_library %}
+    <a class="drawer-all" href="/library">See all your books <span aria-hidden="true">→</span></a>
+    {% endif %}
   </div>
 </details>

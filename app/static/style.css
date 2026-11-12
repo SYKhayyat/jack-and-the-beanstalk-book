@@ -3508,3 +3508,111 @@ body.in-story-time {
   font: inherit;
   font-size: 14px;
 }
+
+/* --- the library: covers standing in a row (Idea 8) --------------------------- */
+
+/* The drawer is a peek at the newest book; this page is the collection. The
+   covers carry the colour, so the cards stay quiet: a frame, a title, one
+   action and the date. */
+.library-head {
+  margin: 8px 0 20px;
+}
+.library-head h1 {
+  margin: 0 0 6px;
+  font-size: clamp(24px, 5vw, 32px);
+}
+.shelf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 20px;
+  margin: 0;
+  padding: 0 0 40px;
+  list-style: none;
+}
+.shelf-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+}
+.shelf-cover {
+  display: block;
+  aspect-ratio: 4 / 3;
+  background: var(--photo-soft);
+}
+.shelf-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* A book still being drawn has no cover yet; leave the frame empty rather than
+   a broken image or a borrowed face. */
+.shelf-blank {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--photo-soft),
+    var(--photo-soft) 10px,
+    var(--card) 10px,
+    var(--card) 20px
+  );
+}
+.shelf-text {
+  flex: 1;
+  padding: 12px 14px 0;
+}
+.shelf-text h2 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+}
+.shelf-text h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+.shelf-text h2 a:hover {
+  text-decoration: underline;
+}
+.shelf-subtitle {
+  margin: 2px 0 0;
+  color: var(--ink-soft);
+  font-style: italic;
+  font-size: 14px;
+}
+.shelf-meta {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+.shelf-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 14px;
+}
+.shelf-delete {
+  color: var(--ink-soft);
+}
+.library-empty {
+  padding: 32px 0 56px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+.drawer-all {
+  display: block;
+  padding: 10px 12px 4px;
+  border-top: 1px solid var(--line);
+  color: var(--bean-dark);
+  font-size: 14px;
+  text-decoration: none;
+}
+.drawer-all:hover {
+  text-decoration: underline;
+}

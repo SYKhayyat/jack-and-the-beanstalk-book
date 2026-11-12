@@ -286,6 +286,41 @@ def book_page(
     )
 
 
+@router.get("/library", response_class=HTMLResponse)
+def library(
+    request: Request, container: ContainerDep, session: CurrentSessionDep
+) -> HTMLResponse:
+    """Every book this person has made, as a shelf (Idea 8).
+
+    The drawer in the header is the quick way back to the newest book; this is
+    the page for the collection — covers standing in a row with the date, the
+    tale and the one action each book deserves (read it again, finish it, or
+    watch it being drawn).
+
+    Without a person there is no library at all, deliberately: password and
+    open deployments have no identity to file a book under, and showing one
+    visitor everybody's books would be worse than showing none. That is the
+    same rule `/api/books` follows, and the same answer — a plain 404.
+    """
+    owner = session.user_id if session else None
+    if not owner:
+        raise HTTPException(status_code=404, detail="There is no library on this deployment.")
+    chrome = page_chrome(container, session, request)
+    return _render(
+        request,
+        "library.html",
+        {
+            **chrome,
+            "title": "Your books",
+            # A shelf needs nothing the drawer does not already carry: the same
+            # summaries, from the one query the chrome made, so the two lists
+            # cannot disagree and the page costs no extra read.
+            "shelf": chrome["books"],
+            "on_library": True,
+        },
+    )
+
+
 def _expiry(created_at: str, days: int) -> tuple[str, bool]:
     """When this book's pictures and PDF are deleted, and whether that is near.
 

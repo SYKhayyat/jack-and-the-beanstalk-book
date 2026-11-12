@@ -1,0 +1,58 @@
+{% extends "_layout.html" %}
+{% block title %}Your books{% endblock %}
+{% block header_title %}<span class="header-title">Your books</span>{% endblock %}
+{% block main_class %}page library-screen{% endblock %}
+{% block content %}
+  {#- Idea 8: the drawer is the way back to the newest book; this is the
+      collection. Covers stand in a row, newest first, and each one offers the
+      single thing that book needs next — read it again, finish it, or watch it
+      being drawn. Nothing here is a new source of truth: it is the same list
+      the drawer renders. #}
+  <header class="library-head">
+    <h1>Your books</h1>
+    <p class="field-help">Every book you have made, newest first. They are kept for the days the footer promises, then deleted.</p>
+  </header>
+
+  {% if shelf %}
+  <ul class="shelf-grid" aria-label="Your books">
+    {% for item in shelf %}
+    <li class="shelf-card">
+      <a class="shelf-cover" href="/books/{{ item.book_id }}" aria-hidden="true" tabindex="-1">
+        {% if item.cover_url %}
+        <img src="{{ picture_set(item.cover_url, item.cover_sha256).thumb }}" alt="" loading="lazy" decoding="async">
+        {% else %}
+        <span class="shelf-blank" aria-hidden="true"></span>
+        {% endif %}
+      </a>
+      <div class="shelf-text">
+        <h2><a href="/books/{{ item.book_id }}">{{ item.title or "Untitled book" }}</a></h2>
+        {% if item.subtitle %}<p class="shelf-subtitle">{{ item.subtitle }}</p>{% endif %}
+        <p class="shelf-meta">
+          {%- if item.status == "complete" -%}
+            Finished <time datetime="{{ item.updated_at }}" data-format="day-month">{{ item.updated_at|short_date }}</time> · {{ (item.page_count or 21) - 1 }} pages + cover
+          {%- elif item.status == "failed" -%}
+            {%- if item.pages_done -%}Stopped at {{ item.pages_done }} of {{ item.page_count or 21 }} pictures · the rest can still be drawn
+            {%- else -%}Stopped before any picture was drawn
+            {%- endif -%}
+          {%- else -%}
+            Being drawn · {{ item.pages_done }} of {{ item.page_count or 21 }} pictures
+          {%- endif -%}
+        </p>
+      </div>
+      <div class="shelf-actions">
+        {% if item.status == "complete" %}
+        <a class="button" href="/books/{{ item.book_id }}">Read it again</a>
+        {% elif item.status == "failed" %}
+        <a class="button primary" href="/books/{{ item.book_id }}">Finish it</a>
+        {% else %}
+        <a class="button" href="/books/{{ item.book_id }}">Watch it</a>
+        {% endif %}
+        <button type="button" class="icon-button shelf-delete" data-delete-book="{{ item.book_id }}" data-delete-title="{{ item.title or 'Untitled book' }}" aria-label="Delete {{ item.title or 'Untitled book' }}" title="Delete this book">&times;</button>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="library-empty">No books yet. <a href="/">Start one</a> — it takes a photo and a few minutes.</p>
+  {% endif %}
+{% endblock %}

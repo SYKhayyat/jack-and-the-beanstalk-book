@@ -537,6 +537,55 @@ class TestLibrary:
         # Cover + twenty story pages + the About page.
         assert len(re.findall(r'class="spread[ "]', page.text)) == 22
 
+    def test_the_library_page_is_the_whole_collection(
+        self, completed_library: tuple[TestClient, str]
+    ) -> None:
+        """Idea 8: the drawer is a peek; `/library` is the shelf.
+
+        One card per book, with its cover, the date it was finished and the
+        action that book deserves. It is the same summaries the drawer uses, so
+        the two cannot disagree.
+        """
+        client, book_id = completed_library
+        _sign_in(client, "owner-1")
+
+        shelf = client.get("/library")
+        assert shelf.status_code == 200
+        assert 'class="shelf-grid"' in shelf.text
+        assert shelf.text.count('class="shelf-card"') == 1
+        assert f'href="/books/{book_id}"' in shelf.text
+        assert "Shai and the Beanstalk" in shelf.text
+        assert "Read it again" in shelf.text
+        assert "20 pages + cover" in shelf.text
+        assert f'data-delete-book="{book_id}"' in shelf.text
+        # The drawer is on this page too, and it must not link to the page you
+        # are already standing on.
+        assert 'href="/library"' not in shelf.text
+
+    def test_another_person_s_library_is_empty_and_not_your_book(
+        self, completed_library: tuple[TestClient, str]
+    ) -> None:
+        client, book_id = completed_library
+        _sign_in(client, "owner-2")
+        shelf = client.get("/library")
+        assert shelf.status_code == 200
+        assert f'href="/books/{book_id}"' not in shelf.text
+        assert "No books yet" in shelf.text
+        assert client.get(f"/books/{book_id}").status_code == 404
+
+    def test_the_drawer_points_at_the_library(
+        self, completed_library: tuple[TestClient, str]
+    ) -> None:
+        client, _ = completed_library
+        _sign_in(client, "owner-1")
+        page = client.get("/").text
+        assert 'class="drawer-all" href="/library"' in page
+        assert "See all your books" in page
+
+    def test_an_anonymous_visitor_has_no_library_page(self, client: TestClient) -> None:
+        """Password and open mode have no identity to file a book under."""
+        assert client.get("/library").status_code == 404
+
     def test_password_mode_has_no_library(self, client: TestClient) -> None:
         book_id = _start(client)
         _wait(client, book_id)

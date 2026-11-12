@@ -522,11 +522,15 @@ at `/docs`.
 In Google mode every screen's header carries **My books**: a drop-down sheet of
 every book the signed-in person owns, newest first, with its cover thumbnail
 and status. Each row carries a small **×** so a book can be put away without
-opening it first. Clicking one opens `/books/{id}` — the book itself, one spread
-at a time (click, swipe or use the arrow keys; `#page-7` in the URL keeps your
-place), a map of all twenty pictures, the two downloads and the edit strip. Password/open mode deliberately has no library: there is no person to
-file books under, and one shared pile of children's photographs would be the
-wrong answer.
+opening it first. The sheet ends with **See all your books**, which opens
+`/library` — the same books as a shelf of covers, each with the day it was
+finished and the one action it needs: read it again, finish a stopped book,
+or watch one being drawn. Clicking a row opens `/books/{id}` — the book
+itself, one spread at a time (click, swipe or use the arrow keys; `#page-7` in
+the URL keeps your place), a map of all twenty pictures, the two downloads and
+the edit strip. Password/open mode deliberately has no library: there is no
+person to file books under, and one shared pile of children's photographs
+would be the wrong answer.
 
 The finished book can be read without the PDF at all: `/books/{id}` shows the
 pictures and their story lines in the page, and the PDF (cover + 20 story pages
