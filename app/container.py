@@ -17,6 +17,7 @@ from app.blobs import install_blob_store
 from app.books import SEEDS
 from app.config import Settings
 from app.db import build_engine, persistence_mode, prepare_database
+from app.services.alerts import OperatorPost
 from app.services.book_notice import BookReadyNotice
 from app.services.book_runner import BookRunner
 from app.services.book_store import BookStore
@@ -47,6 +48,7 @@ from app.services.portrait_log import PortraitLog
 from app.services.rate_limit import GenerationRateLimiter
 from app.services.reviewer import GeminiWebReviewer, ImageReviewer, build_reviewer
 from app.services.storage import GenerationStore
+from app.services.switches import Switches
 from app.services.template_store import TemplateStore
 from app.services.user_store import DatabaseUserStore, UserStore
 from app.services.wallet import Wallet, WalletStore
@@ -92,6 +94,14 @@ class Container:
     #: The one child each account asked the studio to remember, so the next
     #: book starts without a photo (Idea 2). Empty until somebody ticks it.
     child_profiles: ChildProfileStore
+    #: The operator's stop buttons (Idea 10): refuse new paid work, and stop
+    #: the jobs already drawing. Read by the routes and the render loop.
+    switches: Switches
+    #: The one mail channel, or None. The book-ready message and the operator's
+    #: alerts share it, so there is one place mail is configured.
+    mailer: Mailer | None
+    #: Sends the operator's alerts when what is wrong changes (Idea 10).
+    alert_post: OperatorPost
     # Bounds concurrent generations per process. Image models are slow and
     # rate-limited, so without a ceiling a burst of traffic becomes a burst of
     # billable requests and 429s.
@@ -162,6 +172,9 @@ def build_container(
         persistence_mode(engine),
     )
     gate = ConcurrencyGate(settings.max_concurrent_generations)
+    # One switch object for the routes and the render loop, so both read the
+    # operator's answer through the same short cache (Idea 10).
+    switches = Switches(engine)
     wallet = Wallet(wallet_store, picture_price_cents=settings.picture_price_cents)
     # The one mail this app sends (W2). Off — no key, or no From address — is a
     # complete answer: a book finishes and nothing is mailed, exactly as a
@@ -252,12 +265,21 @@ def build_container(
             retry_budget_percent=settings.book_retry_budget_percent,
             cost_alert_cents=settings.book_cost_alert_cents,
             notice=notice,
+            switches=switches,
         ),
         wallet=wallet,
         payments=resolved_payments,
         costs=costs,
         portraits=PortraitLog(engine),
         child_profiles=DatabaseChildProfileStore(engine),
+        switches=switches,
+        mailer=mailer,
+        alert_post=OperatorPost(
+            mailer=mailer,
+            users=user_store,
+            operator=settings.operator_sub,
+            site_url=settings.public_site_url,
+        ),
         gate=gate,
         rate_limiter=GenerationRateLimiter(settings.max_generations_per_minute),
     )

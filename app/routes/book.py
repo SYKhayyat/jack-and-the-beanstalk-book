@@ -46,6 +46,7 @@ from app.errors import (
     InvalidSettings,
     PaymentRequired,
     UnknownBook,
+    WorkPaused,
 )
 from app.models import (
     AboutMe,
@@ -67,6 +68,7 @@ from app.services.pipeline import UnknownGeneration
 from app.services.prompts import book_name_for, render_book_page
 from app.services.storage import Draft
 from app.services.story_settings import story_rules
+from app.services.switches import SWITCH_NEW_BOOKS
 from app.services.wallet import InsufficientFunds, OutOfFunds, format_cents
 
 __all__ = ["books_router", "router", "stories_router"]
@@ -232,6 +234,9 @@ async def start_book(
     client retrying a dropped response all land here. A *failed* book is not
     reused: asking again after a failure means "try again".
     """
+    # The operator's stop button (Idea 10): refused before a draft is read or a
+    # page is planned, so nothing is spent while new work is paused.
+    await _refuse_if_paused(container, "Starting a book")
     client_key = _client_key(request)
     # Every store call here is blocking: file reads for the drafts, and in
     # database mode a network round trip for the record and the portrait blob.
@@ -515,7 +520,10 @@ async def edit_book(
     # Every action below draws pictures, and each picture is bought as it is
     # drawn. Refusing the whole edit when even one is unaffordable is the
     # friendliest version of that: nothing starts, nothing is charged, and the
-    # message names the price and the balance.
+    # message names the price and the balance. The operator's stop button
+    # (Idea 10) comes first of all — an `about` edit or a delete above is text
+    # or a removal, spends nothing, and is deliberately still allowed.
+    await _refuse_if_paused(container, "A new picture")
     _require_picture_funds(container, user_id)
     payment = _picture_payment(container, user_id, book_id=book_id)
     charge = lambda: container.rate_limiter.allow(_client_key(request), 1)  # noqa: E731
@@ -603,6 +611,15 @@ async def edit_book(
         return _edit_started(book_id, "character")
 
     raise InvalidSettings(f"Unknown edit action {action!r}.")
+
+
+async def _refuse_if_paused(container: Container, doing: str) -> None:
+    """Raise `WorkPaused` while the operator has stopped new paid work (Idea 10)."""
+    if await asyncio.to_thread(container.switches.is_on, SWITCH_NEW_BOOKS):
+        raise WorkPaused(
+            f"{doing} is paused for a little while. Nothing has been charged — "
+            "come back shortly, and anything already made is safe."
+        )
 
 
 def _require_picture_funds(container: Container, user_id: str | None) -> None:

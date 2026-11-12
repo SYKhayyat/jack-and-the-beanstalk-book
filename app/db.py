@@ -39,6 +39,7 @@ from sqlalchemy import (
     create_engine,
     event,
 )
+from sqlalchemy import false as sa_false
 from sqlalchemy import true as sa_true
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -54,6 +55,7 @@ __all__ = [
     "BookStoryCharacterRow",
     "BookStoryPageRow",
     "ChildProfileRow",
+    "RuntimeSwitchRow",
     "StoryCharacterRow",
     "StoryPageRow",
     "StoryRow",
@@ -250,6 +252,29 @@ class BookCharacterRow(Base):
     #: The look settings the portrait was drawn with (`CartoonSettings` as
     #: JSON): this member's gender, style, age and the rest, not the star's.
     settings: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+
+class RuntimeSwitchRow(Base):
+    """An operator switch that changes what the app will do, right now (Idea 10).
+
+    Two facts only: whether spending is stopped at the door (`new_books`) and
+    whether the pages still being drawn should stop (`drawing`). They live in
+    the database rather than the environment because the point of a kill
+    switch is to work in the second it is needed, not at the next deploy — and
+    because a running render has to see the same answer the page shows.
+
+    A missing row means off, so a fresh database needs no seeding.
+    """
+
+    __tablename__ = "runtime_switches"
+
+    name: Mapped[str] = mapped_column(String(32), primary_key=True)
+    on: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
+    #: Why, in the operator's own words; shown on the page.
+    note: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    #: Who last changed it, so a switch nobody admits to pulling has an owner.
+    changed_by: Mapped[str] = mapped_column(String(320), default="", server_default="")
+    changed_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
 class ChildProfileRow(Base):

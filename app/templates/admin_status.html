@@ -49,6 +49,37 @@
   </section>
   {% endif %}
 
+  {#- Idea 10: the stop buttons. Deliberately next to the alerts: the page that
+      says the money is going out is the page that can stop it. #}
+  <section class="card" id="switches" aria-labelledby="switches-heading">
+    <div class="admin-card-head">
+      <h2 id="switches-heading">Stop buttons</h2>
+      <span class="field-help">They work in the second they are pressed — no deploy, and a book already drawing sees them between pictures.</span>
+    </div>
+    <ul class="admin-story-list">
+      {% for switch in switches %}
+      <li>
+        <div class="admin-story-main">
+          <strong>{{ switch.label }}</strong>
+          <span class="field-help">
+            {% if switch.on %}<span class="admin-bad">PULLED</span> by {{ switch.changed_by or "an operator" }}{% if switch.changed_at %} · {{ switch.changed_at }}{% endif %}{% if switch.note %} · {{ switch.note }}{% endif %}
+            {% else %}off — work spends as usual{% endif %}
+          </span>
+        </div>
+        <form method="post" action="/admin/switches">
+          <input type="hidden" name="name" value="{{ switch.name }}">
+          <input type="hidden" name="on" value="{{ '0' if switch.on else '1' }}">
+          <button type="submit" class="button{% if not switch.on %} danger{% endif %}">{{ "Release" if switch.on else "Pull" }}</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="field-help">
+      “Stop new books and portraits” refuses a portrait, a new book and a redraw before anything is read or charged; an About edit and a delete still work.
+      “Stop drawing” finishes each picture already in flight, leaves every book resumable with the pictures it has, and releasing it starts those books again.
+    </p>
+  </section>
+
   {% if waiting_refunds %}
   {#- W4: nothing in the app nudges the operator about a refund, so the page
       starts with it. The requests themselves are below, under Refunds. #}

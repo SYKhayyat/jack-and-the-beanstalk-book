@@ -654,8 +654,30 @@ can no longer reach.
 sweep, written to the log as one `operator.alert` line each and shown as a card
 at the top of `/admin/status`: pictures passing their first check below 50 %
 (once 40 have been reviewed), a book that averages more than its price to make,
-and refunds waiting to be sent back (W7). This deployment has no mail channel,
-so the log and that page are the notification.
+and refunds waiting to be sent back (W7). With `RESEND_API_KEY`, `MAIL_FROM` and
+`OPERATOR_SUB` set, the same list is also mailed to the operator's own address
+(a listed email is used directly; a listed Google subject id is looked up from
+the account that signed in), once per *change*: a steady problem is not
+re-mailed every hour, and one that clears and returns speaks again. A boot only
+logs, so a restart loop is not a mail loop.
+
+**Stop buttons.** The same page has two switches that need no deploy, because a
+cost kill switch is only worth having if it works in the second it is needed:
+
+- **Stop new books and portraits** refuses `POST /api/cartoonify`, `/api/photo`,
+  `/api/book/start` and every redraw action with a `503` that says nothing was
+  charged. An About edit and a delete still work — they spend nothing.
+- **Stop drawing the books in progress** lets each job finish the picture it is
+  already drawing (paid for) and stop before the next one. The book goes back to
+  `pending` with the pictures it has, the reader says drawing is paused, and the
+  copy already made is kept. Releasing the switch starts those books again where
+  they stopped; a book whose process died in the meantime is picked up by the
+  boot resume, and one paused across a restart is not counted as a failure.
+
+The state lives in `runtime_switches` (migration 0018), not the environment, so
+the page and a running render see the same answer, and every pull records who
+did it. Both are behind the operator gate (`OPERATOR_SUB`) like the rest of
+`/admin`.
 
 ### Reviewing plates
 

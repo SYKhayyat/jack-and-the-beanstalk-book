@@ -370,7 +370,11 @@ function apply(payload) {
     document.getElementById("edit-strip").classList.remove("hidden");
     return;
   }
-  if (payload.phase === "assembling") {
+  if (payload.phase === "paused") {
+    // Idea 10: the operator stopped drawing, briefly. Nothing is lost and no
+    // page needs pressing; the poll keeps running and the book carries on.
+    caption("Drawing is paused for a moment. Everything drawn so far is kept — this book carries on by itself.");
+  } else if (payload.phase === "assembling") {
     caption("Step 2 of 2 · Putting the book together — every picture is drawn.");
   } else {
     const drawn = Number(payload.pictures_drawn) || 0;

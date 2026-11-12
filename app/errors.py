@@ -26,6 +26,7 @@ __all__ = [
     "NoSavedChild",
     "PaymentRequired",
     "UnknownBook",
+    "WorkPaused",
     "register_exception_handlers",
 ]
 
@@ -143,6 +144,19 @@ class StoryNotReady(AppError):
     error_code = "story_not_ready"
 
 
+class WorkPaused(AppError):
+    """The operator has deliberately stopped new paid work for now (Idea 10).
+
+    503 rather than a refusal the visitor could argue with: nothing is wrong
+    with the request, the deployment is simply not spending money at the
+    moment. `Retry-After` says when to come back, and the message names the
+    switch so the reason is never a mystery.
+    """
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    error_code = "paused"
+
+
 class NoSavedChild(AppError):
     """There is no remembered child to use here.
 
@@ -166,7 +180,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=exc.status_code,
             content={"error": exc.error_code, "detail": str(exc)},
             headers={"Retry-After": "60"}
-            if isinstance(exc, (ServerBusy, GenerationRateLimited))
+            if isinstance(exc, (ServerBusy, GenerationRateLimited, WorkPaused))
             else None,
         )
 

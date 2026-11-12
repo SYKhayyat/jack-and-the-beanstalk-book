@@ -91,6 +91,7 @@ from app.services.reviewer import (
     verdict_passes,
 )
 from app.services.storage import GenerationStore
+from app.services.switches import SWITCH_DRAWING, Switches
 from app.services.template_store import PlateArt, PremadeArt, TemplateStore
 from app.services.vitals import rss_mb
 from app.services.wallet import OutOfFunds, Wallet
@@ -163,6 +164,23 @@ _PAGE_CHARGE_RETRY_SECONDS = 0.25
 #: between "your book is ready" and a progress bar that stops moving.
 _PHASE_PAGES = "pages"
 _PHASE_ASSEMBLING = "assembling"
+
+#: The status a job leaves behind when the operator stops drawing (Idea 10).
+#: The pictures already paid for are kept, and turning the switch back on
+#: resumes exactly the job that was interrupted.
+_PAUSED_MESSAGE = (
+    "Drawing is paused by the operator for a moment. The pictures already drawn "
+    "are kept, and this book carries on by itself when drawing resumes."
+)
+
+
+class DrawingPaused(Exception):
+    """The operator's drawing switch is on: draw no more pictures (Idea 10).
+
+    Raised inside a job and handled by it, never by the page loop: it stops the
+    whole book rather than failing the page it happened to reach.
+    """
+
 
 #: The named stages a job reports while it works (T12). A percentage says how
 #: much is left; a stage says what is happening, which is the difference between
@@ -270,6 +288,7 @@ class BookRunner:
         retry_budget_percent: int = 0,
         cost_alert_cents: int = 0,
         notice: BookReadyNotice | None = None,
+        switches: Switches | None = None,
     ) -> None:
         self._provider = provider
         # Read once per resume, to log what the restart threw away.
@@ -327,6 +346,12 @@ class BookRunner:
         #: The one message a book sends its owner when it is finished (W2);
         #: None when this deployment has no mail channel.
         self._notice = notice
+        #: The operator's kill switch (Idea 10). None in tests that predate it:
+        #: then nothing can be paused, which is the old behaviour.
+        self._switches = switches
+        #: Books this process paused for the operator, waiting to be resumed
+        #: when the drawing switch is released.
+        self._paused: set[str] = set()
         #: Each book's spend as last read from the ledger, and when; the books
         #: already reported, and those whose budget has already been said out
         #: loud. One line a book, not one per page.
@@ -344,6 +369,18 @@ class BookRunner:
         return await asyncio.get_running_loop().run_in_executor(
             self._image_pool, partial(func, *args, **kwargs)
         )
+
+    async def _stop_if_paused(self) -> None:
+        """Refuse to draw a picture while the operator's switch is on (Idea 10).
+
+        Asked between pictures, never inside one: a picture already in flight
+        is finished and paid for rather than thrown away, and the next page is
+        where the money stops.
+        """
+        if self._switches is None:
+            return
+        if await asyncio.to_thread(self._switches.is_on, SWITCH_DRAWING):
+            raise DrawingPaused()
 
     async def _book_spend(self, book_id: str, *, fresh: bool = False) -> int | None:
         """What this book has cost the operator so far, in micro-dollars.
@@ -775,6 +812,85 @@ class BookRunner:
             "pending" if draw_cover or COVER_NUMBER not in done else "done"
         )
         return progress, target, draw_cover
+
+    async def _pause_book(self, book_id: str, *, user: str, elapsed_ms: float) -> None:
+        """Leave the book resumable when the operator stops drawing (Idea 10).
+
+        The status goes back to `pending`, not `failed`: the operator's pause
+        is a pause, not a broken book, and the pictures that exist are kept.
+        The previous job note travels with it, so resuming draws exactly what
+        was interrupted.
+        """
+        record = await asyncio.to_thread(self._book_store.load_record, book_id)
+        if record is None:
+            return
+        previous = await asyncio.to_thread(self._book_store.load_status, book_id) or {}
+        self._paused.add(book_id)
+        try:
+            edition = await asyncio.to_thread(self._templates.book_edition, book_id)
+            rendered = _rendered(edition, record)
+            progress = self._document.stored_progress(book_id)
+            await asyncio.to_thread(
+                partial(
+                    self._book_store.save_status,
+                    book_id,
+                    BookStatus.PENDING,
+                    self._document.page_view(book_id, progress, rendered),
+                    _PAUSED_MESSAGE,
+                    title=record.title,
+                    extra={
+                        "phase": "paused",
+                        "job": previous.get("job"),
+                        "paused": "operator",
+                        "total_pages": len(rendered) + 1,
+                    },
+                )
+            )
+        except Exception:
+            logger.warning("book.pause_failed id=%s", book_id, exc_info=True)
+            return
+        logger.warning(
+            "book.paused_by_operator user=%s book=%s elapsed_ms=%.0f",
+            user,
+            book_id,
+            elapsed_ms,
+        )
+
+    async def resume_paused(self) -> int:
+        """Start again the books this process paused for the operator (Idea 10).
+
+        Called when the drawing switch is released. Only the books *this* process
+        paused are known here; one whose process died is picked up by the boot
+        resume, which is the same path a restart already uses. A book another
+        worker holds is left in the paused set for the next attempt.
+
+        Returns:
+            How many jobs were started again.
+        """
+        resumed = 0
+        for book_id in list(self._paused):
+            self._paused.discard(book_id)
+            if await asyncio.to_thread(self._book_store.load_record, book_id) is None:
+                continue
+            try:
+                await self.start_edit(
+                    book_id,
+                    page_numbers=None,
+                    draw_cover=True,
+                    only_missing=True,
+                    resumed=True,
+                )
+            except BookBusy:
+                # The lease has not come back yet: the next release retries.
+                self._paused.add(book_id)
+                continue
+            except Exception:
+                logger.exception("book.resume_paused_failed id=%s", book_id)
+                continue
+            resumed += 1
+        if resumed:
+            logger.info("book.resumed_paused resumed=%d", resumed)
+        return resumed
 
     async def recover(self, *, max_resumes: int, window_minutes: int) -> list[str]:
         """Pick up the books a restart interrupted; called once, at boot.
@@ -1263,6 +1379,9 @@ class BookRunner:
 
             async def run_page(page: BookPage) -> _Drawn:
                 async with in_flight:
+                    # The operator's switch is asked here, once a page: a page
+                    # already in flight finishes, the next one does not start.
+                    await self._stop_if_paused()
                     return await _run_page(page)
 
             async def _run_page(page: BookPage) -> _Drawn:
@@ -1307,6 +1426,7 @@ class BookRunner:
                 return art
 
             await paint()
+            await self._stop_if_paused()
             to_render = [page for page in pages if page.number in target]
 
             # The cover is drawn alongside the pages, not before them: no page
@@ -1315,6 +1435,7 @@ class BookRunner:
             # The cover takes its turn among the pages: it is as much work.
             async def run_cover() -> bytes:
                 async with in_flight:
+                    await self._stop_if_paused()
                     return await self._render_cover(
                         record,
                         edition,
@@ -1347,6 +1468,10 @@ class BookRunner:
                     if isinstance(result, BaseException):
                         if not isinstance(result, Exception):
                             raise result  # a cancellation must still stop the job
+                        if isinstance(result, DrawingPaused):
+                            # The operator's switch, not the page's fault: stop
+                            # the whole job, and leave that page resumable.
+                            raise result
                         if isinstance(result, OutOfFunds):
                             # Money, not a bad picture: stop with what exists so
                             # the wallet can be topped up and the book finished.
@@ -1444,6 +1569,13 @@ class BookRunner:
                 "pages already finished were kept.",
                 user=user,
                 elapsed_ms=(monotonic() - started) * 1000,
+            )
+        except DrawingPaused:
+            # The operator's switch (Idea 10), not a fault: the book stays
+            # resumable with the pictures it has, and turning the switch off
+            # starts it again where it stopped.
+            await self._pause_book(
+                book_id, user=user, elapsed_ms=(monotonic() - started) * 1000
             )
         except OutOfFunds as exc:
             # A redraw is a purchase: the wallet could not cover the next

@@ -19,6 +19,7 @@ from app.errors import (
     InvalidSettings,
     PaymentRequired,
     ServerBusy,
+    WorkPaused,
 )
 from app.models import (
     REJECTION_LABELS,
@@ -48,6 +49,7 @@ from app.services.images import InvalidImage, decode_upload
 from app.services.pipeline import UnknownGeneration
 from app.services.storage import Draft, candidate_url, draft_urls
 from app.services.story_settings import story_rules
+from app.services.switches import SWITCH_NEW_BOOKS
 from app.services.wallet import InsufficientFunds, format_cents
 
 SettingsDep = Annotated[CartoonSettings, Depends(cartoon_settings_from_form)]
@@ -119,6 +121,9 @@ async def cartoonify(
     closed-set feedback as prompt corrections — no free text ever arrives
     here, so nothing the visitor writes can reach a prompt.
     """
+    # The operator's stop button (Idea 10) is the first thing asked: nothing
+    # is read, drawn or charged while new work is paused.
+    await _refuse_if_paused(container, "A new portrait")
     # The story, and a character slot that cannot have a face, are refused
     # before the upload is even read, so a wolf photo can never be billed — nor
     # a portrait for a story the operator has not opened yet. Empty means the
@@ -205,6 +210,7 @@ async def keep_photo(
     draft's portrait *is* the photo, so the book start and the page runner
     treat it exactly like an approved portrait that happens to be the photograph.
     """
+    await _refuse_if_paused(container, "Keeping a photo")
     edition = await asyncio.to_thread(new_book_edition, container, story)
     cast_key = character.strip()
     if cast_key and not edition.can_photograph(cast_key):
@@ -351,6 +357,15 @@ def _rejection_from_form(reasons: list[str]) -> RejectionFeedback:
             f"Unknown rejection reason in {reasons!r}. "
             f"Valid values: {', '.join(r.value for r in RejectionReason)}."
         ) from exc
+
+
+async def _refuse_if_paused(container: ContainerDep, doing: str) -> None:
+    """Raise `WorkPaused` while the operator has stopped new paid work (Idea 10)."""
+    if await asyncio.to_thread(container.switches.is_on, SWITCH_NEW_BOOKS):
+        raise WorkPaused(
+            f"{doing} is paused for a little while. Nothing has been charged — "
+            "come back shortly, and anything already made is safe."
+        )
 
 
 def _check_generation_rate(request: Request, container: ContainerDep, tokens: int = 1) -> None:

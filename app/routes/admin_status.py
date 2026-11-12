@@ -24,7 +24,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from app.config import ProviderName
@@ -43,6 +43,7 @@ from app.services.operator_status import (
     recent_calls,
     review_health,
 )
+from app.services.switches import SWITCH_DRAWING, SWITCHES
 from app.services.wallet import (
     REFUND_FAILED,
     REFUND_PROCESSED,
@@ -130,6 +131,7 @@ async def status_page(
         price_cents=container.wallet.price_cents,
         wallet=container.wallet,
     )
+    states = await asyncio.to_thread(container.switches.all)
     alert_cents = container.settings.book_cost_alert_cents
     cost_alerts = [
         book
@@ -165,6 +167,18 @@ async def status_page(
             "notice": _NOTICES.get(notice, ""),
             "cost_alerts": cost_alerts,
             "alerts": alerts,
+            # Idea 10: the stop buttons, read fresh, with who last touched them.
+            "switches": [
+                {
+                    "name": name,
+                    "label": states[name].label,
+                    "on": states[name].on,
+                    "note": states[name].note,
+                    "changed_by": states[name].changed_by,
+                    "changed_at": states[name].changed_at[:16].replace("T", " "),
+                }
+                for name in SWITCHES
+            ],
             # Refunds wait for a human, and nothing nudges the operator but this
             # page: a waiting refund is the first thing on it (W4).
             "waiting_refunds": [item for item in refunds if item.status == REFUND_REQUESTED],
@@ -174,6 +188,35 @@ async def status_page(
     )
     response.headers["Cache-Control"] = "private, no-store"
     return response
+
+
+@router.post("/switches")
+async def set_switch(
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    name: str = Form(...),
+    on: str = Form("0"),
+    note: str = Form("", max_length=255),
+) -> RedirectResponse:
+    """Pull or release one stop button (Idea 10).
+
+    Releasing the drawing switch also starts again the books this process
+    paused: a switch nobody notices being released is worse than no switch.
+    """
+    operator = operator_or_404(container, session)
+    if name not in SWITCHES:
+        raise HTTPException(status_code=404, detail="Not Found")
+    wanted = on.strip().lower() in {"1", "on", "true", "yes"}
+    await asyncio.to_thread(
+        container.switches.set, name, wanted, operator=operator, note=note.strip()
+    )
+    resumed = 0
+    if name == SWITCH_DRAWING and not wanted:
+        resumed = await container.book_runner.resume_paused()
+    logger.warning(
+        "admin.switch operator=%s name=%s on=%s resumed=%d", operator, name, wanted, resumed
+    )
+    return RedirectResponse("/admin/status#switches", status_code=303)
 
 
 @router.post("/refunds/{refund_id}/process")

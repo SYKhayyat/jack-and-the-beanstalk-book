@@ -158,16 +158,20 @@ def expire_once(container: Container) -> tuple[int, int]:
     return drafts, books
 
 
-def check_alerts(container: Container) -> int:
-    """Run the operator's thresholds and log what they say; returns the count.
+def check_alerts(container: Container, *, notify: bool = True) -> int:
+    """Run the operator's thresholds, log them, and mail a change; returns the count.
 
     One place for both callers — the boot and the hourly sweep — so the log and
-    `/admin/status` cannot disagree about what is wrong (W7).
+    `/admin/status` cannot disagree about what is wrong (W7). A boot only logs:
+    a restart loop must not become a mail loop, and the hourly sweep that
+    follows will send whatever changed (Idea 10).
     """
     alerts = operator_alerts(
         container.engine, price_cents=container.wallet.price_cents, wallet=container.wallet
     )
     log_alerts(alerts)
+    if notify:
+        container.alert_post.deliver(alerts)
     return len(alerts)
 
 
@@ -210,7 +214,7 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     expire_once(container)
     # A boot is a good moment to say what is wrong, loudly and once (W7).
     try:
-        await asyncio.to_thread(check_alerts, container)
+        await asyncio.to_thread(check_alerts, container, notify=False)
     except Exception:
         logger.warning("operator.alert_check_failed", exc_info=True)
     sweeper = asyncio.create_task(_sweep_expired(container))
