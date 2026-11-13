@@ -480,7 +480,7 @@ async def edit_book(
     for a new book. One edit per book may run at a time (409 otherwise).
     """
     user_id = _user_id(session)
-    _ensure_book(book_id, user_id, container)
+    await asyncio.to_thread(_ensure_book, book_id, user_id, container)
     record = await asyncio.to_thread(container.book_store.load_record, book_id)
     if record is None:
         raise UnknownBook("No book with that id. It may have expired — start a new one.")
@@ -525,7 +525,7 @@ async def edit_book(
     # (Idea 10) comes first of all — an `about` edit or a delete above is text
     # or a removal, spends nothing, and is deliberately still allowed.
     await _refuse_if_paused(container, "A new picture")
-    _require_picture_funds(container, user_id)
+    await asyncio.to_thread(_require_picture_funds, container, user_id)
     payment = _picture_payment(container, user_id, book_id=book_id)
     charge = lambda: container.rate_limiter.allow(_client_key(request), 1)  # noqa: E731
 
@@ -736,7 +736,7 @@ async def delete_book(
     book_id: str, container: ContainerDep, session: CurrentSessionDep
 ) -> Response:
     """Delete a book and every artefact that belongs to it."""
-    _ensure_book(book_id, _user_id(session), container)
+    await asyncio.to_thread(_ensure_book, book_id, _user_id(session), container)
     # Cancel on the event loop, where the job's task lives, and wait for it;
     # only then remove the store (a blocking call, so it goes to a worker
     # thread). A delete that raced the cancellation handler could otherwise

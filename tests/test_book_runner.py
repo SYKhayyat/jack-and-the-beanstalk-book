@@ -277,7 +277,7 @@ def test_the_book_counts_its_cover_and_reports_the_pdf_phase(
     async def scenario() -> dict[str, object]:
         await runner.start(record)
         assert await asyncio.to_thread(assembling.wait, 60.0), "PDF assembly never started"
-        mid = book_store.load_status(record.book_id) or {}
+        mid = await asyncio.to_thread(book_store.load_status, record.book_id) or {}
         release.set()
         await asyncio.gather(*runner._tasks)
         return mid

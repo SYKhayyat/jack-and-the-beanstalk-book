@@ -46,6 +46,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.blobs import BlobRef
+from app.event_loop_guard import check_blocking
 
 __all__ = [
     "DEFAULT_STORY_KEY",
@@ -812,7 +813,16 @@ def build_engine(database_url: str) -> Engine:
         max_overflow=5,
         connect_args=connect_args,
     )
+    _guard_event_loop(engine)
     return configure_sqlite(engine)
+
+
+def _guard_event_loop(engine: Engine) -> None:
+    """Report any statement issued from the event loop's thread (AUDIT §10 A5)."""
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _check(*_args: Any) -> None:
+        check_blocking("a database query")
 
 
 def prepare_database(engine: Engine) -> Engine:

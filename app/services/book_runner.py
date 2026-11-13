@@ -832,13 +832,16 @@ class BookRunner:
         try:
             edition = await asyncio.to_thread(self._templates.book_edition, book_id)
             rendered = _rendered(edition, record)
-            progress = self._document.stored_progress(book_id)
+            progress = await asyncio.to_thread(self._document.stored_progress, book_id)
+            view = await asyncio.to_thread(
+                self._document.page_view, book_id, progress, rendered
+            )
             await asyncio.to_thread(
                 partial(
                     self._book_store.save_status,
                     book_id,
                     BookStatus.PENDING,
-                    self._document.page_view(book_id, progress, rendered),
+                    view,
                     _PAUSED_MESSAGE,
                     title=record.title,
                     extra={
@@ -1547,7 +1550,7 @@ class BookRunner:
                     (monotonic() - started) * 1000,
                 )
             elif await asyncio.to_thread(self._book_store.load_record, book_id) is not None:
-                self._fail(
+                await self._fail_off_loop(
                     book_id,
                     "Rendering was cancelled before the book finished. The pages "
                     "already finished were kept — starting a new book is safe, the "
@@ -1631,11 +1634,7 @@ class BookRunner:
         elapsed_ms: float,
         code: str | None = None,
     ) -> None:
-        """`_fail`, on a worker thread: it reads and writes the database.
-
-        The cancellation path calls `_fail` directly instead: it runs while the
-        server shuts down, when there is nothing left on the loop to starve.
-        """
+        """`_fail`, on a worker thread: it reads and writes the database."""
         await asyncio.to_thread(
             partial(self._fail, book_id, message, user=user, elapsed_ms=elapsed_ms, code=code)
         )

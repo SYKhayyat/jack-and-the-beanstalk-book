@@ -89,7 +89,7 @@ async def make_share_link(
     behind the same ownership check as the book itself, so nobody else can
     make one, and nothing is stored — the token is the whole grant.
     """
-    ensure_book(book_id, user_id(session), container)
+    await asyncio.to_thread(ensure_book, book_id, user_id(session), container)
     record = await asyncio.to_thread(container.book_store.load_record, book_id)
     status = await asyncio.to_thread(container.book_store.load_status, book_id) or {}
     if record is None:
@@ -147,7 +147,7 @@ async def shared_book(
         for page in edition.pages
     ]
     heading, *sentences = (book_text(line) for line in record.about.rendered_about_lines())
-    chrome = page_chrome(container, session, request)
+    chrome = await asyncio.to_thread(page_chrome, container, session, request)
     response = _render(
         request,
         "share.html",

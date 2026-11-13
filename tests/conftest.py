@@ -27,6 +27,7 @@ from app.books import SEEDS
 from app.config import Settings
 from app.container import Container, build_container
 from app.db import build_engine, prepare_database
+from app.event_loop_guard import set_strict
 from app.main import create_app
 from app.services.image_providers.base import ImageProvider
 from app.services.template_store import TemplateStore
@@ -36,6 +37,9 @@ from tests.helpers import RecordingProvider, isolated_settings, make_photo_bytes
 # credentials, a database URL) must never leak into a test run or change what
 # the tests exercise, so the suite always builds settings from scratch.
 Settings.model_config["env_file"] = None
+
+# A database query on the event loop fails the test that made it (AUDIT §10 A5).
+set_strict(True)
 
 
 @pytest.fixture(scope="session")

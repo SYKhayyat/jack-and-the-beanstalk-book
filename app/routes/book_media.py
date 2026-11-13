@@ -295,7 +295,7 @@ async def book_sources(
     is stored. Character photos come from the book's own references, not from
     the 24-hour drafts, so the archive is complete for the book's whole life.
     """
-    ensure_book(book_id, user_id(session), container)
+    await asyncio.to_thread(ensure_book, book_id, user_id(session), container)
     edition = await asyncio.to_thread(book_edition, container, book_id)
     data = await asyncio.to_thread(_sources_archive, container.book_store, book_id, edition)
     logger.info(

@@ -212,7 +212,7 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("book.resumed_start resumed=%d", len(resumed))
     # At boot, directly and before serving: a restart is the one moment the
     # process is guaranteed idle, so the sweep cannot race a live render.
-    expire_once(container)
+    await asyncio.to_thread(expire_once, container)
     # A boot is a good moment to say what is wrong, loudly and once (W7).
     try:
         await asyncio.to_thread(check_alerts, container, notify=False)

@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import logging
 import time
+from functools import partial
 from typing import Any, cast
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -160,7 +161,7 @@ def _prefill(session: CurrentSessionDep, latest: Any) -> dict[str, str]:
 
 
 @router.get("/books/{book_id}/print", response_class=HTMLResponse)
-async def print_page(
+def print_page(
     book_id: str, request: Request, container: ContainerDep, session: CurrentSessionDep
 ) -> HTMLResponse:
     """Review the PDF, then the delivery form; or the test order's receipt."""
@@ -176,16 +177,20 @@ async def approve_print(
 ) -> Response:
     """Record that the owner has read this exact PDF. Nothing is sent yet."""
     owner = _owner(session)
-    _record, _status, edition = _complete_book(book_id, owner, container)
+    _record, _status, edition = await asyncio.to_thread(
+        _complete_book, book_id, owner, container
+    )
     pdf = await asyncio.to_thread(container.book_store.read_pdf, book_id)
     if pdf is None:
         raise HTTPException(status_code=409, detail="The book has no PDF yet.")
     try:
-        container.print_service.approve(
-            book_id=book_id,
-            user_id=owner,
-            pdf=pdf,
-            page_count=_page_count(edition),
+        await asyncio.to_thread(
+            lambda: container.print_service.approve(
+                book_id=book_id,
+                user_id=owner,
+                pdf=pdf,
+                page_count=_page_count(edition),
+            )
         )
     except PrintError as exc:
         # Most likely a PDF that cannot be measured. Keep the owner on the
@@ -193,7 +198,9 @@ async def approve_print(
         return _render(
             request,
             "print.html",
-            _print_context(request, container, session, book_id, error=str(exc)),
+            await asyncio.to_thread(
+                partial(_print_context, request, container, session, book_id, error=str(exc))
+            ),
         )
     return RedirectResponse(url=f"/books/{book_id}/print?approved=1", status_code=303)
 
@@ -239,13 +246,15 @@ async def place_print_order(
         return _render(
             request,
             "print.html",
-            _print_context(
-                request,
-                container,
-                session,
-                book_id,
-                error="Please review the PDF and approve this book before ordering.",
-                form=form,
+            await asyncio.to_thread(
+                lambda: _print_context(
+                    request,
+                    container,
+                    session,
+                    book_id,
+                    error="Please review the PDF and approve this book before ordering.",
+                    form=form,
+                )
             ),
         )
     pdf = await asyncio.to_thread(container.book_store.read_pdf, book_id)
@@ -265,16 +274,18 @@ async def place_print_order(
         return _render(
             request,
             "print.html",
-            _print_context(
-                request,
-                container,
-                session,
-                book_id,
-                error=(
-                    "Printed copies are not available on this deployment: printing "
-                    "needs a configured print service and a wallet."
-                ),
-                form=form,
+            await asyncio.to_thread(
+                lambda: _print_context(
+                    request,
+                    container,
+                    session,
+                    book_id,
+                    error=(
+                        "Printed copies are not available on this deployment: printing "
+                        "needs a configured print service and a wallet."
+                    ),
+                    form=form,
+                )
             ),
         )
     try:
@@ -291,13 +302,16 @@ async def place_print_order(
         return _render(
             request,
             "print.html",
-            _print_context(
-                request,
-                container,
-                session,
-                book_id,
-                error=str(exc),
-                form=form,
+            await asyncio.to_thread(
+                partial(
+                    _print_context,
+                    request,
+                    container,
+                    session,
+                    book_id,
+                    error=str(exc),
+                    form=form,
+                )
             ),
         )
     return RedirectResponse(url=f"/books/{book_id}/print?placed=1", status_code=303)

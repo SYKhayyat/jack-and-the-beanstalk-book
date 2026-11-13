@@ -41,6 +41,7 @@ from PIL import Image
 from sqlalchemy import LargeBinary
 from sqlalchemy.types import TypeDecorator
 
+from app.event_loop_guard import check_blocking
 from app.transcoding import transcoding
 
 if TYPE_CHECKING:
@@ -227,6 +228,7 @@ class R2BlobStore(_Codec):
         return cls(client, bucket)
 
     def put(self, data: bytes) -> bytes:
+        check_blocking("an object-store upload")
         key, stored = self.encode(data)
         self._client.put_object(
             Bucket=self._bucket,
@@ -243,6 +245,7 @@ class R2BlobStore(_Codec):
         cached = self.recall(key)
         if cached is not None:
             return cached
+        check_blocking("an object-store download")
         stored = self._client.get_object(Bucket=self._bucket, Key=key)["Body"].read()
         data = self.decode(key, stored)
         self.remember(key, data)
@@ -266,11 +269,15 @@ class MemoryBlobStore(_Codec):
         self.objects: dict[str, bytes] = {}
 
     def put(self, data: bytes) -> bytes:
+        # Checked like the bucket, so a test catches a handler that would
+        # block on a real upload.
+        check_blocking("an object-store upload")
         key, stored = self.encode(data)
         self.objects[key] = stored
         return _PREFIX + key.encode("ascii")
 
     def get(self, pointer: bytes) -> bytes:
+        check_blocking("an object-store download")
         key = decode_pointer(pointer)
         return self.decode(key, self.objects[key])
 

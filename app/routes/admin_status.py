@@ -138,11 +138,16 @@ async def status_page(
         for book in books
         if alert_cents > 0 and book.spend_microusd >= alert_cents * 10_000
     ]
+    costs = await asyncio.to_thread(cost_panel, container, container.wallet.price_cents)
     response = render_admin(
         request,
         "admin_status.html",
         {
-            **admin_chrome(container, session, request, "/admin/status"),
+            **(
+                await asyncio.to_thread(
+                    admin_chrome, container, session, request, "/admin/status"
+                )
+            ),
             "backends": _backends(container),
             "stories": stories,
             "week": week,
@@ -183,7 +188,7 @@ async def status_page(
             # page: a waiting refund is the first thing on it (W4).
             "waiting_refunds": [item for item in refunds if item.status == REFUND_REQUESTED],
             "cost_alert_label": format_cents(alert_cents),
-            "costs": cost_panel(container, container.wallet.price_cents),
+            "costs": costs,
         },
     )
     response.headers["Cache-Control"] = "private, no-store"
@@ -276,7 +281,11 @@ async def book_page(
         request,
         "admin_book.html",
         {
-            **admin_chrome(container, session, request, "/admin/status"),
+            **(
+                await asyncio.to_thread(
+                    admin_chrome, container, session, request, "/admin/status"
+                )
+            ),
             "book": detail,
             "portrait_history": history,
             "cast_history": cast_history,
@@ -300,7 +309,7 @@ async def delete_book(
     same identity gate as everything else here.
     """
     operator = operator_or_404(container, session)
-    if container.book_store.load_record(book_id) is None:
+    if await asyncio.to_thread(container.book_store.load_record, book_id) is None:
         raise HTTPException(status_code=404, detail="Not Found")
     await asyncio.to_thread(container.book_store.delete, book_id)
     logger.info("admin.book_deleted book=%s operator=%s", book_id, operator)
