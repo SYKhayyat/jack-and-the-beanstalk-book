@@ -701,7 +701,7 @@ class PrintOrderRow(Base):
         ForeignKey("books.id", ondelete="CASCADE"), index=True
     )
     user_id: Mapped[str] = mapped_column(String(128), default="", index=True)
-    #: approved | submitted | failed
+    #: approved | placing | submitted | failed | superseded
     state: Mapped[str] = mapped_column(String(16))
     #: The exact book the owner approved, so an edit cannot slip past them.
     pdf_sha256: Mapped[str] = mapped_column(String(64))

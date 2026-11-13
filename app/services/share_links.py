@@ -18,6 +18,12 @@ Two rules the code keeps:
 The payload is the same shape the session cookie uses (base64url JSON, then
 `.signature`), so a share link has one obvious way in and out and no new
 format to review.
+
+A second kind of token lives here too: the one-hour file link a print provider
+fetches a PDF from (`scope="print-file"`). Its signature mixes in a different
+domain string, so it can never be used as a share link, and a share link can
+never be used to fetch a print file. They share a format and a key, not a
+permission.
 """
 
 from __future__ import annotations
@@ -31,17 +37,27 @@ import time
 __all__ = ["ShareLink", "issue", "read"]
 
 #: What a token is for. Mixed into the signature so a share token can never be
-#: accepted anywhere that expects a session, and vice versa.
-_DOMAIN = b"share-link/v1"
+#: accepted anywhere that expects a session or a print file, and vice versa.
+_DOMAINS: dict[str, bytes] = {
+    "share": b"share-link/v1",
+    "print-file": b"print-file/v1",
+}
+_DEFAULT_SCOPE = "share"
 
 
-def issue(book_id: str, *, key: bytes, expires_at: int) -> str:
+def issue(book_id: str, *, key: bytes, expires_at: int, scope: str = _DEFAULT_SCOPE) -> str:
     """A token for one book, good until `expires_at` (a unix timestamp)."""
     payload = _encode({"b": book_id, "e": int(expires_at)})
-    return f"{payload}.{_sign(payload, key)}"
+    return f"{payload}.{_sign(payload, key, _domain(scope))}"
 
 
-def read(token: str, *, key: bytes, now: int | None = None) -> ShareLink | None:
+def read(
+    token: str,
+    *,
+    key: bytes,
+    now: int | None = None,
+    scope: str = _DEFAULT_SCOPE,
+) -> ShareLink | None:
     """The book a token names, or None for anything that is not one.
 
     A tampered signature, a malformed payload, an exhausted expiry and a token
@@ -51,7 +67,7 @@ def read(token: str, *, key: bytes, now: int | None = None) -> ShareLink | None:
     payload_text, _, signature = token.partition(".")
     if not payload_text or not signature:
         return None
-    if not hmac.compare_digest(signature, _sign(payload_text, key)):
+    if not hmac.compare_digest(signature, _sign(payload_text, key, _domain(scope))):
         return None
     try:
         payload = json.loads(_decode(payload_text))
@@ -82,8 +98,15 @@ class ShareLink:
         return f"ShareLink(book_id={self.book_id!r}, expires_at={self.expires_at})"
 
 
-def _sign(payload_text: str, key: bytes) -> str:
-    return hmac.new(key, _DOMAIN + b"." + payload_text.encode(), hashlib.sha256).hexdigest()
+def _domain(scope: str) -> bytes:
+    try:
+        return _DOMAINS[scope]
+    except KeyError as exc:  # a typo in a caller, not a bad token
+        raise ValueError(f"unknown token scope {scope!r}") from exc
+
+
+def _sign(payload_text: str, key: bytes, domain: bytes) -> str:
+    return hmac.new(key, domain + b"." + payload_text.encode(), hashlib.sha256).hexdigest()
 
 
 def _encode(payload: dict[str, object]) -> str:

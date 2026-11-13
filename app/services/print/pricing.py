@@ -85,7 +85,7 @@ class QuoteBreakdown:
 
 
 def _processing_cents(retail_cents: int) -> int:
-    """Stripe's cut, rounded up to the nearest cent."""
+    """Stripe's cut: 2.9% of the price, rounded to the nearest cent, plus 30¢."""
     return round(retail_cents * PAYMENT_PERCENT / 100.0) + PAYMENT_FIXED_CENTS
 
 

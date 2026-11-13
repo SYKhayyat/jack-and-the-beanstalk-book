@@ -237,6 +237,10 @@ services:
       # while PRINT_PROVIDER=mock. These are bearer credentials: dashboard only.
       - key: PEECHO_API_KEY
         sync: false
+      # Signs the payment call that confirms the order. Without it an order
+      # stays a draft and nothing is printed, so Peecho needs all four.
+      - key: PEECHO_SECRET_KEY
+        sync: false
       - key: PEECHO_OFFERING_ID
         sync: false
       - key: PEECHO_CONTACT_EMAIL

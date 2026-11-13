@@ -453,6 +453,43 @@ The Peecho payload sent A5 landscape (210×148 mm) whatever the PDF was. The boo
 
 ---
 
+## 9. Print round self-audit, 13 November 2026
+
+A pass over the print round after it shipped, looking for the defects a demo would hide.
+
+### PA1 — P1: the Peecho adapter moved country codes in the wrong alphabet
+`COUNTRIES` sent ISO alpha-3 (`USA`, `GBR`) while the create-order, quote and country-list endpoints all take ISO **alpha-2** (`US`, `GB`) — the country list returns `["NL", "US", "GB"]`. Every real sandbox order would have carried a code Peecho does not know. The list is now alpha-2, the form still shows readable names, and the adapter test asserts `"country_code":"US"`.
+
+### PA2 — P1: a created Peecho order was never paid for
+Per Peecho’s order journey, `POST /rest/v3/order/` returns a **draft**; only `POST /rest/v3/order/payment` — signed with `SHA-256(secret_key + order_id)` — sends it to production. The adapter stopped at the draft, so the app reported “ordered” for a job that would never print, even in the sandbox. It now creates and pays, and a payment refusal is a `PrintError`, which returns the wallet charge. This adds `PEECHO_SECRET_KEY` (required when `PRINT_PROVIDER=peecho`, so a missing key is a boot error rather than a silent draft).
+
+**Done:** `app/services/print/peecho.py` (`submit` → `_post` twice), `Settings.peecho_secret_key`, `.env.example`, `render.yaml`; pinned by `test_peecho_adapter_creates_and_pays_for_the_order_in_its_test_host` (two calls, numeric `order_id`, signature, `PAID`).
+
+### PA3 — P1: a double submit could buy two printed copies
+`place()` checked `state == "approved"`, charged idempotently, then called the provider. Two concurrent POSTs both passed the check, both charged (the second charge was a no-op), and both submitted — one review, two print jobs, one payment. The approval is now claimed with one conditional `UPDATE ... WHERE state='approved'` before the wallet is touched; the loser is refused. A claim abandoned by a crash is retaken after 15 minutes, and a refused charge hands the approval back.
+
+**Done:** `PrintOrderStore.claim`/`release`, `PrintService.place`/`_fail`, `placing` state; pinned by `test_an_approval_already_being_placed_cannot_be_placed_twice` and `test_a_refused_charge_leaves_the_approval_to_try_again`.
+
+### PA4 — P2: an unexpected provider error could keep the money
+Only `PrintError` was caught, so a bug or an unhandled transport error surfaced as a 500 with the wallet still charged and the approval stuck. Any exception from `submit` now refunds, marks the order failed and raises a sentence the page can show; a failed refund is logged rather than raised over the original error. Pinned by `test_an_unexpected_provider_error_still_returns_the_money`.
+
+### PA5 — P2: a print file link was also a share link
+Both tokens were minted through `share_links.issue`, which mixes a fixed domain into the signature. A print-file token therefore opened `/share/<token>` too — more access than the provider (or anyone who read the provider’s logs) should get. Tokens now carry a scope (`share` or `print-file`) with a distinct signing domain; each endpoint reads only its own. Pinned by `test_a_print_file_link_is_not_a_share_link`.
+
+### PA6 — P2: the receipt showed today’s price, not the price paid
+The order page passed the current quote to the receipt, so an operator price change rewrote the receipt of an order already placed. The receipt now shows `latest.retail_cents`, the amount that was charged. Pinned by `test_the_receipt_shows_what_was_paid_not_todays_price`.
+
+### PA7 — P2: an unreadable PDF was quoted at a guessed size and page count
+`measure_pdf` fell back to 24 pages and A5 landscape, so a corrupt file could be approved and charged against numbers nobody measured. It now raises `PrintError`; the print page still renders (with the edition’s own quote) and approval is refused with a readable reason. Pinned by `test_an_unreadable_pdf_is_refused_before_approval`.
+
+### PA8 — Cleanup
+Removed the unused `PrintQuote.total_cents` and `PrintOrderStore.has_approval`, the empty `except InsufficientFunds: raise`, and the unused fixed-size constants in `peecho.py`. The `+ 4` front/back-matter count is now `BOOK_MATTER_PAGES` in `app/services/pdf.py`, the module that actually draws those pages. The order endpoint now requires its `order_id` to match the current approval instead of accepting an empty one.
+
+### Known limitation (not fixed)
+A print order row is deleted with its book from the `print_orders` foreign key. Retention sweeps a finished book after `BOOK_RETENTION_DAYS` (default 7), so the record of a submitted order — provider order id and address — goes with it. That is acceptable while every provider is a test environment; before a live print provider, the order record should outlive the book (its own retention period).
+
+---
+
 ## Positives worth keeping
 
 * **Authorization is consistent.** Every book artefact goes through `ensure_book`, owner mismatch returns the same 404 as a missing book, and the `/media` draft URLs are explicitly bearer tokens with `no-store`. The admin gate 404s rather than 403s. The OAuth `next` and Stripe `next` paths reject schemes, hosts, backslashes and `//` spellings.

@@ -191,6 +191,7 @@ def build_container(
     if settings.print_provider == "peecho":
         print_provider = PeechoPrintProvider(
             merchant_api_key=settings.peecho_api_key,
+            secret_key=settings.peecho_secret_key,
             offering_id=settings.peecho_offering_id,
             contact_email=settings.peecho_contact_email or settings.mail_from,
         )

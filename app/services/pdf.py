@@ -44,6 +44,7 @@ from app.prompt_data import prompt_text
 from app.services.typography import book_text
 
 __all__ = [
+    "BOOK_MATTER_PAGES",
     "COVER_TITLE_BAND_FRACTION",
     "PAPER_RGB",
     "PageArt",
@@ -70,6 +71,11 @@ _FONT_FILES: tuple[tuple[str, str, str], ...] = (
     (_FAMILY, "I", "Literata-Italic.ttf"),
     ("NotoHebrew", "", "NotoSansHebrew-Regular.ttf"),
 )
+
+#: Pages in a finished book that are not its numbered story pages: the front
+#: cover, the copyright page, "The End" and the About Me back cover. The print
+#: code adds this to the edition's page count to get the PDF's page count.
+BOOK_MATTER_PAGES = 4
 
 # Geometry. The art box's short edge is 720 pt (10 in); everything else is
 # relative to the page so any aspect ratio prints well.

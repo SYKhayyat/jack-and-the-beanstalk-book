@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import and_, insert, or_, select, update
 from sqlalchemy.engine import Engine
 
 from app.db import PrintOrderRow
 from app.services.print.base import PrintOrder
 
 __all__ = ["PrintOrderStore", "new_order_id"]
+
+#: How long a `placing` claim is honoured before a retry may take it over.
+#: Longer than any provider request (30 s) and shorter than a coffee break, so
+#: a process that dies mid-order does not leave the order unplaceable.
+_CLAIM_STALE_AFTER = timedelta(minutes=15)
 
 
 def new_order_id() -> str:
@@ -139,6 +144,49 @@ class PrintOrderStore:
             raise RuntimeError("the print approval was written but could not be read back")
         return created
 
+    def claim(self, order_id: str) -> PrintOrder | None:
+        """Move an approval to `placing`, once, and return the claimed row.
+
+        The transition is one conditional UPDATE, so two requests that both
+        saw the same approval cannot both go on to charge and submit: the
+        second finds no claimable row and gets None. This is what keeps a
+        repeated form submit from placing two print jobs for one charge.
+
+        A claim older than `_CLAIM_STALE_AFTER` may be taken over, so a process
+        that died between the claim and the provider call does not strand the
+        order: the retry finds the charge already in the ledger (it is keyed by
+        the order id) and submits the job once.
+        """
+        now = _now()
+        stale = now - _CLAIM_STALE_AFTER
+        with self._engine.begin() as conn:
+            claimed = conn.execute(
+                update(PrintOrderRow)
+                .where(
+                    PrintOrderRow.id == order_id,
+                    or_(
+                        PrintOrderRow.state == "approved",
+                        and_(
+                            PrintOrderRow.state == "placing",
+                            PrintOrderRow.updated_at < stale,
+                        ),
+                    ),
+                )
+                .values(state="placing", updated_at=now)
+            )
+            if claimed.rowcount != 1:
+                return None
+        return self.get(order_id)
+
+    def release(self, order_id: str) -> None:
+        """Put a claimed order back to `approved` after a charge was refused."""
+        with self._engine.begin() as conn:
+            conn.execute(
+                update(PrintOrderRow)
+                .where(PrintOrderRow.id == order_id, PrintOrderRow.state == "placing")
+                .values(state="approved", updated_at=_now())
+            )
+
     def mark_submitted(
         self,
         order_id: str,
@@ -150,7 +198,7 @@ class PrintOrderStore:
         with self._engine.begin() as conn:
             conn.execute(
                 update(PrintOrderRow)
-                .where(PrintOrderRow.id == order_id, PrintOrderRow.state == "approved")
+                .where(PrintOrderRow.id == order_id, PrintOrderRow.state == "placing")
                 .values(
                     state="submitted",
                     provider=provider,
@@ -166,7 +214,7 @@ class PrintOrderStore:
         with self._engine.begin() as conn:
             conn.execute(
                 update(PrintOrderRow)
-                .where(PrintOrderRow.id == order_id, PrintOrderRow.state == "approved")
+                .where(PrintOrderRow.id == order_id, PrintOrderRow.state == "placing")
                 .values(
                     state="failed",
                     provider=provider,
@@ -175,18 +223,3 @@ class PrintOrderStore:
                 )
             )
         return self.get(order_id)
-
-    def has_approval(self, book_id: str, pdf_sha256: str) -> PrintOrder | None:
-        """An approval for exactly this PDF, submitted or not."""
-        with self._engine.connect() as conn:
-            row = conn.execute(
-                select(PrintOrderRow)
-                .where(
-                    PrintOrderRow.book_id == book_id,
-                    PrintOrderRow.pdf_sha256 == pdf_sha256,
-                    PrintOrderRow.state.in_(("approved", "submitted")),
-                )
-                .order_by(PrintOrderRow.created_at.desc())
-                .limit(1)
-            ).one_or_none()
-        return _row_to_order(row) if row is not None else None

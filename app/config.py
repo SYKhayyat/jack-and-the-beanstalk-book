@@ -312,11 +312,20 @@ class Settings(BaseSettings):
             "when PRINT_PROVIDER=peecho; ignored by the mock."
         ),
     )
+    peecho_secret_key: str = Field(
+        default="",
+        description=(
+            "Peecho test environment secret key, from Settings > API beside the "
+            "merchant key. It signs the payment call that confirms an order; "
+            "without it a created order stays an unpaid draft. Required when "
+            "PRINT_PROVIDER=peecho. Environment only, never logged."
+        ),
+    )
     peecho_offering_id: str = Field(
         default="",
         description=(
-            "The book product id from the Peecho test dashboard. Required when "
-            "PRINT_PROVIDER=peecho."
+            "The numeric book product id from the Peecho test dashboard. "
+            "Required when PRINT_PROVIDER=peecho."
         ),
     )
     peecho_contact_email: str = Field(

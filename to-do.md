@@ -70,9 +70,21 @@ pass below. The script to paste is at the bottom of this file.
       copy-and-paste and screen readers get it once.
 - [x] `docs/sample-book.pdf` was rebuilt from 4:3 art (254×272 mm pages) and a
       real cover illustration, by `scripts/make_sample_book.py`.
+- [x] Peecho’s order journey is **create, then pay**: the adapter creates the
+      draft and calls the payment endpoint with
+      `SHA-256(PEECHO_SECRET_KEY + order_id)`, so a test order is actually
+      submitted rather than left unpaid. Country codes are ISO alpha-2.
+- [x] One approval places one copy: a conditional `approved` → `placing` claim
+      before the charge stops a double submit buying two books, and a refused
+      charge hands the approval back.
+- [x] The print-file link a provider fetches is signed in its own domain, so
+      it cannot be used as a share link (or the reverse).
+- [x] The receipt shows what was paid, not the current price; a corrupt PDF is
+      refused instead of quoted at a guessed size.
 - [ ] Paste Peecho **test** credentials into Render (`PEECHO_API_KEY`,
-      `PEECHO_OFFERING_ID`) and switch `PRINT_PROVIDER` from `mock` to
-      `peecho` to see a real sandbox order in Peecho’s test dashboard.
+      `PEECHO_SECRET_KEY`, `PEECHO_OFFERING_ID`), buy test credits in the
+      Peecho test dashboard, and switch `PRINT_PROVIDER` from `mock` to
+      `peecho` to see a real, paid sandbox order.
 - [ ] Post the six hand-in links in Canvas and in Slack (the text is below).
 
 ## Accounts and money — Stripe sandbox

@@ -32,32 +32,34 @@ __all__ = [
     "ShippingAddress",
 ]
 
-#: The countries the delivery form offers, as Peecho's ISO-3166 alpha-3 codes.
-#: A closed list on purpose: the form is not a free-text field that a provider
-#: has to interpret, and every code here is one Peecho documents.
+#: The countries the delivery form offers, as Peecho's ISO-3166 **alpha-2**
+#: codes. A closed list on purpose: the form is not a free-text field that a
+#: provider has to interpret, and every code here is one Peecho documents.
+#: Peecho's order and quote endpoints take two letters ("US", "GB"), not the
+#: three-letter codes the API's older examples sometimes show.
 COUNTRIES: tuple[tuple[str, str], ...] = (
-    ("USA", "United States"),
-    ("CAN", "Canada"),
-    ("GBR", "United Kingdom"),
-    ("IRL", "Ireland"),
-    ("AUS", "Australia"),
-    ("NZL", "New Zealand"),
-    ("DEU", "Germany"),
-    ("FRA", "France"),
-    ("NLD", "Netherlands"),
-    ("BEL", "Belgium"),
-    ("ESP", "Spain"),
-    ("ITA", "Italy"),
-    ("PRT", "Portugal"),
-    ("CHE", "Switzerland"),
-    ("AUT", "Austria"),
-    ("SWE", "Sweden"),
-    ("NOR", "Norway"),
-    ("DNK", "Denmark"),
-    ("FIN", "Finland"),
-    ("ISR", "Israel"),
-    ("JPN", "Japan"),
-    ("SGP", "Singapore"),
+    ("US", "United States"),
+    ("CA", "Canada"),
+    ("GB", "United Kingdom"),
+    ("IE", "Ireland"),
+    ("AU", "Australia"),
+    ("NZ", "New Zealand"),
+    ("DE", "Germany"),
+    ("FR", "France"),
+    ("NL", "Netherlands"),
+    ("BE", "Belgium"),
+    ("ES", "Spain"),
+    ("IT", "Italy"),
+    ("PT", "Portugal"),
+    ("CH", "Switzerland"),
+    ("AT", "Austria"),
+    ("SE", "Sweden"),
+    ("NO", "Norway"),
+    ("DK", "Denmark"),
+    ("FI", "Finland"),
+    ("IL", "Israel"),
+    ("JP", "Japan"),
+    ("SG", "Singapore"),
 )
 
 _COUNTRY_CODES = frozenset(code for code, _name in COUNTRIES)
@@ -80,7 +82,6 @@ class ShippingAddress:
     email: str
     street2: str = ""
     state: str = ""
-    phone: str = ""
 
     def issues(self) -> list[str]:
         """Everything a provider would refuse the job for, in plain words."""
@@ -98,8 +99,6 @@ class ShippingAddress:
             problems.append("Please choose a country from the list.")
         if not _EMAIL.match(self.email.strip()):
             problems.append("Please give an email address for the order confirmation.")
-        if self.phone.strip() and not re.fullmatch(r"[+0-9()\-.\s]{6,32}", self.phone.strip()):
-            problems.append("That phone number does not look right.")
         return problems
 
     @property
@@ -122,7 +121,6 @@ class ShippingAddress:
             "state": self.state.strip(),
             "postcode": self.postcode.strip(),
             "country_code": self.country_code.strip().upper(),
-            "phone": self.phone.strip(),
             "email": self.email.strip(),
         }
 
@@ -141,10 +139,6 @@ class PrintQuote:
     page_width_mm: float = 210.0
     page_height_mm: float = 148.0
     currency: str = "USD"
-
-    @property
-    def total_cents(self) -> int:
-        return self.retail_cents
 
 
 @dataclass(frozen=True, slots=True)

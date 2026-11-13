@@ -16,15 +16,28 @@ API call to Peecho’s sandbox (or a recorded local test order with the default
    form disappears, and the owner must read and approve the new PDF.
 4. The owner enters the delivery address. The app shows the price and places
    the order.
-5. The app charges the copy through the wallet ledger, calls the provider, and
-   records the provider’s test order number. If the provider refuses, the
-   charge is reversed in the same ledger.
+5. The app charges the copy through the wallet ledger, creates the provider’s
+   order, **pays for it** (Peecho reports an unpaid order as a draft until its
+   payment endpoint confirms it), and records the provider’s test order
+   number. If the provider refuses at either step, the charge is reversed in
+   the same ledger.
 
 **Nothing is sent before approval.** This is enforced in the API, not just the
 template: the order endpoint refuses without a matching approval, and the
 service re-checks the PDF hash at the moment of ordering. Pinned by
 `test_nothing_is_sent_before_the_pdf_is_approved` and
 `test_an_edit_after_approval_clears_it`.
+
+**One approval places one copy.** The approval is claimed with a single
+conditional database update (`approved` → `placing`) before the wallet is
+charged. A double-clicked button, a retried POST or two tabs therefore cannot
+buy two printed copies for one review; the second request is told the order is
+already being placed. A claim abandoned by a crashed process is retaken after
+15 minutes, and the charge is keyed by order id so the retry does not charge
+again. A refused charge hands the approval back, so the owner can fund the
+wallet and press the button once more. Pinned by
+`test_an_approval_already_being_placed_cannot_be_placed_twice` and
+`test_a_refused_charge_leaves_the_approval_to_try_again`.
 
 ## It looks like a real book
 
@@ -45,11 +58,17 @@ and the last page as the back. The even page count is deliberate.
 
 A real 4:3 book measures **254 × 272 mm**; the provider payload carries that
 size and the page count, measured from the PDF itself with `pypdf` at approval
-and again at order time, rather than a hard-coded product size. The Peecho
-test account's `PEECHO_OFFERING_ID` must therefore be a softcover product whose
-allowed content box covers that trim (a dynamic-size product), or the provider
-will refuse the job — which is the safe failure: nothing prints and the wallet
-charge is returned.
+and again at order time, rather than a hard-coded product size. The files and
+units match Peecho’s own examples (millimetres, one PDF with front cover, story
+and back cover as single pages).
+
+The trim is the one part of the order the app cannot choose for the provider:
+Peecho’s softcover range is a set of fixed sizes (A5, A4, square, letter) and
+dynamic-size products accept a range instead. So `PEECHO_OFFERING_ID` must be a
+product whose allowed content size covers **254 × 272 mm** — a dynamic-size
+product, or a fixed one of that size if the test account has it. A fixed A5
+product will refuse the job; that refusal is the safe failure (the wallet
+charge is returned and the page says so), not a silently misprinted book.
 
 ## What the child types is checked
 
@@ -102,22 +121,44 @@ adapter is tested with `httpx.MockTransport`, so the test suite proves the
 payload without a network call or a credential. `PRINT_PROVIDER=off` hides the
 feature entirely.
 
+The adapter follows Peecho’s own order journey: **create, then pay**.
+`POST /rest/v3/order/` returns a draft id; `POST /rest/v3/order/payment` —
+signed with `SHA-256(secret_key + order_id)` — confirms it. The test dashboard
+has to hold credits for the payment to succeed, which is the only way to
+exercise the real sandbox end to end. Country codes are sent as ISO
+**alpha-2** (`US`, `GB`), the form the quote endpoint documents, and
+`PEECHO_OFFERING_ID` must be the numeric product id from Settings > Products.
+
+A PDF file link is minted with its own signing domain
+(`app/services/share_links.py`, `scope="print-file"`). It is good for one PDF
+for one hour, and it cannot be used as a read-only share link, nor a share
+link as a print file — the two tokens share a format and a key, not a
+permission. Pinned by `test_a_print_file_link_is_not_a_share_link`.
+
 ## How to demo it
 
 - With no setup: `PRINT_PROVIDER=mock` (the default). The whole flow works; the
   order page says **Test mode** and gives a `mock-…` order number.
 - With Peecho: create a free **test** account at
-  <https://test.www.peecho.com>, copy the test API key and the book product id,
-  and set `PRINT_PROVIDER=peecho`, `PEECHO_API_KEY`,
-  `PEECHO_OFFERING_ID`. Orders then appear in Peecho’s test dashboard.
+  <https://test.www.peecho.com>, copy the merchant API key, the secret key and
+  the numeric book product id from **Settings > API / Products**, buy test
+  credits (mock card), and set `PRINT_PROVIDER=peecho`, `PEECHO_API_KEY`,
+  `PEECHO_SECRET_KEY`, `PEECHO_OFFERING_ID`. Orders then appear in Peecho’s
+  test dashboard, paid and ready for production.
 - Either way, no real book is printed and no provider charges money.
+- The app will not start with `PRINT_PROVIDER=peecho` unless all four
+  credentials are present, and it will not create an unpaid order: a missing
+  secret key is a boot error, not a silent draft.
 
 ## Verification
 
 - `ruff check .` — clean.
 - `mypy app` — clean.
-- New tests: `tests/test_print_orders.py`, `tests/test_print_moderation.py`,
-  the updated `tests/test_book_pdf.py`, and the migration test.
+- New tests: `tests/test_print_orders.py` (including the double-submit claim,
+  the refused-charge hand-back, the paid receipt, the token-scope split, the
+  unreadable-PDF refusal and the create-then-pay Peecho payload),
+  `tests/test_print_moderation.py`, the updated `tests/test_book_pdf.py`, and
+  the migration test.
 - A local self-check was appended to `review-log.md` (Run 2, 13 Nov 2026).
   It drove the local site with Playwright Chromium against the mock provider
   and measured both PDFs; money and live-site lines are marked not measured,

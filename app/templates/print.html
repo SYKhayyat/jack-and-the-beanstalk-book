@@ -29,7 +29,7 @@
       <div><dt>Order</dt><dd id="provider-order-id">{{ submitted.provider_order_id }}</dd></div>
       <div><dt>Status</dt><dd>{{ submitted.state }}</dd></div>
       <div><dt>Pages</dt><dd>{{ submitted.page_count }}</dd></div>
-      <div><dt>Paid</dt><dd>{{ price_label }}</dd></div>
+      <div><dt>Paid</dt><dd>{{ paid_label or price_label }}</dd></div>
       <div><dt>Delivering to</dt><dd>{{ submitted.address.get("name", "") }}, {{ submitted.address.get("street1", "") }}{% if submitted.address.get("street2") %}, {{ submitted.address.get("street2") }}{% endif %}, {{ submitted.address.get("city", "") }} {{ submitted.address.get("postcode", "") }}, {{ submitted.address.get("country_code", "") }}</dd></div>
     </dl>
     <p class="field-help">Keep the order number. It is how the operator can find this job in the print service’s test dashboard.</p>
@@ -80,7 +80,6 @@
             {% for code, label in countries %}<option value="{{ code }}"{% if code == form.country_code %} selected{% endif %}>{{ label }}</option>{% endfor %}
           </select>
         </div>
-        <div class="field"><label for="print-phone">Phone <span class="optional">(optional)</span></label><input id="print-phone" name="phone" maxlength="32" value="{{ form.phone }}"></div>
       </div>
       <div class="print-summary">
         <p class="print-price"><span>{{ price_label }}</span> <small>one printed copy, shipping included</small></p>

@@ -15,6 +15,7 @@ no network and no credential needed.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import time
 from collections.abc import Iterator
@@ -33,6 +34,7 @@ from app.services.print.pricing import (
     PAYMENT_FIXED_CENTS,
     business_model,
 )
+from app.services.share_links import issue
 from tests.helpers import RecordingProvider, make_photo_bytes, multipart
 from tests.test_wallet_routes import SUB, FakeStripe, wallet_app
 
@@ -43,8 +45,7 @@ ADDRESS = {
     "city": "Testville",
     "state": "CA",
     "postcode": "90210",
-    "country_code": "USA",
-    "phone": "",
+    "country_code": "US",
 }
 
 
@@ -242,6 +243,32 @@ def test_a_provider_failure_returns_the_money(settings: Settings) -> None:
         assert failed is not None and failed.state == "failed"
 
 
+def test_an_unexpected_provider_error_still_returns_the_money(settings: Settings) -> None:
+    class BrokenProvider:
+        name = "broken"
+        mode = "test"
+
+        def submit(self, **_kwargs: object) -> PrintJob:
+            raise RuntimeError("a bug the adapter did not wrap")
+
+    with print_world(settings) as (client, book_id):
+        container = client.app.state.container
+        container.print_service._provider = BrokenProvider()  # type: ignore[assignment]
+        client.post(f"/books/{book_id}/print/approve")
+        order = container.print_service.approval(book_id)
+        assert order is not None
+        balance_before = container.wallet.balance_cents(SUB)
+
+        response = client.post(
+            f"/books/{book_id}/print/order", data={**ADDRESS, "order_id": order.id}
+        )
+        assert response.status_code == 200
+        assert "failed unexpectedly" in response.text
+        assert container.wallet.balance_cents(SUB) == balance_before
+        failed = container.print_service.latest(book_id)
+        assert failed is not None and failed.state == "failed"
+
+
 def test_printing_is_unavailable_without_a_wallet(settings: Settings) -> None:
     with TestClient(create_app(settings, provider=RecordingProvider())) as client:
         # Password/open mode has no identity, and the page's own refusal is a
@@ -249,17 +276,22 @@ def test_printing_is_unavailable_without_a_wallet(settings: Settings) -> None:
         assert client.get("/books/anything/print").status_code == 404
 
 
-def test_peecho_adapter_sends_the_book_to_its_test_host() -> None:
-    captured: dict[str, object] = {}
+def test_peecho_adapter_creates_and_pays_for_the_order_in_its_test_host() -> None:
+    captured: dict[str, object] = {"calls": []}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        captured["url"] = str(request.url)
-        captured["body"] = request.read().decode()
-        return httpx.Response(201, json={"id": 12345, "status": "created"})
+        calls = captured["calls"]
+        assert isinstance(calls, list)
+        body = request.read().decode()
+        calls.append((str(request.url), body))
+        if request.url.path.endswith("/order/payment"):
+            return httpx.Response(200, json={"order_state": "PAID"})
+        return httpx.Response(201, json={"order_id": 12345})
 
     provider = PeechoPrintProvider(
         merchant_api_key="test-key",
-        offering_id="offering-1",
+        secret_key="SECRETABCD",
+        offering_id="1234",
         contact_email="operator@example.com",
         transport=httpx.MockTransport(handler),
     )
@@ -279,15 +311,149 @@ def test_peecho_adapter_sends_the_book_to_its_test_host() -> None:
         quote=quote,
     )
     assert job.provider_order_id == "12345"
-    assert str(captured["url"]).startswith(SANDBOX_BASE_URL)
-    body = str(captured["body"])
-    assert "https://example.test/print/files/token.pdf" in body
-    assert '"number_of_pages":24' in body
+    assert job.state == "PAID"
+    calls = captured["calls"]
+    assert isinstance(calls, list) and len(calls) == 2
+    order_url, order_body = calls[0]
+    payment_url, payment_body = calls[1]
+    assert str(order_url).startswith(SANDBOX_BASE_URL)
+    assert str(payment_url) == f"{SANDBOX_BASE_URL}/rest/v3/order/payment"
+    assert "https://example.test/print/files/token.pdf" in order_body
+    assert '"number_of_pages":24' in order_body
     # The size comes from the PDF, not a fixed product shape.
-    assert '"content_width":254.0' in body
-    assert '"content_height":272.1' in body
-    assert '"country_code":"USA"' in body
-    assert "test-key" in body
+    assert '"content_width":254.0' in order_body
+    assert '"content_height":272.1' in order_body
+    # Peecho's shipping address takes ISO alpha-2 country codes.
+    assert '"country_code":"US"' in order_body
+    assert '"offering_id":1234' in order_body
+    assert "test-key" in order_body
+    # Creating the order is a draft; payment is what submits it.
+    assert '"order_id":12345' in payment_body
+    secret = hashlib.sha256(b"SECRETABCD12345").hexdigest()
+    assert secret in payment_body
+
+
+def test_an_approval_already_being_placed_cannot_be_placed_twice(
+    settings: Settings,
+) -> None:
+    """A double submit must not charge twice or order a second copy."""
+    with print_world(settings) as (client, book_id):
+        container = client.app.state.container
+        service = container.print_service
+        client.post(f"/books/{book_id}/print/approve")
+        order = service.approval(book_id)
+        assert order is not None
+        # Another request has taken the approval and is mid-order.
+        assert service._store.claim(order.id) is not None
+
+        record = container.book_store.load_record(book_id)
+        pdf = container.book_store.read_pdf(book_id)
+        assert record is not None and pdf is not None
+        balance_before = container.wallet.balance_cents(SUB)
+        error: Exception | None = None
+        try:
+            service.place(
+                order=order,
+                pdf=pdf,
+                pdf_url="https://example.test/print/files/token.pdf",
+                address=ShippingAddress(**ADDRESS),
+                about=record.about,
+            )
+        except PrintError as exc:
+            error = exc
+        assert error is not None and "already being placed" in str(error)
+        assert service._provider.submitted == []
+        assert container.wallet.balance_cents(SUB) == balance_before
+
+
+def test_a_refused_charge_leaves_the_approval_to_try_again(settings: Settings) -> None:
+    with print_world(settings) as (client, book_id):
+        container = client.app.state.container
+        service = container.print_service
+        service._retail_cents = 999_999
+        client.post(f"/books/{book_id}/print/approve")
+        order = service.approval(book_id)
+        assert order is not None
+        balance_before = container.wallet.balance_cents(SUB)
+
+        response = client.post(
+            f"/books/{book_id}/print/order", data={**ADDRESS, "order_id": order.id}
+        )
+        assert response.status_code == 200
+        assert "balance is" in response.text
+        assert service._provider.submitted == []
+        assert container.wallet.balance_cents(SUB) == balance_before
+        # The claim was handed back, so the page still offers the form.
+        assert service.approval(book_id) is not None
+
+
+def test_the_receipt_shows_what_was_paid_not_todays_price(settings: Settings) -> None:
+    with print_world(settings) as (client, book_id):
+        container = client.app.state.container
+        client.post(f"/books/{book_id}/print/approve")
+        order = container.print_service.approval(book_id)
+        assert order is not None
+        placed = client.post(
+            f"/books/{book_id}/print/order", data={**ADDRESS, "order_id": order.id}
+        )
+        assert "$24.99" in placed.text
+
+        container.print_service._retail_cents = 9_999
+        page = client.get(f"/books/{book_id}/print")
+        assert "Your printed copy is ordered" in page.text
+        assert "$24.99" in page.text
+        assert "$99.99" not in page.text
+
+
+def test_a_print_file_link_is_not_a_share_link(settings: Settings) -> None:
+    """The provider's one-file grant must not open the whole share page."""
+    with print_world(settings) as (client, book_id):
+        key = client.app.state.container.settings.session_signing_key()
+        expires = int(time.time()) + 600
+        print_token = issue(book_id, key=key, expires_at=expires, scope="print-file")
+        share_token = issue(book_id, key=key, expires_at=expires)
+
+        assert client.get(f"/share/{print_token}").status_code == 404
+        assert client.get(f"/print/files/{share_token}.pdf").status_code == 404
+        served = client.get(f"/print/files/{print_token}.pdf")
+        assert served.status_code == 200
+        assert served.headers["content-type"].startswith("application/pdf")
+
+
+def test_an_unreadable_pdf_is_refused_before_approval(settings: Settings) -> None:
+    with print_world(settings) as (client, book_id):
+        container = client.app.state.container
+        container.book_store.save_pdf(book_id, b"%PDF-1.4 not really a pdf")
+        response = client.post(f"/books/{book_id}/print/approve")
+        assert response.status_code == 200
+        assert "could not be read" in response.text
+        assert container.print_service.approval(book_id) is None
+
+
+def test_the_peecho_provider_refuses_to_start_without_what_it_needs() -> None:
+    error: Exception | None = None
+    try:
+        PeechoPrintProvider(
+            merchant_api_key="test-key",
+            secret_key="",
+            offering_id="1234",
+            contact_email="operator@example.com",
+        )
+    except PrintError as exc:
+        error = exc
+    assert error is not None and "PEECHO_SECRET_KEY" in str(error)
+
+    error = None
+    try:
+        PeechoPrintProvider(
+            merchant_api_key="test-key",
+            secret_key="SECRETABCD",
+            offering_id="softcover-a5",
+            contact_email="operator@example.com",
+        )
+    except PrintError as exc:
+        error = exc
+    assert error is not None and "numeric product id" in str(error)
 
 
 def test_the_business_model_math_is_the_write_up_math() -> None:

@@ -1347,7 +1347,17 @@ warning line, never a failed book.
 | `BOOK_COST_ALERT_CENTS` | `100` | A book whose measured model spend passes this many cents writes one `book.cost_alert` line and is named on `/admin/status`. `0` turns the alert off. |
 | `RESEND_API_KEY` | *(empty)* | Resend key for the one mail this app sends — "your book is ready". Needs `MAIL_FROM` too; empty means nothing is mailed and a book still finishes. |
 | `MAIL_FROM` | *(empty)* | The From address of that mail (`Storybook Studio <books@example.com>`), on a domain verified with Resend. Empty disables the mail. |
-| `PUBLIC_SITE_URL` | *(empty)* | This site's absolute address (`https://book.example.com`), used for the link in the ready mail. Empty sends the mail without a link. |
+| `PUBLIC_SITE_URL` | *(empty)* | This site's absolute address (`https://book.example.com`), used for the link in the ready mail and for the PDF link the print provider fetches. Empty sends the mail without a link and derives the print link from the request. |
+| `PUBLISHER_NAME` | `Storybook Studio` | The publisher printed on the copyright page and the back cover. |
+| `PRINT_PROVIDER` | `mock` | `mock` records a test order locally, `peecho` creates and pays for a real order in Peecho's **test** environment, `off` hides the print path. There is no live provider. |
+| `PRINT_RETAIL_CENTS` | `2499` | What one printed, shipped copy costs the customer. |
+| `PRINT_BASE_COST_CENTS` | `378` | The provider's wholesale base cost per book, for the margin calculation. |
+| `PRINT_PER_PAGE_COST_CENTS` | `17` | The provider's wholesale cost per printed page. |
+| `PRINT_SHIPPING_CENTS` | `637` | Estimated standard shipping per book. |
+| `PEECHO_API_KEY` | *(empty)* | Peecho **test** merchant key. Required for `PRINT_PROVIDER=peecho`. |
+| `PEECHO_SECRET_KEY` | *(empty)* | Peecho test secret key; signs the payment call that confirms an order. Required for `PRINT_PROVIDER=peecho` — a created order stays an unpaid draft without it. |
+| `PEECHO_OFFERING_ID` | *(empty)* | The numeric book product id from the Peecho test dashboard. Its allowed content size must cover the PDF's trim (254 × 272 mm for a 4:3 book). |
+| `PEECHO_CONTACT_EMAIL` | *(empty)* | The operator's email on the print job, for the provider's questions. Falls back to `MAIL_FROM`, then the recipient's address. |
 
 `MAX_UPLOAD_MB` and `STORAGE_DIR` map to `MAX_UPLOAD_MB` and `STORAGE_DIR`.
 

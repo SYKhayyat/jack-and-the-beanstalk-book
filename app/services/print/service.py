@@ -197,6 +197,16 @@ class PrintService:
             page_height_mm=measured.page_height_mm,
             currency=order.currency,
         )
+        # One conditional UPDATE from `approved` to `placing`. A second form
+        # submit for the same approval hits a row that is no longer approved
+        # and stops here, before it can charge again or order a second copy.
+        claimed = self._store.claim(order.id)
+        if claimed is None:
+            raise PrintError(
+                "This print order is already being placed. Refresh the page to see "
+                "where it got to."
+            )
+
         assert self._wallet is not None  # _require_enabled has checked it
         try:
             self._wallet.charge_print(
@@ -209,6 +219,9 @@ class PrintService:
                 amount_cents=quote.retail_cents,
             )
         except InsufficientFunds:
+            # Nothing was sent, and the approval is still good: hand it back to
+            # the owner so they can fund the wallet and press the button again.
+            self._store.release(order.id)
             raise
 
         try:
@@ -220,20 +233,25 @@ class PrintService:
                 quote=quote,
             )
         except PrintError as exc:
-            # The provider refused after the wallet was charged. Put the money
-            # back and mark the order failed: the customer can fix the address
-            # and try again, and nothing was printed.
-            self._wallet.refund_print(
-                order.user_id,
-                reference=f"print:{order.id}:refund",
-                description=(
-                    "Printed copy — returned because the print service refused the order"
-                ),
-                amount_cents=quote.retail_cents,
-            )
-            self._store.mark_failed(order.id, provider=self._provider.name, error=str(exc))
+            self._fail(order, quote, str(exc))
             logger.warning("print.refused book=%s order=%s", order.book_id, order.id)
             raise
+        except Exception as exc:
+            # A bug or an unhandled transport error must not leave the account
+            # paying for a job nobody knows about. Return the charge, mark the
+            # order failed with a sentence a visitor can read, and log the bug.
+            logger.exception(
+                "print.unexpected_failure book=%s order=%s", order.book_id, order.id
+            )
+            self._fail(
+                order,
+                quote,
+                "the print service failed unexpectedly; nothing is known to have been printed",
+            )
+            raise PrintError(
+                "The print service failed unexpectedly. The charge has been returned "
+                "and nothing is known to have been printed; please try again."
+            ) from exc
 
         submitted = self._store.mark_submitted(
             order.id,
@@ -250,6 +268,27 @@ class PrintService:
         )
         return submitted or order
 
+    def _fail(self, order: PrintOrder, quote: PrintQuote, error: str) -> None:
+        """Give the money back and record why the job failed.
+
+        A refund that itself fails is logged rather than raised over the
+        original error: the operator needs the provider's reason more than a
+        second exception, and the missing credit is visible in the ledger.
+        """
+        assert self._wallet is not None  # _require_enabled has checked it
+        try:
+            self._wallet.refund_print(
+                order.user_id,
+                reference=f"print:{order.id}:refund",
+                description=(
+                    "Printed copy — returned because the print order did not go through"
+                ),
+                amount_cents=quote.retail_cents,
+            )
+        except Exception:
+            logger.exception("print.refund_failed book=%s order=%s", order.book_id, order.id)
+        self._store.mark_failed(order.id, provider=self._provider.name, error=error)
+
     def _require_enabled(self) -> None:
         if not self.enabled:
             raise PrintError(
@@ -262,9 +301,12 @@ def measure_pdf(pdf: bytes) -> tuple[int, float, float]:
     """A PDF's page count and its first page's size, in millimetres.
 
     Point sizes are converted with the PDF's own 72 points to the inch. An
-    unreadable file falls back to the edition's page count and A5 landscape,
-    because a quote is better than a crash; the provider will still refuse a
-    file it cannot read.
+    unreadable file is refused rather than quoted at a guessed size: printing
+    a book nobody could measure is worse than asking for a new PDF, and the
+    page count is part of the price.
+
+    Raises:
+        PrintError: if the file cannot be read or has no measurable page.
     """
     try:
         reader = PdfReader(io.BytesIO(pdf))
@@ -272,9 +314,12 @@ def measure_pdf(pdf: bytes) -> tuple[int, float, float]:
         box = reader.pages[0].mediabox
         width_mm = float(box.width) * 25.4 / 72.0
         height_mm = float(box.height) * 25.4 / 72.0
-    except Exception:  # a corrupt file must not break the print page
+    except Exception as exc:
         logger.warning("print.unreadable_pdf bytes=%d", len(pdf))
-        return 24, 210.0, 148.0
+        raise PrintError(
+            "This book's PDF could not be read, so it cannot be priced or printed. "
+            "Open the book and download the PDF to check it."
+        ) from exc
     if page_count < 1 or width_mm <= 0 or height_mm <= 0:
-        return 24, 210.0, 148.0
+        raise PrintError("This book's PDF has no measurable pages, so it cannot be printed.")
     return page_count, round(width_mm, 1), round(height_mm, 1)
