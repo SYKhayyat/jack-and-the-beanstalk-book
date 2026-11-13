@@ -57,6 +57,7 @@ from app.models import (
     PageFault,
     StoryEdition,
 )
+from app.moderation import about_issues, first_issue_message
 from app.routes.auth import CurrentSessionDep
 from app.routes.book_access import book_edition as _book_edition
 from app.routes.book_access import ensure_book as _ensure_book
@@ -856,10 +857,13 @@ def _about_from_form(
     """
     resolved = book_name_for(settings, edition)
     resolved_prompt_name = child_name.strip() or resolved
-    resolved_about_name = about_name.strip() or resolved
+    # A blank About name is the child's name, not the tale's default name: the
+    # visitor typed the star's name and left this field alone, so the About
+    # page must be about that same child ("About Sarah", not "About Red").
+    resolved_about_name = about_name.strip() or resolved_prompt_name
 
     try:
-        return AboutMe.model_validate(
+        about = AboutMe.model_validate(
             {
                 "prompt_name": resolved_prompt_name,
                 "about_name": resolved_about_name,
@@ -872,6 +876,15 @@ def _about_from_form(
         )
     except ValidationError as exc:
         raise InvalidSettings(f"The About page details did not validate: {exc}") from exc
+    # The name goes on the cover and the details on the back cover, so they are
+    # printed and shipped. An insult, an epithet, profanity or contact details
+    # are refused here — before the book starts, before a picture is bought and
+    # long before a print order could be placed. The print route checks again,
+    # because a book made before this rule existed can still be ordered.
+    issues = about_issues(about)
+    if issues:
+        raise InvalidSettings(first_issue_message(issues))
+    return about
 
 
 def _with_page_shape(

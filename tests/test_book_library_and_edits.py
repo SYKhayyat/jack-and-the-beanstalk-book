@@ -136,9 +136,12 @@ class TestCover:
         pdf = client.get(f"/book-media/{book_id}/pdf")
         assert pdf.status_code == 200
         reader = PdfReader(io.BytesIO(pdf.content))
-        assert len(reader.pages) == PAGE_COUNT + 2  # cover + story + About
+        # Cover + copyright + the story + The End + About Me.
+        assert len(reader.pages) == PAGE_COUNT + 4
         first_page = reader.pages[0].extract_text() or ""
         assert "Shai and the Beanstalk" in first_page
+        assert "starring Shai" in first_page
+        assert "Copyright" in (reader.pages[1].extract_text() or "")
 
 
 class TestEditing:

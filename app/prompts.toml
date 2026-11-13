@@ -308,8 +308,9 @@ star_line = "This book stars {about_name}."
 age_line = "{about_name} is {age_phrase}."
 title_line = "In real life, {about_name} is {title_phrase}."
 closing = "The End"
-# The cover's credit line, under the title.
-credit = "A story for {about_name}"
+# The cover's credit line, under the title. A story with its own subtitle
+# ("starring {name}") uses that instead; either way the child is named.
+credit = "starring {about_name}"
 
 # Per-page scaffolding.
 [book.assembly]

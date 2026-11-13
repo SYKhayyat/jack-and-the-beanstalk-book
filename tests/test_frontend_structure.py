@@ -354,7 +354,7 @@ def test_every_story_has_finished_sample_covers_that_are_served(client: TestClie
 def test_a_sample_cover_is_titled_as_its_book_would_be(client: TestClient) -> None:
     by_key = {story.key: story for story in shelf(client.app.state.container.templates)}
     jack = next(s for s in by_key["jack_and_the_beanstalk"].samples if s.name == "Leo")
-    assert (jack.title, jack.byline) == ("Leo and the Beanstalk", "A story for Leo")
+    assert (jack.title, jack.byline) == ("Leo and the Beanstalk", "starring Leo")
     red = next(s for s in by_key["little_red_riding_hood"].samples if s.name == "Ava")
     assert (red.title, red.byline) == ("Little Red Riding Hood", "starring Ava")
 

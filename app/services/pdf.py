@@ -10,10 +10,14 @@ mechanically to every story page, so only the picture and the words change
   cover a face and no opaque rectangle is pasted onto the picture;
 * one font size for the whole book, chosen so the longest page fits; the
   margin grows rather than ever cutting a story short;
-* the cover is full-bleed art with a title lockup (title, soft shadow, credit
-  line) over a gentle darkening of the sky, not a white banner;
-* the last page is a composed About page: the child's portrait in a frame,
-  then real sentences built from what the uploader typed, then "The End".
+* the front cover is full-bleed art with a title lockup (title, soft shadow,
+  "starring <name>") over a gentle darkening of the sky, not a white banner;
+* the first inside page is the copyright page: the notice, the publisher and
+  the year, so the book opens like a real one and the story begins on the
+  page after it;
+* the story pages follow, then a composed "The End" page, and the last page
+  is the back cover: the child's portrait in a frame and real sentences built
+  from what the uploader typed ("About Me").
 
 Fonts ship with the app (``app/assets/fonts``): Literata (SIL OFL), a warm
 book serif, for every word in the book, with Noto Sans Hebrew as a glyph
@@ -28,6 +32,7 @@ import io
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -47,6 +52,8 @@ __all__ = [
     "book_template",
     "build_book_pdf",
     "draw_about_page",
+    "draw_closing_page",
+    "draw_copyright_page",
     "draw_cover_page",
     "title_band_report",
 ]
@@ -233,13 +240,21 @@ def build_book_pdf(
     subtitle: str = "",
     portrait: bytes | None = None,
     photo: bytes | None = None,
+    publisher: str = "Storybook Studio",
+    year: int | None = None,
 ) -> bytes:
-    """Assemble the book: cover, story pages in order, About last.
+    """Assemble the book: cover, copyright page, story, The End, back cover.
 
     Every page has the same size: the art's shape plus one story margin, so
     the book prints and reads as one object. `portrait` (the cartoon) and
-    `photo` (the original) are framed on the About page as `about.about_photo`
-    asks.
+    `photo` (the original) are framed on the back cover as
+    `about.about_photo` asks.
+
+    The order is the one a printed picture book has: the front cover, the
+    copyright page (the first inside page), the story starting on the page
+    after it, a closing page so the sheet count is even, and the About Me back
+    cover. Peecho prints page one as the front cover and the last page as the
+    back cover, so this file can be sent to it unchanged.
 
     Raises:
         ValueError: if `pages` is empty, no page has a picture to take the
@@ -273,9 +288,12 @@ def build_book_pdf(
     if cover is not None:
         draw_cover_page(pdf, title, about, cover, subtitle=subtitle)
 
+    draw_copyright_page(pdf, about, publisher, year or datetime.now(UTC).year)
+
     for number, entry in enumerate(pages, start=1):
         _draw_page(pdf, entry, layout, number)
 
+    draw_closing_page(pdf)
     draw_about_page(pdf, about, portrait, photo)
 
     output = io.BytesIO()
@@ -349,10 +367,81 @@ def draw_cover_page(
         _shadowed_cell(pdf, line, top, title_size * 1.25, offset=title_size * 0.05)
         top += title_size * 1.25
 
+    # The line under the title always names the star: the story's own line
+    # when it has one ("starring Sarah"), otherwise the book's credit line.
     credit = subtitle or about.cover_credit()
     credit_size = max(16.0, title_size * 0.42)
     pdf.set_font(_FAMILY, "I", credit_size)
     _shadowed_cell(pdf, credit, top + credit_size * 0.4, credit_size * 1.4, offset=1.2)
+
+
+def draw_copyright_page(
+    pdf: FPDF,
+    about: AboutMe,
+    publisher: str,
+    year: int,
+) -> None:
+    """The first inside page: the copyright notice and who published it.
+
+    A real book carries this opposite the title page. It is deliberately
+    quiet — small centred text on the paper, with one gold rule — so it reads
+    as front matter and never competes with the story. The story starts on
+    the *next* page, which is why this page is drawn before any story page.
+    """
+    width, height = pdf.w, pdf.h
+    pdf.add_page()
+    pdf.set_fill_color(*PAPER_RGB)
+    pdf.rect(0, 0, width, height, style="F")
+    usable = width * (1 - 2 * _SIDE_MARGIN)
+
+    lines = [
+        (f"Copyright © {year} {publisher}", 13.0, ""),
+        ("All rights reserved.", 11.0, "I"),
+        ("", 11.0, ""),
+        (f"Made for {about.about_name}.", 13.0, "I"),
+        ("", 11.0, ""),
+        (
+            "No part of this book may be reproduced or distributed "
+            "without written permission.",
+            10.0,
+            "",
+        ),
+        ("", 10.0, ""),
+        (f"Published by {publisher}.", 11.0, ""),
+        (f"First edition, {year}.", 10.0, "I"),
+    ]
+    top = height * 0.44
+    pdf.set_text_color(*_INK)
+    for text, size, style in lines:
+        if not text:
+            top += size * 0.7
+            continue
+        pdf.set_font(_FAMILY, style, size)
+        for wrapped in _wrap(text, _FAMILY, style, size, usable * 0.86):
+            pdf.set_xy(width * _SIDE_MARGIN, top)
+            pdf.cell(usable, size * 1.45, wrapped, align="C")
+            top += size * 1.45
+    pdf.set_draw_color(*_GOLD)
+    pdf.set_line_width(1.2)
+    pdf.line(width * 0.36, top + height * 0.035, width * 0.64, top + height * 0.035)
+
+
+def draw_closing_page(pdf: FPDF) -> None:
+    """The page after the last story page: "The End", on its own.
+
+    Printed books are made of folded sheets, so a book needs an even number of
+    pages; this also gives the tale a quiet close before the back cover. The
+    back cover keeps the About Me copy and carries no second "The End".
+    """
+    width, height = pdf.w, pdf.h
+    pdf.add_page()
+    pdf.set_fill_color(*PAPER_RGB)
+    pdf.rect(0, 0, width, height, style="F")
+    size = max(20.0, width * 0.045)
+    pdf.set_font(_FAMILY, "I", size)
+    pdf.set_text_color(*_GOLD)
+    pdf.set_xy(0, height * 0.46)
+    pdf.cell(width, size * 1.5, str(prompt_text()["book"]["about"]["closing"]), align="C")
 
 
 @lru_cache(maxsize=1)
@@ -371,13 +460,22 @@ def _vignette_bytes() -> bytes:
 def _shadowed_cell(
     pdf: FPDF, text: str, y: float, line_height: float, *, offset: float
 ) -> None:
-    """One centred line of cream text with a soft dark shadow behind it."""
-    with pdf.local_context(fill_opacity=0.55, text_color=_SHADOW):
-        pdf.set_xy(offset, y + offset)
-        pdf.cell(pdf.w, line_height, text, align="C")
+    """One centred line of cream text with a dark edge, drawn once.
+
+    The edge used to be a second, offset copy of the same string. That reads
+    correctly on paper, but the PDF's text layer then held every cover word
+    twice: copying the title gave "Little Red Riding HoodLittle Red Riding
+    Hood", and a screen reader said it twice. A fill-and-stroke glyph spells
+    the line once and still keeps it legible over a sky.
+    """
+    del offset  # kept in the signature so the callers state where the edge sits
+    pdf.set_draw_color(*_SHADOW)
+    pdf.set_line_width(1.2)
+    pdf.text_mode = "FILL_STROKE"
     pdf.set_text_color(*_CREAM)
     pdf.set_xy(0, y)
     pdf.cell(pdf.w, line_height, text, align="C")
+    pdf.text_mode = "FILL"
 
 
 def _draw_page(pdf: FPDF, entry: PageArt, layout: TemplateGeometry, number: int) -> None:
@@ -439,11 +537,12 @@ def _draw_missing_art(pdf: FPDF, layout: TemplateGeometry) -> None:
 def draw_about_page(
     pdf: FPDF, about: AboutMe, portrait: bytes | None = None, photo: bytes | None = None
 ) -> None:
-    """The closing page: heading, framed picture(s), sentences, "The End".
+    """The back cover: heading, framed picture(s) and the About Me sentences.
 
     The picture is the cartoon, the real photo, or both side by side, as the
     About screen chose. A choice whose image is missing falls back to what is
-    there, so the page is never left without the face it can show.
+    there, so the page is never left without the face it can show. "The End"
+    is its own page just before this one, so it is not repeated here.
     """
     width, height = pdf.w, pdf.h
     pdf.add_page()
@@ -474,17 +573,14 @@ def draw_about_page(
         ]
         top = max(bottoms) + height * 0.035
 
-    closing = str(prompt_text()["book"]["about"]["closing"])
-    closing_size = max(16.0, width * 0.035)
-    closing_top = height - height * 0.06 - closing_size * 1.5
-
+    # The text may continue onto another page; only the picture and heading
+    # are first-page furniture (B11). The bottom margin is left clear so the
+    # back cover does not run into the trim.
+    bottom = height - height * 0.06
     if sentences:
-        available = closing_top - top - height * 0.02
-        # A continuation page has the same text column and leaves the same
-        # room for "The End"; only the picture and heading are first-page
-        # furniture (B11).
+        available = bottom - top
         continuation_top = height * 0.08
-        continuation_height = closing_top - continuation_top - height * 0.02
+        continuation_height = bottom - continuation_top
         pages, body_size, line_height = _fit_text_pages(
             "\n".join(sentences),
             _FAMILY,
@@ -504,11 +600,6 @@ def draw_about_page(
                 pdf.rect(0, 0, width, height, style="F")
                 page_top = continuation_top
             _centred_lines(pdf, lines, page_top, line_height)
-
-    pdf.set_font(_FAMILY, "I", closing_size)
-    pdf.set_text_color(*_GOLD)
-    pdf.set_xy(width * _SIDE_MARGIN, closing_top)
-    pdf.cell(usable, closing_size * 1.5, closing, align="C")
 
 
 def _centred_lines(pdf: FPDF, lines: Sequence[str], top: float, line_height: float) -> None:

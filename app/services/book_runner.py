@@ -289,6 +289,7 @@ class BookRunner:
         cost_alert_cents: int = 0,
         notice: BookReadyNotice | None = None,
         switches: Switches | None = None,
+        publisher: str = "Storybook Studio",
     ) -> None:
         self._provider = provider
         # Read once per resume, to log what the restart threw away.
@@ -323,7 +324,9 @@ class BookRunner:
         self._page_timeout = page_timeout_seconds
         # None when payments are off: the book is still rendered, and nothing
         # is charged. An owned book made in that mode is simply free.
-        self._document = BookDocument(book_store=book_store, wallet=wallet)
+        self._document = BookDocument(
+            book_store=book_store, wallet=wallet, publisher=publisher
+        )
         self._tasks: set[asyncio.Task[None]] = set()
         self._active: dict[str, asyncio.Task[None]] = {}
         #: This process's name on the books it renders. The lease, not this id,

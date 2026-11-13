@@ -15,7 +15,13 @@ from pathlib import Path
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.pricing import PICTURE_PRICE_CENTS
+from app.pricing import (
+    PICTURE_PRICE_CENTS,
+    PRINT_BASE_COST_CENTS,
+    PRINT_PER_PAGE_CENTS,
+    PRINT_RETAIL_CENTS,
+    PRINT_SHIPPING_CENTS,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -255,6 +261,69 @@ class Settings(BaseSettings):
         description=(
             "What one review call costs, in dollars. Empty leaves review calls "
             "counted but unpriced, and the cost page says how many."
+        ),
+    )
+
+    # --- the printed book ---
+    publisher_name: str = Field(
+        default="Storybook Studio",
+        max_length=80,
+        description="The publisher named on the copyright page and the back cover.",
+    )
+    print_provider: str = Field(
+        default="mock",
+        pattern="^(off|mock|peecho)$",
+        description=(
+            "How a printed copy is ordered: `mock` records a test order locally "
+            "and is the default; `peecho` places a real order in Peecho's test "
+            "environment (no book is produced and no money is taken); `off` "
+            "hides the print path. There is deliberately no live provider."
+        ),
+    )
+    print_retail_cents: int = Field(
+        default=PRINT_RETAIL_CENTS,
+        ge=100,
+        le=100_000,
+        description="What one printed, shipped copy costs the customer, in cents.",
+    )
+    print_base_cost_cents: int = Field(
+        default=PRINT_BASE_COST_CENTS,
+        ge=0,
+        le=100_000,
+        description="The print provider's base wholesale cost per book, in cents.",
+    )
+    print_per_page_cost_cents: int = Field(
+        default=PRINT_PER_PAGE_CENTS,
+        ge=0,
+        le=10_000,
+        description="The print provider's wholesale cost per page, in cents.",
+    )
+    print_shipping_cents: int = Field(
+        default=PRINT_SHIPPING_CENTS,
+        ge=0,
+        le=100_000,
+        description="The estimated standard shipping cost per book, in cents.",
+    )
+    peecho_api_key: str = Field(
+        default="",
+        description=(
+            "Peecho *test* environment API key (test.www.peecho.com). A credential "
+            "like the others: environment only, never committed or logged. Required "
+            "when PRINT_PROVIDER=peecho; ignored by the mock."
+        ),
+    )
+    peecho_offering_id: str = Field(
+        default="",
+        description=(
+            "The book product id from the Peecho test dashboard. Required when "
+            "PRINT_PROVIDER=peecho."
+        ),
+    )
+    peecho_contact_email: str = Field(
+        default="",
+        description=(
+            "The operator's email on the print job, for Peecho's questions. Falls "
+            "back to MAIL_FROM, then to the recipient's email."
         ),
     )
 
@@ -630,6 +699,11 @@ class Settings(BaseSettings):
     def payments_enabled(self) -> bool:
         """Whether money is on: a Stripe key is configured."""
         return bool(self.stripe_secret_key)
+
+    @property
+    def print_enabled(self) -> bool:
+        """Whether a printed copy is offered at all (a wallet is checked apart)."""
+        return self.print_provider != "off"
 
     @model_validator(mode="after")
     def _a_paid_book_is_checked(self) -> Settings:

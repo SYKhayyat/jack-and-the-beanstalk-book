@@ -81,11 +81,14 @@ def book_with_cover() -> bytes:
 
 
 class TestAssembly:
-    def test_one_page_per_story_page_plus_about_me(self, book_bytes: bytes) -> None:
+    def test_one_page_per_story_page_plus_front_and_back_matter(
+        self, book_bytes: bytes
+    ) -> None:
         reader = PdfReader(io.BytesIO(book_bytes))
-        # About page + every active story page = 21 sheets. The cover is the
-        # 22nd, added when the book has one.
-        assert len(reader.pages) == len(BOOK_PAGES) + 1 == 21
+        # Copyright page + every story page + the closing page + the About
+        # back cover = 23 sheets. The front cover is the 24th, added when the
+        # book has one, which also makes the sheet count even for printing.
+        assert len(reader.pages) == len(BOOK_PAGES) + 3 == 23
 
     def test_the_unretired_beanstalk_page_is_in_the_pdf(self, book_bytes: bytes) -> None:
         """Step 7 changed the constraint: page 4 is story, not retired data.
@@ -103,9 +106,19 @@ class TestAssembly:
 
     def test_story_text_is_real_pdf_text(self, book_bytes: bytes) -> None:
         reader = PdfReader(io.BytesIO(book_bytes))
-        first = reader.pages[0]
+        # The copyright page is first; the story starts on the page after it.
+        first = reader.pages[1]
         text = first.extract_text()
         assert "Milky-White" in text.replace("\n", " ")
+
+    def test_the_copyright_page_comes_before_the_story(self, book_bytes: bytes) -> None:
+        reader = PdfReader(io.BytesIO(book_bytes))
+        front = (reader.pages[0].extract_text() or "").replace("\n", " ")
+        assert "Copyright" in front
+        assert "Storybook Studio" in front
+        assert "All rights reserved" in front
+        # The story does not begin on the copyright page itself.
+        assert "Milky-White" not in front
 
     def test_no_page_loses_the_end_of_its_story(self, book_bytes: bytes) -> None:
         """A paragraph must fit the panel: nothing truncated, no ellipsis.
@@ -187,7 +200,7 @@ class TestAssembly:
         (PDF y runs upwards, so "below" means a y under the margin's height).
         """
         reader = PdfReader(io.BytesIO(book_bytes))
-        for page in reader.pages[:-1]:
+        for page in reader.pages[1 : 1 + len(BOOK_PAGES)]:
             height = float(page.mediabox.height)
             margin = height - 540
             ys: list[float] = []
@@ -204,7 +217,7 @@ class TestAssembly:
         """No font size drifting page to page."""
         sizes: set[float] = set()
         reader = PdfReader(io.BytesIO(book_bytes))
-        for page in reader.pages[:-1]:
+        for page in reader.pages[1 : 1 + len(BOOK_PAGES)]:
 
             def visit(text, cm, tm, font, size):  # type: ignore[no-untyped-def]
                 if len(text.strip()) > 3:
@@ -217,16 +230,19 @@ class TestAssembly:
         assert b"Literata" in book_bytes
         assert b"ComicNeue" not in book_bytes
 
-    def test_the_about_page_frames_the_portrait_and_ends_the_story(self) -> None:
+    def test_the_back_cover_frames_the_portrait_and_the_end_is_its_own_page(self) -> None:
         data = build_book_pdf(
             "Jack and the Beanstalk", about(), pages(), portrait=art_bytes(512, 512)
         )
-        last = PdfReader(io.BytesIO(data)).pages[-1]
+        reader = PdfReader(io.BytesIO(data))
+        last = reader.pages[-1]
         text = (last.extract_text() or "").replace("\n", " ")
         assert "This book stars Shai." in text
         assert "Shai is 7 years old." in text
-        assert "The End" in text
         assert " Do" in last.get_contents().get_data().decode("latin-1"), "portrait drawn"
+        closing = (reader.pages[-2].extract_text() or "").replace("\n", " ")
+        assert "The End" in closing
+        assert "The End" not in text, "the back cover must not repeat the closing page"
 
     def test_a_long_about_text_flows_onto_another_page_instead_of_being_cut(self) -> None:
         """The download must carry every word the web reader showed (B11).
@@ -248,11 +264,14 @@ class TestAssembly:
         )
         reader = PdfReader(io.BytesIO(data))
 
-        about_pages = [(page.extract_text() or "") for page in reader.pages[1:]]
+        texts = [(page.extract_text() or "") for page in reader.pages]
+        closing_at = next(index for index, text in enumerate(texts) if "The End" in text)
+        about_at = next(index for index, text in enumerate(texts) if "About Shai" in text)
+        assert closing_at < about_at, "the closing page comes before the back cover"
+        about_pages = texts[about_at:]
         assert len(about_pages) >= 2, "the text should have continued"
         joined = " ".join(" ".join(page.split()) for page in about_pages)
         assert "…" not in joined
-        assert "The End" in about_pages[-1]
         # The last words typed are in the PDF, not dropped at the page break.
         assert " ".join(details.split())[-80:] in joined
 
@@ -289,4 +308,5 @@ class TestAssembly:
         pdf = build_book_pdf("Jack and the Beanstalk", about(), book)
 
         assert len(pdf) < len(image), "the PDF grew instead of shrinking the art"
-        assert len(PdfReader(io.BytesIO(pdf)).pages) == 3
+        # Copyright + two story pages + closing + About back cover.
+        assert len(PdfReader(io.BytesIO(pdf)).pages) == 5

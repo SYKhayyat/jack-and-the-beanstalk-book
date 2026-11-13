@@ -15,15 +15,65 @@ fix**. An item only counts as taken once that commit is in — a code change wit
 the audit entry still open is an untracked claim. Before starting the next one,
 ask which item to take; do not silently pick from the queue.
 
-## Hand-in links (all four must open in a private window)
+## Hand-in links (all six must open in a private window)
 
 1. **Live site** — <https://jack-and-the-beanstalk-book.onrender.com/>
 2. **GitHub repo (public)** — <https://github.com/SYKhayyat/jack-and-the-beanstalk-book>
 3. **This file** — <https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/to-do.md>
 4. **Review log** — <https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/review-log.md>
+5. **A PDF the app produced** — [`docs/sample-book.pdf`](docs/sample-book.pdf)
+   (a 24-page book made locally with the mock artist: front cover, copyright
+   page, 20 story pages, The End, About Me back cover). Rebuild it with
+   `python -m scripts.make_sample_book`; the script forces the mock provider,
+   never reads `.env` and makes no API call.
+6. **What I did** — [`docs/print-write-up.md`](docs/print-write-up.md), with
+   the price arithmetic in
+   [`docs/print-business-model.md`](docs/print-business-model.md).
 
-Post the same four links in Canvas and in Slack, only after the private-window
-pass below.
+Post the same links in Canvas and in Slack, only after the private-window
+pass below. The script to paste is at the bottom of this file.
+
+## Print it and ship it
+
+- [x] A real print API that takes the PDF, prints and delivers it — Peecho’s
+      print API, **test environment only** (`app/services/print/peecho.py`).
+      `SANDBOX_BASE_URL` is a constant; there is no production host in the
+      code. The default `mock` provider records the same order locally, and the
+      page says so. No real orders.
+- [x] Pluggable providers: `mock`, `peecho`, `off`; the provider contract is
+      `app/services/print/base.py`.
+- [x] The owner reviews the PDF and approves it; nothing is sent before that.
+      The approval stores the PDF’s SHA-256, so an edit after review clears it
+      (`app/routes/print_orders.py`, `app/services/print/service.py`).
+- [x] The owner enters the delivery address; the app validates it, prices it,
+      charges the wallet and places the test order.
+- [x] Front cover: the title and **“starring &lt;child&gt;”**; the story seed’s
+      own subtitle is used when it has one (Red Riding Hood), so every cover
+      names the star.
+- [x] Inside page: copyright notice, publisher (`PUBLISHER_NAME`, default
+      Storybook Studio) and “Made for &lt;child&gt;”.
+- [x] The story starts on the first page after the copyright page.
+- [x] Back cover: **About Me**, with the portrait, age, ambition, dedication
+      and details.
+- [x] About Me validation: the name must look like a name and cannot be an
+      insult or epithet; the free text cannot carry profanity, slurs, threats
+      or contact details (`app/moderation.py`). Checked when the book starts and
+      again before a print order.
+- [x] Priced at **$24.99** a printed copy; the arithmetic and margin
+      ($8.16, 32.7%) are in `docs/print-business-model.md`.
+- [x] The provider is told the PDF's **real** page count and trim size, measured
+      from the file with pypdf, not a hard-coded A5: a 4:3 book is 254×272 mm.
+- [x] The cover credits the child the story names (`prompt_name`), and a blank
+      About name is that same child — a book starring Sarah never says
+      “starring Jack” or “About Red”.
+- [x] The cover's title is one text run, not a shadow copy plus the title, so
+      copy-and-paste and screen readers get it once.
+- [x] `docs/sample-book.pdf` was rebuilt from 4:3 art (254×272 mm pages) and a
+      real cover illustration, by `scripts/make_sample_book.py`.
+- [ ] Paste Peecho **test** credentials into Render (`PEECHO_API_KEY`,
+      `PEECHO_OFFERING_ID`) and switch `PRINT_PROVIDER` from `mock` to
+      `peecho` to see a real sandbox order in Peecho’s test dashboard.
+- [ ] Post the six hand-in links in Canvas and in Slack (the text is below).
 
 ## Accounts and money — Stripe sandbox
 
@@ -197,8 +247,8 @@ $0.024 (≈2,150 reference-image tokens, ≈1,450 prompt tokens, 144 out).
 
 ## Before submitting
 
-- [ ] Open all four links above in a private window.
-- [ ] Post the four links in Canvas and Slack.
+- [ ] Open all six links above in a private window.
+- [ ] Post the six links in Canvas and Slack.
 
 ---
 
@@ -459,3 +509,25 @@ a line in one issue instead: [#34 "fix the prompt"](https://github.com/SYKhayyat
 
 - Read-along voiceover per page (needs a speech provider key; none is wired yet).
 - Page-1 "dedication" line built from the About details.
+
+## Paste into Canvas and Slack
+
+```text
+Storybook Studio — picture books starring your kid
+
+Live site: https://jack-and-the-beanstalk-book.onrender.com/
+GitHub:    https://github.com/SYKhayyat/jack-and-the-beanstalk-book
+PDF made by the app: https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/docs/sample-book.pdf
+To-do list: https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/to-do.md
+Review log: https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/review-log.md
+What I did (print feature + price maths): https://github.com/SYKhayyat/jack-and-the-beanstalk-book/blob/main/docs/print-write-up.md
+
+New this round: a finished book can be ordered as a real printed, posted book
+in a print service's test mode. You review the exact PDF, approve it, then
+enter an address; nothing is sent before that approval. The book has a front
+cover ("Little Red Riding Hood, starring Sarah"), a copyright page with the
+publisher, the story starting on the page after it, and an About Me back
+cover. The child's name and About Me text are checked for insults, epithets and
+inappropriate language before anything is printed. A printed copy is $24.99;
+cost is $16.83 and margin $8.16 (32.7%). Full maths and write-up in the links.
+```

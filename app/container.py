@@ -45,6 +45,11 @@ from app.services.mailer import Mailer, ResendMailer
 from app.services.payments import PaymentProvider, StripePaymentProvider
 from app.services.pipeline import GenerationPipeline
 from app.services.portrait_log import PortraitLog
+from app.services.print.base import PrintProvider
+from app.services.print.mock import MockPrintProvider
+from app.services.print.peecho import PeechoPrintProvider
+from app.services.print.service import PrintService
+from app.services.print.store import PrintOrderStore
 from app.services.rate_limit import GenerationRateLimiter
 from app.services.reviewer import GeminiWebReviewer, ImageReviewer, build_reviewer
 from app.services.storage import GenerationStore
@@ -89,6 +94,9 @@ class Container:
     #: Every billable model call, priced and tagged with its book (the cost
     #: panel's source). `provider` and the runner's reviewer write to it.
     costs: CostLedger
+    #: Printed copies: approval, address and the test print job. Constructed
+    #: even when printing is off, so every route can ask without a None check.
+    print_service: PrintService
     #: Every portrait shown in the studio and every take picked (operator only).
     portraits: PortraitLog
     #: The one child each account asked the studio to remember, so the next
@@ -176,6 +184,30 @@ def build_container(
     # operator's answer through the same short cache (Idea 10).
     switches = Switches(engine)
     wallet = Wallet(wallet_store, picture_price_cents=settings.picture_price_cents)
+    # The print provider is constructed once, at boot, so a Peecho deployment
+    # with no key or no product id fails before a visitor reaches the button.
+    # The mock is the default: it records the job locally and prints nothing.
+    print_provider: PrintProvider | None = None
+    if settings.print_provider == "peecho":
+        print_provider = PeechoPrintProvider(
+            merchant_api_key=settings.peecho_api_key,
+            offering_id=settings.peecho_offering_id,
+            contact_email=settings.peecho_contact_email or settings.mail_from,
+        )
+    elif settings.print_provider == "mock":
+        print_provider = MockPrintProvider()
+    print_service = PrintService(
+        store=PrintOrderStore(engine),
+        provider=print_provider or MockPrintProvider(),
+        # A printed copy is a purchase. Without payments there is no wallet to
+        # charge, so the service reports itself disabled and the page explains.
+        wallet=wallet if resolved_payments is not None else None,
+        retail_cents=settings.print_retail_cents,
+        base_cost_cents=settings.print_base_cost_cents,
+        per_page_cents=settings.print_per_page_cost_cents,
+        shipping_cents=settings.print_shipping_cents,
+        enabled=settings.print_enabled,
+    )
     # The one mail this app sends (W2). Off — no key, or no From address — is a
     # complete answer: a book finishes and nothing is mailed, exactly as a
     # deployment without a Stripe key still makes free books.
@@ -266,10 +298,12 @@ def build_container(
             cost_alert_cents=settings.book_cost_alert_cents,
             notice=notice,
             switches=switches,
+            publisher=settings.publisher_name,
         ),
         wallet=wallet,
         payments=resolved_payments,
         costs=costs,
+        print_service=print_service,
         portraits=PortraitLog(engine),
         child_profiles=DatabaseChildProfileStore(engine),
         switches=switches,

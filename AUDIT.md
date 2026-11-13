@@ -424,6 +424,35 @@ These are not defects; they are the highest-leverage things the codebase is alre
 
 ---
 
+## 8. Print round — defects found and fixed, 13 November 2026
+
+### PR1 — P1: the cover credited the About-page name, not the child
+The cover's line under the title used `AboutMe.about_name`. A visitor who typed only the child's name left that field blank, and the fallback was the tale's default — so a book titled **“Shai and the Beanstalk”** said **“starring Jack”**, and copy-pasting the cover gave the wrong star. The cover now credits `prompt_name`, the name the story and the book title use; the About page keeps its own (possibly different) name.
+
+**Done (13 Nov 2026):** `AboutMe.cover_credit()` reads `prompt_name`; pinned by `test_the_cover_credits_the_story_name_not_the_about_page_name` and the full-flow cover assertion. The same full-flow test also pins that the cover's text layer contains “starring shai” exactly once.
+
+### PR2 — P1: a blank About name printed the tale's default on the copyright and back covers
+When only the child's name was typed, `_about_from_form` resolved the blank About name to the story's default (`Red`, `Jack`) instead of the child's name. The sample PDF read “Made for Red” and “About Red” for a book starring Sarah. A blank About name now falls back to the typed child's name.
+
+**Done (13 Nov 2026):** `resolved_about_name = about_name.strip() or resolved_prompt_name` in `app/routes/book.py`; pinned by `test_a_blank_about_name_is_the_childs_name` (copyright says “Made for Shai”, back cover says “About Shai”, never “About Jack”).
+
+### PR3 — P2: the print provider was told a hard-coded page size
+The Peecho payload sent A5 landscape (210×148 mm) whatever the PDF was. The book's page follows its art, so a 4:3 book is 254×272 mm and a square demo was 254×336 mm; the provider would have received a size that did not match the file. The page count and trim size are now measured from the PDF itself (pypdf) at approval and order time, and the provider payload carries those numbers.
+
+**Done (13 Nov 2026):** `PrintService.quote_for_pdf`/`measure_pdf` in `app/services/print/service.py`, `PrintQuote.page_width_mm`/`page_height_mm`, and `PeechoPrintProvider` reading them; `pypdf` is now a pinned runtime dependency.
+
+### PR4 — P2: the cover's shadow doubled every word in the PDF's text layer
+`_shadowed_cell` drew a dark offset copy of the title and then the title again. On paper that is a shadow; in the file it was two text runs, so copying the cover produced “Little Red Riding HoodLittle Red Riding Hood” and a screen reader repeated it. The line is now one fill-and-stroke glyph run with a dark edge.
+
+**Done (13 Nov 2026):** `app/services/pdf.py::_shadowed_cell`; the full-flow test counts the `starring` line once in the extracted cover text.
+
+### PR5 — P2: the hand-in sample PDF was not representative
+`docs/sample-book.pdf` had been assembled from an 8×8 placeholder, so every page was a 254×336 mm flat rectangle — a file that showed the page order but not a book. It is now produced by `scripts/make_sample_book.py` through the real HTTP flow with the mock artist at 4:3, giving 254×272 mm pages, a real cover illustration and the About portrait, while the interior stays honestly labelled as demo art. The script refuses to read `.env`, forces the mock provider and an empty database URL, and makes no API call.
+
+**Done (13 Nov 2026):** 24 pages, 1.5 MB, `ruff` clean; the PDF opens with the cover, copyright page, story on page 3 and About Me on page 24.
+
+---
+
 ## Positives worth keeping
 
 * **Authorization is consistent.** Every book artefact goes through `ensure_book`, owner mismatch returns the same 404 as a missing book, and the `/media` draft URLs are explicitly bearer tokens with `no-store`. The admin gate 404s rather than 403s. The OAuth `next` and Stripe `next` paths reject schemes, hosts, backslashes and `//` spellings.

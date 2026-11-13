@@ -47,6 +47,8 @@ from app.services.wallet import (
     KIND_FUNDING,
     KIND_PICTURE,
     KIND_PICTURE_REFUND,
+    KIND_PRINT,
+    KIND_PRINT_REFUND,
     KIND_REFUND,
     KIND_REFUND_REVERSAL,
     REFUND_FAILED,
@@ -75,6 +77,8 @@ _KIND_FILTERS = (
     (KIND_CHARGE, "Book fees"),
     (KIND_PICTURE, "Pictures"),
     (KIND_PICTURE_REFUND, "Returned pictures"),
+    (KIND_PRINT, "Printed copies"),
+    (KIND_PRINT_REFUND, "Returned print orders"),
     (KIND_REFUND, "Refunds"),
     (KIND_REFUND_REVERSAL, "Adjustments"),
 )
@@ -137,7 +141,14 @@ def wallet_page(
     book_ids.discard("")
     # A top-up or a refund is not tied to a book; ignore a book filter that a
     # hand-written URL pairs with one of those kinds.
-    if kind_filter not in ("all", KIND_CHARGE, KIND_PICTURE, KIND_PICTURE_REFUND):
+    if kind_filter not in (
+        "all",
+        KIND_CHARGE,
+        KIND_PICTURE,
+        KIND_PICTURE_REFUND,
+        KIND_PRINT,
+        KIND_PRINT_REFUND,
+    ):
         book_filter = "all"
     else:
         book_filter = book if book in book_ids else "all"

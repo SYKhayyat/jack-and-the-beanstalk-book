@@ -1,0 +1,93 @@
+{% extends "_layout.html" %}
+{% block title %}Order a printed copy — {{ title }}{% endblock %}
+{% block header_title %}<span class="header-title">Printed copy</span>{% endblock %}
+{% block main_class %}page print-screen{% endblock %}
+{% block content %}
+  <nav class="breadcrumb"><a href="/books/{{ book.book_id }}">← Back to the book</a></nav>
+
+  <section class="screen-intro">
+    <h1>A printed copy of <em>{{ title }}</em></h1>
+    <p>A real {{ page_count }}-page book, printed on paper, bound, and posted to the address you enter.
+      It includes the digital book you already have.</p>
+  </section>
+
+  {% if provider_mode == "test" %}
+  <p class="print-test-note" id="print-test-note">
+    <strong>Test mode.</strong> The print service is {{ provider_name }}’s sandbox. An order is recorded
+    and given a test order number, but no book is printed or shipped and no real money leaves the account.
+  </p>
+  {% endif %}
+
+  {% if error %}
+  <p class="inline-message error" id="print-error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  {% if submitted %}
+  <section class="card print-card" id="print-receipt" aria-labelledby="receipt-title">
+    <h2 id="receipt-title">Your printed copy is ordered</h2>
+    <dl class="print-receipt">
+      <div><dt>Order</dt><dd id="provider-order-id">{{ submitted.provider_order_id }}</dd></div>
+      <div><dt>Status</dt><dd>{{ submitted.state }}</dd></div>
+      <div><dt>Pages</dt><dd>{{ submitted.page_count }}</dd></div>
+      <div><dt>Paid</dt><dd>{{ price_label }}</dd></div>
+      <div><dt>Delivering to</dt><dd>{{ submitted.address.get("name", "") }}, {{ submitted.address.get("street1", "") }}{% if submitted.address.get("street2") %}, {{ submitted.address.get("street2") }}{% endif %}, {{ submitted.address.get("city", "") }} {{ submitted.address.get("postcode", "") }}, {{ submitted.address.get("country_code", "") }}</dd></div>
+    </dl>
+    <p class="field-help">Keep the order number. It is how the operator can find this job in the print service’s test dashboard.</p>
+    <a class="button" href="/books/{{ book.book_id }}">Back to the book</a>
+  </section>
+
+  {% elif not service_enabled %}
+  <section class="card print-card" id="print-unavailable">
+    <h2>Printed copies are not available here</h2>
+    <p>This deployment has no print service or no wallet, so it cannot take an order. The PDF is still yours to download and print at home.</p>
+    <a class="button" href="{{ pdf_url }}" download>Download the book (PDF)</a>
+  </section>
+
+  {% elif not approved %}
+  <section class="card print-card" id="print-review" aria-labelledby="review-title">
+    <h2 id="review-title">1. Read the book first</h2>
+    <p>This is the exact PDF that would be printed: the front cover with the title and the child’s name,
+      the copyright page and publisher, the story, and the About Me back cover. Check the name, the words
+      and every picture before you approve it.</p>
+    <p class="print-actions">
+      <a class="button primary big" id="open-print-pdf" href="{{ pdf_url }}" target="_blank" rel="noopener">Open the PDF to review</a>
+      <a class="button" href="{{ pdf_url }}" download>Download it</a>
+    </p>
+    <p class="field-help">Approving records this copy of the PDF. If you edit the book afterwards, the approval is cleared and you will be asked to read the new version.</p>
+    <form method="post" action="/books/{{ book.book_id }}/print/approve">
+      <button type="submit" class="button primary big" id="approve-print">I’ve reviewed this PDF — continue</button>
+    </form>
+    <p class="field-help print-sha">PDF fingerprint: <code>{{ pdf_sha[:16] }}</code></p>
+  </section>
+
+  {% else %}
+  <section class="card print-card" id="print-address" aria-labelledby="address-title">
+    <h2 id="address-title">2. Where should it go?</h2>
+    <p>The printer ships straight to this address. The name goes on the parcel, and the email is only for
+      the order confirmation.</p>
+    <form method="post" action="/books/{{ book.book_id }}/print/order" class="print-form">
+      <input type="hidden" name="order_id" value="{{ approval.id }}">
+      <div class="print-fields">
+        <div class="field wide"><label for="print-name">Name on the parcel</label><input id="print-name" name="name" maxlength="120" required value="{{ form.name }}"></div>
+        <div class="field wide"><label for="print-email">Email for the confirmation</label><input id="print-email" name="email" type="email" maxlength="320" required value="{{ form.email }}"></div>
+        <div class="field wide"><label for="print-street1">Street address</label><input id="print-street1" name="street1" maxlength="200" required value="{{ form.street1 }}"></div>
+        <div class="field wide"><label for="print-street2">Apartment, suite, etc. <span class="optional">(optional)</span></label><input id="print-street2" name="street2" maxlength="200" value="{{ form.street2 }}"></div>
+        <div class="field"><label for="print-city">Town or city</label><input id="print-city" name="city" maxlength="100" required value="{{ form.city }}"></div>
+        <div class="field"><label for="print-state">State or region <span class="optional">(optional)</span></label><input id="print-state" name="state" maxlength="100" value="{{ form.state }}"></div>
+        <div class="field"><label for="print-postcode">Postal code</label><input id="print-postcode" name="postcode" maxlength="32" required value="{{ form.postcode }}"></div>
+        <div class="field"><label for="print-country">Country</label>
+          <select id="print-country" name="country_code" required>
+            {% for code, label in countries %}<option value="{{ code }}"{% if code == form.country_code %} selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field"><label for="print-phone">Phone <span class="optional">(optional)</span></label><input id="print-phone" name="phone" maxlength="32" value="{{ form.phone }}"></div>
+      </div>
+      <div class="print-summary">
+        <p class="print-price"><span>{{ price_label }}</span> <small>one printed copy, shipping included</small></p>
+        <p class="field-help">You approved the PDF fingerprinted <code>{{ pdf_sha[:16] }}</code>. If the book changes, this form will ask you to review it again.</p>
+        <button type="submit" class="button primary big" id="place-print-order">Place the test order — {{ price_label }}</button>
+      </div>
+    </form>
+  </section>
+  {% endif %}
+{% endblock %}

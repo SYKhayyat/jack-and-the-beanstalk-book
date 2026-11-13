@@ -491,6 +491,13 @@ def page_chrome(
         "picture_price": format_cents(container.wallet.picture_price_cents)
         if payments_enabled
         else "",
+        # A printed copy is offered only where there is both a print provider
+        # and a wallet to charge. The price is shown before the flow starts,
+        # beside the digital download it already belongs with.
+        "print_available": container.print_service.enabled,
+        "print_price": format_cents(container.settings.print_retail_cents)
+        if container.print_service.enabled
+        else "",
         "flash": wallet_message(request.query_params.get("message", ""))
         if request is not None
         else "",

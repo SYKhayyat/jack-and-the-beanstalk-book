@@ -99,8 +99,11 @@ class TestStoryPageGeometry:
         heights = {round(float(page.mediabox.height), 2) for page in reader.pages}
         assert heights == {round(geometry.page_height, 2)}
 
+        # The copyright page comes first and The End sits after the story;
+        # both are front/back matter with their own sizes, so only the story
+        # pages are compared with the template's one size.
         sizes: set[float] = set()
-        for page in reader.pages[:-1]:
+        for page in reader.pages[1 : 1 + len(pages)]:
 
             def visit(text, cm, tm, font, size):  # type: ignore[no-untyped-def]
                 if len(text.strip()) > 3:

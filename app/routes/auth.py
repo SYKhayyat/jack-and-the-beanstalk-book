@@ -66,7 +66,9 @@ _OPEN_PATHS = frozenset(
 # with no account is the whole point of it (W3) — and the signed token, not a
 # session, is what authorises the request. Minting one stays behind the owner's
 # session: that is `/books/{id}/share`, which is not under this prefix.
-_OPEN_PREFIXES = ("/static/", "/share/")
+# `/print/files/` is the short-lived signed PDF a print provider fetches: the
+# provider has no session, and the token is the whole grant.
+_OPEN_PREFIXES = ("/static/", "/share/", "/print/files/")
 
 # The state cookie remembers where the visitor was going, plus the random state
 # Google will echo back. Short-lived: it only has to survive one round trip.

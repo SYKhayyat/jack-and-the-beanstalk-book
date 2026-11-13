@@ -55,6 +55,7 @@ __all__ = [
     "BookStoryCharacterRow",
     "BookStoryPageRow",
     "ChildProfileRow",
+    "PrintOrderRow",
     "RuntimeSwitchRow",
     "StoryCharacterRow",
     "StoryPageRow",
@@ -677,6 +678,45 @@ class ApiCallRow(Base):
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class PrintOrderRow(Base):
+    """One printed copy of one book: its approval, address and provider job.
+
+    A row starts life as an *approval*: the owner has looked at the exact PDF
+    whose hash is stored here. Placing the order fills in the address and the
+    provider's id and moves the state to `submitted`. A redraw produces a new
+    PDF hash, so the old approval no longer matches and the page asks the owner
+    to review the new book before anything can be sent.
+
+    There is no card number or payment credential here: the print price is
+    charged through the wallet ledger, and the provider in this build is a
+    test environment by construction.
+    """
+
+    __tablename__ = "print_orders"
+
+    id: Mapped[str] = mapped_column(String(48), primary_key=True)
+    book_id: Mapped[str] = mapped_column(
+        ForeignKey("books.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(128), default="", index=True)
+    #: approved | submitted | failed
+    state: Mapped[str] = mapped_column(String(16))
+    #: The exact book the owner approved, so an edit cannot slip past them.
+    pdf_sha256: Mapped[str] = mapped_column(String(64))
+    page_count: Mapped[int] = mapped_column(Integer)
+    printing_cents: Mapped[int] = mapped_column(Integer)
+    shipping_cents: Mapped[int] = mapped_column(Integer)
+    retail_cents: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    provider: Mapped[str] = mapped_column(String(32), default="")
+    provider_order_id: Mapped[str] = mapped_column(String(128), default="")
+    address: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
 class WalletRefundRow(Base):

@@ -39,6 +39,7 @@ pycparser==3.11
 pydantic==2.14.1
 pydantic-settings==2.16.0
 pydantic_core==2.50.1
+pypdf==6.21.2
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.4
 python-multipart==0.0.32

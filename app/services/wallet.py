@@ -79,6 +79,11 @@ KIND_FUNDING = "funding"
 KIND_CHARGE = "charge"
 KIND_PICTURE = "picture"
 KIND_PICTURE_REFUND = "picture_refund"
+#: A printed copy: printing, shipping and the copy itself, charged once when
+#: the print order is placed. A failed provider submission is reversed with
+#: `KIND_PRINT_REFUND`, so the account is never left paying for nothing.
+KIND_PRINT = "print"
+KIND_PRINT_REFUND = "print_refund"
 KIND_REFUND = "refund"
 KIND_REFUND_REVERSAL = "refund_reversal"
 
@@ -381,6 +386,61 @@ class Wallet:
             "wallet.charged owner=%s book=%s cents=%d", owner, book_id, self.price_cents
         )
         return transaction
+
+    # --- a printed copy --------------------------------------------------------
+
+    def charge_print(
+        self, owner: str, *, reference: str, description: str, amount_cents: int
+    ) -> WalletTransaction:
+        """Take one print order's price, once, if the balance covers it.
+
+        `reference` is `print:<order id>`, so a page refresh or a repeated
+        submit cannot charge twice. The amount is the quote the customer saw,
+        not a recomputed one.
+        """
+        if amount_cents <= 0:
+            raise WalletError("A printed copy has to cost something.")
+        with self._lock:
+            for entry in self._store.transactions(owner):
+                if entry.kind == KIND_PRINT and entry.reference == reference:
+                    return entry
+            balance = self._store.balance_cents(owner)
+            if balance < amount_cents:
+                raise InsufficientFunds(
+                    f"A printed copy costs {format_cents(amount_cents)} and the "
+                    f"balance is {format_cents(balance)}."
+                )
+            transaction = self._store.add(
+                owner=owner,
+                amount_cents=-amount_cents,
+                kind=KIND_PRINT,
+                description=description,
+                reference=reference,
+            )
+        logger.info("wallet.print_charged owner=%s cents=%d", owner, amount_cents)
+        return transaction
+
+    def refund_print(
+        self, owner: str, *, reference: str, description: str, amount_cents: int
+    ) -> WalletTransaction:
+        """Put a print charge back after the provider refused the job.
+
+        Idempotent by the reference's `:refund` suffix, so a retried failure
+        cannot credit twice.
+        """
+        if amount_cents <= 0:
+            raise WalletError("A print refund has to be a positive amount.")
+        with self._lock:
+            try:
+                return self._store.add(
+                    owner=owner,
+                    amount_cents=amount_cents,
+                    kind=KIND_PRINT_REFUND,
+                    description=description,
+                    reference=reference,
+                )
+            except DuplicateTransaction as exc:
+                raise WalletError("That print refund was already recorded.") from exc
 
     # --- pictures drawn on request ---------------------------------------------
 

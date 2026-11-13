@@ -192,7 +192,14 @@ class TestAboutMe:
         ]
 
     def test_the_cover_credit_names_the_reader(self) -> None:
-        assert AboutMe(prompt_name="Eli", about_name="Eli").cover_credit() == "A story for Eli"
+        # The front cover says who stars in it, in the assignment's own words.
+        assert AboutMe(prompt_name="Eli", about_name="Eli").cover_credit() == "starring Eli"
+
+    def test_the_cover_credits_the_story_name_not_the_about_page_name(self) -> None:
+        # A blank About name falls back to the tale's own name; the cover still
+        # has to star the child whose book this is.
+        about = AboutMe(prompt_name="Shai", about_name="Jack")
+        assert about.cover_credit() == "starring Shai"
 
     def test_empty_optional_fields_add_no_lines(self) -> None:
         about = AboutMe(prompt_name="Shai", about_name="Shai")

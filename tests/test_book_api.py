@@ -316,11 +316,46 @@ class TestBookEndToEnd:
         assert pdf.headers["content-disposition"].startswith("attachment")
         assert pdf.content[:5] == b"%PDF-"
         reader = PdfReader(io.BytesIO(pdf.content))
-        assert len(reader.pages) == PAGE_COUNT + 2  # cover + story pages + About
+        # Front cover, copyright page, the story, The End, and the About Me
+        # back cover. The story starts on the page after the copyright page.
+        assert len(reader.pages) == PAGE_COUNT + 4
+        cover_text = " ".join(reader.pages[0].extract_text().lower().split())
+        assert "starring shai" in cover_text
+        # The cover's text layer holds each word once, not a shadow copy too.
+        assert cover_text.count("starring shai") == 1
+        assert "Copyright" in reader.pages[1].extract_text()
+        assert "Storybook Studio" in reader.pages[1].extract_text()
+        story_start = " ".join(reader.pages[2].extract_text().split())
+        assert story_start.startswith("Once upon a time, Shai")
+        assert "Once upon a time" not in reader.pages[0].extract_text()
+        assert "Once upon a time" not in reader.pages[1].extract_text()
+        assert "The End" in reader.pages[-2].extract_text()
         # The dedication is the gift line, printed on the About page and shown
         # in the reader beside it (Idea 5).
         assert "For Grandma" in reader.pages[-1].extract_text().replace("\n", " ")
         assert "For Grandma" in client.get(f"/books/{book_id}").text
+
+    def test_a_blank_about_name_is_the_childs_name(self, client: TestClient) -> None:
+        """Typing only the child's name must not put the tale's default in print."""
+        portrait = make_portrait(client)
+        start = client.post(
+            "/api/book/start",
+            data={
+                "story": "jack_and_the_beanstalk",
+                "generation_id": portrait["generation_id"],
+                "child_name": "Shai",
+            },
+        )
+        assert start.status_code == 201, start.text
+        book_id = start.json()["book_id"]
+        assert wait_for_book(client, book_id)["status"] == "complete"
+
+        pdf = client.get(f"/book-media/{book_id}/pdf")
+        reader = PdfReader(io.BytesIO(pdf.content))
+        assert "Made for Shai" in reader.pages[1].extract_text()
+        back = " ".join(reader.pages[-1].extract_text().split())
+        assert "About Shai" in back
+        assert "About Jack" not in back
 
     def test_portrait_media_available(self, client: TestClient) -> None:
         portrait = make_portrait(client)

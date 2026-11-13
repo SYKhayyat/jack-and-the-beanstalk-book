@@ -3735,3 +3735,134 @@ body.in-story-time {
 .drawer-all:hover {
   text-decoration: underline;
 }
+
+/* --- the printed copy ------------------------------------------------------ */
+
+.print-screen .screen-intro {
+  max-width: 720px;
+}
+
+.print-test-note {
+  max-width: 760px;
+  margin: 0 auto 18px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--bean-dark);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.print-card {
+  max-width: 760px;
+  margin: 0 auto 24px;
+}
+
+.print-card h2 {
+  margin-top: 0;
+}
+
+.print-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.print-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 16px 0 22px;
+}
+
+.print-fields .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.print-fields .field.wide {
+  grid-column: 1 / -1;
+}
+
+.print-fields label {
+  font-weight: 600;
+}
+
+.print-fields .optional {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+.print-fields input,
+.print-fields select {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+}
+
+.print-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.print-price {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+}
+
+.print-price span {
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.print-price small {
+  color: var(--ink-soft);
+}
+
+.print-sha code {
+  font-size: 12px;
+}
+
+.print-receipt {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 20px;
+}
+
+.print-receipt div {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.print-receipt dt {
+  color: var(--ink-soft);
+}
+
+.print-receipt dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .print-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .print-receipt div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

@@ -95,6 +95,11 @@
     <div class="finished-actions">
       <button type="button" class="button primary big" id="read-book">Read it from the start</button>
       <a class="button big" id="download-pdf" href="/book-media/{{ book.book_id }}/pdf" download>Download the book (PDF)</a>
+      {% if print_available %}
+      {#- The real thing: review the exact PDF, approve it, then enter an
+          address. Nothing is sent until that approval (print_orders). #}
+      <a class="button big" id="order-print" href="/books/{{ book.book_id }}/print">Order a printed copy{% if print_price %} — {{ print_price }}{% endif %}</a>
+      {% endif %}
       <a class="button big" id="download-sources" href="{{ sources_url }}" download>Keep the photos and portraits (zip)</a>
       <a class="button big" id="make-another" href="/">Make another book</a>
     </div>

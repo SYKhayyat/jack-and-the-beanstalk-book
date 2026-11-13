@@ -33,11 +33,20 @@ _PHASE_COMPLETE = "complete"
 class BookDocument:
     """Builds the PDF and publishes the document state a reader polls."""
 
-    def __init__(self, *, book_store: BookStore, wallet: Wallet | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        book_store: BookStore,
+        wallet: Wallet | None = None,
+        publisher: str = "Storybook Studio",
+    ) -> None:
         self._book_store = book_store
         # None when payments are off: the document is still assembled and the
         # reader still sees it; nothing is charged.
         self._wallet = wallet
+        # Who the copyright page names as the publisher. The operator can set
+        # it; the default is the product's own name.
+        self._publisher = publisher
 
     def assemble(
         self,
@@ -86,6 +95,7 @@ class BookDocument:
             subtitle=subtitle,
             portrait=portrait,
             photo=photo,
+            publisher=self._publisher,
         )
         self._book_store.save_pdf(record.book_id, pdf_bytes)
         # The document exists now, so this is the moment its fee belongs to.

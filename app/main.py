@@ -43,6 +43,7 @@ from app.routes import (
     book_media,
     child_profile,
     media,
+    print_orders,
     share,
     wallet,
     web,
@@ -330,6 +331,7 @@ def create_app(
     app.include_router(child_profile.router)
     app.include_router(media.router)
     app.include_router(wallet.router)
+    app.include_router(print_orders.router)
     app.include_router(share.router)
     app.include_router(auth.router)
     # Operator-only, and hidden from the schema: the review screen is not part

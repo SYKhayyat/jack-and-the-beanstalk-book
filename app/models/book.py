@@ -207,9 +207,16 @@ class AboutMe(BaseModel):
         return [heading, *lines]
 
     def cover_credit(self) -> str:
-        """The cover's dedication line, under the title."""
+        """The cover's line under the title: the star the story names.
+
+        The story's character is `prompt_name`; `about_name` is the name the
+        About page may show instead (a nickname or a pseudonym). The cover
+        belongs to the story, so it credits the name the story uses — using
+        `about_name` here made a blank About name fall back to the tale's
+        default ("Shai and the Beanstalk, starring Jack").
+        """
         credit: str = prompt_text()["book"]["about"]["credit"]
-        return credit.format(about_name=self.about_name)
+        return credit.format(about_name=self.prompt_name)
 
 
 _DETERMINERS = frozenset({"a", "an", "the", "my", "our", "his", "her", "their", "your"})
