@@ -509,3 +509,82 @@ A print order row is deleted with its book from the `print_orders` foreign key. 
 5. **B6/B7/U3/I1** — remove the debug language, fix the numbering, and show the price before the last step.
 6. **W2/W3** — notification and share links: the two features that turn a one-off into a product.
 7. The rest as polish.
+
+---
+
+## 10. Audit of the fix rounds, 13 November 2026
+
+This section covers the 53 commits since this file was filed (`6c75a4c..701ab05`, about 6.4 K lines in `app/`), read for bugs that the "Done" lines missed, plus the two questions the owner asked. `ruff`, `mypy app` (110 files) and the full `pytest -n auto` suite all pass at `701ab05`. No paid call was made. Entries marked **verify** are facts this pass could not confirm from code or public docs.
+
+### Q1 — Owner's question: is the print provider free, and is it the best free one?
+**Answer: "free" is true and not a reason to pick it.** Peecho charges nothing to integrate ("No Integration Fees… Free print API", peecho.com/solutions/print-api). You pay per order: wholesale print plus shipping, billed to the merchant. Lulu's Print API, Prodigi and Gelato work the same way. None of the serious print-on-demand APIs charges a subscription, so the real comparison is fit, price per copy and where the books ship from.
+* **Peecho:** based in the EU, with a test host (`test.www.peecho.com`) that the adapter already uses. Its products are photo books (Prodigi makes its hardbacks), with fixed offering sizes such as A5 and A4 landscape. Its API docs and per-country prices are behind its dashboard (**verify**).
+* **Lulu Print API:** self-serve, with a public sandbox (`api.sandbox.lulu.com`) and US fulfilment. Its range includes real picture-book trims (8.5×8.5 square, 7.5×7.5, 8×10, 11×8.5 landscape, **verify against its price calculator**) in casewrap hardcover and paperback. It also has a print-file validation endpoint that checks a PDF against the chosen size and page count before an order. The market is US parents, the prices are in USD and the wallet is in USD, so **Lulu is the better fit**.
+* **Recommendation:** keep the provider contract (`app/services/print/base.py`) and add a `lulu` adapter beside `peecho`. Price both in their calculators for a 24-page 8.5×8.5 hardcover shipped to the US, then make Lulu the default if the numbers agree. Most of the print work is the file format (Q2, A1–A3), which every provider needs.
+
+### Q2 — Owner's question: is the book a standard size, and should we offer several?
+**No, it is not a standard size, and its size changes from book to book.** Each page takes its width from the art: `_page_shape` makes it 720 pt (10 in) wide. Below the art goes a text band whose height `book_template` works out from the longest page of the book. A 4:3 book therefore comes out at roughly 10 × 10.7 in (PR3 measured 254 × 272 mm), and another book with longer text comes out taller. No printer sells that trim. Peecho or Lulu would reject the file, or scale it into their product with white bars.
+**How to get there:** turn the design around and make the trim the input, not the output. For a chosen trim (say 8.5×8.5), the art goes the full width plus bleed at its own 4:3 shape (8.5 × 6.375 in). The text band is whatever height remains (about 2.1 in), and the existing fit logic picks the font that fits that band. `TemplateGeometry` already describes the page this way; all it lacks is a fixed `page_height`. This is the layout the owner described: the picture sized as it is, and the space below for text.
+**A range of sizes?** The 4:3 art leaves these text bands:
+* 8.5×8.5 square: about 2.1 in. **Recommended default:** the classic picture-book shape, with a comfortable band.
+* 8×10 portrait: about 4 in. Good for long text.
+* 10×8 or 11×8.5 landscape: 0.5 in or less. **Does not work** with full-width 4:3 art.
+
+**Offer one size at launch (8.5×8.5) and a second (8×10) only once the first has printed well.** Each size is another provider product id, another physical proof to check and another layout test. The screen reader and the downloadable PDF can keep their current shape. Only the print file needs the trim (A1).
+
+### A1 — P1: the PDF is not print-grade (resolution, bleed, safe area)
+Pictures are re-encoded to 1600 px on the long edge before embedding (`_EMBED_LONG_EDGE`, `app/services/pdf.py`). On a 10 in page that is 160 dpi, and on 8.5 in it is 188 dpi. Printers ask for 300 dpi (Lulu: 300–600 PPI). The file also has no 0.125 in bleed and no safe margin; Lulu wants 0.75 in on casewrap. The cover is page 1 of the interior file, but hardcover products take a separate cover spread (back, spine, front) whose spine width depends on the page count. Generated pages are about 1536 px wide, so at 300 dpi an 8.5 in page needs about 2,550 px, which means upscaling for print.
+**Fix:** build a second "print edition" PDF (trim plus bleed, ~300 dpi embeds, safe-area text, separate cover spread) next to the screen PDF. Only the print path uses it, and approval hashes this file.
+
+### A2 — P1: the page count can come out odd
+20 story pages plus `BOOK_MATTER_PAGES` (4) is 24. But the About text is paginated (B11), so a long About section makes the file 25 pages or more. Printers need an even count; many bindings need a multiple of 4 and a minimum such as 24 for hardcover. **Fix:** in the print edition, pad to the provider's multiple with a designed blank or "notes" page, and test the page count for each binding.
+
+### A3 — P1: the print file link serves the current PDF, not the approved one
+`/print/files/{token}.pdf` reads `book_store.read_pdf(book_id)` at fetch time, and the token carries no hash. If the book is edited (a redraw, an About edit) between "Order" and the provider fetching the file, which the link allows for up to an hour, the provider prints a book the owner never approved. That breaks promise 1 in `service.py`. **Fix:** put the approved `pdf_sha256` in the token, and have the route refuse (or serve the stored approved bytes) when the hash no longer matches.
+
+### A4 — P2: an ambiguous provider failure is reported as "nothing was sent", and a stale claim can print twice
+* `peecho.submit` creates the order and then pays for it. A transport timeout on the payment call raises "could not be reached. Nothing was sent". The service then refunds the wallet, yet Peecho may have taken the payment and may print. The copy ships and the money is returned.
+* `_CLAIM_STALE_AFTER` (15 min) lets a new attempt take over a `placing` claim. If the process died after `submit` succeeded but before `mark_submitted`, the retry orders a second copy, and the charge reference is idempotent, so that second copy is never charged.
+
+**Fix:** use a distinct `unknown` state for any error after the create call succeeded, with no automatic refund and an operator alert. Before taking over a stale claim, look up the provider's order by `purchase_order`.
+
+### A5 — P2: the print routes parse the PDF on the event loop
+`print_page` and `approve_print`'s error path are `async def`, yet they call `_print_context` synchronously. That function reads the PDF from the blob store and parses it with pypdf (`quote_for_pdf` → `measure_pdf`), which is the same class of problem as B1. **Fix:** make `print_page` a sync handler, or wrap `_print_context` in `asyncio.to_thread`.
+
+### A6 — P2: print prices are constants, not quotes
+Shipping is a flat €5.90 (637¢) wherever the book goes, and the retail price is a flat $24.99 whatever the page count. `GENERATION_COST_CENTS = 158` is hard-coded from Run 1, and the C4 retry ceiling has since lowered the real figure. A heavy book shipped to Australia loses money. **Fix:** ask the provider's quote endpoint for print and shipping cost per address before charging, and show the shipping line on the form.
+
+### A7 — P2: a printed copy needs two wallet top-ups
+`FUNDING_AMOUNTS_CENTS = (500, 1000, 2000)`, but a copy costs $24.99, so the most a buyer can add in one step does not cover it. **Fix:** charge the copy directly through Stripe Checkout, which is better for a physical good anyway (shipping address, tax), or offer a top-up for the exact print amount.
+
+### A8 — P1 (privacy): the remembered child keeps the child's original photograph forever
+`remember_child` stores `photo=draft.photo_data` in `child_profiles`. Nothing ever sweeps that table; only **Forget it** deletes the row. The rest of the app keeps a photo for at most `BOOK_RETENTION_DAYS`. There is also no "delete my account" anywhere in `app/`. For a product sold to parents (COPPA, GDPR), the photograph of a child must not be the longest-kept thing in the system. **Fix:** don't store the photo, since the approved portrait is all the reuse needs. Give the profile a retention period, and add account deletion that removes books, profile, wallet personal data and print addresses. A privacy policy page is part of the same item.
+
+### A9 — P1 (product): 7-day retention fits neither a keepsake nor a printed order
+Every book, and with it its print order row (the "Known limitation" in §9), goes after 7 days. A parent who paid $0.99, and especially one who paid $24.99 for print, will expect the book to stay in their library. Support also needs the print record long after delivery. **Fix:** keep paid books until the owner deletes them (or for a long period), and give `print_orders` its own retention that does not cascade from the book.
+
+### A10 — P2: share links cannot be revoked
+A link is a stateless HMAC with no row behind it (`share_links.py`). If a parent sends it to the wrong person, the only ways to stop it are waiting up to 30 days or deleting the book. Links are also signed with the session key, so with the fallback ephemeral key (B14) every share link dies on restart, and rotating the key kills them all. **Fix:** a small `share_revocations` table (or a per-book share generation counter in the token), a "Stop sharing" button, and a boot check that refuses share links without a configured key.
+
+### A11 — P2: a picture whose shape differs from the first is stretched
+`render_book` takes the page shape from the first picture that was drawn. Every other page is then placed with `pdf.image(..., w=layout.art_width, h=layout.art_height)` (`pdf.py`, `_story_page`), which forces that box no matter what shape the picture is. The plate sets are 4:3 throughout, but a provider that returns 3:2 for one page (1536×1024 is the OpenAI landscape size) distorts it. **Fix:** fit each picture into the box with a centre crop to the box's shape, and log when the shapes differ. **Verify** what shape the live provider returns for plate edits.
+
+### A12 — P0 (product, still open): a 99¢ book loses money
+C1 is bounded but not closed: about $0.26 lost per book with the retry ceiling. The price decision ($1.99, or a smaller book) is still the owner's. It belongs on this list because it now also sets the print margin (`GENERATION_COST_CENTS`).
+
+### A13 — Launch checklist (not defects, but nothing goes live without them)
+Live keys are refused on purpose (`payments.py` rejects `sk_live_`, and Peecho has only `SANDBOX_BASE_URL`). Going to production needs a deliberate switch:
+* Stripe live mode.
+* A live print host and the account that pays for orders.
+* Terms of sale and a refund policy for physical goods.
+* Sales tax or VAT on printed copies.
+* A physical proof of one book at the chosen trim.
+
+### A14 — Housekeeping in this file
+* W6 ("printing has no path") has no Done line, although §8–9 shipped printing; close it with a pointer to them.
+* U9 is still waiting on a look at a real phone in dark mode.
+
+### Notes from the read (checked; nothing to do)
+* Live payment keys and a live print host are both refused by the code, so no visitor can lose real money today.
+* The print claim, wallet charge idempotency, scoped tokens (PA5) and receipt price (PA6) read correctly.
+* The kill switches are checked at intake (`api.py`, `book.py`) and before each picture (`book_runner.py`).
