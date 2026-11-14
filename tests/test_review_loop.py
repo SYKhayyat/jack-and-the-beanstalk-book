@@ -473,9 +473,9 @@ class TestTheAttemptLoop:
         ("score", "faults", "passes"),
         [
             (90, (), True),
-            (69, (), False),
+            (59, (), False),
             (90, ("other",), True),
-            (60, ("other",), False),
+            (59, ("other",), False),
             (95, ("extra_person",), False),
             (95, ("wrong_counts", "deformed"), False),
         ],

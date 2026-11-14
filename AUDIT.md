@@ -574,6 +574,8 @@ A link is a stateless HMAC with no row behind it (`share_links.py`). If a parent
 ### A12 — P0 (product, still open): a 99¢ book loses money
 C1 is bounded but not closed: about $0.26 lost per book with the retry ceiling. The price decision ($1.99, or a smaller book) is still the owner's. It belongs on this list because it now also sets the print margin (`GENERATION_COST_CENTS`).
 
+**Done (2026-11-13), owner's call: make the reviewer less picky, keep 99¢.** Every reviewer fault the decision judge was also asked about now fails a page only when the decision agrees at even odds (`_confirmed_faults`, which used to do this for likeness only). Faults the decision is never asked about, a different place and "other", stand on the reviewer's word. `PASS_SCORE` is 60, down from 70, and the review prompt is given the code's number, so the two can't drift apart. `BOOK_RETRY_BUDGET_PERCENT` is 100, down from 120, so redraws stop once a book has cost its fee. The real figure per book needs a live run to confirm.
+
 ### A13 — Launch checklist (not defects, but nothing goes live without them)
 Live keys are refused on purpose (`payments.py` rejects `sk_live_`, and Peecho has only `SANDBOX_BASE_URL`). Going to production needs a deliberate switch:
 * Stripe live mode.

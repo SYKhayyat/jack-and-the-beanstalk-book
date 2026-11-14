@@ -14,7 +14,7 @@ from app.models.settings import CartoonSettings
 from app.services.book_runner import _confirmed_faults
 from app.services.decision_judge import Decision
 from app.services.prompts import _substitutions, findings_line
-from app.services.reviewer import FAULTS, MINOR_FAULTS, verdict_passes
+from app.services.reviewer import FAULTS, MINOR_FAULTS, PASS_SCORE, verdict_passes
 
 PROMPTS = tomllib.loads(Path("app/prompts.toml").read_text(encoding="utf-8"))
 
@@ -37,6 +37,40 @@ class TestLikenessNeedsBothJudges:
     def test_a_page_with_only_a_disputed_likeness_passes(self) -> None:
         decision = Decision({"likeness": 0.1, "shows_moment": 0.6})
         assert verdict_passes(85, _confirmed_faults(("likeness",), decision))
+
+
+class TestEveryFaultNeedsBothJudges:
+    """A12: the reviewer alone no longer fails a page on any fault the
+    decision judge was also asked about."""
+
+    def test_a_disputed_fault_is_dropped(self) -> None:
+        decision = Decision({"deformed": 0.1, "text_in_image": 0.2, "shows_moment": 0.7})
+        assert _confirmed_faults(("deformed", "text_in_image"), decision) == ()
+
+    def test_an_agreed_fault_stands(self) -> None:
+        decision = Decision({"deformed": 0.6, "shows_moment": 0.7})
+        assert _confirmed_faults(("deformed",), decision) == ("deformed",)
+
+    def test_a_missed_moment_needs_the_decision_to_agree(self) -> None:
+        assert _confirmed_faults(("wrong_moment",), Decision({"shows_moment": 0.8})) == ()
+        assert _confirmed_faults(("wrong_moment",), Decision({"shows_moment": 0.3})) == (
+            "wrong_moment",
+        )
+
+    def test_a_fault_the_decision_was_not_asked_stands(self) -> None:
+        decision = Decision({"shows_moment": 0.9})
+        assert _confirmed_faults(("wrong_place", "other"), decision) == (
+            "wrong_place",
+            "other",
+        )
+
+
+def test_the_reviewer_is_told_the_codes_pass_line() -> None:
+    """The prompt's pass line is the code's, so they cannot drift apart."""
+    assert PASS_SCORE == 60
+    assert "{pass_score}" in PROMPTS["review"]["instruction"]
+    assert verdict_passes(60, ())
+    assert not verdict_passes(59, ())
 
 
 def test_a_different_place_is_a_serious_fault() -> None:

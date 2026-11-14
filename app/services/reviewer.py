@@ -96,8 +96,11 @@ def verdict_passes(score: int, faults: tuple[str, ...]) -> bool:
 
 
 #: A score below this fails even when the model lists no fault: "I cannot fault
-#: it but it is not the moment" is a real answer and must not pass.
-PASS_SCORE = 70
+#: it but it is not the moment" is a real answer and must not pass. 60, not 70
+#: (A12): a picture that roughly shows the moment is one a parent keeps, and
+#: every point above that line was paid for in redraws. The review prompt is
+#: told this number, so the two cannot drift apart.
+PASS_SCORE = 60
 
 #: Waits before re-asking after a transient failure: the free tier's per-minute
 #: quota (429) and "high demand" (503) both clear within seconds to a minute.
@@ -346,7 +349,10 @@ class GeminiReviewer:
         portrait: bytes | None = None,
     ) -> ReviewAnswer:
         instruction = prompt_text()["review"]["instruction"].format(
-            page_title=page_title, story_line=story_line, cast=cast
+            page_title=page_title,
+            story_line=story_line,
+            cast=cast,
+            pass_score=PASS_SCORE,
         )
         del plate, portrait  # Gemini is asked the one-picture question only
         contents: list[Any] = [
@@ -447,7 +453,10 @@ class OpenAIReviewer:
         del media_type  # every picture is re-encoded as a JPEG before it is sent
         review = prompt_text()["review"]
         instruction = review["instruction"].format(
-            page_title=page_title, story_line=story_line, cast=cast
+            page_title=page_title,
+            story_line=story_line,
+            cast=cast,
+            pass_score=PASS_SCORE,
         )
         content: list[dict[str, Any]] = [
             {"type": "text", "text": instruction},
@@ -559,7 +568,10 @@ class GeminiWebReviewer:
         order = [review["web_picture"]]
         rules = [
             review["instruction"].format(
-                page_title=page_title, story_line=story_line, cast=cast
+                page_title=page_title,
+                story_line=story_line,
+                cast=cast,
+                pass_score=PASS_SCORE,
             )
         ]
         if plate is not None:

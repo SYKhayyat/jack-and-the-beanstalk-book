@@ -60,7 +60,13 @@ from app.services.book_store import (
 )
 from app.services.concurrency import ConcurrencyGate, GateTimeout, Slot
 from app.services.costs import CostLedger, cost_scope
-from app.services.decision_judge import COIN, Decision, DecisionJudge, Outcome
+from app.services.decision_judge import (
+    COIN,
+    SHOWS_MOMENT,
+    Decision,
+    DecisionJudge,
+    Outcome,
+)
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
@@ -2443,19 +2449,24 @@ def _cast_note(page: BookPage, edition: StoryEdition) -> str:
 
 
 def _confirmed_faults(faults: tuple[str, ...], decision: Decision | None) -> tuple[str, ...]:
-    """The reviewer's faults, its likeness call kept only when the decision agrees.
+    """The reviewer's faults that the decision judge agrees with.
 
     Run 1 (2026-11-11) had the reviewer flag likeness on 68 of 87 pictures that
     the decision judge scored at 0.1-0.2 on the same question, and every flag
-    cost a redraw. A wrong child is the one fault a parent will not forgive, so
-    it still fails a page, but only when both models see it. With no decision
-    to ask (the judge is down or off) the reviewer's call stands alone.
+    cost a redraw; the other faults showed the same pattern at a smaller scale.
+    A fault the decision was also asked about stands only when it agrees at
+    even odds or better, so a page fails when both models see the fault and
+    not when one model is fussy (A12). A fault the decision is never asked
+    about (a different place, "other") stands on the reviewer's word, and with
+    no decision to ask (the judge is down or off) every fault does.
     """
-    if "likeness" not in faults or decision is None:
+    if decision is None:
         return faults
-    if float(decision.probabilities.get("likeness", 0.0)) >= COIN:
-        return faults
-    return tuple(fault for fault in faults if fault != "likeness")
+    agreed = set(decision.faults(COIN))
+    asked = set(decision.probabilities)
+    if SHOWS_MOMENT in asked:
+        asked.add("wrong_moment")
+    return tuple(fault for fault in faults if fault not in asked or fault in agreed)
 
 
 def _ratio(aspect_ratio: str) -> float | None:
