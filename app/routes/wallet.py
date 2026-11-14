@@ -57,6 +57,7 @@ from app.services.wallet import (
     REFUND_REQUESTED,
     WalletError,
     format_cents,
+    is_offered_topup,
 )
 
 __all__ = ["cost_panel", "router"]
@@ -284,6 +285,19 @@ async def topup(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="That is not one of the top-up amounts this app offers.",
         )
+    return await start_topup(request, container, owner, amount_cents, target)
+
+
+async def start_topup(
+    request: Request, container: Container, owner: str, amount_cents: int, target: str
+) -> RedirectResponse:
+    """Open Stripe's hosted page for `amount_cents`, returning to `target`.
+
+    The caller has already decided the amount is one the app offers: a preset
+    here, or the difference a purchase needs (the print page, A7).
+    """
+    if container.payments is None:
+        return _back("payments_off", target)
     # The braces must survive: Stripe replaces {CHECKOUT_SESSION_ID} itself.
     success_url = (
         str(request.url_for("wallet_return"))
@@ -317,9 +331,9 @@ async def wallet_return(
 ) -> RedirectResponse:
     """Credit a paid Stripe session, once, after checking with Stripe.
 
-    The amount must be one of the top-up amounts: a session created elsewhere
-    — even a genuinely paid one — is not a top-up this app offers, and is
-    logged rather than credited.
+    The amount must be one this app offers (a preset, or a purchase-sized
+    whole-dollar amount within the bounds, A7): a session created elsewhere,
+    even a genuinely paid one, is logged rather than credited.
     """
     owner = _owner(session)
     target = _safe_next(next)
@@ -335,7 +349,7 @@ async def wallet_return(
     if (
         not checkout.paid
         or checkout.currency != CURRENCY
-        or checkout.amount_cents not in FUNDING_AMOUNTS_CENTS
+        or not is_offered_topup(checkout.amount_cents)
         or not checkout.payment_intent
         # The session must be the one this account asked for: `reference` is
         # the `client_reference_id` we set when creating it, echoed by Stripe.

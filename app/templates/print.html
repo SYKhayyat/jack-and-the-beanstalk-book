@@ -65,6 +65,14 @@
     <h2 id="address-title">2. Where should it go?</h2>
     <p>The printer ships straight to this address. The name goes on the parcel, and the email is only for
       the order confirmation.</p>
+    {% if can_top_up %}
+    <div class="print-topup" id="print-topup">
+      <p>Your wallet holds {{ balance_label }}, and a copy costs {{ price_label }}. Add {{ topup_label }} first; you will come straight back here.</p>
+      <form method="post" action="/books/{{ book.book_id }}/print/topup">
+        <button type="submit" class="button secondary" id="print-topup-button">Add {{ topup_label }} to my wallet</button>
+      </form>
+    </div>
+    {% endif %}
     <form method="post" action="/books/{{ book.book_id }}/print/order" class="print-form">
       <input type="hidden" name="order_id" value="{{ approval.id }}">
       <div class="print-fields">

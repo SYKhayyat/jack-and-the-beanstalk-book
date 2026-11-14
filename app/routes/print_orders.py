@@ -27,13 +27,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from app.dependencies import ContainerDep
 from app.routes.auth import CurrentSessionDep
 from app.routes.book_access import book_edition, ensure_book, no_store
+from app.routes.wallet import start_topup
 from app.routes.web import page_chrome
 from app.services.book_store import BookStatus
 from app.services.pdf import BOOK_MATTER_PAGES
 from app.services.print.base import COUNTRIES, PrintError, ShippingAddress
 from app.services.share_links import issue, read
 from app.services.typography import book_text
-from app.services.wallet import InsufficientFunds, format_cents
+from app.services.wallet import InsufficientFunds, format_cents, topup_for_shortfall
 
 __all__ = ["router"]
 
@@ -100,17 +101,9 @@ def _print_context(
     owner = _owner(session)
     record, _status, edition = _complete_book(book_id, owner, container)
     service = container.print_service
-    pages = _page_count(edition)
     current_pdf = container.book_store.read_pdf(book_id) or b""
-    if current_pdf:
-        try:
-            quote = service.quote_for_pdf(current_pdf)
-        except PrintError:
-            # A PDF nobody can read cannot be approved either; show the
-            # edition's own price so the page still explains itself.
-            quote = service.quote(pages)
-    else:
-        quote = service.quote(pages)
+    quote = _quote(container, edition, current_pdf)
+    shortfall = _shortfall(container, owner, quote.retail_cents)
     current_sha = hashlib.sha256(current_pdf).hexdigest()
     approval = service.approval(book_id)
     latest = service.latest(book_id)
@@ -125,6 +118,11 @@ def _print_context(
         "about_sentences": sentences,
         "page_count": quote.page_count,
         "price_label": format_cents(quote.retail_cents),
+        # A copy costs more than the largest preset top-up, so the page offers
+        # the difference in one trip to Stripe instead (A7).
+        "can_top_up": container.payments is not None and shortfall > 0,
+        "balance_label": format_cents(container.wallet.balance_cents(owner)),
+        "topup_label": format_cents(shortfall),
         "quote": quote,
         "service_enabled": service.enabled,
         "provider_name": service.provider_name,
@@ -142,6 +140,32 @@ def _print_context(
         "error": error,
         "form": form or _prefill(session, latest),
     }
+
+
+def _quote(container: ContainerDep, edition: Any, pdf: bytes) -> Any:
+    """What one copy costs: priced from the PDF itself when there is one."""
+    service = container.print_service
+    if pdf:
+        try:
+            return service.quote_for_pdf(pdf)
+        except PrintError:
+            # A PDF nobody can read cannot be approved either; show the
+            # edition's own price so the page still explains itself.
+            pass
+    return service.quote(_page_count(edition))
+
+
+def _shortfall(container: ContainerDep, owner: str, price_cents: int) -> int:
+    """The top-up that lets the wallet pay `price_cents`; 0 when none is offered.
+
+    0 when the wallet already can, and also when the gap is beyond one top-up:
+    the order is then refused for funds, as it would be without this offer.
+    """
+    try:
+        return topup_for_shortfall(price_cents - container.wallet.balance_cents(owner))
+    except ValueError:
+        logger.warning("print.topup_over_limit owner=%s price=%d", owner, price_cents)
+        return 0
 
 
 def _prefill(session: CurrentSessionDep, latest: Any) -> dict[str, str]:
@@ -203,6 +227,28 @@ async def approve_print(
             ),
         )
     return RedirectResponse(url=f"/books/{book_id}/print?approved=1", status_code=303)
+
+
+@router.post("/books/{book_id}/print/topup")
+async def top_up_for_print(
+    book_id: str, request: Request, container: ContainerDep, session: CurrentSessionDep
+) -> Response:
+    """Add exactly what this copy still needs to the wallet, then come back.
+
+    The amount is worked out here from the price and the balance, never read
+    from the form, so the visitor cannot choose what reaches Stripe.
+    """
+    owner = _owner(session)
+    _record, _status, edition = await asyncio.to_thread(
+        _complete_book, book_id, owner, container
+    )
+    pdf = await asyncio.to_thread(container.book_store.read_pdf, book_id) or b""
+    quote = await asyncio.to_thread(_quote, container, edition, pdf)
+    amount = await asyncio.to_thread(_shortfall, container, owner, quote.retail_cents)
+    target = f"/books/{book_id}/print"
+    if amount <= 0:
+        return RedirectResponse(url=target, status_code=303)
+    return await start_topup(request, container, owner, amount, target)
 
 
 @router.post("/books/{book_id}/print/order")

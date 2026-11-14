@@ -3807,6 +3807,23 @@ body.in-story-time {
   font: inherit;
 }
 
+.print-topup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.print-topup p {
+  flex: 1 1 260px;
+  margin: 0;
+}
+
 .print-summary {
   display: flex;
   flex-direction: column;

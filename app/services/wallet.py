@@ -49,6 +49,7 @@ __all__ = [
     "CURRENCY",
     "DOCUMENT_PRICE_CENTS",
     "FUNDING_AMOUNTS_CENTS",
+    "MAX_TOPUP_CENTS",
     "PICTURE_PRICE_CENTS",
     "DuplicateTransaction",
     "InsufficientFunds",
@@ -59,6 +60,8 @@ __all__ = [
     "WalletStore",
     "WalletTransaction",
     "format_cents",
+    "is_offered_topup",
+    "topup_for_shortfall",
 ]
 
 logger = logging.getLogger(__name__)
@@ -70,6 +73,44 @@ DOCUMENT_PRICE_CENTS = 99
 #: What the top-up form offers. Closed set, like every other amount a visitor
 #: can choose: no free-text amount reaches Stripe.
 FUNDING_AMOUNTS_CENTS = (500, 1000, 2000)
+
+#: The bounds of a top-up sized to one purchase (A7): a printed copy costs more
+#: than the largest preset, so its page offers "add the difference" instead of
+#: two trips to Stripe. Whole dollars, so the amount reads cleanly on a card
+#: statement; at least the smallest preset, which also clears Stripe's minimum.
+TOPUP_STEP_CENTS = 100
+MAX_TOPUP_CENTS = 20000
+
+
+def topup_for_shortfall(shortfall_cents: int) -> int:
+    """The top-up that covers `shortfall_cents`: whole dollars, never under $5.
+
+    0 when nothing is short. Raises ValueError above `MAX_TOPUP_CENTS`, which
+    no price this app sets can reach; a bug must not become a large charge.
+    """
+    if shortfall_cents <= 0:
+        return 0
+    rounded = -(-shortfall_cents // TOPUP_STEP_CENTS) * TOPUP_STEP_CENTS
+    amount = max(rounded, FUNDING_AMOUNTS_CENTS[0])
+    if amount > MAX_TOPUP_CENTS:
+        raise ValueError(f"a {amount}-cent top-up is over the {MAX_TOPUP_CENTS}-cent limit")
+    return amount
+
+
+def is_offered_topup(amount_cents: int) -> bool:
+    """Whether a paid Checkout amount is one this app could have asked for.
+
+    A preset, or a whole-dollar purchase-sized amount within the bounds. The
+    return route still checks the session belongs to the account; this only
+    keeps an amount the app never offers from being credited.
+    """
+    if amount_cents in FUNDING_AMOUNTS_CENTS:
+        return True
+    return (
+        FUNDING_AMOUNTS_CENTS[0] <= amount_cents <= MAX_TOPUP_CENTS
+        and amount_cents % TOPUP_STEP_CENTS == 0
+    )
+
 
 CURRENCY = "usd"
 
