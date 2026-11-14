@@ -79,6 +79,9 @@ WALLET_MESSAGES = {
         "the operator sends it."
     ),
     "nothing_to_refund": "There is nothing to refund right now.",
+    "sharing_stopped": (
+        "Every link to this book has stopped working. Make a new one to share it again."
+    ),
 }
 
 
@@ -407,6 +410,8 @@ def _share_link(
         return "", ""
     link = read(token, key=container.settings.session_signing_key())
     if link is None or link.book_id != book_id:
+        return "", ""
+    if container.book_store.share_generation(book_id) != link.generation:
         return "", ""
     base = str(request.base_url).rstrip("/")
     until = datetime.fromtimestamp(link.expires_at, UTC).isoformat()

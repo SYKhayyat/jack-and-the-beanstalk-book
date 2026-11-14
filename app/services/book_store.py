@@ -207,6 +207,14 @@ class BookStore:
         """
         raise NotImplementedError
 
+    def share_generation(self, book_id: str) -> int | None:
+        """The generation a share link must carry to work, or None (no book)."""
+        raise NotImplementedError
+
+    def stop_sharing(self, book_id: str) -> None:
+        """Retire every share link already minted for this book."""
+        raise NotImplementedError
+
     def load_record(self, book_id: str) -> BookRecord | None:
         """Reload a book's request, or None if it is gone or malformed."""
         raise NotImplementedError

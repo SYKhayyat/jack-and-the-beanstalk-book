@@ -104,6 +104,21 @@ class DatabaseBookStore(BookStore):
 
     # --- ownership -------------------------------------------------------------
 
+    def share_generation(self, book_id: str) -> int | None:
+        with self._engine.connect() as conn:
+            value = conn.execute(
+                select(BookRow.share_generation).where(BookRow.id == book_id)
+            ).scalar_one_or_none()
+        return int(value) if value is not None else None
+
+    def stop_sharing(self, book_id: str) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(
+                update(BookRow)
+                .where(BookRow.id == book_id)
+                .values(share_generation=BookRow.share_generation + 1)
+            )
+
     def owner_of(self, book_id: str) -> str | None:
         with self._engine.connect() as conn:
             value = conn.execute(

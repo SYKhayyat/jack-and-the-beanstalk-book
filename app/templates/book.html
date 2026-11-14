@@ -124,6 +124,10 @@
       {% else %}
       <a class="button" id="make-share-link" href="/books/{{ book.book_id }}/share">Share a read-only link</a>
       {% endif %}
+      <form method="post" action="/books/{{ book.book_id }}/share/stop" class="share-stop"
+            data-confirm="Stop every link to this book? Anyone you sent one to will no longer be able to open it.">
+        <button type="submit" class="link-button">Stop sharing: turn off every link sent</button>
+      </form>
     </div>
   </section>
 

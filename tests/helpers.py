@@ -190,4 +190,7 @@ def isolated_settings(root: Path, seeded_template: Path) -> Settings:
         # A 20-page book plus a portrait, a cover and an edit is more than the
         # production brake's 30 calls a minute; tests must not wait for it.
         max_generations_per_minute=1000,
+        # A stable signing key, as every real deployment has: without one the
+        # studio refuses to mint share links (A10).
+        session_secret="test-session-secret",
     )

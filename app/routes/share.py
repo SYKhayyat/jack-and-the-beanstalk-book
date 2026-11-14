@@ -62,10 +62,19 @@ def _expiry(book_started: str, retention_days: int) -> int:
     return int(min(soonest, swept).timestamp())
 
 
-def _link(token: str, container: ContainerDep) -> ShareLink:
-    """The book a token names, or a 404 that says nothing it should not."""
+async def _link(token: str, container: ContainerDep) -> ShareLink:
+    """The book a token names, or a 404 that says nothing it should not.
+
+    A well-signed token whose generation the book has moved past was stopped
+    by its owner (A10), and answers exactly like an expired one.
+    """
     found = read(token, key=_key(container))
-    if found is None:
+    current = (
+        await asyncio.to_thread(container.book_store.share_generation, found.book_id)
+        if found is not None
+        else None
+    )
+    if found is None or current != found.generation:
         raise HTTPException(
             status_code=404, detail="This link has expired, or it is not a link to a book."
         )
@@ -98,13 +107,33 @@ async def make_share_link(
         raise HTTPException(
             status_code=409, detail="A book can be shared once it is finished."
         )
+    if container.settings.session_key_is_ephemeral:
+        # The key dies with this process, so the link would stop working at
+        # the next restart while still saying "until <date>".
+        raise HTTPException(
+            status_code=409,
+            detail="Sharing needs SESSION_SECRET set on this deployment.",
+        )
+    generation = await asyncio.to_thread(container.book_store.share_generation, book_id)
     token = issue(
         book_id,
         key=_key(container),
         expires_at=_expiry(record.created_at, container.settings.book_retention_days),
+        generation=generation or 0,
     )
     logger.info("share.minted user=%s book=%s", user_id(session) or "-", book_id)
     return RedirectResponse(url=f"/books/{book_id}?share={token}", status_code=303)
+
+
+@router.post("/books/{book_id}/share/stop")
+async def stop_sharing(
+    book_id: str, container: ContainerDep, session: CurrentSessionDep
+) -> RedirectResponse:
+    """Retire every read-only link to this book; a new one can be made after."""
+    await asyncio.to_thread(ensure_book, book_id, user_id(session), container)
+    await asyncio.to_thread(container.book_store.stop_sharing, book_id)
+    logger.info("share.stopped user=%s book=%s", user_id(session) or "-", book_id)
+    return RedirectResponse(url=f"/books/{book_id}?message=sharing_stopped", status_code=303)
 
 
 @router.get("/share/{token}", response_class=HTMLResponse)
@@ -112,7 +141,7 @@ async def shared_book(
     token: str, request: Request, container: ContainerDep, session: CurrentSessionDep
 ) -> HTMLResponse:
     """One finished book, read-only, for whoever holds the link."""
-    link = _link(token, container)
+    link = await _link(token, container)
     book_id = link.book_id
     record, status = await asyncio.gather(
         asyncio.to_thread(container.book_store.load_record, book_id),
@@ -175,7 +204,7 @@ async def shared_book(
 async def shared_cover(token: str, request: Request, container: ContainerDep) -> Response:
     """The cover picture, for a token holder."""
     data = await asyncio.to_thread(
-        container.book_store.read_cover, _link(token, container).book_id
+        container.book_store.read_cover, (await _link(token, container)).book_id
     )
     if data is None:
         raise HTTPException(status_code=404, detail="There is no cover to show.")
@@ -187,7 +216,7 @@ async def shared_page(
     token: str, number: int, request: Request, container: ContainerDep
 ) -> Response:
     """One page's art, for a token holder."""
-    book_id = _link(token, container).book_id
+    book_id = (await _link(token, container)).book_id
     data = await asyncio.to_thread(container.book_store.read_page, book_id, number)
     if data is None:
         raise HTTPException(status_code=404, detail="There is no picture on that page.")
@@ -197,7 +226,7 @@ async def shared_page(
 @router.get("/share/{token}/pdf")
 async def shared_pdf(token: str, container: ContainerDep) -> Response:
     """The assembled book, as a download, for a token holder."""
-    book_id = _link(token, container).book_id
+    book_id = (await _link(token, container)).book_id
     data = await asyncio.to_thread(container.book_store.read_pdf, book_id)
     if data is None:
         raise HTTPException(status_code=404, detail="The book is not ready yet.")

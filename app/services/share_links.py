@@ -2,8 +2,8 @@
 
 A grandparent has no account here. A share link is the smallest thing that lets
 them read the book: the book's id, an expiry, and an HMAC over both, keyed with
-the deployment's own signing key. Nothing is stored, so there is nothing to
-clean up, and nothing can be guessed — without the key, forging one is a
+the deployment's own signing key. Only a per-book counter is stored, so there is
+nothing to clean up, and nothing can be guessed — without the key, forging one is a
 256-bit problem.
 
 Two rules the code keeps:
@@ -12,6 +12,9 @@ Two rules the code keeps:
   routes serve the finished book's own pages, cover and PDF. They never serve
   the uploaded photograph, and they never accept an edit, a delete or a
   payment. The reader's owner-only surfaces are untouched by design.
+* **Its owner can stop it.** A token carries the book's share generation, and
+  works only while the book still has that number. "Stop sharing" adds one,
+  retiring every link already sent without a list of them to keep (A10).
 * **It cannot outlive the book.** A link's expiry is capped at the book's own
   retention, so a link can never point at a book that has already been swept.
 
@@ -45,9 +48,25 @@ _DOMAINS: dict[str, bytes] = {
 _DEFAULT_SCOPE = "share"
 
 
-def issue(book_id: str, *, key: bytes, expires_at: int, scope: str = _DEFAULT_SCOPE) -> str:
-    """A token for one book, good until `expires_at` (a unix timestamp)."""
-    payload = _encode({"b": book_id, "e": int(expires_at)})
+def issue(
+    book_id: str,
+    *,
+    key: bytes,
+    expires_at: int,
+    scope: str = _DEFAULT_SCOPE,
+    generation: int = 0,
+) -> str:
+    """A token for one book, good until `expires_at` (a unix timestamp).
+
+    `generation` is the book's share generation when it was minted (A10): the
+    share routes honour a token only while the book still has that number, so
+    "Stop sharing" retires every link at once. 0 is left out of the payload,
+    which keeps a token minted before generations existed reading the same.
+    """
+    body: dict[str, object] = {"b": book_id, "e": int(expires_at)}
+    if generation:
+        body["g"] = int(generation)
+    payload = _encode(body)
     return f"{payload}.{_sign(payload, key, _domain(scope))}"
 
 
@@ -77,25 +96,35 @@ def read(
         return None
     book_id = payload.get("b")
     expiry = payload.get("e")
-    if not isinstance(book_id, str) or not book_id or not isinstance(expiry, int):
+    generation = payload.get("g", 0)
+    if (
+        not isinstance(book_id, str)
+        or not book_id
+        or not isinstance(expiry, int)
+        or not isinstance(generation, int)
+    ):
         return None
     moment = int(time.time()) if now is None else now
     if expiry <= moment:
         return None
-    return ShareLink(book_id=book_id, expires_at=expiry)
+    return ShareLink(book_id=book_id, expires_at=expiry, generation=generation)
 
 
 class ShareLink:
-    """What a valid token says: which book, and until when."""
+    """What a valid token says: which book, until when, and under which generation."""
 
-    __slots__ = ("book_id", "expires_at")
+    __slots__ = ("book_id", "expires_at", "generation")
 
-    def __init__(self, *, book_id: str, expires_at: int) -> None:
+    def __init__(self, *, book_id: str, expires_at: int, generation: int = 0) -> None:
         self.book_id = book_id
         self.expires_at = expires_at
+        self.generation = generation
 
     def __repr__(self) -> str:  # a token holder's data, never in a log line
-        return f"ShareLink(book_id={self.book_id!r}, expires_at={self.expires_at})"
+        return (
+            f"ShareLink(book_id={self.book_id!r}, expires_at={self.expires_at}, "
+            f"generation={self.generation})"
+        )
 
 
 def _domain(scope: str) -> bytes:
