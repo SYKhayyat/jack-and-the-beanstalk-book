@@ -132,6 +132,7 @@ def use_saved_child(
         story_key=profile.story_key,
     )
     container.store.save_draft(draft)
+    container.child_profiles.touch(profile.user_id)
     logger.info("child_profile.used user=%s story=%s", owner, profile.story_key)
     return _payload(draft)
 

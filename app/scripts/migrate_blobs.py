@@ -25,11 +25,11 @@ ensure_venv()
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.engine import Engine  # noqa: E402
 
+from app.blob_sweep import referenced_keys, sweep_orphans  # noqa: E402
 from app.blobs import (  # noqa: E402
     BlobRef,
     BlobStore,
     R2BlobStore,
-    decode_pointer,
     is_pointer,
     same_content,
     set_blob_store,
@@ -82,19 +82,6 @@ def migrate(engine: Engine, store: BlobStore) -> tuple[int, int]:
     return moved, freed
 
 
-def referenced_keys(engine: Engine) -> set[str]:
-    keys_in_use: set[str] = set()
-    for table, _keys, column in blob_columns():
-        with engine.connect() as conn:
-            for row in conn.execute(
-                text(f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL")
-            ):
-                value = bytes(row[0])
-                if is_pointer(value):
-                    keys_in_use.add(decode_pointer(value))
-    return keys_in_use
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--sweep", action="store_true", help="find unreferenced objects")
@@ -115,13 +102,12 @@ def main() -> int:
     engine = prepare_database(build_engine(settings.effective_database_url))
     try:
         if args.sweep:
-            used = referenced_keys(engine)
-            orphans = [k for k in iter(store.keys()) if k not in used]
-            print(f"{len(used)} referenced, {len(orphans)} orphaned")
             if args.delete:
-                for key in orphans:
-                    store.delete(key)
-                print("deleted")
+                print(f"deleted {sweep_orphans(engine, store)} orphaned objects")
+                return 0
+            used = referenced_keys(engine)
+            orphans = [key for key, _ in store.listing() if key not in used]
+            print(f"{len(used)} referenced, {len(orphans)} orphaned")
             return 0
         moved, freed = migrate(engine, store)
         print(f"moved {moved} blobs, {freed / 1e6:.1f} MB out of the database")

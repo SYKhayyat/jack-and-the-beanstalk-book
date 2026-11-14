@@ -22,6 +22,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.auth import AuthGate
+from app.blob_sweep import sweep_orphans
+from app.blobs import blob_store
 from app.books import SEEDS
 from app.config import Settings, get_settings
 from app.container import Container, build_container
@@ -35,6 +37,7 @@ from app.logging_context import (
 )
 from app.redaction import install_secret_redaction
 from app.routes import (
+    account,
     admin,
     admin_status,
     api,
@@ -154,6 +157,13 @@ def expire_once(container: Container) -> tuple[int, int]:
     container.portraits.expire(
         older_than=timedelta(days=container.settings.book_retention_days)
     )
+    container.child_profiles.expire(
+        older_than=timedelta(days=container.settings.child_profile_retention_days)
+    )
+    # Rows are gone; this removes the pictures only they pointed at (A8).
+    store = blob_store()
+    if store is not None:
+        sweep_orphans(container.engine, store)
     if drafts or books:
         logger.info("storage.expired drafts=%d books=%d", drafts, books)
     return drafts, books
@@ -331,6 +341,7 @@ def create_app(
     app.include_router(child_profile.router)
     app.include_router(media.router)
     app.include_router(wallet.router)
+    app.include_router(account.router)
     app.include_router(print_orders.router)
     app.include_router(share.router)
     app.include_router(auth.router)

@@ -807,7 +807,7 @@ class DatabaseBookStore(BookStore):
 
     def delete(self, book_id: str) -> None:
         with self._engine.begin() as conn:
-            _delete_book(conn, book_id)
+            delete_book_rows(conn, book_id)
 
     def saved_page_numbers(self, book_id: str) -> set[int]:
         with self._engine.connect() as conn:
@@ -1018,7 +1018,7 @@ class DatabaseBookStore(BookStore):
                 .all()
             )
             for book_id in stale:
-                _delete_book(conn, book_id)
+                delete_book_rows(conn, book_id)
                 logger.info("book.expired id=%s", book_id)
         return len(stale)
 
@@ -1095,7 +1095,7 @@ def _with_picture_records(
     return {**payload, "pages": stamped}
 
 
-def _delete_book(conn: Connection, book_id: str) -> None:
+def delete_book_rows(conn: Connection, book_id: str) -> None:
     """A book and everything that is only its own. The story revisions stay."""
     conn.execute(delete(BookCharacterRow).where(BookCharacterRow.book_id == book_id))
     conn.execute(delete(PictureVariantRow).where(PictureVariantRow.book_id == book_id))

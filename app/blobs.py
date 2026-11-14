@@ -35,6 +35,7 @@ import logging
 import threading
 from collections import OrderedDict
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 from PIL import Image
@@ -92,11 +93,13 @@ class BlobStore(Protocol):
         """The original bytes a pointer was made from."""
         ...
 
-    def keys(self) -> Iterator[str]:
-        """Every object key in the bucket (for the orphan sweep)."""
+    def listing(self) -> Iterator[tuple[str, datetime]]:
+        """Every object's key and when it was last written (for the orphan sweep)."""
         ...
 
-    def delete(self, key: str) -> None: ...
+    def delete(self, key: str) -> None:
+        """Remove the object, and any copy this process cached."""
+        ...
 
 
 def same_content(original: bytes, restored: bytes) -> bool:
@@ -169,6 +172,13 @@ class _Codec:
             if data is not None:
                 self._cache.move_to_end(key)
             return data
+
+    def forget(self, key: str) -> None:
+        """Drop a deleted object from the cache: a deleted photo is gone here too."""
+        with self._lock:
+            dropped = self._cache.pop(key, None)
+            if dropped is not None:
+                self._cached -= len(dropped)
 
 
 def _lossless_webp(data: bytes) -> bytes | None:
@@ -251,14 +261,15 @@ class R2BlobStore(_Codec):
         self.remember(key, data)
         return data
 
-    def keys(self) -> Iterator[str]:
+    def listing(self) -> Iterator[tuple[str, datetime]]:
         paginator = self._client.get_paginator("list_objects_v2")  # type: ignore[attr-defined]
         for page in paginator.paginate(Bucket=self._bucket, Prefix="blobs/"):
             for item in page.get("Contents", []):
-                yield item["Key"]
+                yield item["Key"], item["LastModified"]
 
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=key)  # type: ignore[attr-defined]
+        self.forget(key)
 
 
 class MemoryBlobStore(_Codec):
@@ -267,6 +278,8 @@ class MemoryBlobStore(_Codec):
     def __init__(self) -> None:
         super().__init__()
         self.objects: dict[str, bytes] = {}
+        #: When each object was last written, as the bucket's LastModified.
+        self.written: dict[str, datetime] = {}
 
     def put(self, data: bytes) -> bytes:
         # Checked like the bucket, so a test catches a handler that would
@@ -274,6 +287,7 @@ class MemoryBlobStore(_Codec):
         check_blocking("an object-store upload")
         key, stored = self.encode(data)
         self.objects[key] = stored
+        self.written[key] = datetime.now(UTC)
         return _PREFIX + key.encode("ascii")
 
     def get(self, pointer: bytes) -> bytes:
@@ -281,11 +295,13 @@ class MemoryBlobStore(_Codec):
         key = decode_pointer(pointer)
         return self.decode(key, self.objects[key])
 
-    def keys(self) -> Iterator[str]:
-        yield from list(self.objects)
+    def listing(self) -> Iterator[tuple[str, datetime]]:
+        yield from list(self.written.items())
 
     def delete(self, key: str) -> None:
         self.objects.pop(key, None)
+        self.written.pop(key, None)
+        self.forget(key)
 
 
 _store: BlobStore | None = None

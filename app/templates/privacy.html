@@ -1,0 +1,80 @@
+{% extends "_layout.html" %}
+{% block title %}Privacy and your data — Storybook Studio{% endblock %}
+{% block body_attrs %}data-page="privacy"{% endblock %}
+{% block header_title %}<span class="header-title">Privacy and your data</span>{% endblock %}
+{% block main_class %}page privacy{% endblock %}
+{% block content %}
+  {% if deleted %}
+  <section class="card" role="status">
+    <h1>Your account is deleted</h1>
+    <p>
+      Your books, pictures, saved child and print orders are gone, and you are
+      signed out. Copies of the pictures leave our storage within two hours.
+    </p>
+    <p><a class="button secondary" href="/">Back to the stories</a></p>
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <h1>What we keep, and for how long</h1>
+    <ul class="privacy-list">
+      <li>
+        <strong>The photo you upload</strong> is used to draw the star's portrait.
+        An unfinished draft is deleted after {{ draft_retention_hours }} hours.
+      </li>
+      <li>
+        <strong>A finished book</strong> (its pages, the portrait and the photo it
+        was drawn from) is kept for {{ book_retention_days }} days after it was last
+        changed, then deleted.
+      </li>
+      <li>
+        <strong>A remembered child</strong> is kept only if you ticked
+        “remember”, and only until you forget it or {{ child_profile_retention_days }}
+        days pass without a book made from it.
+      </li>
+      <li>
+        <strong>A print order</strong> keeps the shipping address it was sent to,
+        so a lost parcel can be traced.
+      </li>
+      <li>
+        <strong>Your wallet history</strong> — top-ups, charges and refunds — is a
+        financial record. It is filed under your Google account's id, not your
+        name or email, and it stays after an account is deleted.
+      </li>
+      <li>
+        <strong>From Google</strong> we keep your name, email and picture, to show
+        who is signed in.
+      </li>
+    </ul>
+    <p class="field-help">
+      Photos and pictures are sent to the image service that draws them and to
+      the reviewer that checks them, and to the printer when you order a copy.
+      They are not used for anything else, and nothing is sold.
+    </p>
+  </section>
+
+  {% if can_delete %}
+  <section class="card danger-zone">
+    <h2>Delete your account</h2>
+    <p>
+      This deletes all {{ book_count }} of your books{% if book_count == 50 %} (and any older ones){% endif %},
+      their pictures and PDFs, your saved child, your print orders and your name
+      and email. It cannot be undone.
+    </p>
+    {% if wallet_visible and wallet_balance_cents > 0 %}
+    <p class="field-help">
+      Your wallet still holds {{ wallet_balance }}. It is not paid out when the
+      account goes: <a href="/wallet">ask for a refund first</a> if you want it back.
+    </p>
+    {% endif %}
+    {% if error %}<p class="landing-error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" action="/account/delete">
+      <div class="field narrow">
+        <label for="confirm-delete">Type {{ confirm_word }} to confirm</label>
+        <input id="confirm-delete" name="confirm" autocomplete="off" required>
+      </div>
+      <button type="submit" class="button danger">Delete my account</button>
+    </form>
+  </section>
+  {% endif %}
+{% endblock %}

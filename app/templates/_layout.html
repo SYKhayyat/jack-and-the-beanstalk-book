@@ -62,6 +62,7 @@
             {% if is_operator %}<a class="user-link user-operator" href="/admin"><span aria-hidden="true">✦</span> Operator</a>{% endif %}
             {% if wallet_enabled %}<a class="user-link" href="/wallet">Wallet and balance</a>{% endif %}
             <a class="user-link" href="/">All the stories</a>
+            <a class="user-link" href="/privacy">Privacy and your data</a>
             <form class="signout" method="post" action="/logout">
               <button type="submit" class="user-link">Sign out</button>
             </form>
@@ -81,7 +82,7 @@
   </main>
 
   <footer class="site-footer">
-    <p><span class="footer-star" aria-hidden="true">✦</span> Books are kept for {{ book_retention_days }} days.</p>
+    <p><span class="footer-star" aria-hidden="true">✦</span> Books are kept for {{ book_retention_days }} days. <a href="/privacy">Privacy and your data</a></p>
   </footer>
   <script type="module" src="{{ static_url }}/chrome.js"></script>
   {% if library_enabled %}<script type="module" src="{{ static_url }}/drawer.js"></script>{% endif %}

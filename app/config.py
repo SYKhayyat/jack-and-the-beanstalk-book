@@ -499,6 +499,17 @@ class Settings(BaseSettings):
             "not be retained forever, and a database has a size limit."
         ),
     )
+    child_profile_retention_days: int = Field(
+        default=365,
+        ge=1,
+        le=3650,
+        description=(
+            "How long a remembered child's portrait is kept after it was last "
+            "saved or used. Using it to start a book restarts the clock; a year "
+            "without a book deletes it, so a child's picture is never the "
+            "longest-kept thing in the system by accident."
+        ),
+    )
 
     picture_price_cents: int = Field(
         default=PICTURE_PRICE_CENTS,

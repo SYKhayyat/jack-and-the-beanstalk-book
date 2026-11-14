@@ -13,14 +13,16 @@ this exists. No image is drawn on reuse, so nothing is billed.
 
 Privacy is the reason this is opt-in and small. It holds only the star (never a
 cast member), it is written only when the visitor ticks "remember", it is
-owner-only, and forgetting it deletes the row and with it both blobs.
+owner-only, and forgetting it deletes the row; the hourly sweep then removes
+both pictures from the object store (`app/blob_sweep.py`). A record nobody has
+used for `child_profile_retention_days` is forgotten on its own.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import Row, delete, select, update
@@ -66,6 +68,14 @@ class ChildProfileStore:
 
     def forget(self, user_id: str) -> bool:
         """Delete the record. Returns whether there was one."""
+        raise NotImplementedError
+
+    def touch(self, user_id: str) -> None:
+        """Mark the record used now, so it is not expired while in use."""
+        raise NotImplementedError
+
+    def expire(self, older_than: timedelta) -> int:
+        """Forget every record not saved or used within `older_than`."""
         raise NotImplementedError
 
 
@@ -142,6 +152,25 @@ class DatabaseChildProfileStore(ChildProfileStore):
         if forgot:
             logger.info("child_profile.forgotten user=%s", user_id)
         return forgot
+
+    def touch(self, user_id: str) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(
+                update(ChildProfileRow)
+                .where(ChildProfileRow.user_id == user_id)
+                .values(updated_at=_now())
+            )
+
+    def expire(self, older_than: timedelta) -> int:
+        cutoff = _now() - older_than
+        with self._engine.begin() as conn:
+            removed = conn.execute(
+                delete(ChildProfileRow).where(ChildProfileRow.updated_at < cutoff)
+            )
+        count = int(removed.rowcount or 0)
+        if count:
+            logger.info("child_profile.expired count=%d", count)
+        return count
 
 
 def _profile_from_row(row: ChildProfileRow | Row[ChildProfileRow]) -> ChildProfile:

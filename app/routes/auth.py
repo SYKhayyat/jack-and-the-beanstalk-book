@@ -59,7 +59,15 @@ router = APIRouter(tags=["auth"])
 # favicon, and the two endpoints of the redirect-based Google flow — one of them
 # is where the session is granted, so it cannot require one.
 _OPEN_PATHS = frozenset(
-    {"/login", "/healthz", "/favicon.ico", "/auth/google/login", "/auth/callback"}
+    {
+        "/login",
+        "/healthz",
+        "/favicon.ico",
+        "/auth/google/login",
+        "/auth/callback",
+        # What is kept and for how long is a question asked before signing in.
+        "/privacy",
+    }
 )
 # Prefixes that stay open: the static assets the login page needs, and the
 # share links. `/share/{token}` is a book somebody was *sent* — a grandparent
