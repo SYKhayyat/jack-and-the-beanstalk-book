@@ -41,6 +41,7 @@ from PIL import Image, ImageStat, UnidentifiedImageError
 
 from app.models.book import AboutMe, AboutPhotoChoice, BookPage
 from app.prompt_data import prompt_text
+from app.services.print.products import CoverSize, Product
 from app.services.typography import book_text
 
 __all__ = [
@@ -48,14 +49,18 @@ __all__ = [
     "COVER_TITLE_BAND_FRACTION",
     "PAPER_RGB",
     "PageArt",
+    "PrintGeometry",
     "TemplateGeometry",
     "TitleBandReport",
     "book_template",
     "build_book_pdf",
+    "build_print_cover",
+    "build_print_interior",
     "draw_about_page",
     "draw_closing_page",
     "draw_copyright_page",
     "draw_cover_page",
+    "print_template",
     "title_band_report",
 ]
 
@@ -110,6 +115,9 @@ TITLE_BAND_MAX_STDDEV = 22.0
 # A page is ~10 in on the short edge, so 1600 px is still >150 dpi.
 _EMBED_LONG_EDGE = 1600
 _EMBED_JPEG_QUALITY = 85
+# The print files embed every picture at the resolution it was drawn at (A1):
+# never downscaled, never upscaled, and encoded gently, since Lulu prints them.
+_PRINT_JPEG_QUALITY = 92
 
 
 class PageArt:
@@ -344,33 +352,64 @@ def draw_cover_page(
     for Ava"). A tale whose title does not carry the star's name names them in
     the subtitle, so the line under the title always does.
     """
-    width, height = pdf.w, pdf.h
     pdf.add_page()
+    whole = (0.0, 0.0, pdf.w, pdf.h)
+    _draw_front_cover(pdf, title, about, cover, subtitle=subtitle, box=whole, face=whole)
+
+
+def _draw_front_cover(
+    pdf: FPDF,
+    title: str,
+    about: AboutMe,
+    cover: bytes,
+    *,
+    subtitle: str,
+    box: tuple[float, float, float, float],
+    face: tuple[float, float, float, float],
+    safety: float = 0.0,
+    full_resolution: bool = False,
+) -> None:
+    """The cover art over `box`, with the title lockup placed on `face`.
+
+    `box` is everything the art covers (on a print cover, the front panel with
+    its bleed or board wrap); `face` is the part a reader sees once the book is
+    trimmed and bound, and the words keep `safety` inside it.
+    """
+    box_x, box_y, box_w, box_h = box
+    face_x, face_y, face_w, face_h = face
     art_w, art_h = _image_size(cover)
-    scale = max(width / art_w, height / art_h)
+    scale = max(box_w / art_w, box_h / art_h)
     drawn_w, drawn_h = art_w * scale, art_h * scale
-    pdf.image(
-        _image_for_pdf(cover),
-        x=(width - drawn_w) / 2,
-        y=(height - drawn_h) / 2,
-        w=drawn_w,
-        h=drawn_h,
-    )
+    with pdf.rect_clip(box_x, box_y, box_w, box_h):
+        pdf.image(
+            _image_for_pdf(cover, full_resolution=full_resolution),
+            x=box_x + (box_w - drawn_w) / 2,
+            y=box_y + (box_h - drawn_h) / 2,
+            w=drawn_w,
+            h=drawn_h,
+        )
+        # A soft vignette from the top edge down, so the title reads on any
+        # sky. One smooth gradient image: stacked translucent strips overlap
+        # at their seams and print as visible lines.
+        pdf.image(
+            io.BytesIO(_vignette_bytes()),
+            x=box_x,
+            y=box_y,
+            w=box_w,
+            h=(face_y - box_y) + face_h * 0.40,
+        )
 
-    # A soft vignette from the top edge down, so the title reads on any sky.
-    # One smooth gradient image: stacked translucent strips overlap at their
-    # seams and print as visible lines.
-    pdf.image(io.BytesIO(_vignette_bytes()), x=0, y=0, w=width, h=height * 0.40)
-
-    usable = width * (1 - 2 * _SIDE_MARGIN)
-    title_size = width * 0.085
+    usable = min(face_w * (1 - 2 * _SIDE_MARGIN), face_w - 2 * safety)
+    title_size = face_w * 0.085
     while title_size > 22.0 and _text_width(_FAMILY, "B", title_size, title) > usable:
         title_size *= 0.94
     title_lines = _wrap(title, _FAMILY, "B", title_size, usable)
-    top = height * 0.07
+    top = face_y + max(face_h * 0.07, safety)
     pdf.set_font(_FAMILY, "B", title_size)
     for line in title_lines:
-        _shadowed_cell(pdf, line, top, title_size * 1.25, offset=title_size * 0.05)
+        _shadowed_cell(
+            pdf, line, top, title_size * 1.25, offset=title_size * 0.05, x=face_x, width=face_w
+        )
         top += title_size * 1.25
 
     # The line under the title always names the star: the story's own line
@@ -378,7 +417,15 @@ def draw_cover_page(
     credit = subtitle or about.cover_credit()
     credit_size = max(16.0, title_size * 0.42)
     pdf.set_font(_FAMILY, "I", credit_size)
-    _shadowed_cell(pdf, credit, top + credit_size * 0.4, credit_size * 1.4, offset=1.2)
+    _shadowed_cell(
+        pdf,
+        credit,
+        top + credit_size * 0.4,
+        credit_size * 1.4,
+        offset=1.2,
+        x=face_x,
+        width=face_w,
+    )
 
 
 def draw_copyright_page(
@@ -464,7 +511,14 @@ def _vignette_bytes() -> bytes:
 
 
 def _shadowed_cell(
-    pdf: FPDF, text: str, y: float, line_height: float, *, offset: float
+    pdf: FPDF,
+    text: str,
+    y: float,
+    line_height: float,
+    *,
+    offset: float,
+    x: float = 0.0,
+    width: float | None = None,
 ) -> None:
     """One centred line of cream text with a dark edge, drawn once.
 
@@ -479,8 +533,8 @@ def _shadowed_cell(
     pdf.set_line_width(1.2)
     pdf.text_mode = "FILL_STROKE"
     pdf.set_text_color(*_CREAM)
-    pdf.set_xy(0, y)
-    pdf.cell(pdf.w, line_height, text, align="C")
+    pdf.set_xy(x, y)
+    pdf.cell(pdf.w if width is None else width, line_height, text, align="C")
     pdf.text_mode = "FILL"
 
 
@@ -497,7 +551,7 @@ def _draw_page(pdf: FPDF, entry: PageArt, layout: TemplateGeometry, number: int)
     if image is None:
         _draw_missing_art(pdf, layout)
     else:
-        pdf.image(_image_for_pdf(image), x=0, y=0, w=layout.art_width, h=layout.art_height)
+        _place_art(pdf, image, 0, 0, layout.art_width, layout.art_height)
 
     # A thin gold rule where the picture meets the page.
     pdf.set_draw_color(*_GOLD)
@@ -541,7 +595,12 @@ def _draw_missing_art(pdf: FPDF, layout: TemplateGeometry) -> None:
 
 
 def draw_about_page(
-    pdf: FPDF, about: AboutMe, portrait: bytes | None = None, photo: bytes | None = None
+    pdf: FPDF,
+    about: AboutMe,
+    portrait: bytes | None = None,
+    photo: bytes | None = None,
+    *,
+    inset: float = 0.0,
 ) -> None:
     """The back cover: heading, framed picture(s) and the About Me sentences.
 
@@ -549,12 +608,15 @@ def draw_about_page(
     About screen chose. A choice whose image is missing falls back to what is
     there, so the page is never left without the face it can show. "The End"
     is its own page just before this one, so it is not repeated here.
+
+    `inset` keeps every word that far from the page edge: a print page's
+    bleed plus its safety margin.
     """
     width, height = pdf.w, pdf.h
     pdf.add_page()
     pdf.set_fill_color(*PAPER_RGB)
     pdf.rect(0, 0, width, height, style="F")
-    usable = width * (1 - 2 * _SIDE_MARGIN)
+    usable = min(width * (1 - 2 * _SIDE_MARGIN), width - 2 * inset)
 
     heading, *sentences = (book_text(line) for line in about.rendered_about_lines())
     pdf.set_text_color(*_INK)
@@ -562,8 +624,8 @@ def draw_about_page(
     while heading_size > 16.0 and _text_width(_FAMILY, "B", heading_size, heading) > usable:
         heading_size *= 0.92
     pdf.set_font(_FAMILY, "B", heading_size)
-    top = height * 0.06
-    pdf.set_xy(width * _SIDE_MARGIN, top)
+    top = max(height * 0.06, inset)
+    pdf.set_xy((width - usable) / 2, top)
     pdf.cell(usable, heading_size * 1.4, heading, align="C")
     top += heading_size * 1.4 + height * 0.03
 
@@ -582,10 +644,10 @@ def draw_about_page(
     # The text may continue onto another page; only the picture and heading
     # are first-page furniture (B11). The bottom margin is left clear so the
     # back cover does not run into the trim.
-    bottom = height - height * 0.06
+    bottom = height - max(height * 0.06, inset)
     if sentences:
         available = bottom - top
-        continuation_top = height * 0.08
+        continuation_top = max(height * 0.08, inset)
         continuation_height = bottom - continuation_top
         pages, body_size, line_height = _fit_text_pages(
             "\n".join(sentences),
@@ -606,6 +668,269 @@ def draw_about_page(
                 pdf.rect(0, 0, width, height, style="F")
                 page_top = continuation_top
             _centred_lines(pdf, lines, page_top, line_height)
+
+
+# --- the print edition (Q2, A1, A2, A11) ------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PrintGeometry:
+    """The one template every story page of a print interior is set in.
+
+    The page is the trim plus bleed, whatever shape the art is. The art runs
+    across the full width at its own proportions, and the story is set in the
+    band beneath it, inside the safety margin. Only when the words need more
+    room than the art leaves does the art box shrink, and the picture is then
+    centred on cream rather than cropped or stretched (A11).
+    """
+
+    page_width: float
+    page_height: float
+    art_height: float
+    font_size: float
+    text_width: float
+    text_bottom: float
+    folio_top: float
+
+    @property
+    def line_height(self) -> float:
+        return self.font_size * _LINE_FACTOR
+
+    @property
+    def text_top(self) -> float:
+        return self.art_height + _MARGIN_PAD_TOP
+
+    @property
+    def text_room(self) -> float:
+        return self.text_bottom - self.text_top
+
+
+_FOLIO_SIZE = 10.0
+
+
+def print_template(
+    product: Product, art_ratio: float, stories: Sequence[str]
+) -> PrintGeometry:
+    """One font size and one art box for the whole printed interior.
+
+    `art_ratio` is the art's height over its width. The largest font at which
+    every story fits beneath the art at its natural height wins; past the
+    floor the art box gives up height instead, so no story is ever cut.
+    """
+    page_width, page_height = product.page_size
+    inset = product.interior_inset
+    text_width = page_width - 2 * max(inset, page_width * _SIDE_MARGIN)
+    folio_top = page_height - inset - _FOLIO_SIZE * 1.4
+    text_bottom = folio_top - _FOLIO_SIZE
+    natural = min(page_width * art_ratio, page_height)
+    size = _STORY_FONT_MAX
+    while True:
+        lines = max(
+            (len(_wrap(story, _FAMILY, "", size, text_width)) for story in stories if story),
+            default=0,
+        )
+        room = text_bottom - _MARGIN_PAD_TOP - lines * size * _LINE_FACTOR
+        if room >= natural or size <= _MIN_STORY_FONT:
+            return PrintGeometry(
+                page_width=page_width,
+                page_height=page_height,
+                art_height=max(0.0, min(natural, room)),
+                font_size=size,
+                text_width=text_width,
+                text_bottom=text_bottom,
+                folio_top=folio_top,
+            )
+        size = max(_MIN_STORY_FONT, size - 0.5)
+
+
+def build_print_interior(
+    about: AboutMe,
+    pages: Sequence[PageArt],
+    product: Product,
+    *,
+    portrait: bytes | None = None,
+    photo: bytes | None = None,
+    publisher: str = "Storybook Studio",
+    year: int | None = None,
+) -> bytes:
+    """The interior file a printer binds: everything but the cover.
+
+    The copyright page, the story, "The End" and the About Me page, each the
+    trim plus 0.125 in bleed, every picture at full resolution (A1), then
+    blank pages up to the binding's minimum and an even count (A2). The cover
+    is its own file (`build_print_cover`).
+
+    Raises:
+        ValueError: if `pages` is empty, no page has a picture, an image is
+            unreadable, or the book is too long for the binding.
+    """
+    if not pages:
+        raise ValueError("A book needs at least one page.")
+    shape_image = next((entry.image for entry in pages if entry.image is not None), None)
+    if shape_image is None:
+        raise ValueError("A book needs at least one picture.")
+    art_w, art_h = _image_size(shape_image)
+    layout = print_template(
+        product, art_h / art_w, [book_text(entry.page.story) for entry in pages]
+    )
+
+    pdf = _new_pdf(layout.page_width, layout.page_height)
+    draw_copyright_page(pdf, about, publisher, year or datetime.now(UTC).year)
+    for number, entry in enumerate(pages, start=1):
+        _draw_print_page(pdf, entry, layout, number)
+    draw_closing_page(pdf)
+    draw_about_page(pdf, about, portrait, photo, inset=product.interior_inset)
+
+    for _ in range(product.printed_pages(pdf.page) - pdf.page):
+        pdf.add_page()
+        pdf.set_fill_color(*PAPER_RGB)
+        pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+    return _output(pdf)
+
+
+def build_print_cover(
+    title: str,
+    about: AboutMe,
+    cover: bytes,
+    size: CoverSize,
+    product: Product,
+    *,
+    subtitle: str = "",
+    portrait: bytes | None = None,
+    photo: bytes | None = None,
+) -> bytes:
+    """The cover file: one spread of back cover, spine and front cover.
+
+    `size` is the spread the printer asked for (bleed or board wrap included).
+    The front is the cover art with the title lockup on the visible face; the
+    back is the child's picture in a frame with the title beneath; the spine
+    is plain paper, because a book of 80 pages or fewer may carry no spine
+    text.
+    """
+    pdf = _new_pdf(size.width, size.height)
+    pdf.add_page()
+    pdf.set_fill_color(*PAPER_RGB)
+    pdf.rect(0, 0, size.width, size.height, style="F")
+
+    spine_left = (size.width - size.spine) / 2
+    front_left = spine_left + size.spine
+    _draw_front_cover(
+        pdf,
+        title,
+        about,
+        cover,
+        subtitle=subtitle,
+        box=(front_left, 0.0, size.width - front_left, size.height),
+        face=(front_left, size.wrap_y, size.trim_width, size.trim_height),
+        safety=product.cover_safety,
+        full_resolution=True,
+    )
+
+    back_left = spine_left - size.trim_width
+    safety = product.cover_safety
+    centre = back_left + size.trim_width / 2
+    top = size.wrap_y + max(safety, size.trim_height * 0.12)
+    images = _about_images(about.about_photo, portrait, photo)
+    side = min(size.trim_width, size.trim_height) * (0.42 if len(images) == 1 else 0.30)
+    bottoms = [
+        _framed_image(pdf, image, top, max_side=side, centre_x=centre + offset)
+        for image, offset in zip(
+            images,
+            (0.0,) if len(images) == 1 else (-size.trim_width * 0.2, size.trim_width * 0.2),
+            strict=False,
+        )
+    ]
+    top = max(bottoms, default=top) + size.trim_height * 0.05
+    usable = size.trim_width - 2 * safety
+    title_size = 22.0
+    pdf.set_text_color(*_INK)
+    pdf.set_font(_FAMILY, "I", title_size)
+    for line in _wrap(title, _FAMILY, "I", title_size, usable):
+        pdf.set_xy(back_left + safety, top)
+        pdf.cell(usable, title_size * 1.4, line, align="C")
+        top += title_size * 1.4
+    return _output(pdf)
+
+
+def _draw_print_page(pdf: FPDF, entry: PageArt, layout: PrintGeometry, number: int) -> None:
+    """One printed story page: the art across the top, the story beneath."""
+    pdf.add_page()
+    pdf.set_fill_color(*PAPER_RGB)
+    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+    image = entry.image
+    art = TemplateGeometry(layout.page_width, layout.art_height, 0.0, layout.font_size)
+    if image is None:
+        _draw_missing_art(pdf, art)
+    else:
+        _place_art(
+            pdf, image, 0, 0, layout.page_width, layout.art_height, full_resolution=True
+        )
+    pdf.set_draw_color(*_GOLD)
+    pdf.set_line_width(1.6)
+    pdf.line(0, layout.art_height, pdf.w, layout.art_height)
+
+    story = book_text(entry.page.story)
+    if story.strip():
+        lines = _wrap(story, _FAMILY, "", layout.font_size, layout.text_width)
+        block = len(lines) * layout.line_height
+        y = layout.text_top + max(0.0, (layout.text_room - block) / 2)
+        pdf.set_font(_FAMILY, "", layout.font_size)
+        pdf.set_text_color(*_INK)
+        _centred_lines(pdf, lines, y, layout.line_height)
+
+    # The copyright page is page 1 of the interior, so story page n is n + 1.
+    pdf.set_font(_FAMILY, "I", _FOLIO_SIZE)
+    pdf.set_text_color(*_GOLD)
+    pdf.set_xy(0, layout.folio_top)
+    pdf.cell(pdf.w, _FOLIO_SIZE * 1.4, str(number + 1), align="C")
+
+
+def _place_art(
+    pdf: FPDF,
+    image: bytes,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    *,
+    full_resolution: bool = False,
+) -> None:
+    """The picture in its box at its own shape, centred on cream (A11).
+
+    A picture whose shape differs from the box is never stretched or cropped:
+    it is scaled to fit and the cream shows at the sides or above and below.
+    """
+    art_w, art_h = _image_size(image)
+    scale = min(width / art_w, height / art_h)
+    drawn_w, drawn_h = art_w * scale, art_h * scale
+    if abs(drawn_w - width) > 0.5 or abs(drawn_h - height) > 0.5:
+        logger.info(
+            "pdf.art_letterboxed picture=%dx%d box=%.0fx%.0f", art_w, art_h, width, height
+        )
+        pdf.set_fill_color(*_CREAM)
+        pdf.rect(x, y, width, height, style="F")
+    pdf.image(
+        _image_for_pdf(image, full_resolution=full_resolution),
+        x=x + (width - drawn_w) / 2,
+        y=y + (height - drawn_h) / 2,
+        w=drawn_w,
+        h=drawn_h,
+    )
+
+
+def _new_pdf(width: float, height: float) -> FPDF:
+    pdf = FPDF(unit="pt", format=(width, height))
+    pdf.set_auto_page_break(False)
+    _register_fonts(pdf)
+    if _shaping_supported():
+        pdf.set_text_shaping(True)
+    return pdf
+
+
+def _output(pdf: FPDF) -> bytes:
+    output = io.BytesIO()
+    pdf.output(output)
+    return output.getvalue()
 
 
 def _centred_lines(pdf: FPDF, lines: Sequence[str], top: float, line_height: float) -> None:
@@ -718,8 +1043,10 @@ def _shaping_supported() -> bool:
         return False
 
 
-def _image_for_pdf(image: bytes) -> io.BytesIO:
+def _image_for_pdf(image: bytes, *, full_resolution: bool = False) -> io.BytesIO:
     """Re-encode one picture as a right-sized JPEG for embedding.
+
+    `full_resolution` keeps every pixel the picture has, for a print file.
 
     RGBA is flattened onto white, because JPEG has no alpha and a transparent
     page would otherwise come out black.
@@ -735,13 +1062,18 @@ def _image_for_pdf(image: bytes) -> io.BytesIO:
                 background = Image.new("RGB", frame.size, (255, 255, 255))
                 background.paste(frame, mask=frame.split()[-1])
                 frame = background
-            frame.thumbnail((_EMBED_LONG_EDGE, _EMBED_LONG_EDGE), Image.Resampling.LANCZOS)
+            if not full_resolution:
+                frame.thumbnail((_EMBED_LONG_EDGE, _EMBED_LONG_EDGE), Image.Resampling.LANCZOS)
             encoded = io.BytesIO()
             # A plain baseline JPEG on purpose: with optimize= or progressive=
             # Pillow encodes the whole frame in one call that holds the GIL
             # (~270 ms a page), freezing the server for the whole assembly; a
             # baseline encode works in chunks. The size cost is about 5%.
-            frame.save(encoded, format="JPEG", quality=_EMBED_JPEG_QUALITY)
+            frame.save(
+                encoded,
+                format="JPEG",
+                quality=_PRINT_JPEG_QUALITY if full_resolution else _EMBED_JPEG_QUALITY,
+            )
     except (OSError, UnidentifiedImageError) as exc:
         raise ValueError("A page image was unreadable; cannot assemble the book.") from exc
     encoded.seek(0)
