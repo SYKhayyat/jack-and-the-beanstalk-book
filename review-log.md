@@ -59,3 +59,23 @@ Fix first for the next (live) run:
 1. Use a new real photo and a paid-provider run: measure likeness on pages 1/10/20, one-style consistency, and the real upload → PDF clock against 60 s.
 2. Drive the wallet and the print page on the live site with Stripe test mode: fund, generate, refund, history reconciliation, and one Peecho **test** order.
 3. Watch the first load on the deployed instance; 4.4 s locally is cold-start seeding, and the live free instance may be slower.
+
+## Run 3 — 2026-11-15 — reviewer: self — browser: Claude in Chrome (already signed in as the owner; not a private window) — evaluated by: Claude Sonnet 5.5 (browser steps by a Haiku subagent)
+**No total.** Live site, one story (Red Riding Hood, starring Maya, photo `Photo from 2026-11-04 …jpeg`). The walkthrough stopped partway: the Chrome renderer froze repeatedly on the reader and book pages, so most Money, print and sign-out lines were not driven.
+Commit: 53fb091 (live, deploy `dep-…` of 11:09Z).
+Upload → PDF: portrait requested 11:19:34; book started 11:20:15; **complete 11:27:24 = 7 min 09 s** (target 60 s). First picture call 11:22:08 (113 s after start); 21 pictures drawn 11:22:08–11:25:49; a redraw was still running at 11:26:34.
+Balance: $5.00 → $3.86 after portrait ($0.15) and book ($0.99). Funding not driven (balance already $5.00; Stripe checkout opened in test mode, no card paid).
+Avg cost: this book $0.604 (22 image calls, 28 reviews; 4 redraws) against the $0.99 price. 16 pages + cover + portrait cost $0.476; retries $0.112; reviews $0.015.
+Measured OK (subagent, not independently verified): balance in the header; history readable and reconciled before the run (5 + 5 − 0.99 − 0.99 − 3.02 = $5.00); stage names shown while drawing (`painting`, `reviewing`, `retrying` in `status_payload`); the studio shows "Remember for your next book"; the share link opens read-only.
+Defects:
+1. **Slow start and slow book** — see `audit_11_15.md`: 113 s of silence before the first picture (plate decode), 6 pages at a time, slot held through review.
+2. Progress caption began with "the pencil is resting" during that 113 s gap.
+3. **Stop sharing not confirmed**: the link still opened after the page was loaded; the click on "Stop sharing: turn off every link sent" timed out twice, so this is untested, not failed.
+4. The reader showed 21 pages against 24 expected (cover, copyright, 20 story, The End, About); not confirmed, the PDF was not opened.
+5. `/wallet` typed directly redirected to the home page; the header link worked.
+Not measured: PDF (all lines: page count, likeness, text over faces, 400% zoom), 400 px width, print page and Lulu quote, wallet top-up for a print, delete-account control, refund, sign-out/in, failure with an empty balance, console check.
+Fix first:
+1. Book takes 7 min 09 s, not 60 s (Engineering, -6): see `audit_11_15.md`.
+2. 113 s with no stage shown before drawing starts (UI, -3).
+3. Confirm "Stop sharing" and the 21-vs-24 page count by hand.
+4. Rerun the unmeasured lines in a private window in a browser that does not freeze.
