@@ -344,7 +344,9 @@ def test_a_book_on_a_template_version_edits_the_plate_instead_of_composing(
     assert status["status"] == "complete", status
 
     plates = {plate.page_number: plate for plate in store.plates(JACK_KEY)}
-    plate_bytes = store.plate_image(plates[0].id)[0]
+    # The book draws onto the plate's working copy (audit 11-15 S1), not the full plate.
+    plate_bytes = store.drawing_plate(store.book_plates(book_id)[0]).image
+    assert plate_bytes != store.plate_image(plates[0].id)[0]
     cover_calls = [request for request in provider.requests if request.label == "book-cover"]
     page_calls = [request for request in provider.requests if request.label == "book-page"]
     assert len(cover_calls) == 1

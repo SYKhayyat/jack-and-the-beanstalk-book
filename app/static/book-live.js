@@ -395,6 +395,9 @@ function apply(payload) {
     // Idea 10: the operator stopped drawing, briefly. Nothing is lost and no
     // page needs pressing; the poll keeps running and the book carries on.
     caption("Drawing is paused for a moment. Everything drawn so far is kept — this book carries on by itself.");
+  } else if (payload.phase === "preparing") {
+    // Audit 11-15 S4: the wait before the first page starts is work too.
+    caption("Step 1 of 2 · Getting the pictures ready — the first page starts in a moment.");
   } else if (payload.phase === "assembling") {
     caption("Step 2 of 2 · Putting the book together — every picture is drawn.");
   } else {

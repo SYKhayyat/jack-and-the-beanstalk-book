@@ -146,11 +146,15 @@ services:
       - key: MAX_CONCURRENT_GENERATIONS
         value: "8"
 
-      # One book's pages in flight at once, and the threads for their image
-      # work. Run 2 (2026-11-11) had all 21 pages in flight on a tenth of a
-      # CPU; the health check took 20 s and the instance was restarted.
+      # One book's pictures being drawn at once, and the threads for their
+      # image work. Run 2 (2026-11-11) had all 21 pages in flight on a tenth of
+      # a CPU; the health check took 20 s and the instance was restarted. Since
+      # audit 11-15 S3 the slot covers only the model call (pasting and review
+      # run outside it, their Pillow work behind IMAGE_WORK_THREADS), so it
+      # matches the gate above. OPENAI_IMAGES_PER_MINUTE is the real ceiling:
+      # 21 pages cannot all start inside a minute at 18 a minute.
       - key: BOOK_PAGE_CONCURRENCY
-        value: "6"
+        value: "8"
       - key: IMAGE_WORK_THREADS
         value: "2"
 

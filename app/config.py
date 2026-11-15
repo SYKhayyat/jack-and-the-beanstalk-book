@@ -394,16 +394,18 @@ class Settings(BaseSettings):
         ),
     )
     book_page_concurrency: int = Field(
-        default=6,
+        default=8,
         ge=1,
         le=64,
         description=(
-            "How many of one book's pages are worked on at once: drawn, pasted "
-            "onto their plate and reviewed. Separate from the gate above, which "
-            "bounds model calls across the server. Every page in flight holds "
-            "its pictures in memory and queues Pillow work, so 21 at once is "
-            "what starved the free plan's event loop (Run 2); the model calls "
-            "are I/O, so a lower number mostly costs latency, not CPU."
+            "How many of one book's pictures are being drawn at once. Held only "
+            "for the model call: pasting onto the plate and the review run "
+            "outside it, so a page being checked or redrawn never keeps "
+            "another from starting (audit 11-15 S3). Separate from the gate "
+            "above, which bounds model calls across the server. Pillow work is "
+            "bounded on its own by IMAGE_WORK_THREADS and the two transcoding "
+            "slots, which is what keeps the free plan's event loop alive "
+            "(Run 2)."
         ),
     )
     image_work_threads: int = Field(

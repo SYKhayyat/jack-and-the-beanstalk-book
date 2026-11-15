@@ -470,6 +470,11 @@ class TemplatePlateRow(Base):
     )
     page_number: Mapped[int] = mapped_column(Integer)
     image: Mapped[bytes] = mapped_column(BlobRef)
+    #: The copy a page is drawn from: `image` shrunk to the largest picture a
+    #: provider returns, as JPEG (audit 11-15 S1). Derived from `image`, never
+    #: edited; NULL until the first page drawn on the plate makes it
+    #: (`TemplateStore.drawing_plate`).
+    working_image: Mapped[bytes | None] = mapped_column(BlobRef, nullable=True)
     media_type: Mapped[str] = mapped_column(String(50))
     prompt: Mapped[str] = mapped_column(Text)
     prompt_hash: Mapped[str] = mapped_column(String(64))

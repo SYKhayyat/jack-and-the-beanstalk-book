@@ -28,6 +28,7 @@ from app.scripts.import_premades import run as import_run
 from app.services.book_runner import _Artwork, _premade_attempts, _premade_for
 from app.services.db_book_store import DatabaseBookStore
 from app.services.template_store import (
+    PinnedPremade,
     PlateNotApprovable,
     PlateStatus,
     PremadeArt,
@@ -79,7 +80,7 @@ def _red_page(number: int):
 
 
 def _artwork(
-    premades: dict[int, PremadeArt], visitor: frozenset[str] = frozenset()
+    premades: dict[int, PinnedPremade], visitor: frozenset[str] = frozenset()
 ) -> _Artwork:
     return _Artwork(
         about=None,
@@ -93,6 +94,10 @@ def _artwork(
         premades=premades,
         visitor_cast=visitor,
     )
+
+
+def _pinned(number: int = CUPBOARD) -> PinnedPremade:
+    return PinnedPremade(page_number=number, premade_id="p" * 32)
 
 
 def _art(number: int = CUPBOARD) -> PremadeArt:
@@ -173,7 +178,9 @@ class TestPinning:
 
         assert set(pinned) == {CUPBOARD}
         assert pinned[CUPBOARD].premade_id == premade
-        assert pinned[CUPBOARD].image == store.premade_image(premade)[0]
+        art = store.premade_art(pinned[CUPBOARD])
+        assert art.image == store.premade_image(premade)[0]
+        assert art.page_number == CUPBOARD
 
     def test_approving_writes_a_new_version(self, engine: Engine) -> None:
         store = _store(engine)
@@ -228,25 +235,25 @@ class TestPinning:
 
 class TestRunner:
     def test_a_starless_page_with_no_visitor_photo_uses_it(self) -> None:
-        art = _art()
-        assert _premade_for(_red_page(CUPBOARD), _artwork({CUPBOARD: art}), {}) is art
+        pinned = _pinned()
+        assert _premade_for(_red_page(CUPBOARD), _artwork({CUPBOARD: pinned}), {}) is pinned
 
     def test_a_visitor_photo_of_anyone_on_the_page_draws_it_instead(self) -> None:
-        artwork = _artwork({CUPBOARD: _art()}, visitor=frozenset({"grandmother"}))
+        artwork = _artwork({CUPBOARD: _pinned()}, visitor=frozenset({"grandmother"}))
         assert _premade_for(_red_page(CUPBOARD), artwork, {}) is None
 
     def test_a_photo_of_someone_not_on_the_page_does_not_matter(self) -> None:
-        artwork = _artwork({CUPBOARD: _art()}, visitor=frozenset({"mother"}))
+        artwork = _artwork({CUPBOARD: _pinned()}, visitor=frozenset({"mother"}))
         assert _premade_for(_red_page(CUPBOARD), artwork, {}) is not None
 
     def test_a_requested_fix_draws_the_page_again(self) -> None:
-        artwork = _artwork({CUPBOARD: _art()})
+        artwork = _artwork({CUPBOARD: _pinned()})
         assert _premade_for(_red_page(CUPBOARD), artwork, {CUPBOARD: ["other"]}) is None
 
     def test_a_page_with_the_star_never_uses_one(self) -> None:
         page = _red_page(1)
         assert page.star_in_picture
-        assert _premade_for(page, _artwork({1: _art(1)}), {}) is None
+        assert _premade_for(page, _artwork({1: _pinned(1)}), {}) is None
 
     def test_the_record_says_premade_and_sent_nothing(self) -> None:
         art = _art()

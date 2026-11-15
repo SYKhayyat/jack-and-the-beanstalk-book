@@ -13,6 +13,7 @@ import asyncio
 import io
 import json
 import random
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -46,7 +47,7 @@ from app.services.reviewer import (
     parse_answer,
     verdict_passes,
 )
-from app.services.template_store import PlateArt, Slot
+from app.services.template_store import PinnedPlate, PlateArt, Slot
 
 from .helpers import edition_for
 
@@ -221,12 +222,7 @@ def artwork(plated: bool = False) -> Any:
     """The runner's view of a book: with a plate for page 5, or without one."""
     plates = {}
     if plated:
-        plates[5] = PlateArt(
-            plate_id="p5",
-            image=plate(),
-            media_type="image/png",
-            slots=(A_SLOT,),
-        )
+        plates[5] = PinnedPlate(plate_id="p5", slots=(A_SLOT,))
     return Mock(
         plates=plates,
         characters={},
@@ -1075,3 +1071,37 @@ class TestTheLoopEndToEnd:
         first, second = next(iter(retried.values()))
         assert first != second
         assert "there was lettering or writing in the picture" in second
+
+    def test_a_page_being_checked_does_not_keep_the_next_page_from_starting(
+        self, settings: Any, tmp_path: Path
+    ) -> None:
+        """Audit 11-15 S3: the page slot is held for the draw, not the review.
+
+        With one slot, the first page reviewed holds its check open until two
+        more pictures have been drawn. Were the slot held through the review
+        and the redraw that follows, no other page could start and the wait
+        would run out.
+        """
+        provider = ABigPainter()
+        others_started = threading.Event()
+        first = threading.Lock()
+
+        class SlowFirstCheck(ScriptedReviewer):
+            def review(self, image: bytes, **kwargs: Any) -> Any:
+                if first.acquire(blocking=False):
+                    deadline = time.monotonic() + 20
+                    while len(provider.requests) < 3 and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    if len(provider.requests) >= 3:
+                        others_started.set()
+                return super().review(image, **kwargs)
+
+        reviewer = SlowFirstCheck(
+            answers=[said(False, 20, ("text_in_image",))], default=said(True, 95)
+        )
+        one_slot = settings.model_copy(update={"book_page_concurrency": 1})
+        payload = self._a_book(one_slot, tmp_path, provider, reviewer)
+
+        assert others_started.is_set(), "no other page started while one was checked"
+        assert payload["status"] == "complete", payload.get("error")
+        assert len(provider.requests) == PLAN_COUNT + 2, len(provider.requests)

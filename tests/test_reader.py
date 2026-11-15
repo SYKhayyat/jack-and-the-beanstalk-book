@@ -301,6 +301,13 @@ def test_the_show_stops_the_moment_the_reader_turns_a_page() -> None:
     assert 'if (userNavigated || document.hidden || state !== "rendering") return;' in source
 
 
+def test_the_wait_before_page_one_has_its_own_caption() -> None:
+    """S4: between the button and page 1 the reader is told work is happening."""
+    source = (STATIC / "book-live.js").read_text()
+    assert 'payload.phase === "preparing"' in source
+    assert "Getting the pictures ready" in source
+
+
 def test_a_finished_book_opens_on_its_cover() -> None:
     source = (STATIC / "book-live.js").read_text()
     assert 'if (status === "complete") return 0;' in source

@@ -297,3 +297,40 @@ def test_the_book_counts_its_cover_and_reports_the_pdf_phase(
     assert final["status"] == BookStatus.COMPLETE
     assert final["phase"] == "complete"
     assert len(final["pages"]) == len(BOOK_PAGES) + 1
+
+
+def test_a_new_job_says_it_is_preparing_until_page_one_starts(
+    tmp_path: Path, engine: Engine
+) -> None:
+    """S4: the first status a job writes is "preparing", not "0 of 21 drawn"."""
+    store = GenerationStore(tmp_path / "drafts")
+    book_store = DatabaseBookStore(engine)
+    generation_id = _persisted_draft(store)
+    runner = BookRunner(
+        provider=RecordingProvider(),
+        store=store,
+        book_store=book_store,
+        templates=TemplateStore(engine),
+        gate=ConcurrencyGate(2),
+        page_timeout_seconds=60,
+    )
+    book_store.save_record(
+        edition=edition_in(book_store),
+        book_id="preparing-book",
+        user_id=None,
+        about=AboutMe(prompt_name="Jack", about_name="Jack"),
+        generation_id=generation_id,
+    )
+
+    runner._mark_rendering(
+        "preparing-book",
+        None,
+        draw_cover=True,
+        only_missing=False,
+        requested_fixes={},
+        resumed=False,
+    )
+
+    status = book_store.load_status("preparing-book") or {}
+    assert status["status"] == BookStatus.RENDERING
+    assert status["phase"] == "preparing"

@@ -42,6 +42,20 @@ Settings.model_config["env_file"] = None
 set_strict(True)
 
 
+@pytest.fixture(autouse=True)
+def _screen_density_print_files(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Print files at screen density, outside the tests of the density itself.
+
+    Resampling every picture of a book up to 300 ppi (audit 11-15 P1) is about
+    14 s per approval, which the order, top-up and refund tests do not care
+    about. tests/test_print_edition.py checks the real density.
+    """
+    if request.path.name != "test_print_edition.py":
+        monkeypatch.setattr("app.services.pdf._PRINT_PPI", 72)
+
+
 @pytest.fixture(scope="session")
 def schema_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A database migrated to head once, copied into each test's storage dir.

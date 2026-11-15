@@ -23,6 +23,7 @@ Every method is one transaction on its own connection, like `DatabaseBookStore`.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import logging
 import threading
@@ -52,6 +53,7 @@ from app.db import (
     TemplateVersionRow,
 )
 from app.models.story import StoryEdition, edition_from_content
+from app.transcoding import transcoding
 
 __all__ = [
     "COVER_PAGE",
@@ -59,8 +61,11 @@ __all__ = [
     "NOT_READY",
     "PAGE_NUMBERS",
     "RESTS",
+    "WORKING_EDGE",
     "NoTemplateVersion",
     "PageSummary",
+    "PinnedPlate",
+    "PinnedPremade",
     "PlateArt",
     "PlateNotApprovable",
     "PlateStatus",
@@ -80,6 +85,7 @@ __all__ = [
     "VersionCharacter",
     "VersionPage",
     "seed_edition",
+    "working_copy",
     "write_pins",
 ]
 
@@ -142,6 +148,52 @@ class PlateArt:
     image: bytes
     media_type: str
     slots: tuple[Slot, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PinnedPlate:
+    """A plate a book's version names, without its picture.
+
+    A book knows which plates it uses at the start, but each picture is read
+    only when its own page is drawn (`TemplateStore.drawing_plate`): reading
+    all of them first kept a free-plan book silent for over a minute (audit
+    11-15 S1).
+    """
+
+    plate_id: str
+    slots: tuple[Slot, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PinnedPremade:
+    """A pre-made page a book's version offers, without its picture."""
+
+    page_number: int
+    premade_id: str
+
+
+#: The long edge of a plate's working copy: no provider returns a picture
+#: larger than 1344 px, and the copy is only ever shrunk to the drawn page
+#: (`paste_plate_back`) or to a reference (1024 px), so nothing is lost.
+WORKING_EDGE = 1536
+
+#: JPEG quality for the working copy; with no chroma subsampling it is
+#: indistinguishable from the original at this size and is stored as it is,
+#: with none of the lossless-WebP decode a full plate pays on every read.
+WORKING_QUALITY = 95
+
+
+def working_copy(image: bytes) -> bytes:
+    """`image` shrunk to `WORKING_EDGE` on its long edge, as JPEG."""
+    from PIL import Image
+
+    with transcoding(), Image.open(io.BytesIO(image)) as source:
+        picture = source.convert("RGB")
+        if max(picture.size) > WORKING_EDGE:
+            picture.thumbnail((WORKING_EDGE, WORKING_EDGE), Image.Resampling.LANCZOS)
+        out = io.BytesIO()
+        picture.save(out, format="JPEG", quality=WORKING_QUALITY, subsampling=0)
+        return out.getvalue()
 
 
 @dataclass(frozen=True, slots=True)
@@ -767,12 +819,53 @@ class TemplateStore:
             raise UnknownTemplate("no such plate")
         return row.image, row.media_type
 
+    def drawing_plate(self, pinned: PinnedPlate) -> PlateArt:
+        """The plate a page is drawn onto: its working copy, made on first use.
+
+        The first book to draw a page shrinks the full plate once and keeps the
+        copy (`working_copy`); every later page reads the small JPEG as it is.
+        Bytes that are not a picture (a fixture, a damaged upload) are drawn
+        from as they are, unshrunk, rather than failing the page here.
+        """
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                select(TemplatePlateRow.working_image).where(
+                    TemplatePlateRow.id == pinned.plate_id
+                )
+            ).one_or_none()
+        if row is None:
+            raise UnknownTemplate("no such plate")
+        if row.working_image:
+            return PlateArt(pinned.plate_id, row.working_image, "image/jpeg", pinned.slots)
+        image, media_type = self.plate_image(pinned.plate_id)
+        try:
+            copy = working_copy(image)
+        except (OSError, ValueError):
+            logger.warning("templates.working_copy_failed plate=%s", pinned.plate_id)
+            return PlateArt(pinned.plate_id, image, media_type, pinned.slots)
+        with self._engine.begin() as conn:
+            conn.execute(
+                update(TemplatePlateRow)
+                .where(TemplatePlateRow.id == pinned.plate_id)
+                .values(working_image=copy)
+            )
+        logger.info(
+            "templates.working_copy_made plate=%s bytes=%d from=%d",
+            pinned.plate_id,
+            len(copy),
+            len(image),
+        )
+        return PlateArt(pinned.plate_id, copy, "image/jpeg", pinned.slots)
+
     def plate_status(self, plate_id: str) -> str:
         with self._engine.connect() as conn:
             return str(_plate(conn, plate_id).status)
 
-    def book_plates(self, book_id: str) -> dict[int, PlateArt]:
+    def book_plates(self, book_id: str) -> dict[int, PinnedPlate]:
         """The plates a book is drawn onto, by page number (0 is the cover).
+
+        Ids and slots only; `drawing_plate` reads a page's picture when that
+        page is drawn.
 
         Read through the book's *pinned* version, so a book made on version 1
         keeps version 1's plates when version 2 is approved later. A book with
@@ -790,8 +883,6 @@ class TemplateStore:
                 select(
                     TemplateVersionPlateRow.page_number,
                     TemplatePlateRow.id,
-                    TemplatePlateRow.image,
-                    TemplatePlateRow.media_type,
                     TemplatePlateRow.slots,
                 )
                 .select_from(TemplateVersionPlateRow)
@@ -802,10 +893,8 @@ class TemplateStore:
                 .where(TemplateVersionPlateRow.template_version_id == version_id)
             ).all()
         return {
-            int(row.page_number): PlateArt(
+            int(row.page_number): PinnedPlate(
                 plate_id=row.id,
-                image=row.image,
-                media_type=row.media_type,
                 slots=tuple(Slot.from_json(slot) for slot in row.slots),
             )
             for row in rows
@@ -1107,11 +1196,17 @@ class TemplateStore:
             raise UnknownTemplate("no such pre-made page")
         return row.image, row.media_type
 
-    def book_premades(self, book_id: str) -> dict[int, PremadeArt]:
+    def premade_art(self, pinned: PinnedPremade) -> PremadeArt:
+        """A pinned pre-made page with its picture, read when the page uses it."""
+        image, media_type = self.premade_image(pinned.premade_id)
+        return PremadeArt(pinned.page_number, pinned.premade_id, image, media_type)
+
+    def book_premades(self, book_id: str) -> dict[int, PinnedPremade]:
         """The pre-made pictures a book's pinned version offers, by page number.
 
         Offered, not imposed: the runner uses one only when the visitor gave no
-        photo of anyone on the page. A book with no version has none.
+        photo of anyone on the page. A book with no version has none. Ids only;
+        `premade_art` reads the picture of the one a page uses.
         """
         with self._engine.connect() as conn:
             version_id = conn.execute(
@@ -1123,8 +1218,6 @@ class TemplateStore:
                 select(
                     TemplateVersionPlateRow.page_number,
                     TemplatePremadeRow.id,
-                    TemplatePremadeRow.image,
-                    TemplatePremadeRow.media_type,
                 )
                 .select_from(TemplateVersionPlateRow)
                 .join(
@@ -1134,11 +1227,9 @@ class TemplateStore:
                 .where(TemplateVersionPlateRow.template_version_id == version_id)
             ).all()
         return {
-            int(row.page_number): PremadeArt(
+            int(row.page_number): PinnedPremade(
                 page_number=int(row.page_number),
                 premade_id=row.id,
-                image=row.image,
-                media_type=row.media_type,
             )
             for row in rows
         }

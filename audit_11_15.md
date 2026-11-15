@@ -167,6 +167,12 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **S3. A page slot is held through review and redraws.** Fix: hold it only for the draw. Done when a retry on one page does not delay the start of any other page.
 - **S4. "The pencil is resting" shows at the start.** Same cause as S1. Fix: a real "Getting the pictures ready" stage. Done when the first caption names work that is happening.
 
+**Status (2026-11-15).**
+- **S1, done.** Each plate gets a 1536 px JPEG working copy (`template_plates.working_image`, migration 0023). The copy is made the first time a page draws on that plate, and every later book reads it back without decoding. A book now learns only its plates' ids and slots at the start; each page loads its own plate when it is drawn. The edge is 1536 rather than the 1024 suggested above because `paste_plate_back` needs the plate at least as large as the drawn picture, and the largest provider output is 1344. A test pins this. The new log line `book.setup ms_artwork= ms_hair= ms_plan=` shows where the time before page 1 goes. The live run (O1) checks the 10 s target.
+- **S2, raised; the target is capped by OpenAI.** `BOOK_PAGE_CONCURRENCY` is now 8, matching the server gate, which is safe because of S3. OpenAI's limit of 20 images a minute (paced at 18) means 21 pictures can never all start within 5 s. The real ceiling is the per-minute rate, not this setting. O1 checks memory and `loop.lag` at 8.
+- **S3, done.** The page slot is held only for the model call. Pasting the plate back, both review tiers and the wait before a redraw all run outside it. The semaphore is first come, first served, so a retry queues behind every page still waiting for its first draw. The pause switch is checked when a page takes its first draw slot. Test: `test_a_page_being_checked_does_not_keep_the_next_page_from_starting`. With one slot, the first review stays open until other pages have drawn.
+- **S4, done.** A new job is in phase `preparing` until page 1 starts. The reader shows "Step 1 of 2 · Getting the pictures ready — the first page starts in a moment."
+
 ## Reader and sharing
 
 ### R1. The reader shows 21 pages; the PDF has 24
@@ -196,6 +202,7 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Cause.** *Likely* two separate render paths (HTML and PDF).
 - **Fix.** Fold into R1: one page list, one layout. Where HTML must differ, say so in a comment and keep the page content the same.
 - **Done when.** Page n in the reader shows the same picture and the same text as page n in the PDF.
+- **Status, R1 to R4 (1c21490).** Done. `book_outline.book_leaves` drives the PDF, the reader and the share page, so all three show the same pages in the same order: cover, copyright, 20 story pages, The End, About. The reader's text band has explicit colours. Sharing is an on/off flag (migration 0022), and the link is rebuilt from the book each time. Stopping sharing removes every link from the page. "Share again" makes a new one. Books shared before the migration show "never shared" until they are shared again.
 
 ### R5. `/wallet` typed directly redirects to the home page
 - **What.** The header link works; typing the address does not.
@@ -203,6 +210,7 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Cause.** *Unknown.* Possibly a redirect for a signed-in user, or the wallet is a drawer and not a route.
 - **Fix.** Decide whether `/wallet` should exist. If it should, route it. If not, remove the idea from anything that links to it.
 - **Done when.** Typing the address does what the header link does.
+- **Status.** Not reproduced. On the live site, typing `/wallet` while signed out goes to `/login?next=/wallet`, and while signed in it opens the wallet. The Run 3 agent was most likely signed out. O1 checks this again.
 
 ## Print
 
@@ -231,6 +239,10 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Evidence.** The footer of p3 in the PDF.
 - **Fix.** Pick one rule on purpose: number from the first story page, and leave the front and back pages unnumbered.
 - **Done when.** The first story page prints "1" and the end pages print no number.
+- **Status, P1 to P4 (1c21490).** Done.
+  - P1: when a print order is approved, its pictures are upscaled to 300 ppi (Lanczos plus a light unsharp mask). The screen PDF stays as it is. This is the owner's decision. On the free plan's 0.1 CPU, approval may take tens of seconds.
+  - P2 and P3: all four editions passed validation (NORMALIZED) in the Lulu sandbox. Lulu refuses perfect-bound books under 32 pages, so the paperback is padded to 32. Margin at 32 pages: printing $9.03, total $11.43, margin $6.56 (about 36.5%, was 46%).
+  - P4: story page n prints "n". The cover, copyright, End and About pages are unnumbered.
 
 ## Pictures
 
@@ -319,6 +331,8 @@ Print page and Lulu quote, wallet top-up for a print, refund, sign-out/in, 400 p
 
 ### O2. The $3.02 refund still reads "Waiting for the operator"
 Check whether this is a real queue item or a stuck state.
+
+**Status (2026-11-15): a real queue item, not stuck.** Supabase `wallet_refunds` holds one row, `619fee59…`: 302¢, status `requested`, created 2026-11-11 03:54, no Stripe refund ids. Refunds are sent by the operator by design, and this one is already raised as the `refunds_waiting` alert on /admin/status and in the operator mail. To clear it, press send on /admin/status. Nothing in the code needs changing.
 
 ## Suggested order
 

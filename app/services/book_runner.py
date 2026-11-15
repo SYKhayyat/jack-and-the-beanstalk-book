@@ -99,7 +99,13 @@ from app.services.reviewer import (
 )
 from app.services.storage import GenerationStore
 from app.services.switches import SWITCH_DRAWING, Switches
-from app.services.template_store import PlateArt, PremadeArt, TemplateStore
+from app.services.template_store import (
+    PinnedPlate,
+    PinnedPremade,
+    PlateArt,
+    PremadeArt,
+    TemplateStore,
+)
 from app.services.vitals import rss_mb
 from app.services.wallet import OutOfFunds, Wallet
 
@@ -169,6 +175,10 @@ _PAGE_CHARGE_RETRY_SECONDS = 0.25
 #: The distinction that matters to the reader: the pictures can all be done
 #: while the PDF is still being put together, and saying so is the difference
 #: between "your book is ready" and a progress bar that stops moving.
+#: "preparing" covers the wait between pressing the button and page 1 starting
+#: (reading the book's pictures and plan), so the reader is told something is
+#: happening rather than shown "0 of 22" with nothing moving (audit 11-15 S4).
+_PHASE_PREPARING = "preparing"
 _PHASE_PAGES = "pages"
 _PHASE_ASSEMBLING = "assembling"
 
@@ -254,14 +264,15 @@ class _Artwork:
     #: The book's pinned plates by page number (0 = cover). Empty when the book
     #: was made on no template version, in which case pages are composed from
     #: scratch exactly as they were before plates existed.
-    plates: Mapping[int, PlateArt]
+    #: Ids and slots only: each picture is read when its page is drawn.
+    plates: Mapping[int, PinnedPlate]
     # True when the photograph is missing and the portrait stands in for it,
     # which happens for books made before the photograph was stored.
     photo_is_portrait: bool = False
     #: The pre-made pictures the book's version pins, by page number: pages the
     #: star is not in, drawn once from their plate. Used only for a page whose
     #: cast the visitor gave no photo of.
-    premades: Mapping[int, PremadeArt] = field(default_factory=dict)
+    premades: Mapping[int, PinnedPremade] = field(default_factory=dict)
     #: The cast keys the visitor gave a photo of (fixed portraits are not these).
     visitor_cast: frozenset[str] = frozenset()
     #: The reviewer's one sentence about the star's hair in the approved
@@ -287,7 +298,7 @@ class BookRunner:
         reviewer: ImageReviewer | None = None,
         decision_judge: DecisionJudge | None = None,
         page_attempts: int = MAX_PAGE_ATTEMPTS,
-        page_concurrency: int = 6,
+        page_concurrency: int = 8,
         image_threads: int = 2,
         costs: CostLedger | None = None,
         book_price_cents: int = 0,
@@ -774,7 +785,7 @@ class BookRunner:
             self._document.page_view(book_id, progress, rendered_pages),
             title=record.title,
             extra={
-                "phase": _PHASE_PAGES,
+                "phase": _PHASE_PREPARING,
                 "total_pages": len(rendered_pages) + 1,
                 "job": _job_note(target, cover, requested_fixes),
             },
@@ -1118,9 +1129,11 @@ class BookRunner:
         announce = (before or {}).get("status") != BookStatus.COMPLETE
         try:
             artwork = await asyncio.to_thread(self._artwork, record)
+            loaded_at = monotonic()
             artwork = replace(
                 artwork, hair_seen=await self._hair_seen(artwork, book_id=book_id, user=user)
             )
+            hair_at = monotonic()
             edition = await asyncio.to_thread(self._templates.book_edition, book_id)
             pages = list(edition.pages)
             total = len(pages)
@@ -1141,13 +1154,25 @@ class BookRunner:
                     resumed=resumed,
                 )
             )
+            # The wait before page 1 starts, by step (audit 11-15 S1).
+            logger.info(
+                "book.setup id=%s ms_artwork=%d ms_hair=%d ms_plan=%d",
+                book_id,
+                (loaded_at - started) * 1000,
+                (hair_at - loaded_at) * 1000,
+                (monotonic() - hair_at) * 1000,
+            )
             # What this job is, kept in every status write: a restart resumes
             # exactly it, with the fixes its owner asked for (`recover`).
             job_note = _job_note(target, draw_cover, requested_fixes)
             status_lock = asyncio.Lock()
-            # One book's pages in flight at once; the rest wait their turn
-            # here, holding nothing, before any picture is loaded for them.
-            in_flight = asyncio.Semaphore(self._page_concurrency)
+            # How many of one book's pictures are being drawn at once. Held
+            # only for the model call, not through the paste-back and review
+            # that follow it (audit 11-15 S3): a page being checked or redrawn
+            # no longer keeps another page from starting. The semaphore is
+            # first come, first served, so a retry queues behind every page
+            # still waiting for its first draw.
+            draw_slot = asyncio.Semaphore(self._page_concurrency)
             phase = _PHASE_PAGES
             costs: dict[int, tuple[str, int, int]] = {}
             # Which stage each page is in, by page number. Kept per page rather
@@ -1269,7 +1294,7 @@ class BookRunner:
                         if artwork.characters[n].photo == artwork.characters[n].portrait
                     ]
                 )
-                plate = artwork.plates.get(page.number)
+                plate = await self._drawing_plate(artwork, page.number)
 
                 def prompt_for(faults: Sequence[str], findings: str, fix: bool) -> str:
                     """The prompt for one attempt, aimed at what is known to be wrong.
@@ -1325,22 +1350,32 @@ class BookRunner:
                 else:
                     references, media_types = _references(artwork, page)
 
+                started = False
+
                 async def draw(prompt: str, base: GeneratedImage | None) -> GeneratedImage:
-                    # Charged per attempt, which is what an attempt costs. The
-                    # charge happens before the call, so a retry cannot slip past
-                    # a balance that has run out.
-                    await _await_page_charge(page_charge)
+                    nonlocal started
+                    async with draw_slot:
+                        if not started:
+                            # The operator's switch is asked once a page, as it
+                            # starts: a page already started finishes, the next
+                            # one does not.
+                            await self._stop_if_paused()
+                            started = True
+                        # Charged per attempt, which is what an attempt costs. The
+                        # charge happens before the call, so a retry cannot slip
+                        # past a balance that has run out.
+                        await _await_page_charge(page_charge)
 
-                    async def on_slot() -> None:
-                        await mark(page.number, "making")
+                        async def on_slot() -> None:
+                            await mark(page.number, "making")
 
-                    sent, sent_types = _with_base(references, media_types, base)
-                    return await self._on_worker_thread_with_slot(
-                        self._page_call(
-                            sent, sent_types, prompt, artwork.settings, "book-page"
-                        ),
-                        on_slot=on_slot,
-                    )
+                        sent, sent_types = _with_base(references, media_types, base)
+                        return await self._on_worker_thread_with_slot(
+                            self._page_call(
+                                sent, sent_types, prompt, artwork.settings, "book-page"
+                            ),
+                            on_slot=on_slot,
+                        )
 
                 attempts = await self._draw_until_pass(
                     book_id=book_id,
@@ -1380,12 +1415,13 @@ class BookRunner:
                     size=len(attempts.image),
                 )
 
-            async def _use_premade(page: BookPage, premade: PremadeArt) -> _Drawn:
+            async def _use_premade(page: BookPage, pinned: PinnedPremade) -> _Drawn:
                 """Put the page's pre-made picture on it: no image call, no charge.
 
                 It was approved by an operator when it was made, so it is not
                 reviewed again; the verdict says so, and names the picture used.
                 """
+                premade = await asyncio.to_thread(self._templates.premade_art, pinned)
                 premade_attempts = _premade_attempts(premade)
                 await asyncio.to_thread(
                     self._book_store.save_page,
@@ -1409,13 +1445,6 @@ class BookRunner:
                 )
 
             async def run_page(page: BookPage) -> _Drawn:
-                async with in_flight:
-                    # The operator's switch is asked here, once a page: a page
-                    # already in flight finishes, the next one does not start.
-                    await self._stop_if_paused()
-                    return await _run_page(page)
-
-            async def _run_page(page: BookPage) -> _Drawn:
                 page_started = monotonic()
                 try:
                     art = await _render_page(page)
@@ -1463,19 +1492,18 @@ class BookRunner:
             # The cover is drawn alongside the pages, not before them: no page
             # uses it as a reference, so waiting for it only added a whole
             # draw-and-check cycle to every book.
-            # The cover takes its turn among the pages: it is as much work.
+            # The cover takes its turn among the pages' draws: it is as much work.
             async def run_cover() -> bytes:
-                async with in_flight:
-                    await self._stop_if_paused()
-                    return await self._render_cover(
-                        record,
-                        edition,
-                        artwork,
-                        page_charge,
-                        mark,
-                        set_stage,
-                        picture_payment=picture_payment,
-                    )
+                return await self._render_cover(
+                    record,
+                    edition,
+                    artwork,
+                    page_charge,
+                    mark,
+                    set_stage,
+                    draw_slot=draw_slot,
+                    picture_payment=picture_payment,
+                )
 
             cover_job = [run_cover()] if draw_cover else []
             rendered: dict[int, BookPage] = {}
@@ -1673,6 +1701,7 @@ class BookRunner:
         mark: Callable[[int, str], Awaitable[None]],
         set_stage: Callable[[str, int, int], Awaitable[None]],
         *,
+        draw_slot: asyncio.Semaphore,
         picture_payment: Callable[[str], None] | None = None,
     ) -> bytes:
         """Draw and persist the cover, alongside the pages.
@@ -1681,7 +1710,7 @@ class BookRunner:
         reason: it is the one picture every reader sees first, and the page whose
         title band is easiest to ruin.
         """
-        plate = artwork.plates.get(COVER_NUMBER)
+        plate = await self._drawing_plate(artwork, COVER_NUMBER)
         user = record.user_id or "-"
 
         async def on_stage(name: str, attempt: int) -> None:
@@ -1733,13 +1762,20 @@ class BookRunner:
                 references.append(artwork.photo)
                 media_types.append(artwork.photo_media_type)
 
+        started = False
+
         async def draw(prompt: str, base: GeneratedImage | None) -> GeneratedImage:
-            await _await_page_charge(page_charge)
-            await mark(COVER_NUMBER, "making")
-            sent, sent_types = _with_base(references, media_types, base)
-            return await self._on_worker_thread_with_slot(
-                self._page_call(sent, sent_types, prompt, artwork.settings, "book-cover")
-            )
+            nonlocal started
+            async with draw_slot:
+                if not started:
+                    await self._stop_if_paused()
+                    started = True
+                await _await_page_charge(page_charge)
+                await mark(COVER_NUMBER, "making")
+                sent, sent_types = _with_base(references, media_types, base)
+                return await self._on_worker_thread_with_slot(
+                    self._page_call(sent, sent_types, prompt, artwork.settings, "book-cover")
+                )
 
         await _pay_for_picture(picture_payment, "The cover")
         attempts = await self._draw_until_pass(
@@ -2314,6 +2350,13 @@ class BookRunner:
             visitor_cast=frozenset(visitor),
         )
 
+    async def _drawing_plate(self, artwork: _Artwork, page_number: int) -> PlateArt | None:
+        """The plate a page is drawn onto, read now: None when the book has none."""
+        pinned = artwork.plates.get(page_number)
+        if pinned is None:
+            return None
+        return await asyncio.to_thread(self._templates.drawing_plate, pinned)
+
     async def _hair_seen(self, artwork: _Artwork, *, book_id: str, user: str) -> str:
         """What the star's hair looks like in the portrait, when the prompt needs it.
 
@@ -2648,7 +2691,7 @@ def _hand_slot_to_worker(slot: Slot, hop: asyncio.Task[object]) -> None:
 
 def _premade_for(
     page: BookPage, artwork: _Artwork, requested_fixes: Mapping[int, Sequence[str]]
-) -> PremadeArt | None:
+) -> PinnedPremade | None:
     """The page's pre-made picture, when this book may use it.
 
     Only for a page the star is not in, whose cast the visitor gave no photo of
