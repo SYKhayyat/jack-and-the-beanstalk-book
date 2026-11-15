@@ -15,6 +15,7 @@ from functools import partial
 
 from app.models.book import AboutPhotoChoice, BookPage
 from app.models.story import COVER_NUMBER
+from app.services.book_outline import book_year
 from app.services.book_store import BookRecord, BookStatus, BookStore
 from app.services.pdf import (
     PageArt,
@@ -73,6 +74,7 @@ class BookDocument:
             portrait=self._book_store.read_portrait(record.book_id),
             photo=self._about_photo(record),
             publisher=self._publisher,
+            year=book_year(record.created_at),
         )
 
     def print_cover(
@@ -142,6 +144,7 @@ class BookDocument:
             portrait=portrait,
             photo=photo,
             publisher=self._publisher,
+            year=book_year(record.created_at),
         )
         self._book_store.save_pdf(record.book_id, pdf_bytes)
         # The document exists now, so this is the moment its fee belongs to.

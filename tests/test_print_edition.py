@@ -10,6 +10,7 @@ from pypdf import PdfReader
 from app.services.pdf import (
     PageArt,
     _place_art,
+    build_book_pdf,
     build_print_cover,
     build_print_interior,
     print_template,
@@ -59,7 +60,7 @@ def test_pages_carry_an_eighth_inch_bleed_each_side() -> None:
 
 def test_short_books_are_padded_to_the_minimum_and_an_even_count() -> None:
     assert SQUARE_HARD.printed_pages(7) == 24
-    assert LETTER_SOFT.printed_pages(7) == 20
+    assert LETTER_SOFT.printed_pages(7) == 32
     assert SQUARE_HARD.printed_pages(25) == 26
     assert SQUARE_HARD.printed_pages(26) == 26
     with pytest.raises(ValueError):
@@ -93,6 +94,27 @@ def test_print_pictures_are_embedded_at_full_resolution() -> None:
     story_page = PdfReader(io.BytesIO(pdf)).pages[1]
     widths = [image.image.size for image in story_page.images]
     assert (3000, 2250) in widths
+
+
+def _ppi(pixels: int, points: float) -> float:
+    return pixels / (points / 72)
+
+
+@pytest.mark.parametrize("product", [SQUARE_HARD, LETTER_SOFT], ids=lambda p: p.key)
+def test_generated_size_pictures_print_at_print_density(product) -> None:
+    """P1: the 1152 x 864 pictures are resampled up for the print file only."""
+    pdf = build_print_interior(about(), _pages(1, 1152, 864), product)
+    story_page = PdfReader(io.BytesIO(pdf)).pages[1]
+    width_px = max(image.image.size[0] for image in story_page.images)
+    assert _ppi(width_px, float(story_page.mediabox.width)) >= 250
+
+
+def test_the_screen_pdf_is_never_upscaled() -> None:
+    pdf = build_book_pdf("Jack", about(), _pages(1, 1152, 864))
+    pages = PdfReader(io.BytesIO(pdf)).pages
+    sizes = {image.image.size for page in pages for image in page.images}
+    assert (1152, 864) in sizes
+    assert all(width <= 1600 for width, _ in sizes)
 
 
 def test_story_text_stays_inside_the_safety_margin() -> None:
@@ -155,8 +177,16 @@ def test_the_cover_is_one_spread_of_the_size_asked_for(product) -> None:
     assert "Jack" in text
 
 
-def test_the_cover_art_keeps_full_resolution() -> None:
+def test_the_cover_art_is_never_downscaled() -> None:
     size = SQUARE_HARD.estimated_cover(24)
     pdf = build_print_cover("Jack", about(), art_bytes(3000, 2250), size, SQUARE_HARD)
-    images = [image.image.size for image in PdfReader(io.BytesIO(pdf)).pages[0].images]
-    assert (3000, 2250) in images
+    widths = [image.image.size[0] for image in PdfReader(io.BytesIO(pdf)).pages[0].images]
+    assert max(widths) >= 3000
+
+
+def test_a_generated_size_cover_prints_at_print_density() -> None:
+    size = SQUARE_HARD.estimated_cover(24)
+    pdf = build_print_cover("Jack", about(), art_bytes(1152, 864), size, SQUARE_HARD)
+    widths = [image.image.size[0] for image in PdfReader(io.BytesIO(pdf)).pages[0].images]
+    front_points = size.width - (size.width - size.spine) / 2 - size.spine
+    assert _ppi(max(widths), front_points) >= 250

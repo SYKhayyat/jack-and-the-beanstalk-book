@@ -18,7 +18,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
+from pypdf import PdfReader
 
+from app.services.book_outline import book_leaves
 from app.services.book_store import BookStatus
 from app.services.pictures import (
     DISPLAY_WIDTHS,
@@ -210,12 +212,11 @@ def test_the_reader_sets_every_page_as_a_book(finished: tuple[TestClient, str]) 
     # Story pages: sized art, the words on the page, a folio; page 1 a drop cap.
     assert html.count('class="leaf-text"') == 20
     assert html.count('class="folio"') == 20
-    # The cover is page 1, so the story pages are numbered 2..21 — the same
-    # rule the PDF uses and the reader bar now states (B7).
+    # Story page n is page n (P4): its folio, its map tile and the PDF agree.
     folios = re.findall(r'class="folio"[^>]*>(\d+)<', html)
-    assert folios == [str(number) for number in range(2, 22)]
-    assert 'aria-label="Page 2,' in html
-    assert 'class="map-number">2<' in html
+    assert folios == [str(number) for number in range(1, 21)]
+    assert 'aria-label="Page 1,' in html
+    assert 'class="map-number">1<' in html
     assert 'class="spread-story story-text drop-cap"' in html
     assert 'class="reader-tools" id="reader-tools"' in html
     assert "srcset=" in html and "?w=800&amp;v=" in html
@@ -306,10 +307,30 @@ def test_a_finished_book_opens_on_its_cover() -> None:
     assert 'if (status === "complete") return lastIndex;' not in source
 
 
-def test_the_reader_bar_counts_the_cover_as_page_one() -> None:
+def test_the_reader_bar_numbers_story_page_n_as_n() -> None:
+    """P4: "Page n of 20", the number on the folio and in the PDF."""
     source = (STATIC / "book-live.js").read_text()
-    assert "label: `Page ${position + 1} of ${lastIndex}`" in source
-    assert "Page ${position} of ${lastIndex - 1}" not in source
+    assert "label: `Page ${number} of ${storyPages}`" in source
+    assert "${position + 1}" not in source
+
+
+def test_the_reader_has_every_page_the_pdf_has(finished: tuple[TestClient, str]) -> None:
+    """R1/R4: the reader's leaves are the PDF's pages, in the PDF's order."""
+    client, book_id = finished
+    html = client.get(f"/books/{book_id}").text
+    kinds = re.findall(r'<article class="spread[^"]*"[^>]*data-kind="([a-z]+)"', html)
+    assert kinds == [str(leaf) for leaf in book_leaves(20)]
+    pdf = client.get(f"/book-media/{book_id}/pdf")
+    assert pdf.status_code == 200
+    assert len(PdfReader(io.BytesIO(pdf.content)).pages) == len(kinds)
+    # The copyright page says what the PDF's says.
+    copyright_leaf = re.search(r'data-kind="copyright".*?</article>', html, flags=re.DOTALL)
+    assert copyright_leaf is not None
+    assert "All rights reserved." in copyright_leaf.group(0)
+    assert "Made for" in copyright_leaf.group(0)
+    # "The End" is a page of its own, not a line on the About page.
+    about = re.search(r'data-kind="about".*?</article>', html, flags=re.DOTALL)
+    assert about is not None and "The End" not in about.group(0)
 
 
 def test_the_face_edit_says_whose_he_or_she_the_portrait_follows() -> None:

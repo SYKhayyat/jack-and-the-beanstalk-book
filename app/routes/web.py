@@ -40,13 +40,13 @@ from app.models.labels import choices_for, intensity_label
 from app.models.story import COVER_NUMBER, StoryEdition
 from app.prompt_data import prompt_text
 from app.routes.auth import CurrentSessionDep
-from app.routes.book_access import book_edition
+from app.routes.book_access import book_edition, book_matter
 from app.routes.child_profile import portrait_url
 from app.services.book_store import BookStatus, BookSummary
 from app.services.pictures import picture_set
 from app.services.print.products import PRODUCTS
 from app.services.prompts import render_book_page
-from app.services.share_links import read
+from app.services.share_links import book_link
 from app.services.story_settings import story_rules
 from app.services.typography import book_text
 from app.services.wallet import REFUND_REQUESTED, format_cents
@@ -223,7 +223,6 @@ def book_page(
     request: Request,
     container: ContainerDep,
     session: CurrentSessionDep,
-    share: str = "",
 ) -> HTMLResponse:
     """The book: drawn live, flippable, then downloadable and editable."""
     owner = session.user_id if session else None
@@ -246,7 +245,7 @@ def book_page(
         record.created_at, container.settings.book_retention_days
     )
     heading, *sentences = (book_text(line) for line in record.about.rendered_about_lines())
-    share_url, share_until = _share_link(request, container, book_id, share)
+    sharing = _share_state(request, container, book_id, record.created_at)
     # The child's approved portrait is on the book from the first second, so
     # the stage shows who the book is for while the cover is still being drawn
     # (Idea 9). Sized and versioned like the About page's copy.
@@ -307,10 +306,11 @@ def book_page(
             "about_photo_choices": _ABOUT_PHOTO_LABELS,
             "max_upload_mb": container.settings.max_upload_mb,
             "max_attempts": container.settings.page_attempts,
-            # A read-only link minted for this book, shown with the download
-            # buttons (W3). Empty until the owner asks for one.
-            "share_url": share_url,
-            "share_until": share_until,
+            # The read-only link, shown with the download buttons (W3): on,
+            # off after "Stop sharing", or never made (R3).
+            "sharing": sharing,
+            # The pages around the story, worded as the PDF words them (R1).
+            **book_matter(container, record),
         },
     )
 
@@ -398,25 +398,29 @@ async def healthz(container: ContainerDep) -> dict[str, object]:
 # --- shared context ------------------------------------------------------------
 
 
-def _share_link(
-    request: Request, container: Container, book_id: str, token: str
-) -> tuple[str, str]:
-    """The read-only link this page was asked to show, and when it stops working.
+def _share_state(
+    request: Request, container: Container, book_id: str, created_at: str
+) -> dict[str, str]:
+    """What the book page's share row shows, all from the server (R3).
 
-    The book page is where a link is handed over: `/books/{id}/share` mints one
-    and redirects here with it, so the owner sees the URL to copy. A token for
-    another book, or an expired one, is simply not shown — the page still works.
+    `on`: the live link, rebuilt from the book (`share_links.book_link`), and
+    when it stops working. `off`: the owner stopped sharing, so no link is on
+    the page at all, only "Share again". `never`: nothing was shared yet.
     """
-    if not token:
-        return "", ""
-    link = read(token, key=container.settings.session_signing_key())
-    if link is None or link.book_id != book_id:
-        return "", ""
-    if container.book_store.share_generation(book_id) != link.generation:
-        return "", ""
+    store = container.book_store
+    generation = store.share_generation(book_id) or 0
+    if not store.sharing_on(book_id):
+        return {"state": "off" if generation else "never", "url": "", "until": ""}
+    token, expires_at = book_link(
+        book_id,
+        created_at,
+        key=container.settings.session_signing_key(),
+        retention_days=container.settings.book_retention_days,
+        generation=generation,
+    )
     base = str(request.base_url).rstrip("/")
-    until = datetime.fromtimestamp(link.expires_at, UTC).isoformat()
-    return f"{base}/share/{token}", until
+    until = datetime.fromtimestamp(expires_at, UTC).isoformat()
+    return {"state": "on", "url": f"{base}/share/{token}", "until": until}
 
 
 def _render(request: Request, name: str, context: dict[str, Any]) -> HTMLResponse:
@@ -632,11 +636,10 @@ def _tiles(raw: object, rendered: list[BookPage]) -> list[dict[str, Any]]:
         tiles.append(
             {
                 "number": number,
-                # The cover is page 1 (the PDF prints story page n as n + 1),
-                # so the map's story labels carry the same number as the
-                # folio and the reader bar (B7).
-                "label": "Cover" if number == COVER_NUMBER else f"Page {number + 1}",
-                "short": "C" if number == COVER_NUMBER else str(number + 1),
+                # Story page n is "Page n" here, on its folio and in the PDF
+                # (P4); the cover carries no number.
+                "label": "Cover" if number == COVER_NUMBER else f"Page {number}",
+                "short": "C" if number == COVER_NUMBER else str(number),
                 "title": entry.get("title") or title,
                 "story": book_text(str(entry.get("story", story) or "")),
                 "status": status,

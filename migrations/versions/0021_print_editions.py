@@ -79,7 +79,9 @@ def _columns(*, with_fk: bool, editions: bool) -> list[sa.Column[object]]:
                 nullable=False,
                 server_default="square-hardcover",
             ),
-            sa.Column("interior_sha256", sa.String(length=64), nullable=False, server_default=""),
+            sa.Column(
+                "interior_sha256", sa.String(length=64), nullable=False, server_default=""
+            ),
             sa.Column("cover_sha256", sa.String(length=64), nullable=False, server_default=""),
             sa.Column("interior", sa.LargeBinary(), nullable=True),
             sa.Column("cover", sa.LargeBinary(), nullable=True),

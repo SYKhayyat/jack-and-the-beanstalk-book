@@ -66,6 +66,14 @@
   --photo-ink: #c9b29b;
   --skin: #f9d7b5;
   --cream: #fff9eb;
+  /* The book's own page: paper, ink and gold as the PDF prints them. They are
+     never restated for dark mode, because a page of the book is paper in
+     every theme; anything set on it takes both its colour and its background
+     from these, never from the site's --ink (R2: light ink on cream). */
+  --page-paper: #f4ead2; /* the PDF's PAPER_RGB */
+  --page-ink: #403020; /* the PDF's _INK */
+  --page-gold: #b88e40; /* the PDF's _GOLD */
+  --page-accent: #2a5b39; /* the drop cap, the light theme's --bean-dark */
   --header-bg: rgba(255, 249, 240, 0.82);
   --header-line: rgba(234, 223, 204, 0.8);
   --next-bar-bg: rgba(255, 249, 240, 0.96);
@@ -1893,11 +1901,6 @@ dialog.modal form {
    data-layout: "stacked" (words under the art) or "spread" (art left, words
    right). Before it runs, the stacked page simply takes the column's width. */
 
-.book-screen {
-  --page-paper: #f4ead2; /* the PDF's PAPER_RGB */
-  --page-ink: #403020; /* the PDF's _INK */
-  --page-gold: #b88e40; /* the PDF's _GOLD */
-}
 .reader {
   --page-w: min(100%, 760px);
   --story-size: 21px;
@@ -2024,7 +2027,7 @@ dialog.modal form {
   font-size: 3.1em;
   line-height: 0.82;
   font-weight: 700;
-  color: var(--bean-dark);
+  color: var(--page-accent);
 }
 .story-text.drop-cap {
   text-align: left;
@@ -2166,10 +2169,46 @@ dialog.modal form {
   text-align: center;
 }
 .the-end {
-  margin: calc(var(--story-size) * 0.8) 0 0;
+  margin: 0;
   font-style: italic;
   color: var(--page-gold);
-  font-size: calc(var(--story-size) * 1.05);
+  font-size: calc(var(--story-size, 21px) * 1.6);
+  text-align: center;
+}
+
+/* The pages around the story (R1): the copyright page and "The End", each a
+   whole page of paper, as the PDF has them. */
+.matter-page {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: var(--band-h, 60vh);
+  padding: 12% 0;
+  text-align: center;
+  background: var(--page-paper);
+  color: var(--page-ink);
+}
+.copyright-page {
+  font-family: var(--font-display);
+}
+.copyright-line {
+  margin: 0;
+  /* The PDF's point sizes, scaled to the page on screen. */
+  font-size: calc(var(--line-size) * 1.15px);
+  line-height: 1.5;
+  max-width: 34em;
+}
+.copyright-line.is-italic {
+  font-style: italic;
+}
+.copyright-gap {
+  margin: 0;
+  height: 0.9em;
+}
+.copyright-spread,
+.end-spread {
+  cursor: default;
 }
 
 /* Turning: round buttons in the margins of the book. */
@@ -3564,7 +3603,9 @@ body.in-story-time {
   position: relative;
   margin: 0;
   padding: 18px;
-  background: var(--cream);
+  /* A page of the book: its own paper and ink in both themes (R2). */
+  background: var(--page-paper);
+  color: var(--page-ink);
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow);
@@ -3584,7 +3625,7 @@ body.in-story-time {
 }
 .shared-subtitle {
   margin: 4px 0 0;
-  color: var(--ink-soft);
+  color: var(--page-ink);
   font-style: italic;
 }
 .shared-spread .story-text {
@@ -3596,7 +3637,11 @@ body.in-story-time {
   position: static;
   display: block;
   margin-top: 10px;
-  color: var(--ink-soft);
+  color: var(--page-gold);
+}
+.shared-matter {
+  padding: 48px 18px;
+  text-align: center;
 }
 .shared-about h2 {
   margin: 0 0 8px;

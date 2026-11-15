@@ -16,13 +16,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.main import create_app
 from app.services.share_links import _encode, issue, read
-from tests.test_share_links import KEY, NOW, _start_book, _wait
-
-
-def _mint(client: TestClient, book_id: str) -> str:
-    minted = client.get(f"/books/{book_id}/share", follow_redirects=False)
-    assert minted.status_code == 303, minted.text
-    return minted.headers["location"].partition("?share=")[2]
+from tests.test_share_links import KEY, NOW, _mint, _start_book, _wait
 
 
 def test_a_token_carries_its_generation_and_an_old_token_reads_as_zero() -> None:
@@ -38,7 +32,10 @@ def test_a_token_carries_its_generation_and_an_old_token_reads_as_zero() -> None
 def test_stop_sharing_kills_every_link_and_a_new_one_works(client: TestClient) -> None:
     book_id = _start_book(client)
     assert _wait(client, book_id)["status"] == "complete"
-    first, second = _mint(client, book_id), _mint(client, book_id)
+    assert "Share a read-only link" in client.get(f"/books/{book_id}").text
+    first = _mint(client, book_id)
+    # Asking again while sharing is on shows the same link: one link a book.
+    assert _mint(client, book_id) == first
     stranger = TestClient(client.app)
     assert stranger.get(f"/share/{first}").status_code == 200
 
@@ -50,13 +47,19 @@ def test_stop_sharing_kills_every_link_and_a_new_one_works(client: TestClient) -
     assert stopped.headers["location"] == f"/books/{book_id}?message=sharing_stopped"
     assert "stopped working" in client.get(stopped.headers["location"]).text
 
-    for token in (first, second):
-        for path in ("", "/cover", "/pages/1", "/pdf"):
-            assert stranger.get(f"/share/{token}{path}").status_code == 404, (token, path)
-    # The owner's page no longer offers the dead link to copy.
-    assert f"/share/{first}" not in client.get(f"/books/{book_id}?share={first}").text
+    for path in ("", "/cover", "/pages/1", "/pdf"):
+        assert stranger.get(f"/share/{first}{path}").status_code == 404, path
+    # R3: after a stop the page shows no link at all, only "Share again", and
+    # a reload says the same, because the state is the server's.
+    for _ in range(2):
+        page = client.get(f"/books/{book_id}").text
+        assert "/share/" not in page.replace(f"/books/{book_id}/share", "")
+        assert 'id="share-link"' not in page and 'id="copy-share-link"' not in page
+        assert 'id="sharing-off"' in page and "Share again" in page
+        assert "Stop sharing" not in page
 
     fresh = _mint(client, book_id)
+    assert fresh != first
     assert stranger.get(f"/share/{fresh}").status_code == 200
     assert stranger.get(f"/share/{first}").status_code == 404
 

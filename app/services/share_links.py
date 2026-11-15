@@ -36,8 +36,9 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import UTC, datetime, timedelta
 
-__all__ = ["ShareLink", "issue", "read"]
+__all__ = ["SHARE_LIFETIME_DAYS", "ShareLink", "book_link", "issue", "read"]
 
 #: What a token is for. Mixed into the signature so a share token can never be
 #: accepted anywhere that expects a session or a print file, and vice versa.
@@ -146,3 +147,30 @@ def _encode(payload: dict[str, object]) -> str:
 def _decode(text: str) -> str:
     padded = text + "=" * (-len(text) % 4)
     return base64.urlsafe_b64decode(padded.encode()).decode()
+
+
+#: How long a link lives, at most. The book's own retention is the other cap:
+#: a link that outlived its book would only ever answer 404.
+SHARE_LIFETIME_DAYS = 30
+
+
+def book_link(
+    book_id: str, created_at: str, *, key: bytes, retention_days: int, generation: int
+) -> tuple[str, int]:
+    """The share token a book has right now, and when it stops working.
+
+    Everything in it comes from the book (when it started, its generation),
+    so the same book always has the same token until sharing is stopped: the
+    owner's page can show the live link on every load without storing it (R3).
+    It lasts until the book is swept, and never more than 30 days.
+    """
+    try:
+        started = datetime.fromisoformat(created_at)
+    except ValueError:
+        started = datetime.now(UTC)
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    days = min(retention_days, SHARE_LIFETIME_DAYS)
+    expires_at = int((started + timedelta(days=days)).timestamp())
+    token = issue(book_id, key=key, expires_at=expires_at, generation=generation)
+    return token, expires_at

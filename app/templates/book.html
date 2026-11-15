@@ -16,7 +16,10 @@
       <div class="book-slot" id="book-slot" tabindex="0" aria-roledescription="book" aria-label="{{ title }} — use the arrow keys to turn the pages">
         {% for tile in tiles %}
         {% set is_cover = tile.number == 0 %}
-        <article class="spread leaf{% if is_cover %} is-cover{% endif %}" id="spread-{{ loop.index0 }}" data-spread="{{ loop.index0 }}" data-number="{{ tile.number }}" data-status="{{ tile.status }}" data-attempts="{{ tile.attempts }}" data-chosen-attempt="{{ tile.chosen_attempt }}" data-best-effort="{{ 'true' if tile.best_effort else 'false' }}" hidden>
+        {#- Spread positions follow book_leaves (R1/R4): cover, copyright, the
+            story, "The End", About — the PDF's pages, one for one. #}
+        {% set position = 0 if is_cover else tile.number + 1 %}
+        <article class="spread leaf{% if is_cover %} is-cover{% endif %}" id="spread-{{ position }}" data-spread="{{ position }}" data-kind="{{ 'cover' if is_cover else 'story' }}" data-number="{{ tile.number }}" data-status="{{ tile.status }}" data-attempts="{{ tile.attempts }}" data-chosen-attempt="{{ tile.chosen_attempt }}" data-best-effort="{{ 'true' if tile.best_effort else 'false' }}" hidden>
           <div class="leaf-art spread-art">
             {% if tile.url and is_cover %}
             {{ book_cover(tile.src, title, subtitle, srcset=tile.srcset, alt="The cover: " ~ title ~ (", " ~ subtitle if subtitle else ""), lazy=false, extra_class="leaf-cover") }}
@@ -39,12 +42,19 @@
           {% if not is_cover %}
           <div class="leaf-text">
             <p class="spread-story story-text{% if tile.number == 1 %} drop-cap{% endif %}">{{ tile.story }}</p>
-            <span class="folio" aria-hidden="true">{{ tile.number + 1 }}</span>
+            <span class="folio" aria-hidden="true">{{ tile.number }}</span>
           </div>
           {% endif %}
         </article>
+        {% if is_cover %}
+        {% include "_copyright_leaf.html" %}
+        {% endif %}
         {% endfor %}
-        <article class="spread leaf about-spread" id="spread-{{ tiles|length }}" data-spread="{{ tiles|length }}" data-number="about" data-status="{{ 'done' if status == 'complete' else 'pending' }}" hidden>
+        {% set matter_status = 'done' if status == 'complete' else 'pending' %}
+        <article class="spread leaf end-spread" id="spread-{{ tiles|length + 1 }}" data-spread="{{ tiles|length + 1 }}" data-kind="end" data-number="end" data-status="{{ matter_status }}" hidden>
+          <div class="matter-page"><p class="the-end">The End</p></div>
+        </article>
+        <article class="spread leaf about-spread" id="spread-{{ tiles|length + 2 }}" data-spread="{{ tiles|length + 2 }}" data-kind="about" data-number="about" data-status="{{ matter_status }}" hidden>
           <div class="leaf-art about-art">
             <div class="about-frames">
               {% for image in about_images %}<span class="about-frame"><img src="{{ image.url }}"{% if image.srcset %} srcset="{{ image.srcset }}" sizes="240px"{% endif %} alt="{{ image.alt }}" loading="lazy" decoding="async"></span>{% endfor %}
@@ -53,7 +63,6 @@
           <div class="leaf-text about-text">
             <h2>{{ about_heading }}</h2>
             {% for sentence in about_sentences %}<p class="story-text">{{ sentence }}</p>{% endfor %}
-            <p class="the-end">The End</p>
           </div>
         </article>
       </div>
@@ -115,19 +124,24 @@
     {#- W3: a grandparent has no account here. One signed link, read-only, no
         photo, no editing, and it stops working when the book is swept. #}
     <div class="share-row" id="share-row">
-      {% if share_url %}
-      <label class="field-help" for="share-link">Anyone with this link can read the book until {{ share_until|short_date }}. It cannot change anything.</label>
+      {% if sharing.state == "on" %}
+      <label class="field-help" for="share-link">Anyone with this link can read the book until {{ sharing.until|short_date }}. It cannot change anything.</label>
       <div class="share-controls">
-        <input class="share-link" id="share-link" type="text" value="{{ share_url }}" readonly spellcheck="false" onclick="this.select()">
+        <input class="share-link" id="share-link" type="text" value="{{ sharing.url }}" readonly spellcheck="false" onclick="this.select()">
         <button type="button" class="button" id="copy-share-link" data-copy="share-link">Copy link</button>
       </div>
-      {% else %}
-      <a class="button" id="make-share-link" href="/books/{{ book.book_id }}/share">Share a read-only link</a>
-      {% endif %}
       <form method="post" action="/books/{{ book.book_id }}/share/stop" class="share-stop"
             data-confirm="Stop every link to this book? Anyone you sent one to will no longer be able to open it.">
         <button type="submit" class="link-button">Stop sharing: turn off every link sent</button>
       </form>
+      {% elif sharing.state == "off" %}
+      {#- After "Stop sharing" (R3): say so, and offer a fresh link; the old
+          ones stay dead because the generation moved on. #}
+      <p class="field-help" id="sharing-off">Sharing is off. Links you sent no longer open this book.</p>
+      <a class="button" id="make-share-link" href="/books/{{ book.book_id }}/share">Share again with a new link</a>
+      {% else %}
+      <a class="button" id="make-share-link" href="/books/{{ book.book_id }}/share">Share a read-only link</a>
+      {% endif %}
     </div>
   </section>
 

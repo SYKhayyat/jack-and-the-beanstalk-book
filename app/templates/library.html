@@ -29,7 +29,7 @@
         {% if item.subtitle %}<p class="shelf-subtitle">{{ item.subtitle }}</p>{% endif %}
         <p class="shelf-meta">
           {%- if item.status == "complete" -%}
-            Finished <time datetime="{{ item.updated_at }}" data-format="day-month">{{ item.updated_at|short_date }}</time> · {{ (item.page_count or 21) - 1 }} pages + cover
+            Finished <time datetime="{{ item.updated_at }}" data-format="day-month">{{ item.updated_at|short_date }}</time> · {{ (item.page_count or 21) - 1 }} story pages
           {%- elif item.status == "failed" -%}
             {%- if item.pages_done -%}Stopped at {{ item.pages_done }} of {{ item.page_count or 21 }} pictures · the rest can still be drawn
             {%- else -%}Stopped before any picture was drawn

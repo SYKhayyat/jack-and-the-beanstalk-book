@@ -211,8 +211,16 @@ class BookStore:
         """The generation a share link must carry to work, or None (no book)."""
         raise NotImplementedError
 
+    def start_sharing(self, book_id: str) -> None:
+        """Mark this book as shared: its page shows the live link (R3)."""
+        raise NotImplementedError
+
+    def sharing_on(self, book_id: str) -> bool:
+        """Whether a share link is out, so the owner's page shows it."""
+        raise NotImplementedError
+
     def stop_sharing(self, book_id: str) -> None:
-        """Retire every share link already minted for this book."""
+        """Retire every share link already minted for this book, and turn sharing off."""
         raise NotImplementedError
 
     def load_record(self, book_id: str) -> BookRecord | None:

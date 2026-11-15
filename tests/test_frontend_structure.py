@@ -526,7 +526,8 @@ def test_no_fee_line_without_money(about_html: str) -> None:
 def test_the_book_stage_shows_every_picture_and_the_about_page(book_html: str) -> None:
     tiles = re.findall(r'class="map-tile ([a-z]+)', book_html)
     assert len(tiles) == 21, "cover + twenty story pages"
-    assert len(re.findall(r'class="spread[ "]', book_html)) == 22
+    # Cover, copyright, twenty story pages, "The End", About (R1).
+    assert len(re.findall(r'class="spread[ "]', book_html)) == 24
     assert 'data-number="about"' in book_html
     assert "The End" in book_html
 

@@ -11,6 +11,7 @@ child's photograph, and none of it may be cached by a shared browser or proxy.
 from __future__ import annotations
 
 import hashlib
+from typing import Any
 
 from fastapi import Request, Response
 
@@ -18,10 +19,13 @@ from app.dependencies import ContainerDep
 from app.errors import StoryNotReady, UnknownBook, UnknownStory
 from app.models.story import StoryEdition
 from app.routes.auth import CurrentSessionDep
+from app.services.book_outline import book_year, copyright_lines
 from app.services.template_store import NoTemplateVersion, UnknownTemplate
+from app.services.typography import book_text
 
 __all__ = [
     "book_edition",
+    "book_matter",
     "ensure_book",
     "new_book_edition",
     "no_store",
@@ -191,3 +195,17 @@ def no_store(
         disposition = "attachment" if download else "inline"
         headers["Content-Disposition"] = f'{disposition}; filename="{filename}"'
     return Response(content=data, media_type=media_type, headers=headers)
+
+
+def book_matter(container: ContainerDep, record: Any) -> dict[str, Any]:
+    """The copyright page's lines for a book read on screen (R1).
+
+    The same words, in the same sizes, as the PDF's copyright page, so the
+    reader and the shared link show every page the downloaded book has.
+    """
+    lines = copyright_lines(
+        book_text(record.about.about_name),
+        container.settings.publisher_name,
+        book_year(record.created_at),
+    )
+    return {"copyright_lines": lines}

@@ -113,12 +113,23 @@ class DatabaseBookStore(BookStore):
             ).scalar_one_or_none()
         return int(value) if value is not None else None
 
+    def start_sharing(self, book_id: str) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(update(BookRow).where(BookRow.id == book_id).values(sharing_on=True))
+
+    def sharing_on(self, book_id: str) -> bool:
+        with self._engine.connect() as conn:
+            value = conn.execute(
+                select(BookRow.sharing_on).where(BookRow.id == book_id)
+            ).scalar_one_or_none()
+        return bool(value)
+
     def stop_sharing(self, book_id: str) -> None:
         with self._engine.begin() as conn:
             conn.execute(
                 update(BookRow)
                 .where(BookRow.id == book_id)
-                .values(share_generation=BookRow.share_generation + 1)
+                .values(share_generation=BookRow.share_generation + 1, sharing_on=False)
             )
 
     def owner_of(self, book_id: str) -> str | None:

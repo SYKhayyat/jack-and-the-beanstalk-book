@@ -527,7 +527,7 @@ def test_short_books_are_padded_to_the_bindings_minimum() -> None:
     hard = PRODUCTS["square-hardcover"]
     soft = PRODUCTS["square-paperback"]
     assert hard.printed_pages(5) == 24
-    assert soft.printed_pages(5) == 20
+    assert soft.printed_pages(5) == 32, "Lulu validates perfect bound from 32"
     assert hard.printed_pages(25) == 26, "a leaf has two sides"
     with pytest.raises(ValueError):
         hard.printed_pages(801)
@@ -547,12 +547,12 @@ def test_the_business_model_math_is_the_write_up_math() -> None:
     assert hard.margin_cents == 1110
     assert round(hard.margin_percent, 1) == 37.0
 
-    soft = business_model(PRODUCTS["letter-paperback"], 24)
-    assert soft.printing_cents == 732
+    soft = business_model(PRODUCTS["letter-paperback"], 32)
+    assert soft.printing_cents == 903
     assert soft.processing_cents == 82
-    assert soft.total_cost_cents == 972
-    assert soft.margin_cents == 827
-    assert round(soft.margin_percent, 1) == 46.0
+    assert soft.total_cost_cents == 1143
+    assert soft.margin_cents == 656
+    assert round(soft.margin_percent, 1) == 36.5
 
     # Shipping is passed on at cost: only Stripe's cut on it moves the margin.
     shipped = business_model(PRODUCTS["square-hardcover"], 24, shipping_cents=500)

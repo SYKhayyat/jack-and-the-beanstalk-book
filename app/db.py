@@ -146,6 +146,9 @@ class BookRow(Base):
     #: Which share links still work: a link carries the number it was minted
     #: under, and "Stop sharing" adds one (A10, migration 0020).
     share_generation: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    #: Whether the owner has a live share link out (R3, migration 0022): set
+    #: when a link is made, cleared by "Stop sharing".
+    sharing_on: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
     #: Hex SHA-256 of `cover` and of `portrait`, written with them. The version
     #: in a picture's URL, so the browser may keep it for good (P1), and the
     #: answer to "has this picture changed?" without reading its bytes.

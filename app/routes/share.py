@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
@@ -25,12 +25,19 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from app.dependencies import ContainerDep
 from app.routes.auth import CurrentSessionDep
-from app.routes.book_access import book_edition, ensure_book, no_store, private_cached, user_id
+from app.routes.book_access import (
+    book_edition,
+    book_matter,
+    ensure_book,
+    no_store,
+    private_cached,
+    user_id,
+)
 from app.routes.web import page_chrome
 from app.services.book_store import BookStatus
 from app.services.media import media_type_for
 from app.services.prompts import render_book_page
-from app.services.share_links import ShareLink, issue, read
+from app.services.share_links import ShareLink, read
 from app.services.typography import book_text
 
 __all__ = ["router"]
@@ -39,27 +46,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-#: How long a link lives, at most. The book's own retention is the other cap:
-#: a link that outlived its book would only ever answer 404.
-SHARE_LIFETIME_DAYS = 30
-
 
 def _key(container: ContainerDep) -> bytes:
     """The deployment's signing key, the same one the session cookie uses."""
     return container.settings.session_signing_key()
-
-
-def _expiry(book_started: str, retention_days: int) -> int:
-    """The latest a link may work: the moment the book is deleted, or 30 days."""
-    soonest = datetime.now(UTC) + timedelta(days=SHARE_LIFETIME_DAYS)
-    try:
-        started = datetime.fromisoformat(book_started)
-    except ValueError:
-        return int(soonest.timestamp())
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=UTC)
-    swept = started + timedelta(days=retention_days)
-    return int(min(soonest, swept).timestamp())
 
 
 async def _link(token: str, container: ContainerDep) -> ShareLink:
@@ -96,7 +86,7 @@ async def make_share_link(
 
     The owner's page is the only place a link can be asked for: it is minted
     behind the same ownership check as the book itself, so nobody else can
-    make one, and nothing is stored — the token is the whole grant.
+    make one. Only the on/off flag is stored; the token is the whole grant.
     """
     await asyncio.to_thread(ensure_book, book_id, user_id(session), container)
     record = await asyncio.to_thread(container.book_store.load_record, book_id)
@@ -114,15 +104,11 @@ async def make_share_link(
             status_code=409,
             detail="Sharing needs SESSION_SECRET set on this deployment.",
         )
-    generation = await asyncio.to_thread(container.book_store.share_generation, book_id)
-    token = issue(
-        book_id,
-        key=_key(container),
-        expires_at=_expiry(record.created_at, container.settings.book_retention_days),
-        generation=generation or 0,
-    )
+    # The link itself is rebuilt from the book on every load of its page
+    # (`share_links.book_link`), so nothing secret goes into the URL here.
+    await asyncio.to_thread(container.book_store.start_sharing, book_id)
     logger.info("share.minted user=%s book=%s", user_id(session) or "-", book_id)
-    return RedirectResponse(url=f"/books/{book_id}?share={token}", status_code=303)
+    return RedirectResponse(url=f"/books/{book_id}#share-row", status_code=303)
 
 
 @router.post("/books/{book_id}/share/stop")
@@ -188,6 +174,7 @@ async def shared_book(
             "pages": pages,
             "about_heading": heading,
             "about_sentences": sentences,
+            **book_matter(container, record),
             "pdf_url": f"/share/{token}/pdf",
             "good_until": datetime.fromtimestamp(link.expires_at, UTC).isoformat(),
             "noindex": True,

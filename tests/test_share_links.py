@@ -85,6 +85,23 @@ def _photo() -> bytes:
     return make_photo_bytes()
 
 
+def _mint(client: TestClient, book_id: str) -> str:
+    """Turn sharing on and read the link off the owner's page, as a person does.
+
+    The redirect carries no token (R3): the page builds the link from the
+    book on every load, so it is only ever on the page while sharing is on.
+    """
+    minted = client.get(f"/books/{book_id}/share", follow_redirects=False)
+    assert minted.status_code == 303, minted.text
+    assert minted.headers["location"] == f"/books/{book_id}#share-row"
+    found = re.search(
+        r'id="share-link"[^>]*value="[^"]*/share/([^"]+)"',
+        client.get(f"/books/{book_id}").text,
+    )
+    assert found is not None, "the book page shows no link"
+    return found.group(1)
+
+
 def _wait(client: TestClient, book_id: str, seconds: float = 120.0) -> dict[str, object]:
     deadline = time.monotonic() + seconds
     last: dict[str, object] = {}
@@ -106,24 +123,23 @@ def test_the_owner_gets_a_link_and_it_reads_the_book(client: TestClient) -> None
     book_id = _start_book(client)
     assert _wait(client, book_id)["status"] == "complete"
 
-    minted = client.get(f"/books/{book_id}/share", follow_redirects=False)
-    assert minted.status_code == 303, minted.text
-    location = minted.headers["location"]
-    assert location.startswith(f"/books/{book_id}?share="), location
-    token = location.partition("?share=")[2]
+    token = _mint(client, book_id)
 
-    # The book page now shows the link to copy, with its expiry.
-    page = client.get(location)
+    # The book page shows the link to copy, with its expiry, and keeps
+    # showing it on a reload: the state is the server's, not the URL's.
+    page = client.get(f"/books/{book_id}")
     assert page.status_code == 200
-    assert 'id="share-link"' in page.text
     assert f"/share/{token}" in page.text
+    assert "can read the book until" in page.text
 
     # And the link itself works with no session at all.
     shared = TestClient(client.app).get(f"/share/{token}")
     assert shared.status_code == 200, shared.text
     assert "Shai" in shared.text
     assert "noindex" in shared.text.lower()
-    assert shared.text.count("shared-spread") == 22, "the cover, twenty pages and About"
+    assert shared.text.count("shared-spread") == 24, (
+        "the cover, the copyright page, twenty pages, The End and About"
+    )
     # The token lives in the URL; nothing the page fetches may leak it onward.
     assert shared.headers["referrer-policy"] == "no-referrer"
 
@@ -145,11 +161,7 @@ def test_a_link_opens_nothing_but_the_book(client: TestClient) -> None:
     """No sources ZIP, no prompts, no photograph, no edit — only the book."""
     book_id = _start_book(client)
     assert _wait(client, book_id)["status"] == "complete"
-    token = (
-        client.get(f"/books/{book_id}/share", follow_redirects=False)
-        .headers["location"]
-        .partition("?share=")[2]
-    )
+    token = _mint(client, book_id)
 
     for path in (
         f"/share/{token}/sources.zip",
@@ -200,11 +212,7 @@ def test_a_link_works_in_a_deployment_that_requires_sign_in(tmp_path: Path) -> N
         )
         book_id = _start_book(owner)
         assert _wait(owner, book_id)["status"] == "complete"
-        token = (
-            owner.get(f"/books/{book_id}/share", follow_redirects=False)
-            .headers["location"]
-            .partition("?share=")[2]
-        )
+        token = _mint(owner, book_id)
 
         stranger = TestClient(owner.app)
         assert stranger.get(f"/books/{book_id}", follow_redirects=False).status_code == 303

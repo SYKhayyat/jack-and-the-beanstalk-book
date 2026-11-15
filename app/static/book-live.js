@@ -34,6 +34,21 @@ const slot = document.getElementById("book-slot");
 const spreads = Array.from(slot.querySelectorAll(".spread"));
 const mapTiles = Array.from(document.querySelectorAll(".map-tile"));
 const lastIndex = spreads.length - 1;
+// The spreads follow the PDF's pages (R1/R4): cover, copyright, the story,
+// "The End", About. A picture's number is not its place in that list, so the
+// pictures (the cover is 0, story page n is n) are looked up by number.
+const kindOf = (position) => spreads[position]?.dataset.kind;
+const isPicture = (position) => ["cover", "story"].includes(kindOf(position));
+const positionOfPicture = new Map();
+spreads.forEach((spread, position) => {
+  if (isPicture(position)) positionOfPicture.set(Number(spread.dataset.number), position);
+});
+const pictureCount = positionOfPicture.size;
+const storyPages = pictureCount - 1;
+const pictureAt = (position) => (isPicture(position) ? Number(spreads[position].dataset.number) : null);
+// What read-aloud says on a leaf with no story text: the title on the cover,
+// "The End" on its own page, and nothing on the copyright page.
+const FALLBACK_WORDS = { cover: bookTitle, end: "The End", copyright: "" };
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const MAX_ATTEMPTS = Number(body.dataset.maxAttempts) || 3;
 
@@ -68,10 +83,12 @@ function spreadFromHash() {
   const hash = window.location.hash.replace("#", "");
   if (hash === "cover") return 0;
   if (hash === "about") return lastIndex;
+  const matter = spreads.findIndex((spread) => spread.dataset.kind !== "story" && hashOfKind(spread.dataset.kind) === hash);
+  if (matter >= 0) return matter;
   const match = /^page-(\d+)$/.exec(hash);
   if (match) {
     const wanted = Number(match[1]);
-    if (wanted >= 1 && wanted < lastIndex) return wanted;
+    if (wanted >= 1) return positionOfPicture.get(wanted) ?? null;
   }
   return null;
 }
@@ -84,18 +101,24 @@ function initialIndex() {
   if (status === "complete") return 0;
   let last = 0;
   spreads.forEach((spread, position) => {
-    if (position < lastIndex && spread.dataset.status === "done") last = position;
+    if (isPicture(position) && spread.dataset.status === "done") last = position;
   });
   return last;
 }
 
+function hashOfKind(kind) {
+  return { cover: "cover", copyright: "copyright", end: "the-end", about: "about" }[kind];
+}
+
 function spreadName(position) {
-  if (position === 0) return { hash: "cover", label: "Cover" };
-  if (position === lastIndex) return { hash: "about", label: "About" };
-  // The cover is page 1, as the printed folio and the PDF count it; the
-  // About spread is outside the numbering. So the first story page is page 2
-  // of 21 (20 story pages + the cover), the same number printed on it (B7).
-  return { hash: `page-${position}`, label: `Page ${position + 1} of ${lastIndex}` };
+  const kind = kindOf(position);
+  if (kind === "cover") return { hash: "cover", label: "Cover" };
+  if (kind === "copyright") return { hash: "copyright", label: "Copyright" };
+  if (kind === "end") return { hash: "the-end", label: "The End" };
+  if (kind === "about") return { hash: "about", label: "About" };
+  // Story page n is page n, as its folio and the PDF print it (P4).
+  const number = pictureAt(position);
+  return { hash: `page-${number}`, label: `Page ${number} of ${storyPages}` };
 }
 
 function show(wanted, { animate = true } = {}) {
@@ -111,12 +134,13 @@ function show(wanted, { animate = true } = {}) {
   history.replaceState(null, "", `#${hash}`);
   document.getElementById("turn-back").disabled = index === 0;
   document.getElementById("turn-next").disabled = index === lastIndex;
-  mapTiles.forEach((tile, position) => tile.classList.toggle("current", position === index));
+  const picture = pictureAt(index);
+  mapTiles.forEach((tile) => tile.classList.toggle("current", Number(tile.dataset.goto) === picture));
   // The cover and the About page have their own buttons in the strip, so
   // "Redraw this page" only appears on a story page.
-  document.getElementById("edit-page").hidden = index === 0 || index === lastIndex;
+  document.getElementById("edit-page").hidden = kindOf(index) !== "story";
   preloadAround(index);
-  if (voice.reading) voice.readLeaf(spreads[index], bookTitle);
+  readHere();
 }
 
 /* Hidden pages are lazy, so a page would only start downloading when turned
@@ -160,7 +184,7 @@ function wireTurning() {
   for (const tile of mapTiles) {
     tile.addEventListener("click", () => {
       userNavigated = true;
-      show(Number(tile.dataset.goto));
+      show(positionOfPicture.get(Number(tile.dataset.goto)) ?? 0);
       reader.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
     });
   }
@@ -211,7 +235,7 @@ function wireTools() {
       }
       voice.start();
       setPressed(readButton, true, "Pause");
-      voice.readLeaf(spreads[index], bookTitle);
+      readHere();
     });
   }
 
@@ -223,7 +247,7 @@ function wireTools() {
   });
 
   document.getElementById("read-book").addEventListener("click", () => {
-    show(1);
+    show(positionOfPicture.get(1) ?? 1);
     reader.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
   });
 }
@@ -241,6 +265,10 @@ function setStoryTime(on) {
   }
   slot.focus({ preventScroll: true });
   layout.fit();
+}
+
+function readHere() {
+  if (voice.reading) voice.readLeaf(spreads[index], FALLBACK_WORDS[kindOf(index)] ?? "");
 }
 
 /* After a page is read aloud: a breath, then the next page; the About page
@@ -316,13 +344,13 @@ function apply(payload) {
   const stages = state === "rendering" && payload.page_stages ? payload.page_stages : {};
   let done = 0;
   for (const entry of pages) {
-    const position = Number(entry.number);
-    if (!(position >= 0 && position < lastIndex)) continue;
+    const number = Number(entry.number);
+    if (!positionOfPicture.has(number)) continue;
     if (entry.status === "done") done += 1;
-    paint(position, entry, stages[String(position)]);
+    paint(number, entry, stages[String(number)]);
   }
   followThePictures(pages, state);
-  const total = lastIndex;
+  const total = pictureCount;
   const inFlight = Object.values(stages);
   setProgress(done, total, inFlight);
   // Read to me and Story time need a page to act on. The cover
@@ -424,8 +452,8 @@ function followThePictures(pages, state) {
   if (spreads[index].dataset.status !== "done") return;
   let newest = index;
   for (const entry of pages) {
-    const position = Number(entry.number);
-    if (entry.status === "done" && position > newest && position < lastIndex) newest = position;
+    const position = positionOfPicture.get(Number(entry.number));
+    if (entry.status === "done" && position > newest) newest = position;
   }
   if (newest > index) show(newest, { animate: !reducedMotion });
 }
@@ -450,9 +478,10 @@ function tryWords({ stage }) {
   return stage === "reviewing" ? "checking it over" : "drawing it";
 }
 
-function paint(position, entry, inFlight) {
+function paint(number, entry, inFlight) {
+  const position = positionOfPicture.get(number);
   const spread = spreads[position];
-  const tile = mapTiles[position];
+  const tile = mapTiles.find((candidate) => Number(candidate.dataset.goto) === number);
   const state = entry.status || "pending";
   const working = state !== "done" && inFlight;
   if (tile) {
@@ -479,7 +508,7 @@ function paint(position, entry, inFlight) {
   if (spread.dataset.status !== state) {
     spread.dataset.status = state;
     if (state === "done" && entry.url) {
-      art.replaceChildren(position === 0 ? coverFigure(entry) : pageImage(position, entry));
+      art.replaceChildren(number === 0 ? coverFigure(entry) : pageImage(position, entry));
       layout.schedule();
       if (position === index && !reducedMotion) art.classList.add("landed");
       return;
@@ -617,18 +646,19 @@ function wireEdits() {
   const aboutDialog = document.getElementById("about-dialog");
 
   document.getElementById("edit-page").addEventListener("click", () => {
-    if (index === 0 || index === lastIndex) return;
-    document.getElementById("redraw-page-label").textContent = `page ${index}`;
+    if (kindOf(index) !== "story") return;
+    document.getElementById("redraw-page-label").textContent = `page ${pictureAt(index)}`;
     redrawDialog.showModal();
   });
   redrawDialog.addEventListener("close", () => {
     if (redrawDialog.returnValue !== "save") return;
-    const form = edit({ action: "page", page_number: String(index) });
+    const picture = pictureAt(index);
+    const form = edit({ action: "page", page_number: String(picture) });
     for (const chip of redrawDialog.querySelectorAll('input[name="reason"]:checked')) {
       form.append("reason", chip.value);
       chip.checked = false;
     }
-    void runEdit(form, `Redrawing page ${index}…`);
+    void runEdit(form, `Redrawing page ${picture}…`);
   });
 
   document.getElementById("edit-cover").addEventListener("click", () => {

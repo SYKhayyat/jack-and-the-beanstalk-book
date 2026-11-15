@@ -205,16 +205,18 @@ class Product:
 
 
 #: Lulu's spec sheet for these gloss packages: casewrap from 24 interior
-#: pages at $10.98 + $0.2148 a page, perfect bound from 20 pages at $2.16 +
-#: $0.2148 a page (the matte paperback starts at 32; gloss does not). Retail
+#: pages at $10.98 + $0.2148 a page, perfect bound at $2.16 + $0.2148 a page.
+#: The sheet says perfect bound starts at 20 pages, but the sandbox's own file
+#: validation refuses anything under 32 for these package codes (audit 11-15
+#: P2, checked 2026-11-15), and the validator is what prints. Retail
 #: prices are the owner's (AUDIT.md §10 Q2); shipping is quoted on top.
 PRODUCTS: dict[str, Product] = {
     product.key: product
     for product in (
         Product(Trim.SQUARE, Binding.HARDCOVER, 24, 800, 2999, 1098, 21.48),
-        Product(Trim.SQUARE, Binding.PAPERBACK, 20, 800, 1799, 216, 21.48),
+        Product(Trim.SQUARE, Binding.PAPERBACK, 32, 800, 1799, 216, 21.48),
         Product(Trim.LETTER, Binding.HARDCOVER, 24, 800, 2999, 1098, 21.48),
-        Product(Trim.LETTER, Binding.PAPERBACK, 20, 800, 1799, 216, 21.48),
+        Product(Trim.LETTER, Binding.PAPERBACK, 32, 800, 1799, 216, 21.48),
     )
 }
 

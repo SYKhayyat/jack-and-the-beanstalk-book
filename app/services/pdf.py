@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -37,10 +38,11 @@ from functools import lru_cache
 from pathlib import Path
 
 from fpdf import FPDF
-from PIL import Image, ImageStat, UnidentifiedImageError
+from PIL import Image, ImageFilter, ImageStat, UnidentifiedImageError
 
 from app.models.book import AboutMe, AboutPhotoChoice, BookPage
 from app.prompt_data import prompt_text
+from app.services.book_outline import MATTER_LEAVES, Leaf, book_leaves, copyright_lines
 from app.services.print.products import CoverSize, Product
 from app.services.typography import book_text
 
@@ -80,7 +82,7 @@ _FONT_FILES: tuple[tuple[str, str, str], ...] = (
 #: Pages in a finished book that are not its numbered story pages: the front
 #: cover, the copyright page, "The End" and the About Me back cover. The print
 #: code adds this to the edition's page count to get the PDF's page count.
-BOOK_MATTER_PAGES = 4
+BOOK_MATTER_PAGES = MATTER_LEAVES
 
 # Geometry. The art box's short edge is 720 pt (10 in); everything else is
 # relative to the page so any aspect ratio prints well.
@@ -115,9 +117,14 @@ TITLE_BAND_MAX_STDDEV = 22.0
 # A page is ~10 in on the short edge, so 1600 px is still >150 dpi.
 _EMBED_LONG_EDGE = 1600
 _EMBED_JPEG_QUALITY = 85
-# The print files embed every picture at the resolution it was drawn at (A1):
-# never downscaled, never upscaled, and encoded gently, since Lulu prints them.
+# The print files never downscale a picture, and encode it gently, since Lulu
+# prints them. The pictures are drawn at 1152 x 864, which is about 81 ppi
+# across a printed page, so a picture under `_PRINT_PPI` at its printed size
+# is resampled up to it (audit 11-15 P1, the owner's call: upscale at order
+# time rather than pay to draw bigger pictures). The screen PDF never is.
 _PRINT_JPEG_QUALITY = 92
+_PRINT_PPI = 300
+_POINTS_PER_INCH = 72.0
 
 
 class PageArt:
@@ -300,16 +307,21 @@ def build_book_pdf(
     else:
         logger.info("pdf.text_shaping=off reason=uharfbuzz_not_importable")
 
-    if cover is not None:
-        draw_cover_page(pdf, title, about, cover, subtitle=subtitle)
-
-    draw_copyright_page(pdf, about, publisher, year or datetime.now(UTC).year)
-
-    for number, entry in enumerate(pages, start=1):
-        _draw_page(pdf, entry, layout, number)
-
-    draw_closing_page(pdf)
-    draw_about_page(pdf, about, portrait, photo)
+    # The reader and the shared link walk the same list (R1).
+    stories = enumerate(pages, start=1)
+    for leaf in book_leaves(len(pages)):
+        if leaf is Leaf.COVER:
+            if cover is not None:
+                draw_cover_page(pdf, title, about, cover, subtitle=subtitle)
+        elif leaf is Leaf.COPYRIGHT:
+            draw_copyright_page(pdf, about, publisher, year or datetime.now(UTC).year)
+        elif leaf is Leaf.STORY:
+            number, entry = next(stories)
+            _draw_page(pdf, entry, number, layout)
+        elif leaf is Leaf.END:
+            draw_closing_page(pdf)
+        else:
+            draw_about_page(pdf, about, portrait, photo)
 
     output = io.BytesIO()
     pdf.output(output)
@@ -368,7 +380,7 @@ def _draw_front_cover(
     box: tuple[float, float, float, float],
     face: tuple[float, float, float, float],
     safety: float = 0.0,
-    full_resolution: bool = False,
+    for_print: bool = False,
 ) -> None:
     """The cover art over `box`, with the title lockup placed on `face`.
 
@@ -383,7 +395,7 @@ def _draw_front_cover(
     drawn_w, drawn_h = art_w * scale, art_h * scale
     with pdf.rect_clip(box_x, box_y, box_w, box_h):
         pdf.image(
-            _image_for_pdf(cover, full_resolution=full_resolution),
+            _image_for_pdf(cover, printed_at=(drawn_w, drawn_h) if for_print else None),
             x=box_x + (box_w - drawn_w) / 2,
             y=box_y + (box_h - drawn_h) / 2,
             w=drawn_w,
@@ -448,25 +460,11 @@ def draw_copyright_page(
     pdf.rect(0, 0, width, height, style="F")
     usable = width * (1 - 2 * _SIDE_MARGIN)
 
-    lines = [
-        (f"Copyright © {year} {publisher}", 13.0, ""),
-        ("All rights reserved.", 11.0, "I"),
-        ("", 11.0, ""),
-        (f"Made for {about.about_name}.", 13.0, "I"),
-        ("", 11.0, ""),
-        (
-            "No part of this book may be reproduced or distributed "
-            "without written permission.",
-            10.0,
-            "",
-        ),
-        ("", 10.0, ""),
-        (f"Published by {publisher}.", 11.0, ""),
-        (f"First edition, {year}.", 10.0, "I"),
-    ]
     top = height * 0.44
     pdf.set_text_color(*_INK)
-    for text, size, style in lines:
+    # The same words the reader sets on its copyright page (`book_outline`).
+    for text, size, italic in copyright_lines(about.about_name, publisher, year):
+        style = "I" if italic else ""
         if not text:
             top += size * 0.7
             continue
@@ -539,7 +537,7 @@ def _shadowed_cell(
     pdf.text_mode = "FILL"
 
 
-def _draw_page(pdf: FPDF, entry: PageArt, layout: TemplateGeometry, number: int) -> None:
+def _draw_page(pdf: FPDF, entry: PageArt, number: int, layout: TemplateGeometry) -> None:
     """One story page: art on top, the story in the band beneath it.
 
     A page whose picture could not be drawn keeps its story and gets a marked
@@ -568,11 +566,12 @@ def _draw_page(pdf: FPDF, entry: PageArt, layout: TemplateGeometry, number: int)
         pdf.set_text_color(*_INK)
         _centred_lines(pdf, lines, y, layout.line_height)
 
-    # The folio: the cover is page 1 to the reader, so story page n is n + 1.
+    # The folio: story page n prints "n"; the pages around the story carry
+    # none (P4), and the reader prints the same number.
     pdf.set_font(_FAMILY, "I", 10.0)
     pdf.set_text_color(*_GOLD)
     pdf.set_xy(0, pdf.h - _MARGIN_PAD_BOTTOM * 0.75)
-    pdf.cell(pdf.w, 14.0, str(number + 1), align="C")
+    pdf.cell(pdf.w, 14.0, str(number), align="C")
 
 
 def _draw_missing_art(pdf: FPDF, layout: TemplateGeometry) -> None:
@@ -757,7 +756,7 @@ def build_print_interior(
     """The interior file a printer binds: everything but the cover.
 
     The copyright page, the story, "The End" and the About Me page, each the
-    trim plus 0.125 in bleed, every picture at full resolution (A1), then
+    trim plus 0.125 in bleed, every picture at 300 ppi or more (P1), then
     blank pages up to the binding's minimum and an even count (A2). The cover
     is its own file (`build_print_cover`).
 
@@ -776,11 +775,18 @@ def build_print_interior(
     )
 
     pdf = _new_pdf(layout.page_width, layout.page_height)
-    draw_copyright_page(pdf, about, publisher, year or datetime.now(UTC).year)
-    for number, entry in enumerate(pages, start=1):
-        _draw_print_page(pdf, entry, layout, number)
-    draw_closing_page(pdf)
-    draw_about_page(pdf, about, portrait, photo, inset=product.interior_inset)
+    # The screen book's list, less the cover, which is its own file.
+    stories = enumerate(pages, start=1)
+    for leaf in book_leaves(len(pages)):
+        if leaf is Leaf.COPYRIGHT:
+            draw_copyright_page(pdf, about, publisher, year or datetime.now(UTC).year)
+        elif leaf is Leaf.STORY:
+            number, entry = next(stories)
+            _draw_print_page(pdf, entry, layout, number)
+        elif leaf is Leaf.END:
+            draw_closing_page(pdf)
+        elif leaf is Leaf.ABOUT:
+            draw_about_page(pdf, about, portrait, photo, inset=product.interior_inset)
 
     for _ in range(product.printed_pages(pdf.page) - pdf.page):
         pdf.add_page()
@@ -824,7 +830,7 @@ def build_print_cover(
         box=(front_left, 0.0, size.width - front_left, size.height),
         face=(front_left, size.wrap_y, size.trim_width, size.trim_height),
         safety=product.cover_safety,
-        full_resolution=True,
+        for_print=True,
     )
 
     back_left = spine_left - size.trim_width
@@ -863,9 +869,7 @@ def _draw_print_page(pdf: FPDF, entry: PageArt, layout: PrintGeometry, number: i
     if image is None:
         _draw_missing_art(pdf, art)
     else:
-        _place_art(
-            pdf, image, 0, 0, layout.page_width, layout.art_height, full_resolution=True
-        )
+        _place_art(pdf, image, 0, 0, layout.page_width, layout.art_height, for_print=True)
     pdf.set_draw_color(*_GOLD)
     pdf.set_line_width(1.6)
     pdf.line(0, layout.art_height, pdf.w, layout.art_height)
@@ -879,11 +883,11 @@ def _draw_print_page(pdf: FPDF, entry: PageArt, layout: PrintGeometry, number: i
         pdf.set_text_color(*_INK)
         _centred_lines(pdf, lines, y, layout.line_height)
 
-    # The copyright page is page 1 of the interior, so story page n is n + 1.
+    # Story page n prints "n", as on screen and in the reading PDF (P4).
     pdf.set_font(_FAMILY, "I", _FOLIO_SIZE)
     pdf.set_text_color(*_GOLD)
     pdf.set_xy(0, layout.folio_top)
-    pdf.cell(pdf.w, _FOLIO_SIZE * 1.4, str(number + 1), align="C")
+    pdf.cell(pdf.w, _FOLIO_SIZE * 1.4, str(number), align="C")
 
 
 def _place_art(
@@ -894,7 +898,7 @@ def _place_art(
     width: float,
     height: float,
     *,
-    full_resolution: bool = False,
+    for_print: bool = False,
 ) -> None:
     """The picture in its box at its own shape, centred on cream (A11).
 
@@ -911,7 +915,7 @@ def _place_art(
         pdf.set_fill_color(*_CREAM)
         pdf.rect(x, y, width, height, style="F")
     pdf.image(
-        _image_for_pdf(image, full_resolution=full_resolution),
+        _image_for_pdf(image, printed_at=(drawn_w, drawn_h) if for_print else None),
         x=x + (width - drawn_w) / 2,
         y=y + (height - drawn_h) / 2,
         w=drawn_w,
@@ -1044,10 +1048,15 @@ def _shaping_supported() -> bool:
         return False
 
 
-def _image_for_pdf(image: bytes, *, full_resolution: bool = False) -> io.BytesIO:
+def _image_for_pdf(
+    image: bytes, *, printed_at: tuple[float, float] | None = None
+) -> io.BytesIO:
     """Re-encode one picture as a right-sized JPEG for embedding.
 
-    `full_resolution` keeps every pixel the picture has, for a print file.
+    `printed_at` is the picture's size on a print page, in points. A print
+    picture keeps every pixel it has and, when that is under `_PRINT_PPI` at
+    that size, is resampled up to it (P1). Without it the picture is sized
+    for the screen PDF.
 
     RGBA is flattened onto white, because JPEG has no alpha and a transparent
     page would otherwise come out black.
@@ -1063,8 +1072,10 @@ def _image_for_pdf(image: bytes, *, full_resolution: bool = False) -> io.BytesIO
                 background = Image.new("RGB", frame.size, (255, 255, 255))
                 background.paste(frame, mask=frame.split()[-1])
                 frame = background
-            if not full_resolution:
+            if printed_at is None:
                 frame.thumbnail((_EMBED_LONG_EDGE, _EMBED_LONG_EDGE), Image.Resampling.LANCZOS)
+            else:
+                frame = _upscale_for_print(frame, printed_at)
             encoded = io.BytesIO()
             # A plain baseline JPEG on purpose: with optimize= or progressive=
             # Pillow encodes the whole frame in one call that holds the GIL
@@ -1073,12 +1084,32 @@ def _image_for_pdf(image: bytes, *, full_resolution: bool = False) -> io.BytesIO
             frame.save(
                 encoded,
                 format="JPEG",
-                quality=_PRINT_JPEG_QUALITY if full_resolution else _EMBED_JPEG_QUALITY,
+                quality=_EMBED_JPEG_QUALITY if printed_at is None else _PRINT_JPEG_QUALITY,
             )
     except (OSError, UnidentifiedImageError) as exc:
         raise ValueError("A page image was unreadable; cannot assemble the book.") from exc
     encoded.seek(0)
     return encoded
+
+
+def _upscale_for_print(frame: Image.Image, printed_at: tuple[float, float]) -> Image.Image:
+    """`frame` resampled up to `_PRINT_PPI` at its printed size, if it is under.
+
+    Lanczos keeps the painted edges clean, and a light unsharp mask gives
+    back the crispness resampling softens. A picture already at or above the
+    density is returned untouched: a print picture is never downscaled.
+    """
+    width_pt, height_pt = printed_at
+    factor = max(
+        width_pt / _POINTS_PER_INCH * _PRINT_PPI / frame.width,
+        height_pt / _POINTS_PER_INCH * _PRINT_PPI / frame.height,
+    )
+    if factor <= 1.0:
+        return frame
+    size = (math.ceil(frame.width * factor), math.ceil(frame.height * factor))
+    logger.info("pdf.print_upscale from=%dx%d to=%dx%d", frame.width, frame.height, *size)
+    resized = frame.resize(size, Image.Resampling.LANCZOS)
+    return resized.filter(ImageFilter.UnsharpMask(radius=1.2, percent=60, threshold=3))
 
 
 def _image_size(image: bytes) -> tuple[int, int]:

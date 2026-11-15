@@ -1,0 +1,7 @@
+{#- The copyright page, worded and sized as the PDF sets it (R1); the same
+    lines come from book_outline.copyright_lines for both. #}
+<article class="spread leaf copyright-spread" id="spread-1" data-spread="1" data-kind="copyright" data-number="copyright" data-status="done" hidden>
+  <div class="matter-page copyright-page">
+    {% for line in copyright_lines %}{% if line.text %}<p class="copyright-line{% if line.italic %} is-italic{% endif %}" style="--line-size: {{ line.size }}">{{ line.text }}</p>{% else %}<p class="copyright-gap" aria-hidden="true"></p>{% endif %}{% endfor %}
+  </div>
+</article>

@@ -510,7 +510,7 @@ class TestLibrary:
             assert 'class="drawer-delete"' in page.text
             assert f'data-delete-book="{book_id}"' in page.text
         # One count everywhere (U9): twenty story pages and the cover.
-        assert "20 pages + cover" in page.text
+        assert "20 story pages" in page.text
 
     def test_the_downloads_are_private_to_the_book_owner(
         self, completed_library: tuple[TestClient, str]
@@ -538,8 +538,8 @@ class TestLibrary:
         assert 'id="turn-next"' in page.text
         # The story line travels with the picture, not only in the PDF.
         assert "spread-story" in page.text
-        # Cover + twenty story pages + the About page.
-        assert len(re.findall(r'class="spread[ "]', page.text)) == 22
+        # Cover, copyright, twenty story pages, "The End", About (R1).
+        assert len(re.findall(r'class="spread[ "]', page.text)) == 24
 
     def test_the_library_page_is_the_whole_collection(
         self, completed_library: tuple[TestClient, str]
@@ -560,7 +560,7 @@ class TestLibrary:
         assert f'href="/books/{book_id}"' in shelf.text
         assert "Shai and the Beanstalk" in shelf.text
         assert "Read it again" in shelf.text
-        assert "20 pages + cover" in shelf.text
+        assert "20 story pages" in shelf.text
         assert f'data-delete-book="{book_id}"' in shelf.text
         # The drawer is on this page too, and it must not link to the page you
         # are already standing on.
