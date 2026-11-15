@@ -1,48 +1,38 @@
 """What a printed book costs us, what it sells for, and the margin between.
 
-All amounts are integer US cents. The model has four costs and one price:
+All amounts are integer US cents. The buyer pays the edition's price plus
+shipping at cost (AUDIT.md §10 Q2/A6), so shipping moves no margin either way;
+the model's lines are:
 
 * **generation** — the measured average model spend for one book's pictures,
   reviews and decisions. The first live run's ledger gave $1.58 a book
-  (`review-log.md`, Run 1 addendum); the retry budget caps have lowered the
-  ceiling since, so using the measured average is conservative.
-* **printing** — Peecho's published softcover base and per-page wholesale,
-  converted from euro at 1.08. A 24-page A5 softcover is
-  ``378 + 24 x 17 = 786`` cents.
-* **shipping** — Peecho's published shipping example, €5.90, converted at the
-  same rate: 637 cents. The real figure depends on the destination; the fixed
-  number is the model's stated assumption.
-* **payment processing** — Stripe's 2.9% + 30¢ on the retail price. This is a
-  real cost of taking the order, so it belongs in the margin rather than being
-  discovered afterward.
+  (`review-log.md`, Run 1 addendum); the retry caps have lowered the ceiling
+  since, so the measured average is conservative.
+* **printing** — Lulu's published wholesale price for the edition: a base per
+  book plus a per-page rate (`app/services/print/products.py`). The order
+  itself is priced by Lulu's quote for the address, so this is the planning
+  figure.
+* **shipping** — whatever Lulu quotes for the address, charged to the buyer
+  unchanged.
+* **payment processing** — Stripe's 2.9% + 30¢ on everything the buyer pays,
+  shipping included: the one real cost shipping does carry.
 
-The price is a setting (default $24.99) because it is a business decision, not
-a constant. The write-up (`docs/print-business-model.md`) prints the same math
-the tests assert, so the document cannot drift from the code.
+The write-up (`docs/print-business-model.md`) prints the same math the tests
+assert, so the document cannot drift from the code.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.pricing import (
-    PRINT_BASE_COST_CENTS,
-    PRINT_PER_PAGE_CENTS,
-    PRINT_RETAIL_CENTS,
-    PRINT_SHIPPING_CENTS,
-)
-from app.services.print.base import PrintQuote
+from app.services.print.products import Product
 
 __all__ = [
     "GENERATION_COST_CENTS",
     "PAYMENT_FIXED_CENTS",
     "PAYMENT_PERCENT",
-    "PRINT_BASE_COST_CENTS",
-    "PRINT_PER_PAGE_CENTS",
-    "PRINT_RETAIL_CENTS",
-    "PRINT_SHIPPING_CENTS",
     "QuoteBreakdown",
-    "build_quote",
+    "business_model",
 ]
 
 #: The measured average generation spend for one book (Run 1's ledger).
@@ -57,12 +47,18 @@ PAYMENT_FIXED_CENTS = 30
 class QuoteBreakdown:
     """One printed book, line by line: cost, price and margin."""
 
+    product_key: str
     page_count: int
     generation_cents: int
     printing_cents: int
     shipping_cents: int
     processing_cents: int
     retail_cents: int
+
+    @property
+    def charged_cents(self) -> int:
+        """What the buyer pays: the edition's price and shipping at cost."""
+        return self.retail_cents + self.shipping_cents
 
     @property
     def total_cost_cents(self) -> int:
@@ -75,60 +71,36 @@ class QuoteBreakdown:
 
     @property
     def margin_cents(self) -> int:
-        return self.retail_cents - self.total_cost_cents
+        return self.charged_cents - self.total_cost_cents
 
     @property
     def margin_percent(self) -> float:
+        """The margin as a share of the edition's price (shipping is passed on)."""
         if self.retail_cents <= 0:
             return 0.0
         return 100.0 * self.margin_cents / self.retail_cents
 
 
-def _processing_cents(retail_cents: int) -> int:
-    """Stripe's cut: 2.9% of the price, rounded to the nearest cent, plus 30¢."""
-    return round(retail_cents * PAYMENT_PERCENT / 100.0) + PAYMENT_FIXED_CENTS
+def _processing_cents(charged_cents: int) -> int:
+    """Stripe's cut: 2.9% rounded to the nearest cent, plus 30¢."""
+    return round(charged_cents * PAYMENT_PERCENT / 100.0) + PAYMENT_FIXED_CENTS
 
 
 def business_model(
+    product: Product,
     page_count: int,
     *,
-    retail_cents: int = PRINT_RETAIL_CENTS,
+    shipping_cents: int = 0,
     generation_cents: int = GENERATION_COST_CENTS,
-    base_cents: int = PRINT_BASE_COST_CENTS,
-    per_page_cents: int = PRINT_PER_PAGE_CENTS,
-    shipping_cents: int = PRINT_SHIPPING_CENTS,
 ) -> QuoteBreakdown:
-    """The full cost and margin for a book of `page_count` printed pages."""
-    if page_count < 1:
-        raise ValueError("a printed book needs at least one page")
+    """The full cost and margin of one copy of `product` with `page_count` pages."""
+    pages = product.printed_pages(page_count)
     return QuoteBreakdown(
-        page_count=page_count,
+        product_key=product.key,
+        page_count=pages,
         generation_cents=generation_cents,
-        printing_cents=base_cents + per_page_cents * page_count,
+        printing_cents=product.estimated_printing_cents(pages),
         shipping_cents=shipping_cents,
-        processing_cents=_processing_cents(retail_cents),
-        retail_cents=retail_cents,
-    )
-
-
-def build_quote(
-    page_count: int,
-    *,
-    retail_cents: int = PRINT_RETAIL_CENTS,
-    base_cents: int = PRINT_BASE_COST_CENTS,
-    per_page_cents: int = PRINT_PER_PAGE_CENTS,
-    shipping_cents: int = PRINT_SHIPPING_CENTS,
-    page_width_mm: float = 210.0,
-    page_height_mm: float = 148.0,
-) -> PrintQuote:
-    """What the customer is shown and charged for one printed copy."""
-    if page_count < 1:
-        raise ValueError("a printed book needs at least one page")
-    return PrintQuote(
-        page_count=page_count,
-        printing_cents=base_cents + per_page_cents * page_count,
-        shipping_cents=shipping_cents,
-        retail_cents=retail_cents,
-        page_width_mm=page_width_mm,
-        page_height_mm=page_height_mm,
+        processing_cents=_processing_cents(product.retail_cents + shipping_cents),
+        retail_cents=product.retail_cents,
     )

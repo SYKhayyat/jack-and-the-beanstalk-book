@@ -18,13 +18,15 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select, update
+from sqlalchemy import func, insert, select, update
 
 from app.config import Settings
 from app.container import build_container
 from app.db import (
     BookPageRow,
     BookRow,
+    PrintOrderRow,
+    WalletTransactionRow,
     build_engine,
     local_database_url,
     normalise_database_url,
@@ -818,3 +820,52 @@ def test_building_an_edition_never_reads_reference_images(
 
     assert seen, "the edition was read from the database"
     assert not [s for s in seen if "reference_image" in s and "is not null" not in s], seen
+
+
+@pytest.mark.parametrize("kept_by", ["book-fee", "placing", "submitted", "unknown"])
+def test_a_paid_or_printed_book_is_never_expired(
+    store: DatabaseBookStore, engine: Any, kept_by: str
+) -> None:
+    """A9: what the buyer paid for is kept forever; an unplaced approval is not."""
+    for book_id in ("kept", "unpaid"):
+        store.save_record(
+            edition=edition_in(store),
+            book_id=book_id,
+            user_id=USER,
+            about=ABOUT,
+            generation_id="gen",
+        )
+        store.save_status(book_id, BookStatus.COMPLETE, [])
+    old = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=400)
+    with engine.begin() as conn:
+        conn.execute(update(BookRow).values(created_at=old, updated_at=old))
+        if kept_by == "book-fee":
+            conn.execute(
+                insert(WalletTransactionRow).values(
+                    id="tx1",
+                    user_id=USER,
+                    amount_cents=-99,
+                    kind="charge",
+                    description="Book",
+                    reference="book:kept",
+                )
+            )
+        else:
+            for book_id, state in (("kept", kept_by), ("unpaid", "approved")):
+                conn.execute(
+                    insert(PrintOrderRow).values(
+                        id=f"print_{book_id}",
+                        book_id=book_id,
+                        user_id=USER,
+                        state=state,
+                        pdf_sha256="0" * 64,
+                        page_count=24,
+                        printing_cents=1614,
+                        shipping_cents=499,
+                        retail_cents=2999,
+                    )
+                )
+
+    assert store.expire(older_than_seconds=7 * 24 * 3600) == 1
+    assert store.load_status("kept") is not None
+    assert store.load_status("unpaid") is None

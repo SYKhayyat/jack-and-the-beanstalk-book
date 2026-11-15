@@ -28,7 +28,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import Connection, delete, null, or_, select, update
+from sqlalchemy import Connection, delete, exists, literal, null, or_, select, update
 from sqlalchemy import insert as sa_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
@@ -41,7 +41,9 @@ from app.db import (
     BookStoryCharacterRow,
     BookStoryPageRow,
     PictureVariantRow,
+    PrintOrderRow,
     StoryRow,
+    WalletTransactionRow,
 )
 from app.models.book import AboutMe
 from app.models.settings import CartoonSettings
@@ -1017,6 +1019,9 @@ class DatabaseBookStore(BookStore):
         Page rows go first: they carry the foreign key, and this delete is not
         declared `ON DELETE CASCADE` in the schema. All of it is one
         transaction, so a poll never sees a book whose pages are gone.
+
+        A book that was paid for, or that has a print order beyond an unplaced
+        approval, is never expired (A9): the buyer keeps what they bought.
         """
         if older_than_seconds <= 0:
             return 0
@@ -1027,6 +1032,13 @@ class DatabaseBookStore(BookStore):
                     select(BookRow.id).where(
                         BookRow.updated_at < cutoff,
                         BookRow.status.in_((BookStatus.COMPLETE, BookStatus.FAILED)),
+                        ~exists().where(
+                            WalletTransactionRow.reference == literal("book:") + BookRow.id
+                        ),
+                        ~exists().where(
+                            PrintOrderRow.book_id == BookRow.id,
+                            PrintOrderRow.state.in_(_KEPT_PRINT_STATES),
+                        ),
                     )
                 )
                 .scalars()
@@ -1036,6 +1048,10 @@ class DatabaseBookStore(BookStore):
                 delete_book_rows(conn, book_id)
                 logger.info("book.expired id=%s", book_id)
         return len(stale)
+
+
+#: Print orders that hold their book: money moved, or may have (A9).
+_KEPT_PRINT_STATES = ("placing", "submitted", "unknown")
 
 
 def _with_picture_records(

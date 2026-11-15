@@ -267,8 +267,9 @@ def build_book_pdf(
     The order is the one a printed picture book has: the front cover, the
     copyright page (the first inside page), the story starting on the page
     after it, a closing page so the sheet count is even, and the About Me back
-    cover. Peecho prints page one as the front cover and the last page as the
-    back cover, so this file can be sent to it unchanged.
+    cover. This is the reading and download file; the printer gets its own
+    pair, built from the same pages by `build_print_interior` and
+    `build_print_cover`.
 
     Raises:
         ValueError: if `pages` is empty, no page has a picture to take the

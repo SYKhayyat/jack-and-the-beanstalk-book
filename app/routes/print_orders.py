@@ -1,15 +1,22 @@
-"""Order a printed copy: review, approve, address, place — in test mode.
+"""Order a printed copy: review, choose, address, quote, place — in a sandbox.
 
-The order of these steps is the feature. The owner opens the finished PDF,
-presses "I've reviewed this PDF", and only then does the delivery form appear.
-The approval records the PDF's hash; if the book is edited in the meantime the
-hash no longer matches, the form disappears again and the page asks for a new
-review. Nothing reaches the print provider before a matching approval exists.
+The order of these steps is the feature:
 
-The copy is charged through the wallet before the provider is called, and the
-charge is reversed if the provider refuses. The provider itself is the mock or
-Peecho's test environment; see `app/services/print/peecho.py` for why there is
-no live host in this code.
+1. The owner opens the finished PDF, picks an edition (trim and binding) and
+   presses "I've reviewed this book". The approval records the web PDF's
+   hash and builds the print interior and cover then, storing both (A1, A3).
+   If the book is edited later the hash no longer matches and the page asks
+   for a new review.
+2. The delivery address is priced by the print provider itself, so the buyer
+   sees the edition's price plus shipping at cost before paying (A6).
+3. Placing the order charges the wallet for that total and sends the job.
+   A clear refusal is refunded at once; a lost answer leaves the order
+   `unknown` until it is looked up (A4).
+
+The printer fetches the two files from signed one-hour links, which serve the
+stored bytes only while their hash is the approved one. The provider is the
+mock or Lulu's sandbox; see `app/services/print/lulu.py` for why there is no
+live host in this code.
 """
 
 from __future__ import annotations
@@ -18,7 +25,6 @@ import asyncio
 import hashlib
 import logging
 import time
-from functools import partial
 from typing import Any, cast
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -26,12 +32,17 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from app.dependencies import ContainerDep
 from app.routes.auth import CurrentSessionDep
-from app.routes.book_access import book_edition, ensure_book, no_store
+from app.routes.book_access import ensure_book, no_store
 from app.routes.wallet import start_topup
 from app.routes.web import page_chrome
 from app.services.book_store import BookStatus
-from app.services.pdf import BOOK_MATTER_PAGES
-from app.services.print.base import COUNTRIES, PrintError, ShippingAddress
+from app.services.print.base import (
+    COUNTRIES,
+    PrintError,
+    PrintOrder,
+    ShippingAddress,
+)
+from app.services.print.products import PRODUCTS, product_by_key, product_for
 from app.services.share_links import issue, read
 from app.services.typography import book_text
 from app.services.wallet import InsufficientFunds, format_cents, topup_for_shortfall
@@ -42,9 +53,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-#: A provider fetches the PDF within seconds of accepting the job. One hour is
-#: generous for a retry and short enough that the link is not an archive.
+#: A provider fetches the files within minutes of accepting the job. One hour
+#: is generous for a retry and short enough that a link is not an archive.
 _FILE_LINK_SECONDS = 60 * 60
+_FILE_KINDS = ("interior", "cover")
 
 
 def _owner(session: CurrentSessionDep) -> str:
@@ -67,10 +79,8 @@ def _render(request: Request, name: str, context: dict[str, Any]) -> HTMLRespons
     )
 
 
-def _complete_book(
-    book_id: str, owner: str, container: ContainerDep
-) -> tuple[Any, dict[str, object], Any]:
-    """The record, status and edition of an owner's finished book."""
+def _complete_book(book_id: str, owner: str, container: ContainerDep) -> Any:
+    """The record of an owner's finished book."""
     ensure_book(book_id, owner, container)
     record = container.book_store.load_record(book_id)
     status = container.book_store.load_status(book_id) or {}
@@ -81,12 +91,20 @@ def _complete_book(
             status_code=409,
             detail="A book can be printed once it is finished.",
         )
-    return record, status, book_edition(container, book_id)
+    return record
 
 
-def _page_count(edition: Any) -> int:
-    """Every page Peecho will print: cover, copyright, story, The End, back cover."""
-    return len(edition.pages) + BOOK_MATTER_PAGES
+def _editions() -> list[dict[str, Any]]:
+    return [
+        {
+            "key": product.key,
+            "trim": str(product.trim),
+            "binding": str(product.binding),
+            "label": product.label,
+            "price_label": format_cents(product.retail_cents),
+        }
+        for product in PRODUCTS.values()
+    ]
 
 
 def _print_context(
@@ -99,15 +117,18 @@ def _print_context(
     form: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     owner = _owner(session)
-    record, _status, edition = _complete_book(book_id, owner, container)
+    record = _complete_book(book_id, owner, container)
     service = container.print_service
     current_pdf = container.book_store.read_pdf(book_id) or b""
-    quote = _quote(container, edition, current_pdf)
-    shortfall = _shortfall(container, owner, quote.retail_cents)
     current_sha = hashlib.sha256(current_pdf).hexdigest()
     approval = service.approval(book_id)
     latest = service.latest(book_id)
     approved = approval is not None and approval.pdf_sha256 == current_sha
+    order = approval if approved else None
+    quoted = order is not None and order.quoted_at is not None
+    total = order.total_cents if order is not None and quoted else 0
+    shortfall = _shortfall(container, owner, total) if quoted else 0
+    product = product_by_key(order.product_key) if order is not None else None
     heading, *sentences = (book_text(line) for line in record.about.rendered_about_lines())
     return {
         **page_chrome(container, session, request),
@@ -116,43 +137,38 @@ def _print_context(
         "title": record.title,
         "about_heading": heading,
         "about_sentences": sentences,
-        "page_count": quote.page_count,
-        "price_label": format_cents(quote.retail_cents),
+        "editions": _editions(),
+        "edition_label": product.label if product is not None else "",
+        "page_count": order.page_count if order is not None else 0,
+        "price_label": format_cents(order.retail_cents) if order is not None else "",
+        "shipping_label": format_cents(order.shipping_cents) if quoted and order else "",
+        "total_label": format_cents(total) if quoted else "",
+        "quoted": quoted,
         # A copy costs more than the largest preset top-up, so the page offers
         # the difference in one trip to Stripe instead (A7).
         "can_top_up": container.payments is not None and shortfall > 0,
         "balance_label": format_cents(container.wallet.balance_cents(owner)),
         "topup_label": format_cents(shortfall),
-        "quote": quote,
         "service_enabled": service.enabled,
         "provider_name": service.provider_name,
         "provider_mode": service.mode,
         "approved": approved,
-        "approval": approval if approved else None,
+        "approval": order,
         "latest": latest,
         "submitted": latest if latest is not None and latest.state == "submitted" else None,
+        "unknown": latest if latest is not None and latest.state == "unknown" else None,
+        # A request that charged and then died mid-call leaves `placing`; the
+        # same button resumes it once the claim has gone stale.
+        "placing": latest if latest is not None and latest.state == "placing" else None,
         # What this order actually cost, not what a copy costs today: the
         # receipt must not change when the operator changes the price.
-        "paid_label": format_cents(latest.retail_cents) if latest is not None else "",
+        "paid_label": format_cents(latest.total_cents) if latest is not None else "",
         "pdf_url": f"/book-media/{book_id}/pdf",
         "pdf_sha": current_sha,
         "countries": COUNTRIES,
         "error": error,
-        "form": form or _prefill(session, latest),
+        "form": form or _prefill(session, order, latest),
     }
-
-
-def _quote(container: ContainerDep, edition: Any, pdf: bytes) -> Any:
-    """What one copy costs: priced from the PDF itself when there is one."""
-    service = container.print_service
-    if pdf:
-        try:
-            return service.quote_for_pdf(pdf)
-        except PrintError:
-            # A PDF nobody can read cannot be approved either; show the
-            # edition's own price so the page still explains itself.
-            pass
-    return service.quote(_page_count(edition))
 
 
 def _shortfall(container: ContainerDep, owner: str, price_cents: int) -> int:
@@ -168,13 +184,17 @@ def _shortfall(container: ContainerDep, owner: str, price_cents: int) -> int:
         return 0
 
 
-def _prefill(session: CurrentSessionDep, latest: Any) -> dict[str, str]:
-    """The delivery form's starting values: last order, then the account."""
-    if latest is not None and latest.address:
-        return {key: str(value) for key, value in latest.address.items()}
+def _prefill(
+    session: CurrentSessionDep, order: PrintOrder | None, latest: PrintOrder | None
+) -> dict[str, str]:
+    """The delivery form's starting values: this quote, last order, the account."""
+    for source in (order, latest):
+        if source is not None and source.address:
+            return {key: str(value) for key, value in source.address.items()}
     return {
         "name": (session.name if session else "") or "",
         "email": (session.email if session else "") or "",
+        "phone": "",
         "country_code": "US",
         "street1": "",
         "street2": "",
@@ -184,11 +204,26 @@ def _prefill(session: CurrentSessionDep, latest: Any) -> dict[str, str]:
     }
 
 
+async def _page(
+    request: Request,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    book_id: str,
+    *,
+    error: str = "",
+    form: dict[str, str] | None = None,
+) -> HTMLResponse:
+    context = await asyncio.to_thread(
+        lambda: _print_context(request, container, session, book_id, error=error, form=form)
+    )
+    return _render(request, "print.html", context)
+
+
 @router.get("/books/{book_id}/print", response_class=HTMLResponse)
 def print_page(
     book_id: str, request: Request, container: ContainerDep, session: CurrentSessionDep
 ) -> HTMLResponse:
-    """Review the PDF, then the delivery form; or the test order's receipt."""
+    """Review and choose, then the address and its price; or the order's receipt."""
     return _render(request, "print.html", _print_context(request, container, session, book_id))
 
 
@@ -198,35 +233,104 @@ async def approve_print(
     request: Request,
     container: ContainerDep,
     session: CurrentSessionDep,
+    trim: str = Form("square", max_length=16),
+    binding: str = Form("hardcover", max_length=16),
 ) -> Response:
-    """Record that the owner has read this exact PDF. Nothing is sent yet."""
+    """Record that the owner has read this book, and build its print files."""
     owner = _owner(session)
-    _record, _status, edition = await asyncio.to_thread(
-        _complete_book, book_id, owner, container
-    )
+    await asyncio.to_thread(_complete_book, book_id, owner, container)
+    try:
+        product = product_for(trim, binding)
+    except ValueError:
+        return await _page(
+            request, container, session, book_id, error="Please choose one of the editions."
+        )
     pdf = await asyncio.to_thread(container.book_store.read_pdf, book_id)
     if pdf is None:
         raise HTTPException(status_code=409, detail="The book has no PDF yet.")
+    runner = container.book_runner
     try:
         await asyncio.to_thread(
             lambda: container.print_service.approve(
                 book_id=book_id,
                 user_id=owner,
                 pdf=pdf,
-                page_count=_page_count(edition),
+                product=product,
+                build_interior=lambda chosen: runner.print_interior(book_id, chosen),
+                build_cover=lambda chosen, size: runner.print_cover(book_id, chosen, size),
             )
         )
-    except PrintError as exc:
-        # Most likely a PDF that cannot be measured. Keep the owner on the
-        # print page with the reason, instead of a bare 500.
-        return _render(
-            request,
-            "print.html",
-            await asyncio.to_thread(
-                partial(_print_context, request, container, session, book_id, error=str(exc))
-            ),
-        )
+    except (PrintError, ValueError) as exc:
+        # A book too long for the binding, or a provider that could not size
+        # the cover: keep the owner on the print page with the reason.
+        return await _page(request, container, session, book_id, error=str(exc))
     return RedirectResponse(url=f"/books/{book_id}/print?approved=1", status_code=303)
+
+
+def _address_form(
+    name: str,
+    email: str,
+    phone: str,
+    street1: str,
+    street2: str,
+    city: str,
+    state: str,
+    postcode: str,
+    country_code: str,
+) -> dict[str, str]:
+    return {
+        "name": name,
+        "email": email,
+        "phone": phone,
+        "street1": street1,
+        "street2": street2,
+        "city": city,
+        "state": state,
+        "postcode": postcode,
+        "country_code": country_code,
+    }
+
+
+@router.post("/books/{book_id}/print/quote")
+async def quote_print(
+    book_id: str,
+    request: Request,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    order_id: str = Form(""),
+    name: str = Form("", max_length=35),
+    email: str = Form("", max_length=320),
+    phone: str = Form("", max_length=20),
+    street1: str = Form("", max_length=200),
+    street2: str = Form("", max_length=200),
+    city: str = Form("", max_length=30),
+    state: str = Form("", max_length=100),
+    postcode: str = Form("", max_length=32),
+    country_code: str = Form("", max_length=2),
+) -> Response:
+    """Price this copy to this address with the print provider (A6)."""
+    owner = _owner(session)
+    await asyncio.to_thread(_complete_book, book_id, owner, container)
+    form = _address_form(
+        name, email, phone, street1, street2, city, state, postcode, country_code
+    )
+    service = container.print_service
+    approval = await asyncio.to_thread(service.approval, book_id)
+    if approval is None or approval.id != order_id:
+        return await _page(
+            request,
+            container,
+            session,
+            book_id,
+            error="Please review the book and choose an edition before ordering.",
+            form=form,
+        )
+    address = ShippingAddress.from_dict(form)
+    try:
+        await asyncio.to_thread(service.quote, approval, address)
+    except PrintError as exc:
+        return await _page(request, container, session, book_id, error=str(exc), form=form)
+    return RedirectResponse(url=f"/books/{book_id}/print?quoted=1", status_code=303)
 
 
 @router.post("/books/{book_id}/print/topup")
@@ -235,17 +339,16 @@ async def top_up_for_print(
 ) -> Response:
     """Add exactly what this copy still needs to the wallet, then come back.
 
-    The amount is worked out here from the price and the balance, never read
-    from the form, so the visitor cannot choose what reaches Stripe.
+    The amount is worked out here from the quoted total and the balance,
+    never read from the form, so the visitor cannot choose what reaches Stripe.
     """
     owner = _owner(session)
-    _record, _status, edition = await asyncio.to_thread(
-        _complete_book, book_id, owner, container
-    )
-    pdf = await asyncio.to_thread(container.book_store.read_pdf, book_id) or b""
-    quote = await asyncio.to_thread(_quote, container, edition, pdf)
-    amount = await asyncio.to_thread(_shortfall, container, owner, quote.retail_cents)
+    await asyncio.to_thread(_complete_book, book_id, owner, container)
+    approval = await asyncio.to_thread(container.print_service.approval, book_id)
     target = f"/books/{book_id}/print"
+    if approval is None or approval.quoted_at is None:
+        return RedirectResponse(url=target, status_code=303)
+    amount = await asyncio.to_thread(_shortfall, container, owner, approval.total_cents)
     if amount <= 0:
         return RedirectResponse(url=target, status_code=303)
     return await start_topup(request, container, owner, amount, target)
@@ -258,136 +361,107 @@ async def place_print_order(
     container: ContainerDep,
     session: CurrentSessionDep,
     order_id: str = Form(""),
-    name: str = Form("", max_length=120),
-    email: str = Form("", max_length=320),
-    street1: str = Form("", max_length=200),
-    street2: str = Form("", max_length=200),
-    city: str = Form("", max_length=100),
-    state: str = Form("", max_length=100),
-    postcode: str = Form("", max_length=32),
-    country_code: str = Form("", max_length=2),
 ) -> Response:
-    """Charge for one copy and place the test print job.
+    """Charge the quoted total and place the sandbox print job.
 
-    Every failure is shown on the page with the address still filled in, so a
-    mistyped postal code does not cost the visitor the whole form.
+    Also retries an order whose outcome is `unknown`: it is looked up at the
+    printer by its id before anything is sent again.
     """
     owner = _owner(session)
-    record, _status, _edition = await asyncio.to_thread(
-        _complete_book, book_id, owner, container
-    )
+    record = await asyncio.to_thread(_complete_book, book_id, owner, container)
     service = container.print_service
-    approval = await asyncio.to_thread(service.approval, book_id)
-    form = {
-        "name": name,
-        "email": email,
-        "street1": street1,
-        "street2": street2,
-        "city": city,
-        "state": state,
-        "postcode": postcode,
-        "country_code": country_code,
-    }
-    if approval is None or approval.id != order_id:
-        return _render(
-            request,
-            "print.html",
-            await asyncio.to_thread(
-                lambda: _print_context(
-                    request,
-                    container,
-                    session,
-                    book_id,
-                    error="Please review the PDF and approve this book before ordering.",
-                    form=form,
-                )
-            ),
-        )
-    pdf = await asyncio.to_thread(container.book_store.read_pdf, book_id)
-    if pdf is None:
-        raise HTTPException(status_code=409, detail="The book has no PDF yet.")
-    address = ShippingAddress(
-        name=name,
-        street1=street1,
-        street2=street2,
-        city=city,
-        state=state,
-        postcode=postcode,
-        country_code=country_code,
-        email=email,
-    )
     if not service.enabled:
-        return _render(
+        return await _page(
             request,
-            "print.html",
-            await asyncio.to_thread(
-                lambda: _print_context(
-                    request,
-                    container,
-                    session,
-                    book_id,
-                    error=(
-                        "Printed copies are not available on this deployment: printing "
-                        "needs a configured print service and a wallet."
-                    ),
-                    form=form,
-                )
+            container,
+            session,
+            book_id,
+            error=(
+                "Printed copies are not available on this deployment: printing "
+                "needs a configured print service and a wallet."
             ),
         )
+    order = await asyncio.to_thread(service.get, order_id) if order_id else None
+    if order is None or order.book_id != book_id or order.user_id != owner:
+        return await _page(
+            request,
+            container,
+            session,
+            book_id,
+            error="Please review the book and choose an edition before ordering.",
+        )
+    pdf = await asyncio.to_thread(container.book_store.read_pdf, book_id) or b""
     try:
         await asyncio.to_thread(
             lambda: service.place(
-                order=approval,
+                order=order,
                 pdf=pdf,
-                pdf_url=_file_url(request, container, book_id),
-                address=address,
+                file_urls=lambda placed: _file_urls(request, container, placed),
+                title=record.title,
                 about=record.about,
             )
         )
     except (PrintError, InsufficientFunds) as exc:
-        return _render(
-            request,
-            "print.html",
-            await asyncio.to_thread(
-                partial(
-                    _print_context,
-                    request,
-                    container,
-                    session,
-                    book_id,
-                    error=str(exc),
-                    form=form,
-                )
-            ),
-        )
+        return await _page(request, container, session, book_id, error=str(exc))
     return RedirectResponse(url=f"/books/{book_id}/print?placed=1", status_code=303)
 
 
-def _file_url(request: Request, container: ContainerDep, book_id: str) -> str:
-    """The signed, short-lived address the print service fetches the PDF from.
+@router.post("/books/{book_id}/print/cancel")
+async def cancel_print_order(
+    book_id: str,
+    request: Request,
+    container: ContainerDep,
+    session: CurrentSessionDep,
+    order_id: str = Form(""),
+) -> Response:
+    """The buyer's refund request for an order whose outcome is unknown (A4)."""
+    owner = _owner(session)
+    await asyncio.to_thread(_complete_book, book_id, owner, container)
+    service = container.print_service
+    order = await asyncio.to_thread(service.get, order_id) if order_id else None
+    if order is None or order.book_id != book_id or order.user_id != owner:
+        return await _page(request, container, session, book_id, error="No such print order.")
+    try:
+        await asyncio.to_thread(service.cancel_unknown, order)
+    except PrintError as exc:
+        return await _page(request, container, session, book_id, error=str(exc))
+    return RedirectResponse(url=f"/books/{book_id}/print?checked=1", status_code=303)
 
-    A provider needs a public URL, and a book PDF is normally behind the
-    owner's session. The token grants exactly one file for one hour; the route
-    it points at serves only the PDF, never a page, the photo or the sources.
+
+def _file_urls(
+    request: Request, container: ContainerDep, order: PrintOrder
+) -> tuple[str, str]:
+    """The signed, short-lived addresses the printer fetches the two files from.
+
+    A provider needs public URLs, and an order's files are normally behind the
+    owner's session. Each token names one order, one file and the hash it was
+    approved with, for one hour; the route serves nothing else (A3).
     """
-    token = issue(
-        book_id,
-        key=container.settings.session_signing_key(),
-        expires_at=int(time.time()) + _FILE_LINK_SECONDS,
-        scope="print-file",
-    )
+    key = container.settings.session_signing_key()
+    expires = int(time.time()) + _FILE_LINK_SECONDS
     base = container.settings.public_site_url.strip() or str(request.base_url).rstrip("/")
-    return f"{base}/print/files/{token}.pdf"
+
+    def link(kind: str, sha256: str) -> str:
+        token = issue(
+            f"{order.id}/{kind}/{sha256}", key=key, expires_at=expires, scope="print-file"
+        )
+        return f"{base}/print/files/{token}.pdf"
+
+    return link("interior", order.interior_sha256), link("cover", order.cover_sha256)
 
 
 @router.get("/print/files/{token}.pdf")
 async def print_file(token: str, container: ContainerDep) -> Response:
-    """The PDF a test print provider fetches, with no session and no other data."""
+    """One approved print file, exactly as approved, with no session and no other data."""
     link = read(token, key=container.settings.session_signing_key(), scope="print-file")
     if link is None:
         raise HTTPException(status_code=404, detail="This print file link has expired.")
-    data = await asyncio.to_thread(container.book_store.read_pdf, link.book_id)
+    order_id, _, rest = link.book_id.partition("/")
+    kind, _, sha256 = rest.partition("/")
+    if kind not in _FILE_KINDS or not sha256:
+        raise HTTPException(status_code=404, detail="This print file link has expired.")
+    data = await asyncio.to_thread(container.print_service.read_file, order_id, kind, sha256)
     if data is None:
-        raise HTTPException(status_code=404, detail="This book has no PDF any more.")
-    logger.info("print.file_served book=%s bytes=%d", link.book_id, len(data))
-    return no_store(data, media_type="application/pdf", filename="picture-book.pdf")
+        raise HTTPException(status_code=404, detail="This print file is no longer available.")
+    logger.info("print.file_served order=%s kind=%s bytes=%d", order_id, kind, len(data))
+    return no_store(data, media_type="application/pdf", filename=f"{kind}.pdf")

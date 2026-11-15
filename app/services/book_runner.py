@@ -78,6 +78,7 @@ from app.services.media import media_type_for
 from app.services.pictures import page_slot, warm_variants
 from app.services.pipeline import UnknownGeneration
 from app.services.plate_paste import paste_plate_back
+from app.services.print.products import CoverSize, Product
 from app.services.prompts import (
     build_book_page_prompt,
     build_cover_prompt,
@@ -1066,6 +1067,24 @@ class BookRunner:
             rendered_pages,
             self._document.stored_progress(book_id),
             subtitle=edition.subtitle_for(record.about.prompt_name),
+        )
+
+    def print_interior(self, book_id: str, product: Product) -> bytes | None:
+        """The print edition's interior file for a finished book (no model calls)."""
+        record = self._book_store.load_record(book_id)
+        if record is None:
+            return None
+        edition = self._templates.book_edition(book_id)
+        return self._document.print_interior(record, _rendered(edition, record), product)
+
+    def print_cover(self, book_id: str, product: Product, size: CoverSize) -> bytes | None:
+        """The print edition's cover spread, sized as the printer asked."""
+        record = self._book_store.load_record(book_id)
+        if record is None:
+            return None
+        edition = self._templates.book_edition(book_id)
+        return self._document.print_cover(
+            record, product, size, subtitle=edition.subtitle_for(record.about.prompt_name)
         )
 
     # --- the job ----------------------------------------------------------------

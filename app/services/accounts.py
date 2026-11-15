@@ -2,14 +2,18 @@
 
 What goes, in one transaction:
 
-* every book they own, with its pages, pictures, uploaded photograph, PDF and
-  print orders (their shipping addresses included);
+* every book they own, with its pages, pictures, uploaded photograph and PDF;
+* every print order's shipping address and print files, and every approval
+  never placed;
 * the child they asked the studio to remember;
 * the log of portraits drawn for them;
 * their name, email and avatar.
 
 What stays, and why:
 
+* **Placed print orders, without their address or files.** What was ordered,
+  when, for how much and the printer's order number are the financial record
+  of a sale, kept like the ledger (A9).
 * **The wallet ledger.** It is a financial record (what was paid, what was
   spent, what was refunded) and is filed under Google's opaque account id,
   not a name or an email. The balance is not paid out: the page says so before
@@ -26,7 +30,9 @@ within about two hours.
 
 Two things block a deletion, because tearing the rows out from under them
 would leave work half-done: a book still being drawn, and a print order being
-placed with the printer right now. Both finish within minutes.
+placed with the printer right now or whose outcome is still unknown (A4). The
+first two finish within minutes; an unknown order is resolved from the print
+page.
 """
 
 from __future__ import annotations
@@ -73,15 +79,27 @@ def delete_account(engine: Engine, user_id: str) -> int:
         book_ids = [book_id for book_id, _ in books]
         placing = conn.execute(
             select(PrintOrderRow.id).where(
-                PrintOrderRow.user_id == user_id, PrintOrderRow.state == "placing"
+                PrintOrderRow.user_id == user_id,
+                PrintOrderRow.state.in_(("placing", "unknown")),
             )
         ).first()
         if placing is not None:
             raise AccountBusy(
-                "A print order is being sent to the printer right now. Try again "
-                "in a few minutes."
+                "A print order is still being sent to the printer, or the printer has "
+                "not confirmed it yet. Open the book's print page to settle it, then "
+                "delete the account."
             )
-        conn.execute(delete(PrintOrderRow).where(PrintOrderRow.user_id == user_id))
+        conn.execute(
+            delete(PrintOrderRow).where(
+                PrintOrderRow.user_id == user_id,
+                PrintOrderRow.state.in_(("approved", "superseded")),
+            )
+        )
+        conn.execute(
+            update(PrintOrderRow)
+            .where(PrintOrderRow.user_id == user_id)
+            .values(address=None, interior=None, cover=None)
+        )
         for book_id in book_ids:
             delete_book_rows(conn, book_id)
         conn.execute(delete(ChildProfileRow).where(ChildProfileRow.user_id == user_id))

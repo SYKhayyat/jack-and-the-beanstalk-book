@@ -15,7 +15,7 @@ from app.config import Settings
 from app.services.payments import PaidCheckout
 from app.services.wallet import MAX_TOPUP_CENTS, is_offered_topup, topup_for_shortfall
 from tests.helpers import RecordingProvider
-from tests.test_print_orders import ADDRESS, _start, _wait
+from tests.test_print_orders import _start, _wait, approve, place, quote
 from tests.test_wallet_routes import SUB, FakeStripe, wallet_app
 
 
@@ -51,9 +51,9 @@ def test_a_short_wallet_tops_up_the_difference_once_and_then_orders(
         )
         book_id = _start(client)
         assert _wait(client, book_id)["status"] == "complete"
-        client.post(f"/books/{book_id}/print/approve")
+        order = quote(client, book_id, approve(client, book_id))
         balance = container.wallet.balance_cents(SUB)
-        need = topup_for_shortfall(2499 - balance)
+        need = topup_for_shortfall(order.total_cents - balance)
 
         page = client.get(f"/books/{book_id}/print")
         assert 'id="print-topup-button"' in page.text
@@ -95,13 +95,9 @@ def test_a_short_wallet_tops_up_the_difference_once_and_then_orders(
         page = client.get(back.headers["location"])
         assert 'id="print-topup-button"' not in page.text
 
-        order = container.print_service.approval(book_id)
-        assert order is not None
-        placed = client.post(
-            f"/books/{book_id}/print/order", data={**ADDRESS, "order_id": order.id}
-        )
+        placed = place(client, book_id, order)
         assert "Your printed copy is ordered" in placed.text
-        assert container.wallet.balance_cents(SUB) == balance + need - 2499
+        assert container.wallet.balance_cents(SUB) == balance + need - order.total_cents
 
 
 def test_a_wallet_that_can_pay_is_not_offered_a_top_up(settings: Settings) -> None:
@@ -116,7 +112,7 @@ def test_a_wallet_that_can_pay_is_not_offered_a_top_up(settings: Settings) -> No
         )
         book_id = _start(client)
         assert _wait(client, book_id)["status"] == "complete"
-        client.post(f"/books/{book_id}/print/approve")
+        quote(client, book_id, approve(client, book_id))
         assert 'id="print-topup-button"' not in client.get(f"/books/{book_id}/print").text
         nothing = client.post(f"/books/{book_id}/print/topup", follow_redirects=False)
         assert nothing.status_code == 303

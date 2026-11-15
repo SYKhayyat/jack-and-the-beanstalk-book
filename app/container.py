@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from email.utils import parseaddr
 
 from sqlalchemy.engine import Engine
 
@@ -46,8 +47,8 @@ from app.services.payments import PaymentProvider, StripePaymentProvider
 from app.services.pipeline import GenerationPipeline
 from app.services.portrait_log import PortraitLog
 from app.services.print.base import PrintProvider
+from app.services.print.lulu import LuluPrintProvider
 from app.services.print.mock import MockPrintProvider
-from app.services.print.peecho import PeechoPrintProvider
 from app.services.print.service import PrintService
 from app.services.print.store import PrintOrderStore
 from app.services.rate_limit import GenerationRateLimiter
@@ -184,16 +185,17 @@ def build_container(
     # operator's answer through the same short cache (Idea 10).
     switches = Switches(engine)
     wallet = Wallet(wallet_store, picture_price_cents=settings.picture_price_cents)
-    # The print provider is constructed once, at boot, so a Peecho deployment
-    # with no key or no product id fails before a visitor reaches the button.
-    # The mock is the default: it records the job locally and prints nothing.
+    # The print provider is constructed once, at boot, so a Lulu deployment
+    # with no keys fails before a visitor reaches the button. The mock is the
+    # default: it records the job locally and prints nothing. Lulu is its
+    # sandbox only; there is no live host in the code.
     print_provider: PrintProvider | None = None
-    if settings.print_provider == "peecho":
-        print_provider = PeechoPrintProvider(
-            merchant_api_key=settings.peecho_api_key,
-            secret_key=settings.peecho_secret_key,
-            offering_id=settings.peecho_offering_id,
-            contact_email=settings.peecho_contact_email or settings.mail_from,
+    if settings.print_provider == "lulu":
+        print_provider = LuluPrintProvider(
+            client_key=settings.lulu_client_key,
+            client_secret=settings.lulu_client_secret,
+            contact_email=settings.lulu_contact_email or parseaddr(settings.mail_from)[1],
+            shipping_level=settings.lulu_shipping_level,
         )
     elif settings.print_provider == "mock":
         print_provider = MockPrintProvider()
@@ -203,10 +205,6 @@ def build_container(
         # A printed copy is a purchase. Without payments there is no wallet to
         # charge, so the service reports itself disabled and the page explains.
         wallet=wallet if resolved_payments is not None else None,
-        retail_cents=settings.print_retail_cents,
-        base_cost_cents=settings.print_base_cost_cents,
-        per_page_cents=settings.print_per_page_cost_cents,
-        shipping_cents=settings.print_shipping_cents,
         enabled=settings.print_enabled,
     )
     # The one mail this app sends (W2). Off — no key, or no From address — is a

@@ -16,7 +16,13 @@ from functools import partial
 from app.models.book import AboutPhotoChoice, BookPage
 from app.models.story import COVER_NUMBER
 from app.services.book_store import BookRecord, BookStatus, BookStore
-from app.services.pdf import PageArt, build_book_pdf
+from app.services.pdf import (
+    PageArt,
+    build_book_pdf,
+    build_print_cover,
+    build_print_interior,
+)
+from app.services.print.products import CoverSize, Product
 from app.services.wallet import Wallet
 
 __all__ = ["COVER_KEY", "COVER_NUMBER", "BookDocument"]
@@ -47,6 +53,51 @@ class BookDocument:
         # Who the copyright page names as the publisher. The operator can set
         # it; the default is the product's own name.
         self._publisher = publisher
+
+    def print_interior(
+        self, record: BookRecord, rendered_pages: Sequence[BookPage], product: Product
+    ) -> bytes:
+        """The print edition's interior: the same pages, at the edition's trim.
+
+        Built from the same stored pictures as the web PDF, read one page at a
+        time, at full resolution (A1).
+        """
+        arts = [
+            PageArt(image=partial(self._page_image, record.book_id, page.number), page=page)
+            for page in rendered_pages
+        ]
+        return build_print_interior(
+            record.about,
+            arts,
+            product,
+            portrait=self._book_store.read_portrait(record.book_id),
+            photo=self._about_photo(record),
+            publisher=self._publisher,
+        )
+
+    def print_cover(
+        self, record: BookRecord, product: Product, size: CoverSize, *, subtitle: str
+    ) -> bytes | None:
+        """The print edition's cover spread, or None for a book with no cover art."""
+        cover = self._book_store.read_cover(record.book_id)
+        if cover is None:
+            return None
+        return build_print_cover(
+            record.title,
+            record.about,
+            cover,
+            size,
+            product,
+            subtitle=subtitle,
+            portrait=self._book_store.read_portrait(record.book_id),
+            photo=self._about_photo(record),
+        )
+
+    def _about_photo(self, record: BookRecord) -> bytes | None:
+        """The original photo, read only when the About page will show it."""
+        if record.about.about_photo == AboutPhotoChoice.CARTOON:
+            return None
+        return self._book_store.read_source_photo(record.book_id)
 
     def assemble(
         self,
@@ -81,12 +132,7 @@ class BookDocument:
         cover = self._book_store.read_cover(record.book_id)
         # The child's approved portrait is framed on the About page.
         portrait = self._book_store.read_portrait(record.book_id)
-        # The original photo is read only when the About page will show it.
-        photo = (
-            self._book_store.read_source_photo(record.book_id)
-            if record.about.about_photo != AboutPhotoChoice.CARTOON
-            else None
-        )
+        photo = self._about_photo(record)
         pdf_bytes = build_book_pdf(
             record.title,
             record.about,

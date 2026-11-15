@@ -222,39 +222,29 @@ services:
       - key: PUBLIC_SITE_URL
         sync: false
 
-      # The printed book. `mock` is the hand-in default: the whole review,
-      # approve, address and order flow works, and the order page says plainly
-      # that nothing will be printed. `peecho` places the same order in Peecho's
-      # TEST environment once the three credentials below are set; there is no
-      # live provider in this app, on purpose.
+      # The printed book. `mock` is the default: the whole review, edition,
+      # approve, address, quote and order flow works, and the order page says
+      # plainly that nothing will be printed. `lulu` places the same order as a
+      # job in Lulu's SANDBOX (api.sandbox.lulu.com) once the two keys below are
+      # set; there is no live print host in this app, on purpose. Prices are in
+      # app/services/print/products.py: $29.99 hardcover, $17.99 paperback,
+      # plus the shipping Lulu quotes for the buyer's address.
       - key: PRINT_PROVIDER
         value: "mock"
-      - key: PRINT_RETAIL_CENTS
-        value: "2499"
       - key: PUBLISHER_NAME
         value: "Storybook Studio"
-      # Peecho test-environment credentials (test.www.peecho.com). Leave unset
-      # while PRINT_PROVIDER=mock. These are bearer credentials: dashboard only.
-      - key: PEECHO_API_KEY
+      # Lulu sandbox keys (developers.sandbox.lulu.com > API Keys). Leave unset
+      # while PRINT_PROVIDER=mock. They are credentials: dashboard only.
+      - key: LULU_CLIENT_KEY
         sync: false
-      # Signs the payment call that confirms the order. Without it an order
-      # stays a draft and nothing is printed, so Peecho needs all four.
-      - key: PEECHO_SECRET_KEY
+      - key: LULU_CLIENT_SECRET
         sync: false
-      - key: PEECHO_OFFERING_ID
+      # MAIL, PRIORITY_MAIL, GROUND, EXPEDITED or EXPRESS.
+      - key: LULU_SHIPPING_LEVEL
+        value: "MAIL"
+      # The operator's address on every job; empty falls back to MAIL_FROM.
+      - key: LULU_CONTACT_EMAIL
         sync: false
-      - key: PEECHO_CONTACT_EMAIL
-        sync: false
-
-      # The print provider's wholesale assumptions, in cents. The defaults are
-      # Peecho's published softcover base and per-page rate plus a standard
-      # shipping example; the business write-up prices the same numbers.
-      - key: PRINT_BASE_COST_CENTS
-        value: "378"
-      - key: PRINT_PER_PAGE_COST_CENTS
-        value: "17"
-      - key: PRINT_SHIPPING_CENTS
-        value: "637"
 
       # The Postgres URL (Neon's pooled connection string). Set it and books,
       # pages, PDFs, signed-in people and the story templates survive restarts.

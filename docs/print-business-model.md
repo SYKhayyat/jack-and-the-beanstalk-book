@@ -1,116 +1,92 @@
 # The printed book: cost, price and margin
 
-**Decision:** one printed, shipped copy sells for **$24.99**. The finished
-digital book keeps its existing **$0.99** fee.
+**Decision (AUDIT.md §10, Q2/A6):** the buyer picks an edition and pays its
+price plus the printer's shipping quote for their address, at cost.
 
-All amounts are US cents in the code (`app/pricing.py`,
-`app/services/print/pricing.py`) and dollars below. The test
+| Edition | Price |
+| --- | --- |
+| Hardcover casewrap, 8.5 × 8.5 in square or 8.5 × 11 in US Letter | **$29.99** |
+| Paperback perfect bound, 8.5 × 8.5 in square or 8.5 × 11 in US Letter | **$17.99** |
+
+The digital book keeps its own **$0.99** fee. Everything is paid from the
+wallet.
+
+The code works in US cents (`app/services/print/products.py`,
+`app/services/print/pricing.py`). The test
 `tests/test_print_orders.py::test_the_business_model_math_is_the_write_up_math`
-asserts the same arithmetic, so this document cannot drift from what the app
-charges.
+checks the same arithmetic as this page, so the page and the code cannot
+drift apart.
 
 ## What one book is
 
-The PDF is 24 printed pages:
+The printer gets two files (A1). Both are at full resolution, with a 0.125 in
+bleed.
 
-| Pages | What they are |
-| --- | --- |
-| 1 | front cover: the title and **“starring &lt;child&gt;”** |
-| 2 | copyright page: © year, publisher, “Made for &lt;child&gt;” |
-| 3–22 | the 20 story pages; the story starts on page 3, the first page after the copyright page |
-| 23 | “The End” |
-| 24 | back cover: **About Me**, the portrait and the child’s details |
+* **The interior:** the copyright page, the 20 story pages, "The End" and the
+  About Me page. That is 23 pages, made up with blank pages to the binding's
+  minimum and to an even count (A2). Hardcover needs at least 24 pages and
+  paperback at least 20, so today's book prints as **24 interior pages** in
+  either binding.
+* **The cover:** one spread with the back cover, the spine and the front
+  cover. Its size comes from Lulu's `/cover-dimensions/` for the real page
+  count. Art whose shape differs from the trim is letterboxed on cream paper,
+  never cropped (A11).
 
-The even page count is deliberate: Peecho’s softcover product expects an even
-number of pages and prints page 1 as the front cover and the last page as the
-back cover. The file the owner reviews is the file sent to the printer,
-byte-for-byte.
+The buyer reviews the reading PDF. Approving it builds both print files from
+the same pages and records their SHA-256 hashes. A link the printer fetches
+names its hash, and serves nothing else (A3).
 
-## Cost per printed book
+## Cost per printed book (24 interior pages)
 
-| Line | Cents | Source / assumption |
-| --- | ---: | --- |
-| Generation | 158 | Measured average model spend per book in Run 1’s `api_calls` ledger ($1.60 Jack, $1.56 Red). Retry caps have lowered the ceiling since, so this is conservative. |
-| Printing | 786 | Peecho softcover: base 378¢ + 24 pages × 17¢. Converted from Peecho’s published €3.50 base + €0.15/page at 1.08. |
-| Shipping | 637 | Peecho’s published €5.90 shipping example, converted at 1.08. Destination-dependent; see the sensitivity table. |
-| Payment processing | 102 | Stripe 2.9% + 30¢ on $24.99: 72¢ + 30¢. |
-| **Total cost** | **1,683** | **$16.83** |
+Lulu's wholesale prices for these packages (premium colour, 80# white coated
+paper, gloss cover) are a base fee per book plus 21.48¢ a page. The trim does
+not change them.
 
-## Price and margin
+| Line | Hardcover | Paperback | Source |
+| --- | ---: | ---: | --- |
+| Generation | 158 | 158 | Measured average model spend for one book (Run 1 ledger). |
+| Printing | 1,614 | 732 | Lulu's base fee (1,098¢ hardcover / 216¢ paperback) + 24 × 21.48¢. |
+| Payment processing | 117 | 82 | Stripe's 2.9% + 30¢ on the price. |
+| **Total cost** | **1,889** | **972** | |
+| Price | 2,999 | 1,799 | |
+| **Margin** | **1,110 (37.0%)** | **827 (46.0%)** | Share of the price. |
 
-```
-Retail price                 2,499 ¢   $24.99
-Total cost                   1,683 ¢   $16.83
-----------------------------------------------
-Margin                         816 ¢    $8.16
-Margin as a share of price             32.7%
-```
+The printing line is the planning figure. A real order is priced by Lulu's
+quote for the buyer's address (`/print-job-cost-calculations/`), and the quote
+is stored on the order.
 
-The $0.99 digital fee is charged earlier, when the PDF is written. If the
-printed copy and the digital book are counted as one sale, revenue is $25.98
-and the margin is **$9.15 (35.2%)**. They are shown separately here because a
-customer can buy the digital book without printing it.
+## Shipping is passed on at cost
 
-**Why $24.99:** the book is a personalised, hard-to-replicate gift that arrives
-at the door; $24.99 is in the range of a mass-market hardcover and still leaves
-a third of the price as margin after every cost, including card processing.
-$19.99 would leave only $3.30 (16.5%) and would be wiped out by one expensive
-destination; $29.99 leaves more but is above the impulse price for a picture
-book.
+Lulu's quote for one copy to the buyer's address covers postage, fulfilment
+and any tax on them. Everything in it beyond the printing line goes into
+**shipping**, and the buyer is charged exactly that amount. So shipping adds
+nothing to the margin and takes nothing from it, apart from Stripe's 2.9% on
+the larger charge.
 
-## The digital-only problem this fixes
-
-At $0.99, a digital book costs about $1.58 to generate: **a loss of $0.59 a
-book**. The printed copy is the product that makes the unit economics
-positive:
-
-| Sold | Revenue | Cost | Margin |
-| --- | ---: | ---: | ---: |
-| Digital only | $0.99 | $1.58 | **−$0.59** |
-| Printed + digital | $25.98 | $16.83 | **+$9.15** |
-
-That is the business reason to offer printing, beyond the feature itself.
-
-## Sensitivity
-
-Shipping is the assumption most likely to be wrong. Holding everything else
-fixed:
-
-| Shipping | Total cost | Margin at $24.99 | Margin % |
-| ---: | ---: | ---: | ---: |
-| $5.00 | $15.46 | $9.53 | 38.1% |
-| $6.37 (model) | $16.83 | $8.16 | 32.7% |
-| $8.00 | $18.46 | $6.53 | 26.1% |
-
-At the other price points:
-
-| Retail | Stripe fee | Total cost | Margin | Margin % |
+| Shipping quoted | Hardcover charged | Hardcover margin | Paperback charged | Paperback margin |
 | ---: | ---: | ---: | ---: | ---: |
-| $19.99 | $0.88 | $16.69 | $3.30 | 16.5% |
-| $24.99 | $1.02 | $16.83 | $8.16 | 32.7% |
-| $29.99 | $1.17 | $16.98 | $13.01 | 43.4% |
+| $0.00 | $29.99 | $11.10 | $17.99 | $8.27 |
+| $4.99 | $34.98 | $10.96 | $22.98 | $8.12 |
+| $12.99 | $42.98 | $10.72 | $30.98 | $7.89 |
 
-The retail price is a setting (`PRINT_RETAIL_CENTS`), as are the wholesale
-assumptions, so an operator can reprice without a code change. The price the
-customer sees is the price the wallet is charged; the quote is stored on the
-order.
+When the wallet is short, the top-up offer (A7) works from the quoted total,
+shipping included.
 
 ## What is not in this model
 
-- **Refunds and customer service.** A damaged book is a real cost; the model
-  gives enough headroom for a small rate of replacements.
-- **Tax.** Peecho and Stripe handle their own side; the model is pre-tax.
-- **Volume discounts.** Peecho discounts at 5+ copies; this app orders one at a
-  time.
-- **A free image provider.** With the mock or Gemini-in-Chrome backend the
-  generation line is $0, so the margin is higher; $1.58 is the paid-provider
-  case and is the honest planning number.
+- **Refunds and customer service.** A damaged book is a real cost. The margin
+  leaves room for a small rate of replacements.
+- **Tax.** Lulu's quote includes the tax it charges. The model is otherwise
+  pre-tax.
+- **Volume discounts.** The app orders one copy at a time.
+- **A free image provider.** With the mock backend or Gemini-in-Chrome, the
+  generation line is $0 and the margin is higher. $1.58 is the cost with a
+  paid provider, and it is the honest number to plan with.
 
 ## Sandbox only
 
-The app places **test orders only**. In this build there is no production
-Peecho host anywhere in the code: `SANDBOX_BASE_URL` is
-`https://test.www.peecho.com`, and the `mock` provider is the default. A
-`peecho` order is a real API call to that test environment, but no book is
-printed, shipped or charged by the provider. The customer’s copy is charged
-through the app’s own wallet ledger in either mode.
+The app places **sandbox orders only**. The only print host anywhere in the
+code is `SANDBOX_BASE_URL = "https://api.sandbox.lulu.com"`, and the default
+provider is `mock`. A `lulu` order is a real API call to Lulu's sandbox, but
+Lulu never prints, ships or charges for a book. The buyer's copy is still
+charged through the app's own wallet ledger in either mode.

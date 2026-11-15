@@ -68,7 +68,6 @@ def main() -> int:
             gemini_api_key="",
             openai_api_key="",
             agnes_api_key="",
-            peecho_api_key="",
             max_generations_per_minute=1000,
         )
         app = create_app(settings, provider=MockImageProvider())

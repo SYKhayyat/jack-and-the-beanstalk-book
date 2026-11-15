@@ -25,6 +25,7 @@ from app.db import (
     BookRow,
     ChildProfileRow,
     PortraitAttemptRow,
+    PrintOrderRow,
     UserRow,
     WalletTransactionRow,
 )
@@ -204,3 +205,53 @@ def test_a_remembered_child_nobody_uses_is_forgotten_on_its_own() -> None:
         )
     assert profiles.expire(timedelta(days=1)) == 1
     assert profiles.get("u") is None
+
+
+def _print_order(state: str) -> PrintOrderRow:
+    return PrintOrderRow(
+        id=f"print_{state}",
+        book_id="b",
+        user_id="u",
+        state=state,
+        pdf_sha256="0" * 64,
+        page_count=24,
+        printing_cents=1614,
+        shipping_cents=499,
+        retail_cents=2999,
+        interior=b"%PDF-interior",
+        cover=b"%PDF-cover",
+        address={"name": "U", "street1": "1 Road"},
+        provider_order_id="42" if state == "submitted" else "",
+    )
+
+
+@pytest.mark.parametrize("state", ["placing", "unknown"])
+def test_an_order_not_yet_settled_blocks_the_deletion(state: str) -> None:
+    """A4: an order the printer may hold is resolved first, not torn down."""
+    engine = _engine()
+    with Session(engine) as session:
+        session.add(UserRow(sub="u", email="u@example.com", name="U"))
+        session.add(_print_order(state))
+        session.commit()
+    with pytest.raises(AccountBusy):
+        delete_account(engine, "u")
+    with Session(engine) as session:
+        row = session.get(PrintOrderRow, f"print_{state}")
+        assert row is not None and row.address is not None
+
+
+def test_a_placed_order_is_kept_without_its_address_or_files() -> None:
+    """A9: the sale's record stays; the person's address and pictures go."""
+    engine = _engine()
+    with Session(engine) as session:
+        session.add(UserRow(sub="u", email="u@example.com", name="U"))
+        session.add(_print_order("submitted"))
+        session.add(_print_order("approved"))
+        session.commit()
+    delete_account(engine, "u")
+    with Session(engine) as session:
+        assert session.get(PrintOrderRow, "print_approved") is None
+        kept = session.get(PrintOrderRow, "print_submitted")
+        assert kept is not None
+        assert (kept.address, kept.interior, kept.cover) == (None, None, None)
+        assert (kept.provider_order_id, kept.retail_cents) == ("42", 2999)

@@ -1,181 +1,127 @@
-# Print it and ship it — what I built
+# Print it and ship it: what I built
 
-The app can now turn a finished picture book into a **printed, bound book
-posted to the customer’s address**, in a print service’s **test environment**.
-Nothing is printed, shipped or charged by the provider: the order is a real
-API call to Peecho’s sandbox (or a recorded local test order with the default
-`mock` provider).
+The app can turn a finished picture book into a **printed, bound book posted
+to the buyer's address**, using Lulu's Print API in its **sandbox**. Lulu
+prints nothing, ships nothing and charges nothing. A sandbox order is a real
+API call to `api.sandbox.lulu.com`. With the default `mock` provider, the
+order is recorded locally instead.
 
 ## The flow
 
-1. A book finishes. Its page gains **Order a printed copy — $24.99**.
-2. The print page shows the exact PDF and nothing else: no address form yet.
-   The owner presses **“I’ve reviewed this PDF — continue.”**
-3. Only then does the delivery form appear. The approval stores the PDF’s
-   SHA-256. If the book is edited after review, the hash no longer matches, the
-   form disappears, and the owner must read and approve the new PDF.
-4. The owner enters the delivery address. The app shows the price and places
-   the order.
-5. The app charges the copy through the wallet ledger, creates the provider’s
-   order, **pays for it** (Peecho reports an unpaid order as a draft until its
-   payment endpoint confirms it), and records the provider’s test order
-   number. If the provider refuses at either step, the charge is reversed in
-   the same ledger.
+1. A book finishes, and its page offers **Order a printed copy**.
+2. **Read, then choose an edition.** The print page shows the reading PDF and
+   two choices: the shape (8.5 × 8.5 in square or 8.5 × 11 in US Letter) and
+   the binding (hardcover $29.99 or paperback $17.99). The owner presses
+   **"I've reviewed this book — continue."**
+3. **Approval builds the print files** (A1). These are an interior at the
+   edition's trim plus a 0.125 in bleed, and a separate cover spread sized by
+   Lulu for the real page count. Approval records the reading PDF's hash and
+   the hash of each print file. An edit afterwards clears the approval.
+4. **Address, then quote** (A6). The owner enters the address, including the
+   phone number the carrier needs. Lulu prices one copy to that address, and
+   the page shows the edition, the shipping (Lulu's price, passed on at cost)
+   and the total. If the wallet is short, it offers to add exactly the
+   difference (A7).
+5. **Place.** The app takes the total from the wallet, sends Lulu the job
+   with our order id as `external_id`, and records Lulu's job number.
 
-**Nothing is sent before approval.** This is enforced in the API, not just the
-template: the order endpoint refuses without a matching approval, and the
-service re-checks the PDF hash at the moment of ordering. Pinned by
-`test_nothing_is_sent_before_the_pdf_is_approved` and
-`test_an_edit_after_approval_clears_it`.
+**Nothing is sent before approval.** The API enforces this, not just the
+template. Every step refuses without a matching approval, and the service
+checks the PDF hash again when the order is placed.
 
-**One approval places one copy.** The approval is claimed with a single
-conditional database update (`approved` → `placing`) before the wallet is
-charged. A double-clicked button, a retried POST or two tabs therefore cannot
-buy two printed copies for one review; the second request is told the order is
-already being placed. A claim abandoned by a crashed process is retaken after
-15 minutes, and the charge is keyed by order id so the retry does not charge
-again. A refused charge hands the approval back, so the owner can fund the
-wallet and press the button once more. Pinned by
-`test_an_approval_already_being_placed_cannot_be_placed_twice` and
-`test_a_refused_charge_leaves_the_approval_to_try_again`.
+**One approval places one copy.** Before the wallet is charged, the approval
+is claimed with a single conditional update (`approved` → `placing`). The
+charge is keyed by order id. A double click, a retried POST or a second tab
+cannot buy two copies. If a claim is left behind by a crashed request, it can
+be taken over after 15 minutes. The order is then looked up at Lulu before
+anything is sent again.
 
-## It looks like a real book
+## When Lulu's answer is lost (A4)
 
-The PDF assembler (`app/services/pdf.py`) now produces a 24-page book in the
-order a printed picture book has:
+* **Lulu refuses**, or cannot be reached at all: nothing was printed, so the
+  charge is refunded at once and the order is marked failed.
+* **The answer is lost** (a timeout, a dropped connection, a 5xx, or an
+  unexpected bug): the job may exist. The order becomes **unknown**. The
+  money stays charged, and there is no automatic refund. The page offers two
+  buttons:
+  * **Try again** first looks the order up at Lulu by `external_id`. If Lulu
+    has it, the order is marked placed. If not, it is sent once more.
+  * **Cancel and refund** also looks first. If Lulu has the job, the order
+    stays placed. If not, the money goes back to the wallet, once.
 
-| Page | Content |
+## The files the printer gets
+
+| File | What it holds |
 | --- | --- |
-| 1 | Front cover: the title and **“starring &lt;child&gt;”** |
-| 2 | Copyright page: © year, **Storybook Studio**, “Made for &lt;child&gt;” |
-| 3–22 | 20 story pages. The story starts on page 3 — the first page after the copyright page. |
-| 23 | “The End” |
-| 24 | Back cover: **About Me** — the portrait, age, what they want to be, the dedication and the free-text details. |
+| Interior | copyright page, 20 story pages, "The End", About Me, then blank pages up to the binding's minimum (24 hardcover, 20 paperback) and an even count (A2) |
+| Cover | one spread: the About Me picture on the back, a plain spine, and the cover art with the title and **"starring &lt;child&gt;"** on the front |
 
-The last page is the back cover, and the first page is the front cover, so the
-single PDF can go to Peecho unchanged: Peecho prints page 1 as the front cover
-and the last page as the back. The even page count is deliberate.
+Pictures go in at full resolution. Art whose shape differs from the trim is
+letterboxed on the book's cream paper, never cropped (A11).
 
-A real 4:3 book measures **254 × 272 mm**; the provider payload carries that
-size and the page count, measured from the PDF itself with `pypdf` at approval
-and again at order time, rather than a hard-coded product size. The files and
-units match Peecho’s own examples (millimetres, one PDF with front cover, story
-and back cover as single pages).
-
-The trim is the one part of the order the app cannot choose for the provider:
-Peecho’s softcover range is a set of fixed sizes (A5, A4, square, letter) and
-dynamic-size products accept a range instead. So `PEECHO_OFFERING_ID` must be a
-product whose allowed content size covers **254 × 272 mm** — a dynamic-size
-product, or a fixed one of that size if the test account has it. A fixed A5
-product will refuse the job; that refusal is the safe failure (the wallet
-charge is returned and the page says so), not a silently misprinted book.
+Lulu fetches the files by URL. Each link is signed in its own scope
+(`print-file`) and names one order, one file and its SHA-256. It serves only
+those exact bytes (A3). A print link is not a share link, and a share link is
+not a print link.
 
 ## What the child types is checked
 
-`app/moderation.py` checks the child’s name and every printed About Me field
-**before a book starts** and **again before a print order is placed** (so a
-book made before the rule existed cannot slip through):
+`app/moderation.py` checks the child's name and every printed About Me field
+**before a book starts**, and **again before a print order is placed**:
 
-- Names must look like names (letters, spaces, hyphens, apostrophes, periods;
-  at least two letters; at most five words) and cannot be an insult or an
-  epithet (“Stupid”, “Idiot”, “Fat Pig” are refused).
-- The About Me text cannot carry clear profanity, slurs, sexual words,
-  threats, email addresses, web links or phone numbers.
-- False positives are tested too: “Jean-Luc”, “O’Brien”, lower-case typing,
-  Hebrew names and “The Ugly Duckling” all pass.
-
-Limitation, stated plainly: this is a blocklist plus a name-shape rule, not a
-national name register. It catches the obvious abuse; it cannot prove
-“Blorp” is not a name. The blocklist is one set in `app/moderation.py` that an
-operator can extend.
+- A name must look like a name, and it cannot be an insult or an epithet.
+- The About Me text cannot contain profanity, slurs, sexual words, threats,
+  email addresses, links or phone numbers.
 
 ## The price
 
-**$24.99 per printed, shipped copy**, with the existing **$0.99** digital book
-fee. For the 24-page book:
+See [`print-business-model.md`](print-business-model.md). For a 24-page book
+before shipping:
 
-```
-Generation        $1.58
-Printing          $7.86   (Peecho base + 24 pages)
-Shipping          $6.37   (Peecho standard example)
-Card processing   $1.02   (Stripe 2.9% + 30¢)
-------------------------------------------
-Cost             $16.83
-Price            $24.99
-Margin            $8.16   32.7%
-```
+* hardcover $29.99, costing $18.89, for a **$11.10 (37.0%)** margin;
+* paperback $17.99, costing $9.72, for an **$8.27 (46.0%)** margin.
 
-If the $0.99 digital sale is counted with it: revenue $25.98, margin **$9.15
-(35.2%)**. The full model, sources and sensitivity table are in
-[`print-business-model.md`](print-business-model.md).
+The buyer pays shipping at Lulu's price.
 
-## Why Peecho, and why it is safe
+## Why it is safe
 
-Peecho accepts **one PDF** with the front cover, interior and back cover; Lulu
-would have needed a separate interior file and a wraparound cover spread. The
-contract matches the file the owner already reviewed.
-
-There is **no production host in the code**: `SANDBOX_BASE_URL` is
-`https://test.www.peecho.com`, and the default provider is `mock`. The `peecho`
-adapter is tested with `httpx.MockTransport`, so the test suite proves the
-payload without a network call or a credential. `PRINT_PROVIDER=off` hides the
-feature entirely.
-
-The adapter follows Peecho’s own order journey: **create, then pay**.
-`POST /rest/v3/order/` returns a draft id; `POST /rest/v3/order/payment` —
-signed with `SHA-256(secret_key + order_id)` — confirms it. The test dashboard
-has to hold credits for the payment to succeed, which is the only way to
-exercise the real sandbox end to end. Country codes are sent as ISO
-**alpha-2** (`US`, `GB`), the form the quote endpoint documents, and
-`PEECHO_OFFERING_ID` must be the numeric product id from Settings > Products.
-
-A PDF file link is minted with its own signing domain
-(`app/services/share_links.py`, `scope="print-file"`). It is good for one PDF
-for one hour, and it cannot be used as a read-only share link, nor a share
-link as a print file — the two tokens share a format and a key, not a
-permission. Pinned by `test_a_print_file_link_is_not_a_share_link`.
+The only print host in the code is `SANDBOX_BASE_URL =
+"https://api.sandbox.lulu.com"`, and it is a constant, not a setting. The
+default provider is `mock`, and `PRINT_PROVIDER=off` hides the feature. The
+Lulu adapter is tested with `httpx.MockTransport`, so the suite proves the
+payloads without a network call or a credential.
 
 ## How to demo it
 
-- With no setup: `PRINT_PROVIDER=mock` (the default). The whole flow works; the
-  order page says **Test mode** and gives a `mock-…` order number.
-- With Peecho: create a free **test** account at
-  <https://test.www.peecho.com>, copy the merchant API key, the secret key and
-  the numeric book product id from **Settings > API / Products**, buy test
-  credits (mock card), and set `PRINT_PROVIDER=peecho`, `PEECHO_API_KEY`,
-  `PEECHO_SECRET_KEY`, `PEECHO_OFFERING_ID`. Orders then appear in Peecho’s
-  test dashboard, paid and ready for production.
-- Either way, no real book is printed and no provider charges money.
-- The app will not start with `PRINT_PROVIDER=peecho` unless all four
-  credentials are present, and it will not create an unpaid order: a missing
-  secret key is a boot error, not a silent draft.
+- **With no setup:** `PRINT_PROVIDER=mock` (the default). The whole flow
+  works. The page says **Test mode**, shipping is a fixed table ($4.99 US,
+  $8.99 Canada and Mexico, $12.99 elsewhere), and the order number starts
+  `mock-`.
+- **With Lulu's sandbox:**
+  1. Create an account at <https://developers.sandbox.lulu.com>.
+  2. Copy the client key and secret from **API Keys**.
+  3. Set `PRINT_PROVIDER=lulu`, `LULU_CLIENT_KEY` and `LULU_CLIENT_SECRET`.
+     `LULU_CONTACT_EMAIL` is optional and falls back to `MAIL_FROM`.
+
+  Jobs then appear in the sandbox dashboard.
+- The app will not start with `PRINT_PROVIDER=lulu` unless both keys are set.
 
 ## Verification
 
-- `ruff check .` — clean.
-- `mypy app` — clean.
-- New tests: `tests/test_print_orders.py` (including the double-submit claim,
-  the refused-charge hand-back, the paid receipt, the token-scope split, the
-  unreadable-PDF refusal and the create-then-pay Peecho payload),
-  `tests/test_print_moderation.py`, the updated `tests/test_book_pdf.py`, and
-  the migration test.
-- A local self-check was appended to `review-log.md` (Run 2, 13 Nov 2026).
-  It drove the local site with Playwright Chromium against the mock provider
-  and measured both PDFs; money and live-site lines are marked not measured,
-  because the real key and Stripe were deliberately not used.
-- `docs/sample-book.pdf` is rebuilt by `python -m scripts.make_sample_book`:
-  it forces the mock provider, never reads `.env` and makes no API call.
-- The print flow is exercised end to end through the HTTP routes, with the real
-  SQLite store, the real wallet ledger and a recording print provider: approval
-  gate, stale-approval refusal, moderation refusal, charge, provider payload,
-  failure refund, and the 24-page PDF structure.
-- No paid API calls were made while building this; every book used the mock
-  image provider.
-
-## What I could not do from here
-
-- Deploy and click through the live site (the build and test suite are local).
-- Post to Canvas and Slack — those need your accounts.
-- Place a real Peecho test order — that needs the test credentials. The
-  adapter is ready for them, and the mock path is the one the live site runs
-  until they are set.
+- `ruff check app tests` and `mypy app` are clean.
+- `tests/test_print_orders.py` covers:
+  - every edition's file sizes;
+  - the quote and the single charge;
+  - an edit clearing the approval;
+  - the moderation refusal;
+  - the refund on a refusal;
+  - unknown orders after a lost answer or a bug;
+  - retry and cancel, with Lulu holding the job and without it;
+  - the double-submit claim and the short-wallet hand-back;
+  - the print-file links;
+  - the business-model math;
+  - the Lulu adapter: token caching, cover size, the quote split, the job
+    payload, timeouts and 5xx answers as uncertain, refusals and refused
+    connections as errors.
+- `tests/test_print_topup.py` covers topping up to the quoted total.
+- No paid API call was made while building this.

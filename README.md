@@ -1349,24 +1349,23 @@ warning line, never a failed book.
 | `MAIL_FROM` | *(empty)* | The From address of that mail (`Storybook Studio <books@example.com>`), on a domain verified with Resend. Empty disables the mail. |
 | `PUBLIC_SITE_URL` | *(empty)* | This site's absolute address (`https://book.example.com`), used for the link in the ready mail and for the PDF link the print provider fetches. Empty sends the mail without a link and derives the print link from the request. |
 | `PUBLISHER_NAME` | `Storybook Studio` | The publisher printed on the copyright page and the back cover. |
-| `PRINT_PROVIDER` | `mock` | `mock` records a test order locally, `peecho` creates and pays for a real order in Peecho's **test** environment, `off` hides the print path. There is no live provider. |
-| `PRINT_RETAIL_CENTS` | `2499` | What one printed, shipped copy costs the customer. |
-| `PRINT_BASE_COST_CENTS` | `378` | The provider's wholesale base cost per book, for the margin calculation. |
-| `PRINT_PER_PAGE_COST_CENTS` | `17` | The provider's wholesale cost per printed page. |
-| `PRINT_SHIPPING_CENTS` | `637` | Estimated standard shipping per book. |
-| `PEECHO_API_KEY` | *(empty)* | Peecho **test** merchant key. Required for `PRINT_PROVIDER=peecho`. |
-| `PEECHO_SECRET_KEY` | *(empty)* | Peecho test secret key; signs the payment call that confirms an order. Required for `PRINT_PROVIDER=peecho` — a created order stays an unpaid draft without it. |
-| `PEECHO_OFFERING_ID` | *(empty)* | The numeric book product id from the Peecho test dashboard. Its allowed content size must cover the PDF's trim (254 × 272 mm for a 4:3 book). |
-| `PEECHO_CONTACT_EMAIL` | *(empty)* | The operator's email on the print job, for the provider's questions. Falls back to `MAIL_FROM`, then the recipient's address. |
+| `PRINT_PROVIDER` | `mock` | `mock` records a test order locally, `lulu` creates a print job in Lulu's **sandbox** (`api.sandbox.lulu.com`), `off` hides the print path. There is no live print host anywhere in the code. |
+| `LULU_CLIENT_KEY` | *(empty)* | Lulu **sandbox** client key (developers.sandbox.lulu.com → API Keys). Required for `PRINT_PROVIDER=lulu`. |
+| `LULU_CLIENT_SECRET` | *(empty)* | Its client secret. Required for `PRINT_PROVIDER=lulu`. |
+| `LULU_SHIPPING_LEVEL` | `MAIL` | Lulu's shipping service for quotes and jobs: `MAIL`, `PRIORITY_MAIL`, `GROUND`, `EXPEDITED` or `EXPRESS`. The buyer pays exactly what Lulu quotes. |
+| `LULU_CONTACT_EMAIL` | *(empty)* | The operator's email on every print job, for Lulu's questions. Falls back to the address in `MAIL_FROM`. |
+
+The printed editions and their prices live in `app/services/print/products.py`, not in settings: an 8.5 × 8.5 in square or an 8.5 × 11 in US Letter book, hardcover casewrap at $29.99 or paperback perfect bound at $17.99, plus the shipping the provider quotes for the buyer's address, passed on at cost.
 
 `MAX_UPLOAD_MB` and `STORAGE_DIR` map to `MAX_UPLOAD_MB` and `STORAGE_DIR`.
 
-**Retention.** Nothing is kept forever. An uploaded photograph and the cartoon
+**Retention.** An uploaded photograph and the cartoon
 portraits made from it are deleted after `DRAFT_RETENTION_HOURS` (a day by
-default — the review flow only needs minutes); a finished book, with its
-portrait, twenty pages and PDF, is deleted `BOOK_RETENTION_DAYS` after it
-started (a week by default). A book still pending or rendering is never expired.
-The sweep runs once at boot and then hourly, and works the same in both
-storage modes, so a deployment's disk and a Neon database both stay bounded.
-Retention is per-deployment, not per-visitor: there is no "delete my book"
-control in the UI, and lowering the setting is how an operator shortens it.
+default — the review flow only needs minutes); an unpaid book, with its
+portrait, pages and PDF, is deleted `BOOK_RETENTION_DAYS` after it was last
+changed (a week by default). A book still pending or rendering is never expired,
+and neither is a book that was paid for or has a print order placed, being
+placed or unsettled: what someone bought is kept (A9). The sweep runs once at
+boot and then hourly, in both storage modes. Deleting the account (the privacy
+page) removes the person's books and saved child; a placed print order keeps
+only its financial record, without the address or the print files.

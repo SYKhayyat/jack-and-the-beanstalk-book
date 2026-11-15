@@ -1,18 +1,25 @@
 """The shape every print provider and route shares.
 
-A print order has three moments, and the data says which one it is in:
+A print order moves through these states, and the row says which one it is in:
 
-* **approved** — the owner has looked at the finished PDF. Nothing has left
-  the building; the row records the exact PDF's hash, so a redraw invalidates
-  the approval instead of silently printing a different book.
+* **approved** — the owner has looked at the finished book and chosen an
+  edition. The print interior and cover were built then and their hashes are
+  on the row, so the files a printer fetches are exactly the approved ones
+  (A3) and a redraw invalidates the approval instead of printing a different
+  book. An address and its shipping quote are added to the approval before
+  the order is placed.
+* **placing** — claimed by one request, charged, and being sent.
 * **submitted** — the provider accepted the job and gave us its own id.
-* **failed** — the provider refused it; the order page says why, and a retry
-  is a new attempt.
+* **failed** — the provider refused it; the money went back to the wallet.
+* **unknown** — the request may or may not have reached the provider (A4).
+  Nothing is refunded automatically, because a book may be printing; the
+  next attempt looks the job up by our order id first, and the buyer can ask
+  for a refund.
+* **superseded** — a newer approval replaced it before it was placed.
 
-The provider contract is deliberately small: take the PDF's address and a
-shipping address, return the provider's order. `mock` does it locally, and
-`peecho` does it against Peecho's *test* environment. There is no live mode in
-this module and no setting that can point at a production host.
+The provider contract: price an edition for an address, size its cover, place
+the job, and find a job by our order id. `mock` does it locally; `lulu` does
+it against Lulu's sandbox. There is no live host anywhere in this package.
 """
 
 from __future__ import annotations
@@ -22,21 +29,23 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
+from app.services.print.products import CoverSize, Product
+
 __all__ = [
     "COUNTRIES",
+    "PrintCost",
     "PrintError",
     "PrintJob",
     "PrintOrder",
     "PrintProvider",
     "PrintQuote",
+    "PrintUncertain",
     "ShippingAddress",
 ]
 
-#: The countries the delivery form offers, as Peecho's ISO-3166 **alpha-2**
-#: codes. A closed list on purpose: the form is not a free-text field that a
-#: provider has to interpret, and every code here is one Peecho documents.
-#: Peecho's order and quote endpoints take two letters ("US", "GB"), not the
-#: three-letter codes the API's older examples sometimes show.
+#: The countries the delivery form offers, as ISO-3166 **alpha-2** codes, the
+#: form Lulu's address takes. A closed list on purpose: the form is not a
+#: free-text field that a provider has to interpret.
 COUNTRIES: tuple[tuple[str, str], ...] = (
     ("US", "United States"),
     ("CA", "Canada"),
@@ -63,11 +72,23 @@ COUNTRIES: tuple[tuple[str, str], ...] = (
 )
 
 _COUNTRY_CODES = frozenset(code for code, _name in COUNTRIES)
+#: Lulu needs a state or province code for these (its address schema says so).
+_STATE_REQUIRED = frozenset({"US", "CA", "AU", "MX"})
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_PHONE = re.compile(r"^\+?[0-9 ().\/-]{8,20}$")
 
 
 class PrintError(RuntimeError):
     """A print job could not be approved, quoted or submitted."""
+
+
+class PrintUncertain(PrintError):
+    """The provider may have received the job, and its answer was lost (A4).
+
+    Raised for a timeout or a dropped connection after the request was sent.
+    The order is not refunded or retried blindly: the next attempt asks the
+    provider whether a job with our order id exists.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +101,7 @@ class ShippingAddress:
     postcode: str
     country_code: str
     email: str
+    phone: str = ""
     street2: str = ""
     state: str = ""
 
@@ -97,8 +119,12 @@ class ShippingAddress:
         code = self.country_code.strip().upper()
         if code not in _COUNTRY_CODES:
             problems.append("Please choose a country from the list.")
+        elif code in _STATE_REQUIRED and not self.state.strip():
+            problems.append("Please give the state or province.")
         if not _EMAIL.match(self.email.strip()):
             problems.append("Please give an email address for the order confirmation.")
+        if not _PHONE.match(self.phone.strip()):
+            problems.append("Please give a phone number the courier can call.")
         return problems
 
     @property
@@ -122,28 +148,58 @@ class ShippingAddress:
             "postcode": self.postcode.strip(),
             "country_code": self.country_code.strip().upper(),
             "email": self.email.strip(),
+            "phone": self.phone.strip(),
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, str]) -> ShippingAddress:
+        """The address an order row stored."""
+        return cls(
+            name=data.get("name", ""),
+            street1=data.get("street1", ""),
+            street2=data.get("street2", ""),
+            city=data.get("city", ""),
+            state=data.get("state", ""),
+            postcode=data.get("postcode", ""),
+            country_code=data.get("country_code", ""),
+            email=data.get("email", ""),
+            phone=data.get("phone", ""),
+        )
 
 
 @dataclass(frozen=True, slots=True)
-class PrintQuote:
-    """What one printed copy costs the customer, and what it costs us."""
+class PrintCost:
+    """What the provider charges us for one copy sent to one address."""
 
-    page_count: int
     printing_cents: int
     shipping_cents: int
-    retail_cents: int
-    #: The finished PDF's own trim size, in millimetres. The provider is told
-    #: the size of the file it is about to receive; it is measured from the
-    #: PDF rather than guessed from a product name.
-    page_width_mm: float = 210.0
-    page_height_mm: float = 148.0
     currency: str = "USD"
 
 
 @dataclass(frozen=True, slots=True)
+class PrintQuote:
+    """What one printed copy costs the buyer, and what it costs us.
+
+    The buyer pays the edition's price plus shipping at cost (A6): the
+    shipping line is everything the provider charges beyond printing, for
+    this address.
+    """
+
+    product_key: str
+    page_count: int
+    printing_cents: int
+    shipping_cents: int
+    retail_cents: int
+    currency: str = "USD"
+
+    @property
+    def total_cents(self) -> int:
+        return self.retail_cents + self.shipping_cents
+
+
+@dataclass(frozen=True, slots=True)
 class PrintJob:
-    """What the provider answered when it accepted a job."""
+    """What the provider answered when it accepted (or still holds) a job."""
 
     provider: str
     provider_order_id: str
@@ -159,19 +215,29 @@ class PrintOrder:
     book_id: str
     user_id: str
     state: str
+    #: The web PDF the owner reviewed: an edit after approval changes it.
     pdf_sha256: str
+    product_key: str
+    #: Interior pages as printed, blanks included.
     page_count: int
     printing_cents: int
     shipping_cents: int
     retail_cents: int
     currency: str = "USD"
+    interior_sha256: str = ""
+    cover_sha256: str = ""
     provider: str = ""
     provider_order_id: str = ""
     address: dict[str, str] = field(default_factory=dict)
     error: str = ""
+    quoted_at: datetime | None = None
     approved_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @property
+    def total_cents(self) -> int:
+        return self.retail_cents + self.shipping_cents
 
 
 class PrintProvider(Protocol):
@@ -180,14 +246,33 @@ class PrintProvider(Protocol):
     name: str
     mode: str
 
+    def cover_size(self, product: Product, pages: int) -> CoverSize:
+        """The cover spread the printer wants for this edition and page count."""
+        ...
+
+    def quote(self, product: Product, pages: int, address: ShippingAddress) -> PrintCost:
+        """Printing and shipping for one copy to this address."""
+        ...
+
     def submit(
         self,
         *,
         order_id: str,
-        book_id: str,
-        pdf_url: str,
+        product: Product,
+        pages: int,
+        interior_url: str,
+        cover_url: str,
         address: ShippingAddress,
-        quote: PrintQuote,
+        title: str,
     ) -> PrintJob:
-        """Place the job and return the provider's own id."""
+        """Place the job under our order id and return the provider's own id.
+
+        Raises:
+            PrintError: the provider refused the job; nothing will print.
+            PrintUncertain: the answer was lost; the job may exist.
+        """
+        ...
+
+    def find(self, order_id: str) -> PrintJob | None:
+        """The provider's job placed under our order id, if there is one."""
         ...

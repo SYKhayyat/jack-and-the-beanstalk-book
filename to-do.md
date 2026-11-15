@@ -35,12 +35,12 @@ pass below. The script to paste is at the bottom of this file.
 
 ## Print it and ship it
 
-- [x] A real print API that takes the PDF, prints and delivers it — Peecho’s
-      print API, **test environment only** (`app/services/print/peecho.py`).
+- [x] A real print API that takes the book, prints and delivers it — Lulu’s
+      Print API, **sandbox only** (`app/services/print/lulu.py`).
       `SANDBOX_BASE_URL` is a constant; there is no production host in the
       code. The default `mock` provider records the same order locally, and the
       page says so. No real orders.
-- [x] Pluggable providers: `mock`, `peecho`, `off`; the provider contract is
+- [x] Pluggable providers: `mock`, `lulu`, `off`; the provider contract is
       `app/services/print/base.py`.
 - [x] The owner reviews the PDF and approves it; nothing is sent before that.
       The approval stores the PDF’s SHA-256, so an edit after review clears it
@@ -59,8 +59,10 @@ pass below. The script to paste is at the bottom of this file.
       insult or epithet; the free text cannot carry profanity, slurs, threats
       or contact details (`app/moderation.py`). Checked when the book starts and
       again before a print order.
-- [x] Priced at **$24.99** a printed copy; the arithmetic and margin
-      ($8.16, 32.7%) are in `docs/print-business-model.md`.
+- [x] Two trims (8.5×8.5 square, 8.5×11 US Letter) and two bindings:
+      hardcover $29.99 (margin $11.10, 37.0%) and paperback $17.99 ($8.27,
+      46.0%), plus Lulu’s shipping quote at cost; the arithmetic is in
+      `docs/print-business-model.md`.
 - [x] The provider is told the PDF's **real** page count and trim size, measured
       from the file with pypdf, not a hard-coded A5: a 4:3 book is 254×272 mm.
 - [x] The cover credits the child the story names (`prompt_name`), and a blank
@@ -70,10 +72,8 @@ pass below. The script to paste is at the bottom of this file.
       copy-and-paste and screen readers get it once.
 - [x] `docs/sample-book.pdf` was rebuilt from 4:3 art (254×272 mm pages) and a
       real cover illustration, by `scripts/make_sample_book.py`.
-- [x] Peecho’s order journey is **create, then pay**: the adapter creates the
-      draft and calls the payment endpoint with
-      `SHA-256(PEECHO_SECRET_KEY + order_id)`, so a test order is actually
-      submitted rather than left unpaid. Country codes are ISO alpha-2.
+- [x] A lost answer from the printer leaves the order **unknown**, charged,
+      and looked up by `external_id` before it is retried or refunded.
 - [x] One approval places one copy: a conditional `approved` → `placing` claim
       before the charge stops a double submit buying two books, and a refused
       charge hands the approval back.
@@ -81,10 +81,9 @@ pass below. The script to paste is at the bottom of this file.
       it cannot be used as a share link (or the reverse).
 - [x] The receipt shows what was paid, not the current price; a corrupt PDF is
       refused instead of quoted at a guessed size.
-- [ ] Paste Peecho **test** credentials into Render (`PEECHO_API_KEY`,
-      `PEECHO_SECRET_KEY`, `PEECHO_OFFERING_ID`), buy test credits in the
-      Peecho test dashboard, and switch `PRINT_PROVIDER` from `mock` to
-      `peecho` to see a real, paid sandbox order.
+- [ ] Paste the Lulu **sandbox** keys into Render (`LULU_CLIENT_KEY`,
+      `LULU_CLIENT_SECRET`) and switch `PRINT_PROVIDER` from `mock` to `lulu`
+      to see a real sandbox print job.
 - [ ] Post the six hand-in links in Canvas and in Slack (the text is below).
 
 ## Accounts and money — Stripe sandbox
@@ -540,6 +539,7 @@ enter an address; nothing is sent before that approval. The book has a front
 cover ("Little Red Riding Hood, starring Sarah"), a copyright page with the
 publisher, the story starting on the page after it, and an About Me back
 cover. The child's name and About Me text are checked for insults, epithets and
-inappropriate language before anything is printed. A printed copy is $24.99;
-cost is $16.83 and margin $8.16 (32.7%). Full maths and write-up in the links.
+inappropriate language before anything is printed. A printed copy is $29.99
+hardcover or $17.99 paperback, plus shipping at cost; margins are $11.10 (37%)
+and $8.27 (46%). Full maths and write-up in the links.
 ```

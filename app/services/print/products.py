@@ -26,11 +26,13 @@ from enum import StrEnum
 
 __all__ = [
     "BLEED_IN",
+    "DEFAULT_PRODUCT",
     "PRODUCTS",
     "Binding",
     "CoverSize",
     "Product",
     "Trim",
+    "product_by_key",
     "product_for",
 ]
 
@@ -98,6 +100,11 @@ class Product:
     min_pages: int
     max_pages: int
     retail_cents: int
+    #: Lulu's published wholesale price (spec sheet, USD), before shipping and
+    #: tax. Only an estimate for the business model and the test provider: an
+    #: order is priced by the provider's own quote for the address.
+    base_cost_cents: int
+    per_page_cost_cents: float
 
     @property
     def key(self) -> str:
@@ -158,6 +165,10 @@ class Product:
             raise ValueError(f"{self.label} holds at most {self.max_pages} pages")
         return pages
 
+    def estimated_printing_cents(self, pages: int) -> int:
+        """The wholesale print cost of `pages` interior pages, from the spec sheet."""
+        return round(self.base_cost_cents + self.per_page_cost_cents * pages)
+
     def spine_inches(self, pages: int) -> float:
         if self.binding == Binding.PAPERBACK:
             return pages / 444 + 0.06
@@ -193,17 +204,34 @@ class Product:
         )
 
 
-#: Lulu's minimums: 24 interior pages for casewrap, 20 for perfect bound (the
-#: spec sheet for these packages). Prices are the owner's (AUDIT.md §10 Q2).
+#: Lulu's spec sheet for these gloss packages: casewrap from 24 interior
+#: pages at $10.98 + $0.2148 a page, perfect bound from 20 pages at $2.16 +
+#: $0.2148 a page (the matte paperback starts at 32; gloss does not). Retail
+#: prices are the owner's (AUDIT.md §10 Q2); shipping is quoted on top.
 PRODUCTS: dict[str, Product] = {
     product.key: product
     for product in (
-        Product(Trim.SQUARE, Binding.HARDCOVER, 24, 800, 2999),
-        Product(Trim.SQUARE, Binding.PAPERBACK, 20, 800, 1799),
-        Product(Trim.LETTER, Binding.HARDCOVER, 24, 800, 2999),
-        Product(Trim.LETTER, Binding.PAPERBACK, 20, 800, 1799),
+        Product(Trim.SQUARE, Binding.HARDCOVER, 24, 800, 2999, 1098, 21.48),
+        Product(Trim.SQUARE, Binding.PAPERBACK, 20, 800, 1799, 216, 21.48),
+        Product(Trim.LETTER, Binding.HARDCOVER, 24, 800, 2999, 1098, 21.48),
+        Product(Trim.LETTER, Binding.PAPERBACK, 20, 800, 1799, 216, 21.48),
     )
 }
+
+#: The edition the print page offers first.
+DEFAULT_PRODUCT = "square-hardcover"
+
+
+def product_by_key(key: str) -> Product:
+    """The product an order row names.
+
+    Raises:
+        ValueError: for a key this shop does not sell.
+    """
+    found = PRODUCTS.get(key)
+    if found is None:
+        raise ValueError("no such printed edition")
+    return found
 
 
 def product_for(trim: str, binding: str) -> Product:

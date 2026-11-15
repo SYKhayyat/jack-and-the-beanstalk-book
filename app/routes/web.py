@@ -44,6 +44,7 @@ from app.routes.book_access import book_edition
 from app.routes.child_profile import portrait_url
 from app.services.book_store import BookStatus, BookSummary
 from app.services.pictures import picture_set
+from app.services.print.products import PRODUCTS
 from app.services.prompts import render_book_page
 from app.services.share_links import read
 from app.services.story_settings import story_rules
@@ -500,7 +501,8 @@ def page_chrome(
         # and a wallet to charge. The price is shown before the flow starts,
         # beside the digital download it already belongs with.
         "print_available": container.print_service.enabled,
-        "print_price": format_cents(container.settings.print_retail_cents)
+        "print_price": "from "
+        + format_cents(min(product.retail_cents for product in PRODUCTS.values()))
         if container.print_service.enabled
         else "",
         "flash": wallet_message(request.query_params.get("message", ""))

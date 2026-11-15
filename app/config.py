@@ -15,13 +15,7 @@ from pathlib import Path
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.pricing import (
-    PICTURE_PRICE_CENTS,
-    PRINT_BASE_COST_CENTS,
-    PRINT_PER_PAGE_CENTS,
-    PRINT_RETAIL_CENTS,
-    PRINT_SHIPPING_CENTS,
-)
+from app.pricing import PICTURE_PRICE_CENTS
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -272,67 +266,42 @@ class Settings(BaseSettings):
     )
     print_provider: str = Field(
         default="mock",
-        pattern="^(off|mock|peecho)$",
+        pattern="^(off|mock|lulu)$",
         description=(
             "How a printed copy is ordered: `mock` records a test order locally "
-            "and is the default; `peecho` places a real order in Peecho's test "
-            "environment (no book is produced and no money is taken); `off` "
-            "hides the print path. There is deliberately no live provider."
+            "and is the default; `lulu` places a real job in Lulu's sandbox "
+            "(api.sandbox.lulu.com: no book is produced and no money is taken); "
+            "`off` hides the print path. There is deliberately no live provider."
         ),
     )
-    print_retail_cents: int = Field(
-        default=PRINT_RETAIL_CENTS,
-        ge=100,
-        le=100_000,
-        description="What one printed, shipped copy costs the customer, in cents.",
-    )
-    print_base_cost_cents: int = Field(
-        default=PRINT_BASE_COST_CENTS,
-        ge=0,
-        le=100_000,
-        description="The print provider's base wholesale cost per book, in cents.",
-    )
-    print_per_page_cost_cents: int = Field(
-        default=PRINT_PER_PAGE_CENTS,
-        ge=0,
-        le=10_000,
-        description="The print provider's wholesale cost per page, in cents.",
-    )
-    print_shipping_cents: int = Field(
-        default=PRINT_SHIPPING_CENTS,
-        ge=0,
-        le=100_000,
-        description="The estimated standard shipping cost per book, in cents.",
-    )
-    peecho_api_key: str = Field(
+    lulu_client_key: str = Field(
         default="",
         description=(
-            "Peecho *test* environment API key (test.www.peecho.com). A credential "
-            "like the others: environment only, never committed or logged. Required "
-            "when PRINT_PROVIDER=peecho; ignored by the mock."
+            "Lulu *sandbox* client key (developers.sandbox.lulu.com > API Keys). A "
+            "credential like the others: environment only, never committed or "
+            "logged. Required when PRINT_PROVIDER=lulu; ignored by the mock."
         ),
     )
-    peecho_secret_key: str = Field(
+    lulu_client_secret: str = Field(
         default="",
         description=(
-            "Peecho test environment secret key, from Settings > API beside the "
-            "merchant key. It signs the payment call that confirms an order; "
-            "without it a created order stays an unpaid draft. Required when "
-            "PRINT_PROVIDER=peecho. Environment only, never logged."
+            "Lulu sandbox client secret, beside the key. Required when "
+            "PRINT_PROVIDER=lulu. Environment only, never logged."
         ),
     )
-    peecho_offering_id: str = Field(
-        default="",
+    lulu_shipping_level: str = Field(
+        default="MAIL",
+        pattern="^(MAIL|PRIORITY_MAIL|GROUND|EXPEDITED|EXPRESS)$",
         description=(
-            "The numeric book product id from the Peecho test dashboard. "
-            "Required when PRINT_PROVIDER=peecho."
+            "Lulu's shipping service for quotes and jobs. MAIL is the cheapest; "
+            "the buyer pays whatever Lulu quotes for it."
         ),
     )
-    peecho_contact_email: str = Field(
+    lulu_contact_email: str = Field(
         default="",
         description=(
-            "The operator's email on the print job, for Peecho's questions. Falls "
-            "back to MAIL_FROM, then to the recipient's email."
+            "The operator's email on every print job, for Lulu's questions. Falls "
+            "back to MAIL_FROM."
         ),
     )
 

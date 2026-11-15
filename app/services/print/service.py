@@ -1,18 +1,22 @@
-"""Review, approve, then place a test print order.
+"""Review, approve, quote, then place a sandbox print order.
 
-The two promises this module keeps:
+The promises this module keeps:
 
-1. **Nothing is sent before the owner approves the exact PDF.** An approval
-   stores the PDF's SHA-256. Placing the order re-reads the PDF and refuses if
-   the hash changed, so a redraw between review and order cannot print a book
-   the owner never saw.
-2. **A print order costs money and is refunded if the provider refuses.** The
-   wallet is charged once, by order id; a failed submission writes the money
-   back with a `print_refund` row, so the account is never left paying for a
-   job that did not exist.
+1. **Nothing is sent before the owner approves the exact book.** An approval
+   stores the web PDF's SHA-256 and builds the print interior and cover from
+   the same book then, storing both files with their hashes. Placing the
+   order refuses if the web PDF changed, and the printer is served the stored
+   bytes only while their hash still matches (A3).
+2. **The buyer pays the edition's price plus the provider's own shipping
+   quote for their address** (A6), charged once from the wallet, by order id.
+3. **Money follows what is known.** A provider that clearly refused gets the
+   charge returned at once. A request whose answer was lost (a timeout, a
+   5xx) leaves the order `unknown`, charged and not refunded: the job may
+   exist. The next attempt looks the job up by our order id before sending
+   anything again, and the buyer may ask for a refund (A4).
 
-The provider is injected. In this build it is the mock or Peecho's test
-environment; there is no production implementation.
+The provider is injected: the mock, or Lulu's sandbox. There is no
+production host in this code.
 """
 
 from __future__ import annotations
@@ -20,25 +24,38 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from pypdf import PdfReader
 
 from app.moderation import about_issues, first_issue_message
 from app.services.print.base import (
     PrintError,
+    PrintJob,
     PrintOrder,
     PrintProvider,
-    PrintQuote,
+    PrintUncertain,
     ShippingAddress,
 )
-from app.services.print.pricing import build_quote
+from app.services.print.products import CoverSize, Product, product_by_key
 from app.services.print.store import PrintOrderStore
 from app.services.wallet import InsufficientFunds, Wallet
 
-__all__ = ["PrintService"]
+__all__ = ["FileUrls", "PrintService", "count_pages"]
 
 logger = logging.getLogger(__name__)
+
+#: Builds the signed links the printer fetches an order's two files from.
+FileUrls = Callable[[PrintOrder], tuple[str, str]]
+
+#: Shown when the outcome of a placement is not known (A4).
+UNKNOWN_MESSAGE = (
+    "The print service did not confirm whether it took this order. Your wallet "
+    "has been charged and nothing will be sent twice: the order will be looked "
+    "up before it is tried again. Press “Try again” to look it up and finish it, "
+    "or “Cancel and refund” to have it looked up and, if the printer has no such "
+    "order, your money returned."
+)
 
 
 class PrintService:
@@ -50,19 +67,11 @@ class PrintService:
         store: PrintOrderStore,
         provider: PrintProvider,
         wallet: Wallet | None,
-        retail_cents: int,
-        base_cost_cents: int,
-        per_page_cents: int,
-        shipping_cents: int,
         enabled: bool = True,
     ) -> None:
         self._store = store
         self._provider = provider
         self._wallet = wallet
-        self._retail_cents = retail_cents
-        self._base_cost_cents = base_cost_cents
-        self._per_page_cents = per_page_cents
-        self._shipping_cents = shipping_cents
         self._enabled = enabled
 
     @property
@@ -83,37 +92,27 @@ class PrintService:
         """
         return self._enabled and self._wallet is not None
 
-    def quote(self, page_count: int) -> PrintQuote:
-        return build_quote(
-            page_count,
-            retail_cents=self._retail_cents,
-            base_cents=self._base_cost_cents,
-            per_page_cents=self._per_page_cents,
-            shipping_cents=self._shipping_cents,
-        )
-
-    def quote_for_pdf(self, pdf: bytes) -> PrintQuote:
-        """The price and the trim size of the file that would be printed.
-
-        The page count and size come from the PDF itself: a provider is told
-        what it is about to receive, not what the edition happened to say.
-        """
-        page_count, width_mm, height_mm = measure_pdf(pdf)
-        return build_quote(
-            page_count,
-            retail_cents=self._retail_cents,
-            base_cents=self._base_cost_cents,
-            per_page_cents=self._per_page_cents,
-            shipping_cents=self._shipping_cents,
-            page_width_mm=width_mm,
-            page_height_mm=height_mm,
-        )
-
     def latest(self, book_id: str) -> PrintOrder | None:
         return self._store.latest_for_book(book_id)
 
     def approval(self, book_id: str) -> PrintOrder | None:
         return self._store.current_approval(book_id)
+
+    def get(self, order_id: str) -> PrintOrder | None:
+        return self._store.get(order_id)
+
+    def read_file(self, order_id: str, kind: str, sha256: str) -> bytes | None:
+        """An approved print file, only if it is still the one approved (A3)."""
+        if kind not in {"interior", "cover"}:
+            return None
+        found = self._store.read_file(order_id, "interior" if kind == "interior" else "cover")
+        if found is None:
+            return None
+        data, recorded = found
+        if recorded != sha256 or hashlib.sha256(data).hexdigest() != sha256:
+            logger.warning("print.file_hash_mismatch order=%s kind=%s", order_id, kind)
+            return None
+        return data
 
     def approve(
         self,
@@ -121,62 +120,122 @@ class PrintService:
         book_id: str,
         user_id: str,
         pdf: bytes,
-        page_count: int | None = None,
+        product: Product,
+        build_interior: Callable[[Product], bytes | None],
+        build_cover: Callable[[Product, CoverSize], bytes | None],
     ) -> PrintOrder:
-        """Record that the owner has reviewed this exact PDF."""
+        """Record that the owner reviewed this book, and build its print files.
+
+        The interior is built first so the cover can be sized for its real
+        page count, which the provider answers (Lulu's cover size depends on
+        the spine).
+
+        Raises:
+            PrintError: if the files cannot be built, or the provider cannot
+                size the cover.
+        """
         self._require_enabled()
-        quote = self.quote_for_pdf(pdf)
-        if page_count is not None and page_count != quote.page_count:
-            logger.warning(
-                "print.page_count_mismatch book=%s edition=%d pdf=%d",
-                book_id,
-                page_count,
-                quote.page_count,
+        interior = build_interior(product)
+        if not interior:
+            raise PrintError("This book's print pages could not be made.")
+        pages = count_pages(interior)
+        if pages != product.printed_pages(pages):
+            # The interior is padded by its builder; anything else is a bug.
+            raise PrintError(
+                "This book's print pages came out at a count the printer cannot bind."
             )
+        size = self._provider.cover_size(product, pages)
+        cover = build_cover(product, size)
+        if not cover:
+            raise PrintError("This book has no cover picture to print.")
         approved = self._store.create_approval(
             book_id=book_id,
             user_id=user_id,
             pdf_sha256=hashlib.sha256(pdf).hexdigest(),
-            page_count=quote.page_count,
-            printing_cents=quote.printing_cents,
-            shipping_cents=quote.shipping_cents,
-            retail_cents=quote.retail_cents,
-            currency=quote.currency,
+            product_key=product.key,
+            page_count=pages,
+            interior=interior,
+            cover=cover,
+            printing_cents=product.estimated_printing_cents(pages),
+            retail_cents=product.retail_cents,
+            currency="USD",
             provider=self._provider.name,
         )
         logger.info(
-            "print.approved user=%s book=%s order=%s pages=%d",
+            "print.approved user=%s book=%s order=%s product=%s pages=%d",
             user_id,
             book_id,
             approved.id,
-            quote.page_count,
+            product.key,
+            pages,
         )
         return approved
+
+    def quote(self, order: PrintOrder, address: ShippingAddress) -> PrintOrder:
+        """Ask the provider what this copy costs to this address, and keep it.
+
+        Raises:
+            PrintError: for an address the provider would refuse, or a quote
+                it could not give.
+        """
+        self._require_enabled()
+        if order.state != "approved":
+            raise PrintError("This print order has already been placed.")
+        problems = address.issues()
+        if problems:
+            raise PrintError(" ".join(problems))
+        product = product_by_key(order.product_key)
+        cost = self._provider.quote(product, order.page_count, address)
+        quoted = self._store.record_quote(
+            order.id,
+            address=address.as_dict(),
+            printing_cents=cost.printing_cents,
+            shipping_cents=cost.shipping_cents,
+        )
+        if quoted is None:  # pragma: no cover - the row was just read
+            raise PrintError("This print order could not be found.")
+        logger.info(
+            "print.quoted order=%s printing=%d shipping=%d",
+            order.id,
+            cost.printing_cents,
+            cost.shipping_cents,
+        )
+        return quoted
 
     def place(
         self,
         *,
         order: PrintOrder,
         pdf: bytes,
-        pdf_url: str,
-        address: ShippingAddress,
+        file_urls: FileUrls,
+        title: str,
         about: Mapping[str, object] | object,
     ) -> PrintOrder:
         """Charge for the copy, then ask the provider for the job.
 
+        An `unknown` order is retried here too: it is already charged, so the
+        charge is a no-op, and the job is looked up before it is sent again.
+
         Raises:
-            PrintError: for an unapproved/stale book, an address the provider
-                would refuse, or an About page that may not be printed.
+            PrintError: for an unapproved/stale/unquoted order, an About page
+                that may not be printed, or a provider refusal (refunded). A
+                `PrintUncertain` means the order is now `unknown`.
             InsufficientFunds: when the wallet cannot cover the copy.
         """
         self._require_enabled()
-        if order.state != "approved":
+        # `unknown`, or a `placing` claim left behind by a request that died:
+        # either may have reached the provider, so it is looked up first.
+        retrying = order.state in {"unknown", "placing"}
+        if order.state not in {"approved", "unknown", "placing"}:
             raise PrintError("This print order has already been placed.")
-        if order.pdf_sha256 != hashlib.sha256(pdf).hexdigest():
+        if not retrying and order.pdf_sha256 != hashlib.sha256(pdf).hexdigest():
             raise PrintError(
                 "The book changed after you reviewed it. Open the print page again, "
                 "read the new PDF and approve it before ordering."
             )
+        if order.quoted_at is None or not order.address:
+            raise PrintError("Please enter the delivery address to see the full price first.")
+        address = ShippingAddress.from_dict(order.address)
         problems = address.issues()
         if problems:
             raise PrintError(" ".join(problems))
@@ -185,21 +244,11 @@ class PrintService:
             raise PrintError(
                 "This book cannot be printed as it is: " + first_issue_message(issues)
             )
+        product = product_by_key(order.product_key)
 
-        measured = self.quote_for_pdf(pdf)
-
-        quote = PrintQuote(
-            page_count=order.page_count,
-            printing_cents=order.printing_cents,
-            shipping_cents=order.shipping_cents,
-            retail_cents=order.retail_cents,
-            page_width_mm=measured.page_width_mm,
-            page_height_mm=measured.page_height_mm,
-            currency=order.currency,
-        )
-        # One conditional UPDATE from `approved` to `placing`. A second form
-        # submit for the same approval hits a row that is no longer approved
-        # and stops here, before it can charge again or order a second copy.
+        # One conditional UPDATE to `placing`. A second form submit for the
+        # same order hits a row that is no longer claimable and stops here,
+        # before it can charge again or order a second copy.
         claimed = self._store.claim(order.id)
         if claimed is None:
             raise PrintError(
@@ -213,10 +262,10 @@ class PrintService:
                 order.user_id,
                 reference=f"print:{order.id}",
                 description=(
-                    f"Printed copy of your book — printing and shipping "
-                    f"({quote.page_count} pages)"
+                    f"Printed copy of your book — {product.label}, printing and "
+                    f"shipping ({order.page_count} pages)"
                 ),
-                amount_cents=quote.retail_cents,
+                amount_cents=order.total_cents,
             )
         except InsufficientFunds:
             # Nothing was sent, and the approval is still good: hand it back to
@@ -225,39 +274,30 @@ class PrintService:
             raise
 
         try:
-            job = self._provider.submit(
-                order_id=order.id,
-                book_id=order.book_id,
-                pdf_url=pdf_url,
-                address=address,
-                quote=quote,
+            job = self._find_or_submit(
+                order, product, file_urls, address, title, look_first=retrying
             )
+        except PrintUncertain as exc:
+            self._unknown(order, str(exc))
+            raise PrintUncertain(UNKNOWN_MESSAGE) from exc
         except PrintError as exc:
-            self._fail(order, quote, str(exc))
+            self._fail(order, str(exc))
             logger.warning("print.refused book=%s order=%s", order.book_id, order.id)
             raise
         except Exception as exc:
-            # A bug or an unhandled transport error must not leave the account
-            # paying for a job nobody knows about. Return the charge, mark the
-            # order failed with a sentence a visitor can read, and log the bug.
+            # A bug or an unhandled transport error: the request may have been
+            # sent, so this is not a refusal. Keep the charge, never resend
+            # blindly, and tell the buyer where they stand.
             logger.exception(
                 "print.unexpected_failure book=%s order=%s", order.book_id, order.id
             )
-            self._fail(
-                order,
-                quote,
-                "the print service failed unexpectedly; nothing is known to have been printed",
-            )
-            raise PrintError(
-                "The print service failed unexpectedly. The charge has been returned "
-                "and nothing is known to have been printed; please try again."
-            ) from exc
+            self._unknown(order, "the print service failed unexpectedly")
+            raise PrintUncertain(UNKNOWN_MESSAGE) from exc
 
         submitted = self._store.mark_submitted(
             order.id,
             provider=job.provider,
             provider_order_id=job.provider_order_id,
-            address=address.as_dict(),
         )
         logger.info(
             "print.submitted book=%s order=%s provider=%s provider_order=%s",
@@ -268,7 +308,81 @@ class PrintService:
         )
         return submitted or order
 
-    def _fail(self, order: PrintOrder, quote: PrintQuote, error: str) -> None:
+    def cancel_unknown(self, order: PrintOrder) -> PrintOrder:
+        """The buyer's refund request for an `unknown` order (A4).
+
+        The job is looked up first. If the printer has it, the order is simply
+        `submitted` after all; only if it has none is the charge returned.
+
+        Raises:
+            PrintError: if the order is not `unknown`, or the lookup itself
+                cannot be answered (nothing is refunded then).
+        """
+        self._require_enabled()
+        if order.state != "unknown":
+            raise PrintError("Only an order whose outcome is unknown can be cancelled here.")
+        claimed = self._store.claim(order.id)
+        if claimed is None:
+            raise PrintError("This print order is already being checked. Refresh the page.")
+        try:
+            existing = self._provider.find(order.id)
+        except Exception as exc:
+            self._store.mark_unknown(order.id, provider=self._provider.name, error=str(exc))
+            raise PrintError(
+                "The print service could not be asked about this order just now, so "
+                "nothing was refunded yet. Please try again in a little while."
+            ) from exc
+        if existing is not None:
+            logger.info("print.cancel_found_existing order=%s", order.id)
+            return (
+                self._store.mark_submitted(
+                    order.id,
+                    provider=existing.provider,
+                    provider_order_id=existing.provider_order_id,
+                )
+                or order
+            )
+        self._fail(order, "cancelled by the buyer; the print service had no such order")
+        logger.info("print.cancel_refunded order=%s", order.id)
+        return self._store.get(order.id) or order
+
+    def _find_or_submit(
+        self,
+        order: PrintOrder,
+        product: Product,
+        file_urls: FileUrls,
+        address: ShippingAddress,
+        title: str,
+        *,
+        look_first: bool,
+    ) -> PrintJob:
+        if look_first:
+            try:
+                existing = self._provider.find(order.id)
+            except PrintError as exc:
+                # Still not known whether the job exists: do not send it.
+                raise PrintUncertain(str(exc)) from exc
+            if existing is not None:
+                logger.info("print.found_existing order=%s", order.id)
+                return existing
+        interior_url, cover_url = file_urls(order)
+        return self._provider.submit(
+            order_id=order.id,
+            product=product,
+            pages=order.page_count,
+            interior_url=interior_url,
+            cover_url=cover_url,
+            address=address,
+            title=title,
+        )
+
+    def _unknown(self, order: PrintOrder, error: str) -> None:
+        logger.error(
+            "print.outcome_unknown book=%s order=%s error=%s", order.book_id, order.id, error
+        )
+        self._store.mark_unknown(order.id, provider=self._provider.name, error=error)
+
+    def _fail(self, order: PrintOrder, error: str) -> None:
         """Give the money back and record why the job failed.
 
         A refund that itself fails is logged rather than raised over the
@@ -283,7 +397,7 @@ class PrintService:
                 description=(
                     "Printed copy — returned because the print order did not go through"
                 ),
-                amount_cents=quote.retail_cents,
+                amount_cents=order.total_cents,
             )
         except Exception:
             logger.exception("print.refund_failed book=%s order=%s", order.book_id, order.id)
@@ -297,29 +411,17 @@ class PrintService:
             )
 
 
-def measure_pdf(pdf: bytes) -> tuple[int, float, float]:
-    """A PDF's page count and its first page's size, in millimetres.
-
-    Point sizes are converted with the PDF's own 72 points to the inch. An
-    unreadable file is refused rather than quoted at a guessed size: printing
-    a book nobody could measure is worse than asking for a new PDF, and the
-    page count is part of the price.
+def count_pages(pdf: bytes) -> int:
+    """A PDF's page count.
 
     Raises:
-        PrintError: if the file cannot be read or has no measurable page.
+        PrintError: if the file cannot be read or has no page.
     """
     try:
-        reader = PdfReader(io.BytesIO(pdf))
-        page_count = len(reader.pages)
-        box = reader.pages[0].mediabox
-        width_mm = float(box.width) * 25.4 / 72.0
-        height_mm = float(box.height) * 25.4 / 72.0
+        pages = len(PdfReader(io.BytesIO(pdf)).pages)
     except Exception as exc:
         logger.warning("print.unreadable_pdf bytes=%d", len(pdf))
-        raise PrintError(
-            "This book's PDF could not be read, so it cannot be priced or printed. "
-            "Open the book and download the PDF to check it."
-        ) from exc
-    if page_count < 1 or width_mm <= 0 or height_mm <= 0:
-        raise PrintError("This book's PDF has no measurable pages, so it cannot be printed.")
-    return page_count, round(width_mm, 1), round(height_mm, 1)
+        raise PrintError("This book's print file could not be read.") from exc
+    if pages < 1:
+        raise PrintError("This book's print file has no pages.")
+    return pages
