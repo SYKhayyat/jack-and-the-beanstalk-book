@@ -153,3 +153,177 @@ Book checked: `book-91dcd144…` downloaded 2026-11-15 07:24 (three identical fi
 3. Story and picture consistency (D, E1 to E3), starting with the check of whether fix-edits cause the vanishing heads.
 4. Story text fixes (knock line, p6 cottage distance, p19 text).
 5. Rerun the unmeasured Run 3 lines in a private window.
+
+---
+
+# Part 3 — Each audit item written up (added 2026-11-15)
+
+Every item has the same shape: **What** (the symptom), **Evidence** (how I know), **Cause** (known, or marked *likely* or *unknown*), **Fix**, and **Done when** (a check you can run). IDs are for reference in commits. Items 1 to 3 are the speed causes from Part 1 (written up there, repeated here only as one-line pointers so the list is complete).
+
+## Speed (details in Part 1)
+
+- **S1. 113 s of silence before the first picture.** Plates are decoded and re-encoded for every book. Fix: 1024 px reference copies, lazy loading, timing logs. Done when the first picture call starts within 10 s of the book starting.
+- **S2. Only 6 pictures drawn at once.** `BOOK_PAGE_CONCURRENCY=6`. Fix: raise in steps while watching memory and `loop.lag`. Done when 21 pictures start within 5 s of each other.
+- **S3. A page slot is held through review and redraws.** Fix: hold it only for the draw. Done when a retry on one page does not delay the start of any other page.
+- **S4. "The pencil is resting" shows at the start.** Same cause as S1. Fix: a real "Getting the pictures ready" stage. Done when the first caption names work that is happening.
+
+## Reader and sharing
+
+### R1. The reader shows 21 pages; the PDF has 24
+- **What.** The reader and the share page show the cover and the 20 story pages. The copyright page, "The End" and "About Maya" are missing.
+- **Evidence.** PDF has 24 pages (`pdfinfo`): cover, copyright, 20 story, The End, About. The owner sees the same gap on the share page.
+- **Cause.** *Likely* the reader builds its page list from the story pages only, not from the list that builds the PDF. Not yet located in the code.
+- **Fix.** Build both from one ordered page list (kind: cover, copyright, story, end, about). Add a test that the reader's page count equals the PDF's.
+- **Done when.** The reader, the share page and the PDF show the same pages in the same order.
+
+### R2. Book text is white on white in the reader and on the shared view
+- **What.** The story text cannot be read.
+- **Evidence.** Owner-reported, in the browser and when sharing. Not reproduced by me.
+- **Cause.** *Unknown.* `app/templates/share.html` sets no colours, so look at the shared stylesheet, the reader's text panel and any dark-mode rule that sets a light text colour over a light panel.
+- **Fix.** Set an explicit text colour and panel colour on the reader's text band, and do not rely on inherited theme colours. Add a check that renders the share page in light and dark mode and compares the text and panel colours for contrast.
+- **Done when.** Text is readable on the live share page in a private window, in both colour schemes.
+
+### R3. After "Stop sharing" the link is still shown and clickable
+- **What.** Stopping works (the link no longer opens), but the page still exposes the link so it can be clicked.
+- **Evidence.** Owner-reported. My agent could not click the button.
+- **Cause.** *Likely* the book page keeps showing the last share URL after the links are revoked.
+- **Fix.** After a revoke, replace the link and copy button with "Sharing is off" and one "Share again" button. Reload shows the same state because it comes from the server.
+- **Done when.** After stopping, no share URL is anywhere on the page, including after a reload.
+
+### R4. The reader and the PDF are formatted differently
+- **What.** The page layout (text band, margins, the front and back pages) differs between the reader and the PDF.
+- **Evidence.** Owner-reported. The PDF has the text in a cream band under each picture.
+- **Cause.** *Likely* two separate render paths (HTML and PDF).
+- **Fix.** Fold into R1: one page list, one layout. Where HTML must differ, say so in a comment and keep the page content the same.
+- **Done when.** Page n in the reader shows the same picture and the same text as page n in the PDF.
+
+### R5. `/wallet` typed directly redirects to the home page
+- **What.** The header link works; typing the address does not.
+- **Evidence.** Seen by the browser agent in Run 3.
+- **Cause.** *Unknown.* Possibly a redirect for a signed-in user, or the wallet is a drawer and not a route.
+- **Fix.** Decide whether `/wallet` should exist. If it should, route it. If not, remove the idea from anything that links to it.
+- **Done when.** Typing the address does what the header link does.
+
+## Print
+
+### P1. Pictures print at about 81 ppi
+- **What.** Each picture is 1152 x 864 pixels placed at 81 ppi, JPEG.
+- **Evidence.** `pdfimages -list` on the downloaded PDF.
+- **Cause.** The generation size is 1152 x 864 (`gpt-image-2.5-flare`, quality low), and the PDF uses the same file.
+- **Fix.** Decide the print size and generate or upscale to about 300 ppi for the print edition only. Keep the cheaper size for the screen PDF. Price the larger size before deciding, because cost follows the size.
+- **Done when.** The print file's pictures are at least 250 ppi at the trim size.
+
+### P2. The interior has an odd page count
+- **What.** The interior is 23 pages (copyright, 20 story, The End, About) with the cover separate.
+- **Evidence.** `pdfinfo`: 24 pages including the cover.
+- **Cause.** The page list has no blank pages.
+- **Fix.** Look up the page rules for each trim and binding in the print module, then pad with blank pages to the required count (a blank back of the cover, a blank before the copyright page, and trailing blanks). Never put a blank in the middle of the story.
+- **Done when.** The print file passes the Lulu sandbox's own validation for each trim and binding.
+
+### P3. The page size must match a Lulu trim
+- **What.** The screen PDF is 720 x 771 pt.
+- **Evidence.** `pdfinfo`.
+- **Fix.** Check that the print edition builds a file at the chosen trim, with bleed, and that the text band never lands in the trim margin.
+- **Done when.** The sandbox accepts the file at both trims.
+
+### P4. Page numbers are one lower than the PDF page
+- **What.** The first story page prints "2" and is PDF page 3.
+- **Evidence.** The footer of p3 in the PDF.
+- **Fix.** Pick one rule on purpose: number from the first story page, and leave the front and back pages unnumbered.
+- **Done when.** The first story page prints "1" and the end pages print no number.
+
+## Pictures
+
+### I1. The shortcut: the cottage is right behind them (p6)
+- **What.** The wolf says the cottage is far, but it is a few steps away.
+- **Evidence.** p6. The page 5 caption asks for a cottage "far between the trees", but p6 draws it close.
+- **Cause.** The caption allows a cottage that is "visible", and the model draws it large and near.
+- **Fix.** Say "very small and far down the path, at least a hundred trees away", and add "the cottage is small in the frame, no larger than the child's hand held at arm's length" to `must_include` and the review checklist.
+- **Done when.** In a rendered book, the cottage on that page is a small shape far along the path.
+
+### I2. The cottage changes between pages (the bridge on p9)
+- **What.** p9 has a plank bridge over a stream that p6 and p8 do not.
+- **Evidence.** p6, p8 and p9. The story text for p9 says "over the stream", so the bridge comes from the text.
+- **Cause.** Each page is drawn on its own, with no fixed picture of the cottage and its surroundings.
+- **Fix.** Add a short "the cottage and its path" description to the book's fixed settings, used on every page that shows it, and say where the stream is.
+- **Done when.** The cottage and its surroundings agree across pages 6, 8, 9, 16 to 18 and 22.
+
+### I3. No body under the quilt (p10, p12, p13)
+- **What.** The bed is flat when someone is in it.
+- **Evidence.** p10, p12 and p13.
+- **Cause.** The scene briefs say "quilt up to his chest" but not that a body makes a shape. The reviewer does not check for it.
+- **Fix.** Add "the quilt rises over a body: a visible hump for the knees and feet" to the briefs and the review checklist.
+- **Done when.** The review fails a flat bed, and the next book shows a bulge.
+
+### I4. Grandmother is not sitting in the bed (p11)
+- **What.** Her torso is beside the bed edge and her lower body is gone.
+- **Evidence.** p11.
+- **Cause.** The brief asks for her to sit up "in bed", and the picture puts the bed at the edge of the frame so the model crops her.
+- **Fix.** Put the bed fully in the frame with her in the middle of it, and check for the bed under her in the review.
+- **Done when.** Her whole upper body is in the bed.
+
+### I5. The wolf's cap and clothing change (p13 and others)
+- **What.** The text says the wolf has a cap on p13 and the picture has none. It returns on p14. The neck piece changes between pages.
+- **Evidence.** p13, p14, p18 and p5 to p8 against p18.
+- **Cause.** The brief requires the cap, but the picture does not have it, and the reviewer passed it. The outfit is described in each caption separately.
+- **Fix.** Make the wolf's outfit one fixed description per phase (his own coat, then the cap and shawl), used word for word. Make the cap a hard failure in the review of p13.
+- **Done when.** Review fails a picture whose text names an item the picture lacks.
+
+### I6. Heads and faces smear or vanish (p14, p18, p20, p22)
+- **What.** Part of Maya's head or face is soft or missing. The mother's hair merges into the roof on p22.
+- **Evidence.** p14 and p18 are clear. p20 and p22 are partial.
+- **Cause.** *Likely* the fix-edit (attempt 2). Not proven.
+- **Test first.** List the attempts per page from `api_calls` and see whether the smeared pages are the edited ones.
+- **Fix.** If the test agrees, make attempt 2 a clean redraw with a corrected prompt, or limit the edit to the faulty region.
+- **Done when.** A book with retries shows no smeared faces, and the review fails any face that is soft or cut.
+
+### I7. Hands and hugs are warped (p3, p5, p6, p7, p19, p22)
+- **What.** Hands are blobby, merged with sleeves, or missing. Hugs are worst.
+- **Evidence.** p5, p19 and p22 are visible. The rest need a full-size check.
+- **Cause.** Image models draw hands badly, and hugs make hands overlap.
+- **Fix.** Put a hand check in the review (five fingers, each hand attached to an arm), reroll when it fails, and avoid layouts with overlapping hands where the story does not need them.
+- **Done when.** Review fails a hand it cannot count, and a rerun of the same page fixes it.
+
+### I8. Maya looks generic on p22 and the portrait has a beard
+- **What.** Maya's face on p22 is rounder and younger than on other pages. The About portrait shows stubble. The story shows no beard.
+- **Evidence.** p22 and p24. The beard is owner-reported.
+- **Cause.** *Likely* the portrait prompt keeps the photo's adult features while the plates draw a child.
+- **Fix.** Give the portrait prompt the same age and "no facial hair" as the plates, and compare it to a plate in the likeness review. Check the portrait is not feeding the beard into the pictures.
+- **Done when.** The portrait and the story pictures look like the same person.
+
+### I9. The reviewer lets bad pictures pass
+- **What.** It passed items I3 to I7.
+- **Evidence.** p10 to p14, p18, p19.
+- **Cause.** The review checklist does not test these things.
+- **Fix.** Add checks for: body shape under covers, the item the text names, hands, heads whole, setting consistent. Raise the severity of a missing named item.
+- **Done when.** The same book fails review on the pages above.
+
+## Story
+
+### T1. "Always knocked before going in" is never set up (p22)
+- **What.** The last sentence's moral does not come from the story.
+- **Evidence.** `little_red_riding_hood.toml:399`. The wolf knocks on p9, and Maya calls out and walks in on p13.
+- **Fix.** Change the line to something the story showed ("always stayed on the path, and never talked to strangers"), or add a knock to p13.
+- **Done when.** Every lesson in the closing text matches something that happened.
+
+### T2. Text and picture disagree (p13, p19)
+- **What.** p13's text names a cap that is not there. p19's text has the woodcutter opening the cupboard, and the picture shows a hug and no woodcutter.
+- **Evidence.** The text of p13 and p19 against their pictures.
+- **Fix.** Make p19's picture show what the text says, or change the text to what the picture shows. Make the review compare the text to the picture.
+- **Done when.** Each page's text is true of its picture.
+
+## Other
+
+### O1. Unmeasured Run 3 lines
+Print page and Lulu quote, wallet top-up for a print, refund, sign-out/in, 400 px width, delete-account control, empty-balance message, console check, and the PDF likeness lines. Rerun in a private window in a browser that does not freeze, and write a Run 4 entry.
+
+### O2. The $3.02 refund still reads "Waiting for the operator"
+Check whether this is a real queue item or a stuck state.
+
+## Suggested order
+
+1. R1 to R4 (the reader and sharing, because people see these first), then P1 to P4 (print, because it costs money).
+2. S1 to S4 (speed).
+3. I9, I3, I5 (the review), then I6 (test the fix-edit cause), then I1, I2, I4, I7, I8.
+4. T1 and T2.
+5. O1 and O2.
