@@ -370,6 +370,17 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 ### O1. Unmeasured Run 3 lines
 Print page and Lulu quote, wallet top-up for a print, refund, sign-out/in, 400 px width, delete-account control, empty-balance message, console check, and the PDF likeness lines. Rerun in a private window in a browser that does not freeze, and write a Run 4 entry.
 
+**Run 4 (2026-11-15, live at 2542891, Run 3 book 91dcd144…, read-only; nothing paid, ordered, refunded or deleted).**
+- **Sign-in and wake.** Signed in. The first load took about 30 s while the free instance woke.
+- **Reader (R1, R2).** Pass. In order: cover, copyright, pages 1 to 20, The End, About. That is 24 leaves, matching the PDF. Text is dark brown on cream. The progress list still reads "All 20 pages and the cover", which is right for the drawing stages.
+- **Print page.** Pass. Sandbox notice shown. Four editions: hardcover $29.99 and paperback $17.99, each in the 8.5×8.5 and 8.5×11 sizes, plus shipping. The live Lulu quote comes after "I've reviewed this book — continue", which was not pressed, so it is still unmeasured.
+- **Wallet.** Balance $3.86, "Request $3.86 back" offered. The $3.02 request from Nov 10 is still "Waiting for the operator" (see O2). The empty-balance message was not reachable, because the balance is not empty.
+- **Delete account.** Pass. It is on /privacy: type DELETE, then "Delete my account", with a warning that names the 4 books and the unpaid $3.86. /account is a 404, and nothing links to it.
+- **Narrow width.** Partial. Chrome would not go below 515 px. At 515 px, the home page, reader and wallet have no horizontal overflow. 400 px is unverified.
+- **Console.** Partial. No messages were captured on the reader or the print page, but capture began after load, so load-time errors are not ruled out.
+- **Sign-out (R5).** Pass. After POST /logout, /wallet goes to /login?next=/wallet. Sign-in is Google only, and the agent did not complete it.
+- **Still unmeasured.** The Lulu quote, a top-up for a print, a refund, the empty-balance message, the PDF likeness lines and 400 px. All but 400 px need the owner, because they move money or need a printed order.
+
 ### O2. The $3.02 refund still reads "Waiting for the operator"
 Check whether this is a real queue item or a stuck state.
 
