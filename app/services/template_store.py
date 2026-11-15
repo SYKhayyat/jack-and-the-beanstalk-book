@@ -1617,6 +1617,9 @@ def _scene_json(scene: SeedScene) -> dict[str, Any]:
     }
     if scene.compose:
         content["compose"] = dict(scene.compose)
+    if scene.must_show:
+        # Written only when declared, so a page without any hashes as before.
+        content["must_show"] = list(scene.must_show)
     if not scene.star_in_picture:
         # Written only when off, so a page that shows the star hashes as before.
         content["star_in_picture"] = False

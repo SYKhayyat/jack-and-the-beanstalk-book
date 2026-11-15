@@ -94,6 +94,10 @@ class SeedScene:
     cast: tuple[str, ...]
     #: The finished picture's own wording for any of `COMPOSE_FIELDS`.
     compose: Mapping[str, str] = field(default_factory=dict)
+    #: What the page's words name that the picture must plainly show (the
+    #: wolf's lace cap). Unlike `must_include`, which also carries drawing
+    #: notes, each item is a thing a reviewer can look for (audit 11-15 I9).
+    must_show: tuple[str, ...] = ()
     #: A named exception to the plate's default stage; "" for the default.
     staging: str = ""
     #: False for a page the star is not in (the wolf reaches the cottage
@@ -374,6 +378,7 @@ def _scene(spec: Mapping[str, Any], where: str, name: str) -> SeedScene:
         camera=_text(spec, "camera", f"{where} {name!r}"),
         must_include=_strings(spec, "must_include", where, name),
         must_avoid=_strings(spec, "must_avoid", where, name),
+        must_show=_strings(spec, "must_show", where, name) if "must_show" in spec else (),
         cast=tuple(cast_value),
         compose=_compose(spec, where, name),
         staging=_optional_text(spec, "staging", f"{where} {name!r}"),
@@ -567,6 +572,7 @@ def _check_no_look_restated(
         scene.camera,
         *scene.must_include,
         *scene.must_avoid,
+        *scene.must_show,
         *scene.compose.values(),
     ]
     haystack = " ".join(" ".join(_normalise(text.split())) for text in fields)

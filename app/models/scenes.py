@@ -35,6 +35,9 @@ class Scene:
         must_include: Concrete objects that must be visible. Also emitted as an
             explicit checklist so the model treats them as requirements.
         must_avoid: Things that would make the image unfaithful to the caption.
+        must_show: What the page's words name that the picture must plainly
+            show. The reviewer looks for each one, and the edit and redraw
+            prompts name them (audit 11-15 I9).
     """
 
     key: str
@@ -46,6 +49,7 @@ class Scene:
     camera: str
     must_include: tuple[str, ...] = field(default_factory=tuple)
     must_avoid: tuple[str, ...] = field(default_factory=tuple)
+    must_show: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def checklist(self) -> str:
@@ -75,4 +79,5 @@ class Scene:
             camera=fill(self.camera),
             must_include=tuple(fill(item) for item in self.must_include),
             must_avoid=tuple(fill(item) for item in self.must_avoid),
+            must_show=tuple(fill(item) for item in self.must_show),
         )

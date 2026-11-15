@@ -252,6 +252,7 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Cause.** The caption allows a cottage that is "visible", and the model draws it large and near.
 - **Fix.** Say "very small and far down the path, at least a hundred trees away", and add "the cottage is small in the frame, no larger than the child's hand held at arm's length" to `must_include` and the review checklist.
 - **Done when.** In a rendered book, the cottage on that page is a small shape far along the path.
+- **Status (2026-11-15).** The caption and environment of the-answer say "very small and far down the path, at least a hundred trees away, no bigger in the picture than the child's hand". The cottage is a `must_show` item, so the review now checks for it (see I9). Plate 4 draws the cottage only moderately far away. If renders still bring it close, plate 4 needs a re-make with a smaller cottage.
 
 ### I2. The cottage changes between pages (the bridge on p9)
 - **What.** p9 has a plank bridge over a stream that p6 and p8 do not.
@@ -259,6 +260,11 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Cause.** Each page is drawn on its own, with no fixed picture of the cottage and its surroundings.
 - **Fix.** Add a short "the cottage and its path" description to the book's fixed settings, used on every page that shows it, and say where the stream is.
 - **Done when.** The cottage and its surroundings agree across pages 6, 8, 9, 16 to 18 and 22.
+- **Status (2026-11-15).** The text fix is in. One fixed cottage description is used word for word in the environment of the-wolf-runs, the-shout, the-woodcutter and the-rescue: a small stone cottage with a blue door and a small curtained window, behind a low wooden fence with small purple flowers. **The rest of the defect is in the plates, so text cannot fix it.**
+  - Plate 7 has the plank bridge drawn in.
+  - Plate 7's cottage sits on a hill with a chimney and no ivy.
+  - Plates 14–16 show an ivy-covered cottage with no hill or stream.
+  - **Owner action:** re-make plate 7 (no bridge; stepping stones or no stream crossing in view) or plates 14–16 so both show the same cottage.
 
 ### I3. No body under the quilt (p10, p12, p13)
 - **What.** The bed is flat when someone is in it.
@@ -266,6 +272,7 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Cause.** The scene briefs say "quilt up to his chest" but not that a body makes a shape. The reviewer does not check for it.
 - **Fix.** Add "the quilt rises over a body: a visible hump for the knees and feet" to the briefs and the review checklist.
 - **Done when.** The review fails a flat bed, and the next book shows a bulge.
+- **Status (2026-11-15).** Fixed. Every in-bed caption now says the quilt rises over the body with a clear hump for the knees and feet: the-cottage-door, the-cupboard, the-disguise, red-arrives and big-ears. Each of those pages also lists the body shape under the quilt as a `must_show` item. The reviewer's `deformed` check now names "a flat quilt with no body shape under it" as a failure.
 
 ### I4. Grandmother is not sitting in the bed (p11)
 - **What.** Her torso is beside the bed edge and her lower body is gone.
@@ -273,6 +280,13 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Cause.** The brief asks for her to sit up "in bed", and the picture puts the bed at the edge of the frame so the model crops her.
 - **Fix.** Put the bed fully in the frame with her in the middle of it, and check for the bed under her in the review.
 - **Done when.** Her whole upper body is in the bed.
+- **Status (2026-11-15).** Text and review fixes are in:
+  - The caption puts her "in the middle of the wooden bed, the quilt over her legs".
+  - The camera asks for the whole bed in frame.
+  - `must_show` requires her whole upper body sitting in the bed, with the bed under her.
+  - A cut-off body now fails `deformed`.
+
+  **Owner action:** plate 9 crops the bed at the left edge, so the model has no room to draw her in it. Re-make plate 9 with the whole bed in frame.
 
 ### I5. The wolf's cap and clothing change (p13 and others)
 - **What.** The text says the wolf has a cap on p13 and the picture has none. It returns on p14. The neck piece changes between pages.
@@ -280,6 +294,11 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Cause.** The brief requires the cap, but the picture does not have it, and the reviewer passed it. The outfit is described in each caption separately.
 - **Fix.** Make the wolf's outfit one fixed description per phase (his own coat, then the cap and shawl), used word for word. Make the cap a hard failure in the review of p13.
 - **Done when.** Review fails a picture whose text names an item the picture lacks.
+- **Status (2026-11-15).** Fixed. The wolf's outfit now has two fixed phrases, each used word for word:
+  - **Before the disguise:** "in his dark-green coat, cream waistcoat and brown neckerchief".
+  - **From the-disguise on:** "in Grandmother's white lace cap, tied under his chin with the tips of his big ears poking out, and her lavender shawl around his shoulders, over his green coat".
+
+  The cap is a `must_show` item on the-disguise, red-arrives, big-ears, big-teeth and the-rescue. A missing cap now fails as `missing_item`, which is a serious fault (see I9).
 
 ### I6. Heads and faces smear or vanish (p14, p18, p20, p22)
 - **What.** Part of Maya's head or face is soft or missing. The mother's hair merges into the roof on p22.
@@ -288,6 +307,11 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Test first.** List the attempts per page from `api_calls` and see whether the smeared pages are the edited ones.
 - **Fix.** If the test agrees, make attempt 2 a clean redraw with a corrected prompt, or limit the edit to the faulty region.
 - **Done when.** A book with retries shows no smeared faces, and the review fails any face that is soft or cut.
+- **Status (2026-11-15).** Tested; the hypothesis is **disproved**. `api_calls` for Run 3 (book 91dcd144…) shows:
+  - Story pages 12, 16 and 18 (PDF p14, p18, p20) passed on their **first** attempt.
+  - Only story page 20 (PDF p22) was a retry.
+
+  So the fix-edit is not the cause, and attempt 2 stays as it is. The real gap was the review passing smeared faces. The `deformed` check (review instruction and judge question) now names "a smeared, melted, blurred or partly missing head or face", so such a page fails and is redrawn.
 
 ### I7. Hands and hugs are warped (p3, p5, p6, p7, p19, p22)
 - **What.** Hands are blobby, merged with sleeves, or missing. Hugs are worst.
@@ -295,6 +319,7 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Cause.** Image models draw hands badly, and hugs make hands overlap.
 - **Fix.** Put a hand check in the review (five fingers, each hand attached to an arm), reroll when it fails, and avoid layouts with overlapping hands where the story does not need them.
 - **Done when.** Review fails a hand it cannot count, and a rerun of the same page fixes it.
+- **Status (2026-11-15).** The `deformed` check now names a blob hand, a hand melting into a sleeve, and a hand not joined to an arm. A failed check sends the page back for a redraw, which is a fixable fault. Hug pages stay as hugs, because the story needs them.
 
 ### I8. Maya looks generic on p22 and the portrait has a beard
 - **What.** Maya's face on p22 is rounder and younger than on other pages. The About portrait shows stubble. The story shows no beard.
@@ -302,6 +327,9 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Cause.** *Likely* the portrait prompt keeps the photo's adult features while the plates draw a child.
 - **Fix.** Give the portrait prompt the same age and "no facial hair" as the plates, and compare it to a plate in the likeness review. Check the portrait is not feeding the beard into the pictures.
 - **Done when.** The portrait and the story pictures look like the same person.
+- **Status (2026-11-15).** Fixed at the source. The child's portrait prompt (`build_cartoon_prompt`) now carries the pages' `same_age` age lock word for word: childlike proportions, a round young face, "no beard or stubble".
+  - Before this, only the pages said it.
+  - The portrait is the pages' face authority, and `signature_features` copies its facial hair onto every page, so stubble in the portrait spread into the pictures.
 
 ### I9. The reviewer lets bad pictures pass
 - **What.** It passed items I3 to I7.
@@ -309,6 +337,14 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Cause.** The review checklist does not test these things.
 - **Fix.** Add checks for: body shape under covers, the item the text names, hands, heads whole, setting consistent. Raise the severity of a missing named item.
 - **Done when.** The same book fails review on the pages above.
+- **Status (2026-11-15).** Fixed.
+  - **New `must_show` field.** A page can now list the things its words name. They reach three places:
+    - the draw and edit prompts, as "THE WORDS ON THIS PAGE NAME THESE…";
+    - the review brief, as "It must plainly show: …";
+    - the decision judge, as the new `missing_item` question.
+  - **`missing_item` is serious, not minor.** It is a fixable fault and a parent chip, "Something the words mention is missing".
+  - **`deformed` is broader.** It now covers hands, smeared or partly missing heads and faces, bodies that stop where they should go on, and a flat quilt with nobody under it.
+  - **Setting consistency** comes from the fixed cottage wording (I2) and the plates.
 
 ## Story
 
@@ -317,12 +353,17 @@ Every item has the same shape: **What** (the symptom), **Evidence** (how I know)
 - **Evidence.** `little_red_riding_hood.toml:399`. The wolf knocks on p9, and Maya calls out and walks in on p13.
 - **Fix.** Change the line to something the story showed ("always stayed on the path, and never talked to strangers"), or add a knock to p13.
 - **Done when.** Every lesson in the closing text matches something that happened.
+- **Status (2026-11-15).** Fixed. The line now reads "…always stayed on the path, and did not talk to strange wolves again." This echoes the woodcutter's warning on p21. The word "never" is not in the reading vocabulary.
 
 ### T2. Text and picture disagree (p13, p19)
 - **What.** p13's text names a cap that is not there. p19's text has the woodcutter opening the cupboard, and the picture shows a hug and no woodcutter.
 - **Evidence.** The text of p13 and p19 against their pictures.
 - **Fix.** Make p19's picture show what the text says, or change the text to what the picture shows. Make the review compare the text to the picture.
 - **Done when.** Each page's text is true of its picture.
+- **Status (2026-11-15).** Fixed.
+  - **p19:** the text now reads "Then the tall cupboard door opened, and Grandmother stepped out…". It matches the picture (no woodcutter). The open cupboard and Grandmother stepping out are `must_show` items.
+  - **p13:** the cap is a `must_show` item (I5).
+  - **Text against picture:** the review now compares them through `must_show` and `missing_item` (I9).
 
 ## Other
 

@@ -535,6 +535,7 @@ def _scene_block(scene: Scene, emotion: str) -> list[str]:
         _ASSEMBLY["lighting"].format(time_of_day=scene.time_of_day),
         _ASSEMBLY["camera"].format(camera=scene.camera),
         scene.checklist,
+        _show_clause(scene),
         _avoid_clause(scene),
     ]
 
@@ -655,6 +656,10 @@ def build_cartoon_prompt(
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
         _common_character_block(settings, subs, _star_outfit(story, settings, name)),
+        # The pages' age lock, word for word: the portrait is the pages' face
+        # authority, so a portrait that grew stubble on a child carried it
+        # into every picture (audit 11-15 I8).
+        str(_BOOK["same_age"]).format(**subs),
         _ASSEMBLY["stylisation"].format(intensity=_intensity_text(settings.cartoon_intensity)),
         _photoreal_keywords(settings.cartoon_intensity),
         _ASSEMBLY["art_style"].format(style=style_text),
@@ -967,6 +972,7 @@ def _edit_body(
             supplied=frozenset(supplied_characters),
         ),
         star_hair(settings, prompt_name, hair_seen) if page.star_in_picture else "",
+        _show_clause(scene),
         edit["no_extras"],
         _avoid_clause(scene),
     ]
@@ -1146,6 +1152,13 @@ def _edit_cast_looks(
     if not looks:
         return ""
     return "THE CHARACTERS (the same on every page):\n" + "\n".join(looks)
+
+
+def _show_clause(scene: Scene) -> str:
+    """The things the page's words name, which the reviewer then looks for."""
+    if not scene.must_show:
+        return ""
+    return _ASSEMBLY["show"].format(items="; ".join(scene.must_show))
 
 
 def _avoid_clause(scene: Scene) -> str:

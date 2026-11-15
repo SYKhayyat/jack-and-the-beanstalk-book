@@ -75,6 +75,7 @@ FAULTS: tuple[str, ...] = (
     "text_in_image",
     "face_obscured",
     "frightening",
+    "missing_item",
     "wrong_counts",
     "deformed",
     "collage",
@@ -86,7 +87,9 @@ FAULTS: tuple[str, ...] = (
 #: Faults that are recorded and steer a redraw but do not fail a picture that
 #: otherwise scores well: a reviewer told to be strict lists "three cups, not
 #: two" and "no cake in the basket", and a real run (2026-11-09) failed a good
-#: book on exactly those. Everything else in `FAULTS` fails the picture.
+#: book on exactly those. Everything else in `FAULTS` fails the picture —
+#: "missing_item" included: it is checked only against the page's `must_show`,
+#: the things its words name, so a parent would see it (audit 11-15 I9).
 MINOR_FAULTS: frozenset[str] = frozenset({"wrong_counts", "other"})
 
 

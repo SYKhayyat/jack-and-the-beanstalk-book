@@ -207,6 +207,10 @@ lighting = "LIGHTING: {time_of_day}."
 camera = "CAMERA: {camera}."
 checklist = "Every one of these must be clearly visible: {items}."
 avoid = "Do not show any of the following: {items}."
+# The things the page's words name (the wolf's lace cap), from the scene's
+# `must_show`. The same items are the reviewer's "missing_item" check, so the
+# picture is told to draw exactly what it is then checked for (audit 11-15 I9).
+show = "THE WORDS ON THIS PAGE NAME THESE, SO EACH MUST BE PLAINLY SEEN: {items}."
 # Prefaced to the portrait-retry prompt only when the user ticked reasons; the
 # retry is otherwise byte-identical to a first attempt.
 rejection_preamble = "This is a retry. The previous attempt was rejected, so do not reproduce it."
@@ -439,7 +443,8 @@ text_in_image = "there was lettering or writing in the picture"
 face_obscured = "a face was hidden or cut off by the edge of the frame"
 frightening = "something in it would frighten a young child"
 wrong_counts = "the number of a repeated object was wrong"
-deformed = "a body or limb did not look right"
+missing_item = "something the words on this page name was missing or could not be made out"
+deformed = "a body, limb, hand or face did not look right"
 collage = "it was a grid of several small pictures instead of one single scene filling the frame"
 other = "something else was wrong with it, as the reviewer describes below"
 wrong_place = "the background was redrawn into a different place; paint the characters into the plate as it is"
@@ -698,12 +703,13 @@ Report exactly one JSON object and nothing else, in this shape:
 - "text_in_image": plainly readable words or numbers: a sign, caption, label or speech bubble a child could read. Marks, scribbles or a pattern that only looks like writing is not this fault
 - "face_obscured": a main character's face is hidden or cut off so the character is lost. A face the description itself turns away, or a figure the description says the frame cuts off (only the giant's legs show), is not this fault
 - "frightening": blood, a wound, a weapon being used or pointed at someone, an attack in progress, or a child shown in real terror. A tool lying about, or used for the job the description says (an axe chopping a tree), is not a weapon. The story's villain (a wolf, a giant) may look sly, cross or toothy in a friendly cartoon way; that alone is not frightening
+- "missing_item": something the description says the picture must plainly show is not in it, or cannot be made out (the description says the wolf wears the white lace cap and his head is bare). This is checked only for the things listed after "It must plainly show"; any other prop is a small detail
 - "wrong_counts": a number the description states and the story depends on (five beans, three bears) is clearly wrong
-- "deformed": extra or missing limbs, extra fingers, fused hands, doubled feet, a body that reads as broken, legs or a body passing through a chair, table or other solid object, a figure wedged under a table instead of beside it, or a figure floating in the air with nothing holding it
+- "deformed": extra or missing limbs, extra fingers, fused hands, doubled feet, a body that reads as broken, legs or a body passing through a chair, table or other solid object, a figure wedged under a table instead of beside it, or a figure floating in the air with nothing holding it. Also: a hand that is a shapeless blob, melts into a sleeve or is not joined to an arm; a head or face that is smeared, melted, blurred into the background or partly missing; a body that stops where it should go on (a person beside a bed whose lower half is simply gone); or someone the description puts in a bed under the covers while the covers lie perfectly flat, with no shape of a body under them
 - "collage": more than one picture in the frame — a grid of tiles, panels, a storyboard, a character sheet, or the same person shown more than once
 - "other": something else grossly wrong that a parent would notice; say what in the note
 
-Small details are NOT faults and are not mentioned: what exactly is inside a basket, how many cups or flowers there are, which way a tail points, the exact colour of a prop, a pose that differs from the description, or a piece of furniture the description mentions in passing.
+Small details are NOT faults and are not mentioned: anything not on the "must plainly show" list, what exactly is inside a basket, how many cups or flowers there are, which way a tail points, the exact colour of a prop, a pose that differs from the description, or a piece of furniture the description mentions in passing.
 
 "note" is read by the artist who redraws the picture, so for every fault say exactly what is wrong and where in the frame — "a second girl in a red cloak stands at the far right", "the word MARKET is painted on the cart's side", "the grandmother is not in the picture; she should be in the bed". Name things by what they look like, never by a guess at who the child is. Mention nothing that is not a fault. At most three short sentences. When nothing is grossly wrong, one short sentence saying so.
 
@@ -772,7 +778,10 @@ missing_character = "Is a person or animal the description names nowhere in the 
 text_in_image = "Are there plainly readable words or numbers anywhere in the picture — a sign, caption, label or speech bubble a child could read? Marks, scribbles or a pattern that only looks like writing do not count."
 face_obscured = "Is a main character's face hidden or cut off so badly that the character is lost? A face the description itself turns away (seen from behind, a sleeping head bowed), or a figure the description says the frame cuts off, does not count."
 wrong_counts = "Does the picture clearly show a different number of something than the description states, where the number matters to the story (five beans, three towers)? Small props whose number the description does not state do not count."
-deformed = "Does any figure plainly have extra or missing limbs, extra fingers, fused hands, doubled feet, a body that reads as broken, a body or legs passing through a chair, table or other solid object, a figure squeezed under a table instead of beside it, or a figure floating with nothing under or holding it?"
+deformed = "Does any figure plainly have extra or missing limbs, extra fingers, fused hands, doubled feet, a body that reads as broken, a body or legs passing through a chair, table or other solid object, a figure squeezed under a table instead of beside it, or a figure floating with nothing under or holding it? Also yes for: a hand that is a shapeless blob, melts into a sleeve or is not joined to an arm; a head or face that is smeared, melted, blurred into the background or partly missing; a body that stops where it should go on (the lower half simply gone); or someone the description puts in bed under the covers while the covers lie perfectly flat with no shape of a body under them."
+# Asked on every page: a description with no "It must plainly show" list has
+# nothing to miss, so the answer is no.
+missing_item = "The description may end with \"It must plainly show:\" and a list. Is any thing on that list absent from the picture, or impossible to make out? If the description has no such list, the answer is no. Any other prop does not count."
 # Asked only when the portrait is sent (see likeness_intro).
 likeness = "Is the child in the first image clearly NOT the same child as the portrait in the second image — an unmistakably different skin tone, hair colour or hair length, or a plainly different age? A cartoon style, angle, expression, pose or distance, a face drawn small and simple, or hair hidden under a hood does not count."
 collage = "Is the frame plainly more than one picture: a grid of tiles, panels, a character sheet, or the same person shown twice?"

@@ -113,6 +113,7 @@ class PageFault(StrEnum):
     WRONG_MOMENT = "wrong_moment"
     MISSING_CHARACTER = "missing_character"
     EXTRA_PERSON = "extra_person"
+    MISSING_ITEM = "missing_item"
     TEXT_IN_IMAGE = "text_in_image"
     DEFORMED = "deformed"
     FACE_OBSCURED = "face_obscured"
@@ -126,6 +127,7 @@ PAGE_FAULT_LABELS: dict[PageFault, str] = {
     PageFault.WRONG_MOMENT: "Doesn't show this part of the story",
     PageFault.MISSING_CHARACTER: "Someone is missing",
     PageFault.EXTRA_PERSON: "Someone extra is in it",
+    PageFault.MISSING_ITEM: "Something the words mention is missing",
     PageFault.TEXT_IN_IMAGE: "There's writing in the picture",
     PageFault.DEFORMED: "A body or hand looks wrong",
     PageFault.FACE_OBSCURED: "A face is hidden or cut off",

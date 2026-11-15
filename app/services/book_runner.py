@@ -139,6 +139,7 @@ FIXABLE_FAULTS = frozenset(
         "text_in_image",
         "face_obscured",
         "frightening",
+        "missing_item",
         "wrong_counts",
         "deformed",
         "likeness",
@@ -2481,9 +2482,17 @@ def _picture_brief(page: BookPage, settings: CartoonSettings) -> str:
     sentence. The story sentence narrates ("Mother was waiting by the lantern
     light") and names people who are not in the frame, which the reviewer then
     reports as missing. The child is "the child", never their name.
+
+    The scene's `must_show` follows it: the things the page's words name, which
+    the reviewer fails as "missing_item" when they are not there (audit 11-15
+    I9). The reviewer's instruction and the decision question both key on the
+    "It must plainly show:" wording.
     """
     scene = scene_for(page, settings, prompt_name=_REVIEWER_STAR)
-    return scene.caption or scene.title
+    brief = scene.caption or scene.title
+    if scene.must_show:
+        brief = f"{brief} It must plainly show: {'; '.join(scene.must_show)}."
+    return brief
 
 
 def _cast_note(page: BookPage, edition: StoryEdition) -> str:

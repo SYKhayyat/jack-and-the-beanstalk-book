@@ -137,6 +137,7 @@ def page_from_content(number: int, content: Mapping[str, Any]) -> BookPage:
             camera=str(compose.get("camera", scene["camera"])),
             must_include=tuple(str(item) for item in scene.get("must_include", ())),
             must_avoid=tuple(str(item) for item in scene.get("must_avoid", ())),
+            must_show=tuple(str(item) for item in scene.get("must_show", ())),
         ),
         story=str(content.get("prose", "")),
         emotion=str(content.get("emotion", "")),
