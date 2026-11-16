@@ -194,3 +194,18 @@ def test_the_real_covers_pass_tier_one() -> None:
     for path in covers:
         result = review_image(path.read_bytes())
         assert result.passed, (path.name, result.score, result.faults)
+
+
+def test_agnes_is_refused_in_production(tmp_path) -> None:
+    """R3: Agnes is for local runs; the live site draws with OpenAI."""
+    with pytest.raises(ValueError, match="local runs only"):
+        Settings(
+            _env_file=None, app_env="production", image_provider="agnes", storage_dir=tmp_path
+        )
+
+
+def test_agnes_may_be_chosen_locally(tmp_path) -> None:
+    settings = Settings(
+        _env_file=None, app_env="development", image_provider="agnes", storage_dir=tmp_path
+    )
+    assert settings.image_provider == "agnes"

@@ -130,7 +130,7 @@ class Settings(BaseSettings):
     )
     agnes_api_key: str = Field(
         default="",
-        description="Agnes AI API key. Only needed for the agnes provider.",
+        description="Agnes AI API key. Local runs only (R3).",
     )
     agnes_model: str = Field(
         # The image model that takes multiple reference images: the cartoonify
@@ -766,6 +766,22 @@ class Settings(BaseSettings):
                 "REVIEWER_PROVIDER=off with a paid image provider in production: "
                 "every picture would be bought and never checked. Set "
                 "ALLOW_UNREVIEWED=1 if that is what you want."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _agnes_is_local_only(self) -> Settings:
+        """Refuse Agnes in production (audit 2026-11-15, R3).
+
+        Agnes is a free tier kept for local runs; the live books are drawn by
+        OpenAI, and a deployment that switched to Agnes would sell pictures from
+        a rate-limited free endpoint nobody reviews the terms of. Local runs
+        (any `APP_ENV` but production) may still choose it.
+        """
+        if self.is_production and self.image_provider is ProviderName.AGNES:
+            raise ValueError(
+                "IMAGE_PROVIDER=agnes in production: Agnes is for local runs only. "
+                "Use openai for the live site."
             )
         return self
 

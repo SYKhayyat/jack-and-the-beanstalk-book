@@ -35,12 +35,8 @@ services:
       - key: OPENAI_API_KEY
         sync: false
 
-      # The free provider that accepts the uploaded photo as a reference image.
-      - key: AGNES_API_KEY
-        sync: false
-
-      # Defaults to mock in the app; set to "openai", "agnes" or "gemini" in
-      # the dashboard once a key is in place.
+      # Defaults to mock in the app; set to "openai" (or "gemini") in the
+      # dashboard once a key is in place. Agnes is refused here: local only (R3).
       - key: IMAGE_PROVIDER
         sync: false
 
@@ -49,15 +45,6 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.1-flash-lite-image
-
-      # Agnes, the free provider that takes the photo. The free tier is rate
-      # limited by resolution, so 1K is the tier that fits a whole book.
-      - key: AGNES_MODEL
-        value: agnes-image-2.5-flash
-      - key: AGNES_SIZE
-        value: 1K
-      - key: AGNES_BASE_URL
-        value: https://apihub.agnes-ai.com/v1
 
       # The picture reviewer. gpt-6-luna uses OPENAI_API_KEY, so there is no
       # second key to paste. The Gemini free tier ran out of daily quota
