@@ -65,6 +65,10 @@ __all__ = ["Container", "build_container"]
 
 logger = logging.getLogger(__name__)
 
+# One review's (and one decision's) budget: a timed-out review fails that
+# image, not the book.
+JUDGE_TIMEOUT_SECONDS = 90
+
 
 @dataclass(frozen=True, slots=True)
 class Container:
@@ -283,7 +287,7 @@ def build_container(
                     provider=settings.reviewer_provider,
                     model=settings.reviewer_model,
                     required=settings.reviewer_required,
-                    timeout_seconds=settings.reviewer_timeout_seconds,
+                    timeout_seconds=JUDGE_TIMEOUT_SECONDS,
                 ),
                 costs,
                 review_call_price(settings),
@@ -296,7 +300,7 @@ def build_container(
                     else OpenAIDecisionJudge(
                         settings.openai_api_key,
                         model=settings.decision_judge_model,
-                        timeout_seconds=settings.reviewer_timeout_seconds,
+                        timeout_seconds=JUDGE_TIMEOUT_SECONDS,
                     ),
                     costs,
                     # Free: the local judge reports no tokens, but say so.
@@ -309,7 +313,6 @@ def build_container(
             ),
             page_attempts=settings.page_attempts,
             page_concurrency=settings.book_page_concurrency,
-            image_threads=settings.image_work_threads,
             costs=costs,
             # What the review budget is a share of, and the spend the operator
             # is told about (C4).

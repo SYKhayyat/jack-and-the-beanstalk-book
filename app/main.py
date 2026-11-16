@@ -215,10 +215,7 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     # A restart mid-render (a deploy, or the platform's health check giving
     # up) picks the book up again rather than losing it; one that has been
     # resumed too often, or started too long ago, fails with its pages kept.
-    resumed = await container.book_runner.recover(
-        max_resumes=container.settings.book_max_resumes,
-        window_minutes=container.settings.book_resume_window_minutes,
-    )
+    resumed = await container.book_runner.recover()
     if resumed:
         logger.info("book.resumed_start resumed=%d", len(resumed))
     # At boot, directly and before serving: a restart is the one moment the
@@ -300,8 +297,6 @@ def create_app(
     app.state.templates.env.globals["picture_set"] = picture_set
     app.state.gate = AuthGate(
         password=resolved.app_password,
-        session_max_age_seconds=resolved.app_session_max_age_days * 24 * 60 * 60,
-        max_attempts=resolved.app_login_max_attempts,
     )
     # One signer for the session cookie, shared by the gate and the Google
     # flow. Its key is a setting, never the password: see

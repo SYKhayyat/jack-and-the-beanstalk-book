@@ -26,7 +26,6 @@ def client_for(settings: Settings) -> GeminiWeb:
             debug_port=settings.gemini_web_port,
             profile_dir=settings.gemini_web_profile_dir,
             chrome_binary=settings.gemini_web_chrome,
-            limit_wait_seconds=float(settings.gemini_web_limit_wait_seconds),
         )
     )
 

@@ -20,6 +20,10 @@ services:
     # Custom domain: book.siachshai.online (add manually in Render dashboard → Settings → Custom Domains)
     # Cloudflare DNS: CNAME book → <render-target>.onrender.com (proxied)
 
+    # Only what differs from the code's own default is declared: every other
+    # setting's default, and the reason for it, is beside it in app/config.py
+    # (audit 11-15 R4). A key dropped from here stays in the dashboard env
+    # until it is deleted there; the app ignores the ones it no longer reads.
     envVars:
       - key: APP_ENV
         value: production
@@ -43,21 +47,11 @@ services:
       # Only for IMAGE_PROVIDER=gemini (images need billing, no free tier).
       - key: GEMINI_API_KEY
         sync: false
-      - key: GEMINI_MODEL
-        value: gemini-3.1-flash-lite-image
 
-      # The picture reviewer. gpt-6-luna uses OPENAI_API_KEY, so there is no
-      # second key to paste. The Gemini free tier ran out of daily quota
-      # mid-book, which is why it is no longer the default.
-      - key: REVIEWER_PROVIDER
-        value: openai
-      - key: REVIEWER_MODEL
-        value: gpt-6-luna
-      # Only read when REVIEWER_PROVIDER=gemini (empty falls back to GEMINI_API_KEY).
+      # The picture reviewer is gpt-6-luna on OPENAI_API_KEY by default; this key
+      # is only read when REVIEWER_PROVIDER=gemini (empty falls back to GEMINI_API_KEY).
       - key: REVIEWER_API_KEY
         sync: false
-      - key: REVIEWER_TIMEOUT_SECONDS
-        value: "90"
       # Measured price of one review (a picture plus its plate); feeds the
       # cost ledger.
       - key: REVIEW_CALL_COST_USD
@@ -66,19 +60,6 @@ services:
       # declared; set it in the dashboard for a model that table does not know.
       - key: IMAGE_CALL_COST_USD
         sync: false
-
-      # The decision judge: a first look at every picture on OpenAI's
-      # Decisions API, so confident passes and fails skip the reviewer call.
-      - key: DECISION_JUDGE
-        value: "true"
-      - key: DECISION_JUDGE_MODEL
-        value: gpt-6-luna
-      - key: DECISION_JUDGE_USD_PER_MILLION_TOKENS
-        value: "0.10"
-
-      # Billable tries per page before the best one is kept.
-      - key: PAGE_ATTEMPTS
-        value: "3"
 
       # The shared password in front of the app. LOCAL DEVELOPMENT ONLY:
       # once the Google client below is set, the password is switched off and
@@ -106,81 +87,12 @@ services:
       # Signs the session cookie. Set it, or every restart signs everyone out.
       - key: SESSION_SECRET
         sync: false
-      - key: APP_SESSION_MAX_AGE_DAYS
-        value: "7"
-      - key: APP_LOGIN_MAX_ATTEMPTS
-        value: "8"
 
-      # Cheapest configuration OpenAI publishes: ~$0.0059 per image call.
-      - key: OPENAI_MODEL
-        value: gpt-image-2.5-flare
-      - key: OPENAI_QUALITY
-        value: low
-
-      - key: MAX_UPLOAD_MB
-        value: "10"
-
-      # One picture call's budget: a low-quality picture is back in 15-40 s,
-      # so one still running at two minutes has hung (audit 11-15 R2).
-      - key: GENERATION_TIMEOUT_SECONDS
-        value: "120"
-
-      # Admission control. Beyond this, requests queue and then get 429 rather
-      # than fanning out into more billable calls. 8 ran the 512 MB instance
-      # out of memory on 2026-11-10, before 79a0206 stopped holding every page
-      # until the PDF and put full-size decodes behind two shared slots; 4 was
-      # the safe floor after that. Back at 8 on trial (2026-11-11): watch the
-      # memory graph on the next book and drop to 6 if it nears 512 MB.
-      # 24 since Run 5 (2026-11-15): a slot is an open request, not memory,
-      # once a page's Pillow work is behind IMAGE_WORK_THREADS and decodes
-      # once; at 8 a book drew in three waves and took minutes.
-      - key: MAX_CONCURRENT_GENERATIONS
-        value: "24"
-
-      # One book's pictures being drawn at once, and the threads for their
-      # image work. Run 2 (2026-11-11) had all 21 pages in flight on a tenth of
-      # a CPU; the health check took 20 s and the instance was restarted. Since
-      # audit 11-15 S3 the slot covers only the model call (pasting and review
-      # run outside it, their Pillow work behind IMAGE_WORK_THREADS), so it
-      # matches the gate above. OPENAI_IMAGES_PER_MINUTE is the real ceiling:
-      # 21 pages cannot all start inside a minute at 18 a minute. With Agnes
-      # there is no such ceiling, and all 21 start together (Run 5): the
-      # local work per page is now a tenth of what Run 2 choked on.
-      - key: BOOK_PAGE_CONCURRENCY
-        value: "24"
-      - key: IMAGE_WORK_THREADS
-        value: "2"
-
-      # A restart picks an interrupted book up again: twice at most, and
-      # only within an hour of its job starting.
-      - key: BOOK_MAX_RESUMES
-        value: "2"
-      - key: BOOK_RESUME_WINDOW_MINUTES
-        value: "60"
 
       # Per-client abuse brake. A book charges one per picture up front, so keep
       # this well above a book's size; OPENAI_IMAGES_PER_MINUTE is the real cap.
       - key: MAX_GENERATIONS_PER_MINUTE
         value: "200"
-
-      # OpenAI's image limit is 20 a minute; calls wait here instead of 429ing.
-      - key: OPENAI_IMAGES_PER_MINUTE
-        value: "18"
-
-      # A picture drawn on request — a portrait, a redraw, a replaced face —
-      # costs 15¢ from the wallet as it is drawn. The book's own 22 pictures are
-      # inside its 99¢ fee.
-      - key: PICTURE_PRICE_CENTS
-        value: "15"
-
-      # A book whose measured model spend passes a dollar is named on
-      # /admin/status and writes one book.cost_alert line (C4).
-      - key: BOOK_COST_ALERT_CENTS
-        value: "100"
-      # 0 keeps the reviewer for the whole book; 100 rests it once the book has
-      # spent its 99¢ fee, with tier 1 and the decision judge still deciding.
-      - key: REVIEWER_BUDGET_PERCENT
-        value: "0"
       # Once a book has cost its own fee, a page that did not pass is not
       # drawn again — it keeps the best picture it has and the book still
       # finishes. Run 1 (2026-11-11) spent $1.58 a book against the 99¢ price,
@@ -191,12 +103,6 @@ services:
 
       - key: STORAGE_DIR
         value: /tmp/jack-and-the-beanstalk-book-storage
-
-      # Retention: unfinished drafts, and finished books, are deleted after this.
-      - key: DRAFT_RETENTION_HOURS
-        value: "24"
-      - key: BOOK_RETENTION_DAYS
-        value: "7"
 
       # Stripe sandbox secret key (sk_test_...). Set it and wallets turn on:
       # top-ups through Stripe's hosted checkout, 99¢ per finished book, and
@@ -219,26 +125,19 @@ services:
       - key: PUBLIC_SITE_URL
         sync: false
 
-      # The printed book. `mock` is the default: the whole review, edition,
-      # approve, address, quote and order flow works, and the order page says
+      # The printed book. PRINT_PROVIDER is `mock` by default: the whole
+      # review, edition, approve, address, quote and order flow works, and the order page says
       # plainly that nothing will be printed. `lulu` places the same order as a
       # job in Lulu's SANDBOX (api.sandbox.lulu.com) once the two keys below are
       # set; there is no live print host in this app, on purpose. Prices are in
       # app/services/print/products.py: $29.99 hardcover, $17.99 paperback,
       # plus the shipping Lulu quotes for the buyer's address.
-      - key: PRINT_PROVIDER
-        value: "mock"
-      - key: PUBLISHER_NAME
-        value: "Storybook Studio"
       # Lulu sandbox keys (developers.sandbox.lulu.com > API Keys). Leave unset
       # while PRINT_PROVIDER=mock. They are credentials: dashboard only.
       - key: LULU_CLIENT_KEY
         sync: false
       - key: LULU_CLIENT_SECRET
         sync: false
-      # MAIL, PRIORITY_MAIL, GROUND, EXPEDITED or EXPRESS.
-      - key: LULU_SHIPPING_LEVEL
-        value: "MAIL"
       # The operator's address on every job; empty falls back to MAIL_FROM.
       - key: LULU_CONTACT_EMAIL
         sync: false

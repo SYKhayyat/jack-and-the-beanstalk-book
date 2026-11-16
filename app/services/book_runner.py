@@ -134,6 +134,13 @@ MAX_PAGE_ATTEMPTS = 3
 #: (B9). The lease lives in the database, so a boot can tell a book whose
 #: worker died from one another instance is still drawing. It only has to
 #: outlive a heartbeat, not the whole render.
+# A book a restart interrupted is picked up again by itself at most this many
+# times — so a book that is what kills the server cannot keep killing it — and
+# only while its job started within the window; past either it fails, with its
+# pages kept, and its owner can finish it.
+MAX_RESUMES = 2
+RESUME_WINDOW_MINUTES = 60
+
 _JOB_LEASE_SECONDS = 120.0
 _JOB_HEARTBEAT_SECONDS = 30.0
 #: How long an edit waits for a job that has published its last status but is
@@ -979,7 +986,12 @@ class BookRunner:
             logger.info("book.resumed_paused resumed=%d", resumed)
         return resumed
 
-    async def recover(self, *, max_resumes: int, window_minutes: int) -> list[str]:
+    async def recover(
+        self,
+        *,
+        max_resumes: int = MAX_RESUMES,
+        window_minutes: int = RESUME_WINDOW_MINUTES,
+    ) -> list[str]:
         """Pick up the books a restart interrupted; called once, at boot.
 
         Each is rendered again as the job it was — the same pages, the same

@@ -62,7 +62,6 @@ def build_provider(settings: Settings) -> ImageProvider:
         return AgnesImageProvider(
             api_key=settings.agnes_api_key,
             model=settings.agnes_model,
-            base_url=settings.agnes_base_url,
             timeout_seconds=settings.generation_timeout_seconds,
             size=settings.agnes_size,
         )

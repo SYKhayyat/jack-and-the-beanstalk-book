@@ -41,7 +41,9 @@ class AuthGate:
     """Checks the shared password and mints the fallback session cookie."""
 
     password: str
-    session_max_age_seconds: int = 30 * 24 * 60 * 60
+    # A login lasts a week; eight wrong passwords in a quarter of an hour lock
+    # that client out of the form.
+    session_max_age_seconds: int = 7 * 24 * 60 * 60
     max_attempts: int = 8
     codec: SessionCodec = field(default_factory=lambda: SessionCodec(b""))
     _failures: dict[str, list[float]] = field(default_factory=dict, init=False, repr=False)

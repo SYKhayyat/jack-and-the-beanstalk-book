@@ -138,10 +138,6 @@ class Settings(BaseSettings):
         default="agnes-image-2.5-flash",
         description="Agnes AI image model id.",
     )
-    agnes_base_url: str = Field(
-        default="https://apihub.agnes-ai.com/v1",
-        description="Base URL of the Agnes AI OpenAI-compatible endpoint.",
-    )
     agnes_size: str = Field(
         # The free tier is rate limited by resolution — about 10 requests a
         # minute at 1K, 5 at 2K, one above that — so 1K is the only tier that
@@ -256,16 +252,6 @@ class Settings(BaseSettings):
     gemini_web_chrome: str = Field(
         default="google-chrome", description="The Chrome binary started when none is running."
     )
-    gemini_web_limit_wait_seconds: int = Field(
-        default=1800,
-        ge=1,
-        description="How long a job waits after Gemini says a limit is reached.",
-    )
-    reviewer_timeout_seconds: int = Field(
-        default=90,
-        ge=5,
-        description="One review's budget. A timed-out review fails that image, not the book.",
-    )
 
     # --- what a call costs (the cost ledger) ---
     image_call_cost_usd: float | None = Field(
@@ -342,21 +328,6 @@ class Settings(BaseSettings):
             "Shared password required to use the app. Empty means the app is "
             "open to anyone — fine locally, reckless in production, because "
             "every generation costs money."
-        ),
-    )
-    app_session_max_age_days: int = Field(
-        default=7,
-        ge=1,
-        le=365,
-        description="How long a successful login stays valid.",
-    )
-    app_login_max_attempts: int = Field(
-        default=8,
-        ge=1,
-        le=100,
-        description=(
-            "Wrong passwords allowed per client in a quarter of an hour before "
-            "that client is locked out of the login form."
         ),
     )
 
@@ -459,43 +430,12 @@ class Settings(BaseSettings):
             "outside it, so a page being checked or redrawn never keeps "
             "another from starting (audit 11-15 S3). Separate from the gate "
             "above, which bounds model calls across the server. Pillow work is "
-            "bounded on its own by IMAGE_WORK_THREADS and the two transcoding "
+            "bounded on its own by the image work pool and the two transcoding "
             "slots, which is what keeps the free plan's event loop alive "
             "(Run 2). The default lets a whole book (twenty pages and the "
             "cover) start at once: a slot is an open request, not CPU, so "
             "fewer only queues pages behind each other (Run 5: a book in "
             "three waves of eight took minutes)."
-        ),
-    )
-    image_work_threads: int = Field(
-        default=2,
-        ge=1,
-        le=16,
-        description=(
-            "Worker threads for a render's own image work (tier-1 review, "
-            "pasting the plate back). Their own pool, so that work never runs "
-            "on the event loop nor queues the database calls and routes that "
-            "share the default one."
-        ),
-    )
-    book_max_resumes: int = Field(
-        default=2,
-        ge=0,
-        le=10,
-        description=(
-            "How many times a book a restart interrupted is picked up again by "
-            "itself. Bounded, so a book that is what kills the server cannot "
-            "keep killing it: past this it fails, and its owner can finish it."
-        ),
-    )
-    book_resume_window_minutes: int = Field(
-        default=60,
-        ge=1,
-        # A week, as for the generation timeout: a GEMINI_WEB book can take a day.
-        le=7 * 24 * 60,
-        description=(
-            "A book whose job started longer ago than this is not resumed after "
-            "a restart: it fails, and its owner can finish it by hand."
         ),
     )
     max_generations_per_minute: int = Field(

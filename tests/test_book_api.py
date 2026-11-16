@@ -697,7 +697,9 @@ class TestPerPageProgress:
             assert final["status"] == "complete", final
             assert [page["status"] for page in final["pages"]] == ["done"] * (PAGE_COUNT + 1)
             # And the concurrency that made the mid-flight state observable.
-            assert provider.peak_in_flight == 2, provider.peak_in_flight
+            # At least two: every page starts at once now, so a quick page can
+            # overlap the two held ones and the peak is not a fixed number.
+            assert provider.peak_in_flight >= 2, provider.peak_in_flight
 
     def test_status_never_advertises_a_page_before_its_bytes(self, client: TestClient) -> None:
         """A done page's url must resolve; a pending/making page's must not exist."""

@@ -69,8 +69,8 @@ APP_PASSWORD=a-good-long-password
 - The password is one value for everyone. There are no accounts and no
   per-person identity — just "are you one of us?". It exists to keep strangers
   off an app that bills per image; it is gone the moment Google is configured.
-- A successful login sets an `HttpOnly` cookie valid for
-  `APP_SESSION_MAX_AGE_DAYS` (7 by default). `Log out` in the header clears it.
+- A successful login sets an `HttpOnly` cookie valid for seven days. `Log out`
+  in the header clears it.
 - The cookie is signed with `SESSION_SECRET`. Changing `APP_PASSWORD` no
   longer signs anybody out; changing `SESSION_SECRET` does, which is the
   knob to reach for when a session needs killing.
@@ -78,7 +78,7 @@ APP_PASSWORD=a-good-long-password
   to `/login`. `/healthz` and `/static` stay open, because the platform polls
   the health check and the login page needs its CSS.
 - Eight wrong passwords in fifteen minutes locks that client out of the login
-  form (`APP_LOGIN_MAX_ATTEMPTS`).
+  form.
 - Leave `APP_PASSWORD` empty and the gate is open. That is fine for local
   development and reckless for anything else.
 - **There is no wallet in this mode, by design.** A wallet belongs to a person,
@@ -1309,14 +1309,12 @@ warning line, never a failed book.
 | `AGNES_API_KEY` | *(empty)* | Required for `agnes`. Free tier: ~10 requests/minute at 1K. |
 | `AGNES_MODEL` | `agnes-image-2.5-flash` | The image model that takes an array of reference images. |
 | `AGNES_SIZE` | `1K` | Output tier: `1K`, `2K`, `3K`, `4K`. Free tier allows ~10/5/1 requests a minute. |
-| `AGNES_BASE_URL` | `https://apihub.agnes-ai.com/v1` | Change only if the service moves. |
 | `GEMINI_API_KEY` | *(empty)* | Required for `gemini` |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite-image` | Keep it cheap. `gemini-3.1-flash-image` is the higher-quality option. |
 | `REVIEWER_PROVIDER` | `openai` | `openai` (uses `OPENAI_API_KEY`, sees the plate too) or `gemini`. |
 | `REVIEWER_API_KEY` | *(empty)* | Only for `REVIEWER_PROVIDER=gemini`; empty falls back to `GEMINI_API_KEY`. Ignored by the OpenAI reviewer. |
 | `REVIEWER_MODEL` | `gpt-6-luna` | The vision model every finished picture is checked with. Text and image in, strict JSON out. |
 | `REVIEW_CALL_COST_USD` | *(empty)* | What one review costs, for the cost ledger. `0.0011` for gpt-6-luna. |
-| `REVIEWER_TIMEOUT_SECONDS` | `90` | One review's budget. A timed-out review fails that image, not the book. |
 | `PAGE_ATTEMPTS` | `3` | Billable tries per page before the best is kept (1–3). A page that never passes is kept and marked best-effort. |
 | `APP_ENV` | `development` | `production` raises the log level |
 | `GOOGLE_CLIENT_ID` | *(empty)* | With `GOOGLE_CLIENT_SECRET`, makes Google sign-in the only way in. See `docs/google-oauth-setup.md`. |
@@ -1324,16 +1322,11 @@ warning line, never a failed book.
 | `GOOGLE_REDIRECT_URI` | *(empty)* | The exact redirect URI registered with Google; empty means the app derives it from the request (local development only). |
 | `SESSION_SECRET` | *(empty)* | Signs the session cookie. Unset, every restart signs everyone out. Not the password. |
 | `APP_PASSWORD` | *(empty)* | The local-dev fallback: shared password required when no Google client is configured. Both unset means the app is open. |
-| `APP_SESSION_MAX_AGE_DAYS` | `7` | How long one successful sign-in stays valid. Rotating `SESSION_SECRET` invalidates every session. |
-| `APP_LOGIN_MAX_ATTEMPTS` | `8` | Wrong passwords per client before a 15-minute lockout. |
 | `OPERATOR_SUB` | *(empty)* | Who may use `/admin`: comma-separated Google `sub` values and/or account emails. Empty disables the admin screens. |
 | `MAX_UPLOAD_MB` | `10` | Enforced before decoding |
 | `GENERATION_TIMEOUT_SECONDS` | `600` | One budget per request: queue + model call. Also applied to the provider's HTTP client. |
 | `MAX_CONCURRENT_GENERATIONS` | `2` | Admission control per process. Beyond this, requests queue and then get 429. |
 | `BOOK_PAGE_CONCURRENCY` | `8` | How many of one book's pictures are drawn at once. Held only for the model call: pasting and review run outside it, so a page being checked never keeps another from starting. Separate from the gate above. |
-| `IMAGE_WORK_THREADS` | `2` | A render's own pool for image work (review, pasting the plate back), apart from the default pool the routes and database calls use. |
-| `BOOK_MAX_RESUMES` | `2` | How many times a restart-interrupted book resumes by itself on boot (missing pages only, charged once). Past this it fails and its owner can press "Finish this book". |
-| `BOOK_RESUME_WINDOW_MINUTES` | `60` | A book whose job started longer ago than this fails on boot instead of resuming. |
 | `MAX_GENERATIONS_PER_MINUTE` | `30` | Per-client abuse brake for billable requests; Render's blueprint uses `12`. |
 | `STORAGE_DIR` | `./storage` | Created on startup |
 | `DRAFT_RETENTION_HOURS` | `24` | How long an uploaded photo and the portraits made from it are kept. Swept on boot and hourly. |
