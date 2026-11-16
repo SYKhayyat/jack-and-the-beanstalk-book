@@ -3,17 +3,21 @@
     python -m app.scripts.import_premades --story little_red_riding_hood \
         --dir plates/_premade/little_red_riding_hood --approve
 
-A pre-made page is the finished picture of a page the star is not in, painted
-once onto that page's approved plate. A book whose visitor gave no photo of
-anyone on the page uses it instead of an image call. This command reads the
-picture files in a directory, one per page, stores each as a `draft`, and with
-`--approve` approves it. Approving writes a template version when the story is
-complete, exactly as approving a plate or a portrait does.
+A pre-made page is the finished picture of a page, painted once onto that
+page's approved plate. On a page the star is not in, a book whose visitor gave
+no photo of anyone on the page uses it instead of an image call. On a page the
+star is in it is a *scene* painted with a stand-in child, and each book redraws
+only the stand-in's box with its own child (audit 11-15 A5). This command
+reads the picture files in a directory, one per page, stores each as a
+`draft`, and with `--approve` approves it. Approving writes a template version
+when the story is complete, exactly as approving a plate or a portrait does.
 
 File naming: the file stem is the page number (`7.jpg`) or the page key
-(`the-wolf-runs.png`). `.png`, `.jpg`, `.jpeg` and `.webp` are accepted. A page
-the star is in, a page with no approved plate, or a stem that names no page is
-an error, not a silent skip.
+(`the-wolf-runs.png`). `.png`, `.jpg`, `.jpeg` and `.webp` are accepted. A
+scene also needs a sidecar with the same stem, `7.json`, holding the
+stand-in's box as shares of the picture: `{"figure": [x, y, width, height]}`.
+A star page without that sidecar, a starless page with one, a page with no
+approved plate, or a stem that names no page is an error, not a silent skip.
 
 Each picture belongs to the plate that is approved when it is imported. A later
 plate for that page leaves the picture out of later versions, so paint a new one
@@ -34,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -52,6 +57,7 @@ from app.blobs import install_blob_store  # noqa: E402
 from app.books import SEEDS, StorySeed  # noqa: E402
 from app.config import Settings, get_settings  # noqa: E402
 from app.db import build_engine, prepare_database  # noqa: E402
+from app.services.figure_crop import valid_figure  # noqa: E402
 from app.services.template_store import (  # noqa: E402
     PlateStatus,
     TemplateError,
@@ -72,6 +78,7 @@ class Candidate:
     path: Path
     image: bytes
     media_type: str
+    figure: tuple[float, float, float, float] | None = None
 
 
 @dataclass(slots=True)
@@ -103,6 +110,20 @@ def _decode(path: Path) -> tuple[bytes, str]:
     return data, _FORMATS[fmt]
 
 
+def _read_figure(path: Path) -> tuple[float, float, float, float]:
+    """The stand-in's box from a scene's `<stem>.json` sidecar."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))["figure"]
+        box = valid_figure([float(v) for v in value])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ImportError_(f"{path.name} is not a figure box: {exc}") from exc
+    if box is None:
+        raise ImportError_(
+            f"{path.name}: the figure is four shares x, y, width, height inside the picture"
+        )
+    return box
+
+
 def read_candidates(store: TemplateStore, story_key: str, directory: Path) -> list[Candidate]:
     """Every picture in the directory, decoded and matched to a page it may be.
 
@@ -121,9 +142,18 @@ def read_candidates(store: TemplateStore, story_key: str, directory: Path) -> li
         number = int(stem) if stem.isdigit() else by_key.get(stem)
         if number is None or number not in pages or number == 0:
             raise ImportError_(f"{path.name}: {stem!r} names no page of {story_key}")
+        sidecar = path.with_suffix(".json")
+        figure = None
         if pages[number].star_in_picture:
+            if not sidecar.is_file():
+                raise ImportError_(
+                    f"{path.name}: page {number} shows the star; "
+                    f"{sidecar.name} must give the stand-in's figure box"
+                )
+            figure = _read_figure(sidecar)
+        elif sidecar.is_file():
             raise ImportError_(
-                f"{path.name}: page {number} shows the star; it is drawn from the photo"
+                f"{sidecar.name}: page {number} does not show the star; it has no figure"
             )
         if not any(p.status == PlateStatus.APPROVED for p in store.plates(story_key, number)):
             raise ImportError_(f"{path.name}: page {number} has no approved plate")
@@ -131,7 +161,7 @@ def read_candidates(store: TemplateStore, story_key: str, directory: Path) -> li
             raise ImportError_(f"two files claim page {number}")
         seen.add(number)
         data, media_type = _decode(path)
-        found.append(Candidate(number, path, data, media_type))
+        found.append(Candidate(number, path, data, media_type, figure))
     if not found:
         raise ImportError_(f"no picture files in {directory}")
     return found
@@ -169,6 +199,7 @@ def run(
             candidate.page_number,
             image=candidate.image,
             media_type=candidate.media_type,
+            figure=candidate.figure,
         )
         result.imported.append(candidate.page_number)
         if not approve:
@@ -184,8 +215,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m app.scripts.import_premades",
         description=(
-            "Store finished pictures for the pages a story's star is not in, and "
-            "optionally approve them. Makes no image call: this command costs nothing."
+            "Store finished pictures of a story's pages (a scene with a stand-in "
+            "child on a page the star is in), and optionally approve them. "
+            "Makes no image call: this command costs nothing."
         ),
     )
     parser.add_argument(

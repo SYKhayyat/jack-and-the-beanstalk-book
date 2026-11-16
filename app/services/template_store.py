@@ -53,6 +53,7 @@ from app.db import (
     TemplateVersionRow,
 )
 from app.models.story import StoryEdition, edition_from_content
+from app.services.figure_crop import valid_figure
 from app.transcoding import transcoding
 
 __all__ = [
@@ -170,6 +171,9 @@ class PinnedPremade:
 
     page_number: int
     premade_id: str
+    #: Where the stand-in child is, on a scene of a page the star is in
+    #: (x, y, width, height as shares); None on a page used whole.
+    figure: tuple[float, float, float, float] | None = None
 
 
 #: The long edge of a plate's working copy: no provider returns a picture
@@ -214,6 +218,8 @@ class PremadeArt:
     premade_id: str
     image: bytes
     media_type: str
+    #: The stand-in child's box on a scene; None on a page used whole.
+    figure: tuple[float, float, float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +235,7 @@ class PremadeSummary:
     created_at: datetime
     approved_by: str | None
     approved_at: datetime | None
+    figure: tuple[float, float, float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1057,16 +1064,31 @@ class TemplateStore:
     # --- pre-made pages ----------------------------------------------------------
 
     def add_premade(
-        self, story_key: str, page_number: int, *, image: bytes, media_type: str
+        self,
+        story_key: str,
+        page_number: int,
+        *,
+        image: bytes,
+        media_type: str,
+        figure: Sequence[float] | None = None,
     ) -> str:
-        """Store a finished picture for a page without the star, as `draft`.
+        """Store a finished picture of a page, as `draft`.
 
         It is tied to the page's approved plate, the background it was painted
-        onto, so the page must have one. A page the star is in has no pre-made
-        picture: it is drawn from the visitor's photo in every book.
+        onto, so the page must have one. A page the star is in needs `figure`,
+        the box its stand-in child stands in: each book redraws only that box
+        with its own child (audit 11-15 A5). A page without the star has none;
+        it is used whole.
         """
         if not image:
             raise TemplateError("a pre-made page needs an image")
+        box = None
+        if figure is not None:
+            box = valid_figure(figure)
+            if box is None:
+                raise TemplateError(
+                    "a figure is four shares x, y, width, height inside the picture"
+                )
         premade_id = uuid.uuid4().hex
         with self._engine.begin() as conn:
             _require_story(conn, story_key)
@@ -1075,9 +1097,15 @@ class TemplateStore:
             page = _latest_page(conn, story_key, page_number)
             if page is None:
                 raise TemplateError(f"page {page_number} has no words yet")
-            if scene_shows_star(page.scene):
+            shows_star = scene_shows_star(page.scene)
+            if shows_star and box is None:
                 raise TemplateError(
-                    f"page {page_number} shows the star; it is drawn from the visitor's photo"
+                    f"page {page_number} shows the star; "
+                    "its scene needs the stand-in's figure box"
+                )
+            if not shows_star and box is not None:
+                raise TemplateError(
+                    f"page {page_number} does not show the star; it has no figure to redraw"
                 )
             plate_id = _approved_plate_id(conn, story_key, page_number)
             if plate_id is None:
@@ -1090,6 +1118,7 @@ class TemplateStore:
                     plate_id=plate_id,
                     image=image,
                     media_type=media_type,
+                    figure=list(box) if box is not None else None,
                     status=PlateStatus.DRAFT,
                     created_at=_now(),
                 )
@@ -1165,6 +1194,7 @@ class TemplateStore:
             TemplatePremadeRow.created_at,
             TemplatePremadeRow.approved_by,
             TemplatePremadeRow.approved_at,
+            TemplatePremadeRow.figure,
         ).where(TemplatePremadeRow.story_key == story_key)
         if page_number is not None:
             query = query.where(TemplatePremadeRow.page_number == page_number)
@@ -1181,6 +1211,7 @@ class TemplateStore:
                 created_at=row.created_at,
                 approved_by=row.approved_by,
                 approved_at=row.approved_at,
+                figure=_figure(row.figure),
             )
             for row in rows
         ]
@@ -1199,13 +1230,16 @@ class TemplateStore:
     def premade_art(self, pinned: PinnedPremade) -> PremadeArt:
         """A pinned pre-made page with its picture, read when the page uses it."""
         image, media_type = self.premade_image(pinned.premade_id)
-        return PremadeArt(pinned.page_number, pinned.premade_id, image, media_type)
+        return PremadeArt(
+            pinned.page_number, pinned.premade_id, image, media_type, pinned.figure
+        )
 
     def book_premades(self, book_id: str) -> dict[int, PinnedPremade]:
         """The pre-made pictures a book's pinned version offers, by page number.
 
         Offered, not imposed: the runner uses one only when the visitor gave no
-        photo of anyone on the page. A book with no version has none. Ids only;
+        photo of anyone else on the page (a scene, with a figure, also needs the
+        star's portrait). A book with no version has none. Ids only;
         `premade_art` reads the picture of the one a page uses.
         """
         with self._engine.connect() as conn:
@@ -1218,6 +1252,7 @@ class TemplateStore:
                 select(
                     TemplateVersionPlateRow.page_number,
                     TemplatePremadeRow.id,
+                    TemplatePremadeRow.figure,
                 )
                 .select_from(TemplateVersionPlateRow)
                 .join(
@@ -1230,6 +1265,7 @@ class TemplateStore:
             int(row.page_number): PinnedPremade(
                 page_number=int(row.page_number),
                 premade_id=row.id,
+                figure=_figure(row.figure),
             )
             for row in rows
         }
@@ -1487,12 +1523,11 @@ class TemplateStore:
                 )
                 return _current_version_id(conn, story_key)
             cast_keys.update(cast)
-            # Only a page without the star can be pre-made, and only from the plate
-            # it was painted onto.
-            premade_id = (
-                None
-                if scene_shows_star(page.scene)
-                else _approved_premade_id(conn, story_key, number, plate.id)
+            # A pre-made page is pinned only with the plate it was painted onto,
+            # and only while it still fits the words: a scene (with a stand-in's
+            # figure) on a page the star is in, a whole page on one they are not.
+            premade_id = _approved_premade_id(
+                conn, story_key, number, plate.id, scene=scene_shows_star(page.scene)
             )
             pages.append((number, page.id, plate.id, premade_id or ""))
             # A page with no pre-made picture hashes exactly as before they existed.
@@ -1960,17 +1995,33 @@ def _approved_plate_id(conn: Connection, story_key: str, page_number: int) -> st
 
 
 def _approved_premade_id(
-    conn: Connection, story_key: str, page_number: int, plate_id: str
+    conn: Connection, story_key: str, page_number: int, plate_id: str, *, scene: bool
 ) -> str | None:
-    value = conn.execute(
-        select(TemplatePremadeRow.id).where(
+    """The page's approved pre-made picture on `plate_id`, if it is the kind the page needs.
+
+    `scene` is whether the page shows the star, so needs a stand-in's figure.
+    """
+    row = conn.execute(
+        select(TemplatePremadeRow.id, TemplatePremadeRow.figure).where(
             TemplatePremadeRow.story_key == story_key,
             TemplatePremadeRow.page_number == page_number,
             TemplatePremadeRow.plate_id == plate_id,
             TemplatePremadeRow.status == PlateStatus.APPROVED,
         )
-    ).scalar_one_or_none()
-    return str(value) if value is not None else None
+    ).one_or_none()
+    if row is None or (_figure(row.figure) is not None) != scene:
+        return None
+    return str(row.id)
+
+
+def _figure(value: Any) -> tuple[float, float, float, float] | None:
+    """A stored figure box, or None when there is none (or it is not a box)."""
+    if not isinstance(value, list | tuple):
+        return None
+    try:
+        return valid_figure(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _premade(conn: Connection, premade_id: str) -> Any:

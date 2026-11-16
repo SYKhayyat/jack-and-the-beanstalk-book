@@ -472,6 +472,20 @@ task = "TASK: FIX this picture-book page. Image 1 is the page as drawn, and it i
 reference_images = "REFERENCE IMAGES, in order: image 1 is the page to fix; {entries}. Draw each character's face only from its own portrait."
 wrong = "WHAT IS WRONG: {faults}. Fix exactly this, in place, and nothing else."
 
+# A page drawn from an approved scene (audit 11-15 A5): a finished page painted
+# once with a stand-in child, of which only a crop around that child is sent.
+# The model turns the stand-in into this book's child and nothing else; the
+# crop is blended back into the scene (app/services/figure_crop.py), so
+# anything it changes outside the child is faded out again at the edges.
+# Skin is named outright: a stand-in painted one skin tone otherwise kept its
+# hands and legs while only the face changed.
+[book.figure]
+task = "TASK: EDIT this crop of a finished picture-book page. Image 1 is the crop: it shows a stand-in child in the middle of it. Image 2 is the portrait of {name}. Turn the stand-in into {name}, and change nothing else."
+replace = "MAKE THE STAND-IN {name}: the face, the eyes, the hair (its colour, texture, length and style) and the skin tone all come from the portrait. Recolour ALL of the stand-in's visible skin, not just the face (neck, ears, hands, arms and legs too), and all of their hair, to match {name}; no patch of the stand-in's own skin or hair may stay."
+keep = "KEEP EVERYTHING ELSE EXACTLY: the pose, the gesture, the clothes and their colours, the size and position of the figure, every other character and object, the background, the light and shadows, the line and the art style. The picture keeps the same framing and the same edges: do not zoom, crop, pan or extend it."
+moment = "THE MOMENT this page shows, for the expression: {caption}"
+retry = "ANOTHER TRY. The previous attempt had these problems: {faults}. Fix only those."
+
 # ---------------------------------------------------------------------------
 # The empty plates (T5).
 #

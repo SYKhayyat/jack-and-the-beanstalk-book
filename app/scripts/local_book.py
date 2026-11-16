@@ -182,7 +182,11 @@ def _copy_premade(
     local: TemplateStore, premade: PremadeSummary, image: bytes, media_type: str
 ) -> str:
     local_id = local.add_premade(
-        premade.story_key, premade.page_number, image=image, media_type=media_type
+        premade.story_key,
+        premade.page_number,
+        image=image,
+        media_type=media_type,
+        figure=premade.figure,
     )
     local.approve_premade(local_id, operator=OPERATOR)
     return local_id

@@ -50,6 +50,7 @@ __all__ = [
     "build_cartoon_prompt",
     "build_cast_portrait_prompt",
     "build_cover_prompt",
+    "build_figure_edit_prompt",
     "build_fix_edit_prompt",
     "build_plate_edit_prompt",
     "render_book_page",
@@ -924,6 +925,42 @@ def build_fix_edit_prompt(
     ]
     if cover:
         lines.append(edit["cover_band"])
+    lines += [edit["no_text"], edit["negative"]]
+    return _join_sections(lines)
+
+
+def build_figure_edit_prompt(
+    page: BookPage,
+    *,
+    settings: CartoonSettings,
+    prompt_name: str,
+    star_seen: str = "",
+    retry_faults: Sequence[str] = (),
+    retry_findings: str = "",
+) -> str:
+    """Prompt for a scene's crop: turn its stand-in child into this book's child.
+
+    Image 1 is a crop of an approved scene around its stand-in
+    (`figure_crop.cut`), image 2 the star's portrait. Nothing is placed, posed
+    or lit here: the scene already did all of that once, so the prompt only
+    swaps who the child is (face, hair and every patch of visible skin) and
+    says to keep everything else, the framing included, so the drawing blends
+    back where it came from. The moment is given only for the expression.
+    """
+    figure = cast("Mapping[str, str]", _DATA["book"]["figure"])
+    edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
+    subs = _substitutions(settings, prompt_name, picture=True)
+    lines = [
+        figure["task"].format(name=prompt_name),
+        figure["replace"].format(name=prompt_name),
+        star_look(settings, prompt_name, star_seen),
+        _LIKENESS_EMPHASIS[settings.likeness_strength],
+        figure["keep"],
+        figure["moment"].format(caption=page.formatted(subs).scene.caption),
+    ]
+    if retry_faults:
+        lines.append(figure["retry"].format(faults=fault_phrases(retry_faults)))
+        lines.append(findings_line(retry_findings))
     lines += [edit["no_text"], edit["negative"]]
     return _join_sections(lines)
 

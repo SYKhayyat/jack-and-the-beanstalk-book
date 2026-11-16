@@ -68,6 +68,7 @@ from app.services.decision_judge import (
     DecisionJudge,
     Outcome,
 )
+from app.services.figure_crop import SceneCrop, cut
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
@@ -93,6 +94,7 @@ from app.services.print.products import CoverSize, Product
 from app.services.prompts import (
     build_book_page_prompt,
     build_cover_prompt,
+    build_figure_edit_prompt,
     build_fix_edit_prompt,
     build_plate_edit_prompt,
     correction_for,
@@ -1442,6 +1444,117 @@ class BookRunner:
                 # reviewer causes is the app's own quality control and is part
                 # of what the one charge buys.
                 await _pay_for_picture(picture_payment, f"Page {page.number}")
+                scene = _scene_for(
+                    page,
+                    artwork,
+                    requested_fixes,
+                    fixed_costume=bool(edition.star_member.costume),
+                )
+                if scene is not None:
+                    attempts, mode, sent = await _draw_scene(page, scene)
+                else:
+                    attempts, mode, sent = await _draw_page(page)
+                await asyncio.to_thread(
+                    self._book_store.save_page,
+                    book_id,
+                    page.number,
+                    attempts.image,
+                    **_verdict(attempts),
+                )
+                await self._warm_picture(book_id, page_slot(page.number), attempts.image)
+                await self._record_prompts(book_id, page.number, page.key or "", attempts)
+                costs[page.number] = (mode, len(attempts.prompt), sent)
+                await mark(page.number, "done")
+                # Only the size is kept: the picture is in the store, and the
+                # PDF reads it back from there (BookDocument.assemble).
+                return _Drawn(
+                    page=render_book_page(page, artwork.settings, prompt_name=prompt_name),
+                    size=len(attempts.image),
+                )
+
+            def _drawer(
+                page: BookPage, references: Sequence[bytes], media_types: Sequence[str]
+            ) -> Callable[[str, GeneratedImage | None], Awaitable[GeneratedImage]]:
+                """One page's image call, behind the draw slot and the page charge."""
+                started = False
+
+                async def draw(prompt: str, base: GeneratedImage | None) -> GeneratedImage:
+                    nonlocal started
+                    async with draw_slot:
+                        if not started:
+                            # The operator's switch is asked once a page, as it
+                            # starts: a page already started finishes, the next
+                            # one does not.
+                            await self._stop_if_paused()
+                            started = True
+                        # Charged per attempt, which is what an attempt costs. The
+                        # charge happens before the call, so a retry cannot slip
+                        # past a balance that has run out.
+                        await _await_page_charge(page_charge)
+
+                        async def on_slot() -> None:
+                            await mark(page.number, "making")
+
+                        sent, sent_types = _with_base(references, media_types, base)
+                        return await self._on_worker_thread_with_slot(
+                            self._page_call(
+                                sent, sent_types, prompt, artwork.settings, "book-page"
+                            ),
+                            on_slot=on_slot,
+                        )
+
+                return draw
+
+            async def _draw_scene(
+                page: BookPage, pinned: PinnedPremade
+            ) -> tuple[Attempts, str, int]:
+                """Draw a page from its approved scene: only the stand-in child is redrawn.
+
+                The crop around the stand-in and the star's portrait are sent;
+                the result is blended back into the scene and reviewed as a
+                whole page. Every attempt is a fresh edit of the same crop, so
+                there is no plate to mend from (audit 11-15 A5).
+                """
+                premade = await asyncio.to_thread(self._templates.premade_art, pinned)
+                if premade.figure is None:  # pragma: no cover - _scene_for checks it
+                    raise RuntimeError("a scene needs its stand-in's figure")
+                crop = SceneCrop(premade.image, premade.figure)
+                cut_out = await self._image_work(partial(cut, premade.image, premade.figure))
+                references = [cut_out, artwork.portrait]
+                media_types = ["image/jpeg", artwork.portrait_media_type]
+
+                def prompt_for(faults: Sequence[str], findings: str, _fix: bool) -> str:
+                    # Every attempt redraws the same crop, so there is no
+                    # mend to ask for: `_fix` is the same prompt.
+                    return build_figure_edit_prompt(
+                        page,
+                        settings=artwork.settings,
+                        prompt_name=prompt_name,
+                        star_seen=artwork.star_seen,
+                        retry_faults=faults,
+                        retry_findings=findings,
+                    )
+
+                attempts = await self._draw_until_pass(
+                    book_id=book_id,
+                    page_number=page.number,
+                    user=user,
+                    page_title=page.scene.title,
+                    story_line=_picture_brief(page, artwork.settings),
+                    cast_note=_cast_note(page, edition),
+                    star_in_picture=True,
+                    plate=None,
+                    scene=crop,
+                    artwork=artwork,
+                    draw=_drawer(page, references, media_types),
+                    prompt_for=prompt_for,
+                    on_stage=lambda name, attempt: set_stage(name, page.number, attempt),
+                    deadline=deadline,
+                )
+                return attempts, "figure", len(references)
+
+            async def _draw_page(page: BookPage) -> tuple[Attempts, str, int]:
+                """Draw a page whole: onto its plate, or composed from scratch."""
                 page_photos = [name for name in page.cast if name in artwork.characters]
                 photo_only = frozenset(
                     ([""] if artwork.photo_is_portrait and page.star_in_picture else [])
@@ -1507,33 +1620,6 @@ class BookRunner:
                 else:
                     references, media_types = _references(artwork, page)
 
-                started = False
-
-                async def draw(prompt: str, base: GeneratedImage | None) -> GeneratedImage:
-                    nonlocal started
-                    async with draw_slot:
-                        if not started:
-                            # The operator's switch is asked once a page, as it
-                            # starts: a page already started finishes, the next
-                            # one does not.
-                            await self._stop_if_paused()
-                            started = True
-                        # Charged per attempt, which is what an attempt costs. The
-                        # charge happens before the call, so a retry cannot slip
-                        # past a balance that has run out.
-                        await _await_page_charge(page_charge)
-
-                        async def on_slot() -> None:
-                            await mark(page.number, "making")
-
-                        sent, sent_types = _with_base(references, media_types, base)
-                        return await self._on_worker_thread_with_slot(
-                            self._page_call(
-                                sent, sent_types, prompt, artwork.settings, "book-page"
-                            ),
-                            on_slot=on_slot,
-                        )
-
                 attempts = await self._draw_until_pass(
                     book_id=book_id,
                     page_number=page.number,
@@ -1544,34 +1630,14 @@ class BookRunner:
                     star_in_picture=page.star_in_picture,
                     plate=plate,
                     artwork=artwork,
-                    draw=draw,
+                    draw=_drawer(page, references, media_types),
                     prompt_for=prompt_for,
                     paint_areas=page.paint_areas,
                     on_stage=lambda name, attempt: set_stage(name, page.number, attempt),
                     requested=tuple(requested_fixes.get(page.number, ())),
                     deadline=deadline,
                 )
-                await asyncio.to_thread(
-                    self._book_store.save_page,
-                    book_id,
-                    page.number,
-                    attempts.image,
-                    **_verdict(attempts),
-                )
-                await self._warm_picture(book_id, page_slot(page.number), attempts.image)
-                await self._record_prompts(book_id, page.number, page.key or "", attempts)
-                costs[page.number] = (
-                    "edit" if plate is not None else "compose",
-                    len(attempts.prompt),
-                    len(references),
-                )
-                await mark(page.number, "done")
-                # Only the size is kept: the picture is in the store, and the
-                # PDF reads it back from there (BookDocument.assemble).
-                return _Drawn(
-                    page=render_book_page(page, artwork.settings, prompt_name=prompt_name),
-                    size=len(attempts.image),
-                )
+                return attempts, ("edit" if plate is not None else "compose"), len(references)
 
             async def _use_premade(page: BookPage, pinned: PinnedPremade) -> _Drawn:
                 """Put the page's pre-made picture on it: no image call, no charge.
@@ -2242,6 +2308,7 @@ class BookRunner:
         on_stage: Callable[[str, int], Awaitable[None]] | None = None,
         requested: Sequence[str] = (),
         deadline: float | None = None,
+        scene: SceneCrop | None = None,
     ) -> Attempts:
         """One page's attempt loop (`page_attempts`), bound to this runner.
 
@@ -2254,6 +2321,8 @@ class BookRunner:
                 slots, kept from the drawing when the plate is pasted back.
             deadline: The `monotonic()` time the book should be finished by
                 (A1); None for no deadline.
+            scene: The approved scene a drawn crop is blended back into (A5);
+                None when the page is drawn whole.
         """
 
         async def locate(image: bytes, attempt: int) -> Sequence[Box] | None:
@@ -2271,6 +2340,7 @@ class BookRunner:
                     paint_areas=paint_areas,
                     figures=figures,
                     expected_ratio=_ratio(str(artwork.settings.aspect_ratio)),
+                    scene=scene,
                 )
             )
 
@@ -2881,9 +2951,35 @@ def _premade_for(
     has not asked to be redrawn: a fix request is a request for a new picture.
     """
     premade = artwork.premades.get(page.number)
-    if premade is None or page.star_in_picture:
+    if premade is None or page.star_in_picture or premade.figure is not None:
         return None
     if requested_fixes.get(page.number):
+        return None
+    if any(name in artwork.visitor_cast for name in page.cast):
+        return None
+    return premade
+
+
+def _scene_for(
+    page: BookPage,
+    artwork: _Artwork,
+    requested_fixes: Mapping[int, Sequence[str]],
+    *,
+    fixed_costume: bool,
+) -> PinnedPremade | None:
+    """The page's approved scene, when this book may draw only its child into it.
+
+    A scene is a finished page with a stand-in child at its figure box (A5).
+    Only for a page the star is in, in a story that dresses the star in a fixed
+    costume (the stand-in's clothes are kept, so a story whose outfit the
+    visitor picks cannot use one), with nobody else on the page the visitor
+    gave a photo of, and no redraw the owner asked for: a fix request is a
+    request for a new picture, drawn whole.
+    """
+    premade = artwork.premades.get(page.number)
+    if premade is None or premade.figure is None or not page.star_in_picture:
+        return None
+    if not fixed_costume or requested_fixes.get(page.number):
         return None
     if any(name in artwork.visitor_cast for name in page.cast):
         return None

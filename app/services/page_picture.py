@@ -21,6 +21,7 @@ from typing import Any
 
 from PIL import Image
 
+from app.services.figure_crop import SceneCrop, blend_back
 from app.services.image_review import Tier1Review, review_image
 from app.services.media import encode_page, media_type_for, remember_judge_copy
 from app.services.plate_paste import paste_plate_back
@@ -52,12 +53,17 @@ def prepare_page(
     paint_areas: Iterable[tuple[float, float, float, float]] = (),
     figures: Sequence[tuple[float, float, float, float]] | None = (),
     expected_ratio: float | None = None,
+    scene: SceneCrop | None = None,
 ) -> PreparedPage:
     """Paste the plate back (when there is one), run tier 1, keep it as a JPEG.
 
     `figures` are the boxes of the people and animals on the drawing, which
     the paste never covers; None means nobody could say where they are, and
     then the plate is not pasted at all, so no figure can be painted over.
+
+    With `scene`, `drawn` is only the crop around the scene's stand-in child
+    (`figure_crop.cut`), and the page is that crop blended back into the
+    scene; there is no plate to paste.
 
     Never raises on a picture it cannot read: the bytes are kept as they came
     and tier 1 fails them as undecodable, which is the attempt's verdict.
@@ -72,8 +78,13 @@ def prepare_page(
             tier1=review_image(drawn, expected_ratio=expected_ratio),
         )
 
-    background = _open_plate(plate, picture.size) if plate is not None else None
     paste: dict[str, Any] = {}
+    if scene is not None:
+        with Image.open(io.BytesIO(scene.image)) as opened:
+            whole = opened.convert("RGB")
+        picture = blend_back(whole, picture, scene.figure)
+        paste = {"scene": True}
+    background = _open_plate(plate, picture.size) if plate is not None else None
     if background is not None and figures is None:
         paste = {"pasted": False, "reason": "figures_unknown"}
     elif background is not None and figures is not None:
@@ -87,7 +98,7 @@ def prepare_page(
         }
         picture = pasted.image
 
-    if not paste.get("pasted") and media_type_for(drawn) == _JPEG:
+    if scene is None and not paste.get("pasted") and media_type_for(drawn) == _JPEG:
         image = drawn
     else:
         image = encode_page(picture)

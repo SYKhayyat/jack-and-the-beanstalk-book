@@ -514,12 +514,16 @@ class TemplatePortraitRow(Base):
 
 
 class TemplatePremadeRow(Base):
-    """A finished picture for a page the star is not in, made once from its plate.
+    """A finished picture of a page, made once from its plate.
 
-    Used instead of an image call when the visitor gave no photo of anyone on
-    the page, so the page is the same in every such book. It belongs to the
-    plate it was painted onto. Status moves draft -> approved -> retired, as
-    plates do; the image is never rewritten. A version pins the approved one.
+    On a page the star is not in, it is used instead of an image call when the
+    visitor gave no photo of anyone on the page, so the page is the same in
+    every such book. On a page the star is in it is a *scene*: painted with a
+    stand-in child at `figure` (x, y, width, height as shares), and a book
+    redraws only that box with its own child (app/services/figure_crop.py).
+    It belongs to the plate it was painted onto. Status moves draft ->
+    approved -> retired, as plates do; the image is never rewritten. A version
+    pins the approved one.
     """
 
     __tablename__ = "template_premade_pages"
@@ -534,6 +538,7 @@ class TemplatePremadeRow(Base):
     )
     image: Mapped[bytes] = mapped_column(BlobRef)
     media_type: Mapped[str] = mapped_column(String(50))
+    figure: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(16))
     approved_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
