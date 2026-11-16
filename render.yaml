@@ -120,9 +120,10 @@ services:
       - key: MAX_UPLOAD_MB
         value: "10"
 
-      # One budget per request, covering queueing and both model calls.
+      # One picture call's budget: a low-quality picture is back in 15-40 s,
+      # so one still running at two minutes has hung (audit 11-15 R2).
       - key: GENERATION_TIMEOUT_SECONDS
-        value: "600"
+        value: "120"
 
       # Admission control. Beyond this, requests queue and then get 429 rather
       # than fanning out into more billable calls. 8 ran the 512 MB instance
