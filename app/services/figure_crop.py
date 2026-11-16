@@ -7,7 +7,7 @@ out the stand-in with room around them (`cut`), the image model turns them into
 the book's child — face, skin and hair — and the result is blended back into
 the scene (`blend_back`) under a feathered superellipse mask, after a mean
 colour shift so the crop's light matches the page around it (audit 11-15 A5,
-after Ozer7's `lib/face.js`).
+after one of the other implementations).
 
 Everything outside the crop is the scene's own pixels, so the background, the
 supporting characters and the framing are identical in every book, and the
