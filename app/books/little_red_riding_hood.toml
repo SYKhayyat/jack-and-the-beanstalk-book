@@ -200,6 +200,8 @@ must_avoid = ["the child in this picture", "the wolf showing teeth or snarling",
 key = "the-cottage-door"
 title = "At the cottage door"
 cast = ["grandmother", "wolf"]
+# The whole quilt: the body under it makes a hump the plate does not have.
+paint_areas = [[0.35, 0.44, 0.28, 0.26]]
 staging = "door_and_bed"
 star_in_picture = false
 story = "'Who is there?' called Grandmother from her bed. 'It is me, your little {name},' said the wolf, in a voice like a child's. 'I have brought you bread and honey.' Grandmother was old and her ears were not sharp. 'Lift the latch and come in, dear,' she said. The wolf lifted the latch and went inside."
@@ -218,6 +220,8 @@ must_avoid = ["the child in this picture", "the wolf showing teeth or snarling",
 key = "the-cupboard"
 title = "The cupboard"
 cast = ["grandmother", "wolf"]
+# The whole quilt: the body under it makes a hump the plate does not have.
+paint_areas = [[0.00, 0.48, 0.40, 0.40]]
 staging = "bed_and_wolf"
 star_in_picture = false
 story = "Grandmother sat up in bed and saw the wolf's grey face. She opened her mouth to call out, but the wolf raised one paw. 'Not a sound,' he said, 'and no one will be hurt.' He took her hand and helped her into the tall wooden cupboard, and shut the door. Then he put on her cap and her shawl and climbed into her bed."
@@ -236,6 +240,8 @@ must_avoid = ["the child in this picture", "the wolf biting, scratching or grabb
 key = "the-disguise"
 title = "The disguise"
 cast = ["wolf"]
+# The whole quilt: the body under it makes a hump the plate does not have.
+paint_areas = [[0.29, 0.32, 0.42, 0.32]]
 staging = "wolf_in_bed"
 star_in_picture = false
 story = "The wolf pulled the white cap down over his ears and wrapped the shawl around his shoulders. He got into her bed and pulled up the blanket. In the warm, dark room, with the curtains half closed, he looked almost like Grandmother. He waited, and his bright eyes shone in the dim light."
@@ -254,6 +260,8 @@ must_avoid = ["the child in this picture", "Grandmother in this picture", "the w
 key = "red-arrives"
 title = "The strange Grandmother"
 cast = ["wolf"]
+# The whole quilt: the body under it makes a hump the plate does not have.
+paint_areas = [[0.35, 0.46, 0.30, 0.24]]
 staging = "door_to_the_bed"
 story = "{name} came up the garden path with the basket and the flowers. The blue door stood open, just a little. 'Grandmother?' {subject} called. There was no answer. {Subject} went inside. The room was warm and quiet, and someone was lying in the bed with a white cap on."
 beat = "{name} arrives at the cottage, finds the door ajar and a figure in the bed."
@@ -271,6 +279,8 @@ must_avoid = ["an enlarged head, oversized face or close-up of {name}", "the wol
 key = "big-ears"
 title = "What big ears"
 cast = ["wolf"]
+# The whole quilt: the body under it makes a hump the plate does not have.
+paint_areas = [[0.12, 0.30, 0.46, 0.34]]
 staging = "beside_the_bed"
 story = "'Grandmother, what big ears you have,' said {name}. 'All the better to hear you with, my dear,' said the wolf. 'And Grandmother, what big eyes you have.' 'All the better to see you with,' said the wolf. His voice was not quite like Grandmother's voice. It was deeper, and it made {name} take one small step back."
 beat = "{name} notices the wolf's big ears and big eyes, and his voice sounds wrong."

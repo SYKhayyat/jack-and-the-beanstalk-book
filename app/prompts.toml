@@ -397,7 +397,7 @@ slot_on_ground = "The figure stands where the plate's ground is."
 slot_floating = "The figure rests on whatever the plate puts under it at that point; if the plate has no ground there, place it against the nearest thing it can stand on — never floating in the sky."
 # A slot whose figure is not on its feet. The bed is in the plate: the figure is
 # IN it, under its covers, not standing beside it.
-slot_in_bed = "The figure is IN the plate's bed at that point, under the bedclothes: lying with the head on the pillow, or sitting up against the pillow if the moment says so, the covers pulled up over the body so only the head, shoulders and arms show above them. It is never standing beside the bed, sitting on its edge or lying on top of the covers."
+slot_in_bed = "The figure is IN the plate's bed at that point, under the bedclothes: lying with the head on the pillow, or sitting up against the pillow if the moment says so, the covers pulled up over the body so only the head, shoulders and arms show above them. The covers show the body under them: a long ridge for the legs down the bed and a clear hump at the knees and feet, never a flat quilt. It is never standing beside the bed, sitting on its edge or lying on top of the covers."
 slot_kneeling = "The figure kneels on the plate's ground at that point, down at the height of whoever it faces."
 slot_seated = "The figure sits on whatever the plate puts at that point (a chair, a bench, a step), not standing."
 # Facing, in words rather than a direction key.

@@ -119,7 +119,9 @@ class TestPaintAreas:
 
     def test_a_page_without_areas_stores_none(self) -> None:
         seed = seed_from_mapping(RED_DATA, str(RED_PATH))
-        others = [c for _, c in _seed_pages(seed) if c["page_key"] != SUPPER]
+        declared = {page.key for page in seed.pages if page.scene.paint_areas}
+        others = [c for _, c in _seed_pages(seed) if c["page_key"] not in declared]
+        assert others
         assert all("paint_areas" not in c["scene"] for c in others)
 
     @pytest.mark.parametrize(
