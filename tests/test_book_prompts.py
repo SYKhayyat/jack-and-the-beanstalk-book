@@ -122,11 +122,12 @@ def test_model_is_told_not_to_draw_text() -> None:
     assert "no writing" in prompt or "Do not draw any text" in prompt
 
 
-def test_both_identity_anchors_are_named_in_the_task() -> None:
+def test_the_portrait_is_the_one_identity_anchor() -> None:
+    """One image of the child, so the drawer has one face to match, not two."""
     settings = CartoonSettings()
     prompt = _prompt(BOOK_PAGES[1], settings, 2)
-    assert "cartoon portrait" in prompt
-    assert "original photograph" in prompt
+    assert "approved cartoon portrait" in prompt
+    assert "original photograph" not in prompt
 
 
 def test_the_whole_frame_is_the_picture() -> None:

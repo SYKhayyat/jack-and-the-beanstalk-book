@@ -124,13 +124,13 @@ class TestReferenceMediaTypes:
         assert final["status"] == "complete", final
         pages = [request for request in provider.requests if request.label == "book-page"]
         assert pages
-        # The child's two anchors: portrait then photo (normalised to JPEG).
+        # The child's one anchor: the approved portrait (normalised to JPEG).
         for request in pages:
             assert request.reference_media_types[0] == "image/jpeg"
-        with_mother = [request for request in pages if len(request.reference_images) == 4]
+        with_mother = [request for request in pages if len(request.reference_images) == 3]
         assert with_mother, "no page sent the mother's references"
         for request in with_mother:
-            assert request.reference_media_types[2] == "image/jpeg"
+            assert request.reference_media_types[1] == "image/jpeg"
 
 
 def make_portrait(client: TestClient, **overrides: object) -> dict[str, object]:

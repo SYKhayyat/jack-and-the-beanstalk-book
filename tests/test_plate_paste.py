@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from PIL import Image, ImageDraw
 
 from app.services.plate_paste import CAMERA_MOVED_LIMIT, paste_plate_back
@@ -92,3 +93,74 @@ class TestPastingThePlateBack:
         result = paste_plate_back(_drawn(), small, (SLOT,))
         assert result.pasted is True
         assert result.image.size == SIZE
+
+
+GRASS = (90, 150, 70)
+#: A pale figure: close to the grass in colour, as the see-through pages were.
+PALE = (118, 168, 98)
+
+
+def _grass_plate() -> Image.Image:
+    """A plate with texture: blades of grass, the kind a pale figure hides in."""
+    image = Image.new("RGB", SIZE, GRASS)
+    draw = ImageDraw.Draw(image)
+    for x in range(0, SIZE[0], 12):
+        draw.line((x, SIZE[1], x + 4, 380), fill=(70, 125, 55), width=2)
+    return image
+
+
+def _pale_figure(plate: Image.Image, box: tuple[int, int, int, int]) -> Image.Image:
+    """The plate with a pale figure painted over it: little colour change, new outline."""
+    image = plate.copy()
+    ImageDraw.Draw(image).ellipse(box, fill=PALE, outline=(60, 60, 50), width=3)
+    return image
+
+
+class TestFiguresAreNeverPastedOver:
+    def test_a_pale_figure_outside_every_slot_is_kept_when_located(self) -> None:
+        plate = _grass_plate()
+        drawn = _pale_figure(plate, (520, 260, 640, 560))
+        # Without its box the plate goes back over it: the see-through page.
+        ghost = paste_plate_back(drawn, plate, (SLOT,))
+        assert _pixel(ghost.image, (580, 300)) != PALE
+        located = paste_plate_back(drawn, plate, (SLOT,), figures=[(0.65, 0.43, 0.15, 0.5)])
+        assert _pixel(located.image, (580, 300)) == PALE
+
+    def test_a_pale_figure_touching_a_slot_is_kept_by_its_outline(self) -> None:
+        """Its colour is under the strong-change bar; its outline is not."""
+        plate = _grass_plate()
+        drawn = _pale_figure(plate, (250, 220, 420, 560))
+        result = paste_plate_back(drawn, plate, (SLOT,))
+        assert _pixel(result.image, (400, 390)) == PALE
+
+    def test_what_a_figure_encloses_is_kept(self) -> None:
+        """The plate is not pasted into a hole the drawing closed in."""
+        plate = _plate()
+        drawn = plate.copy()
+        draw = ImageDraw.Draw(drawn)
+        # A ring-shaped figure (an arm on the hip) with the sky inside it, tinted.
+        draw.ellipse((300, 200, 560, 460), fill=(150, 170, 200))
+        draw.ellipse((300, 200, 560, 460), outline=FIGURE, width=14)
+        result = paste_plate_back(drawn, plate, (SLOT,), figures=[(0.375, 0.333, 0.03, 0.43)])
+        assert _pixel(result.image, (430, 330)) == (150, 170, 200)
+
+    def test_background_drift_far_from_every_figure_is_still_undone(self) -> None:
+        result = paste_plate_back(
+            _drawn(), _plate(), (SLOT,), figures=[(0.12, 0.33, 0.22, 0.6)]
+        )
+        assert result.pasted is True
+        assert _pixel(result.image, (575, 200)) == SKY
+        assert _pixel(result.image, (180, 400)) == FIGURE
+
+    def test_a_paste_that_would_touch_a_figure_is_not_made(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The final check: a figure is drawn as drawn, or the page is left alone."""
+        import app.services.plate_paste as paste
+
+        monkeypatch.setattr(paste, "_padded", lambda _rect: (0.0, 0.0, 0.0, 0.0))
+        drawn = _drawn()
+        result = paste.paste_plate_back(drawn, _plate(), (), figures=[(0.69, 0.1, 0.1, 0.5)])
+        assert result.pasted is False
+        assert result.spared is True
+        assert result.image is drawn

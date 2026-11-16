@@ -59,7 +59,13 @@ class ScriptedJudge:
     portraits: list[bytes | None] = field(default_factory=list)
 
     def decide(
-        self, image: bytes, *, brief: str, cast: str, portrait: bytes | None = None
+        self,
+        image: bytes,
+        *,
+        brief: str,
+        cast: str,
+        portrait: bytes | None = None,
+        star: Any = None,
     ) -> Decision:
         self.calls += 1
         self.portraits.append(portrait)

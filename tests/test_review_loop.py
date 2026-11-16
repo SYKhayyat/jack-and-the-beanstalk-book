@@ -195,11 +195,16 @@ class ScriptedReviewer:
     default: Any = None
     calls: int = 0
     hair_calls: int = 0
+    figure_calls: int = 0
     portraits: list[bytes | None] = field(default_factory=list)
 
-    def describe_hair(self, portrait: bytes) -> str:
+    def describe_star(self, portrait: bytes) -> str:
         self.hair_calls += 1
-        return "Short curly brown hair."
+        return "A girl of about six with short curly brown hair."
+
+    def locate_figures(self, image: bytes) -> tuple[Any, ...]:
+        self.figure_calls += 1
+        return ()
 
     def review(self, image: bytes, **kwargs: Any) -> Any:
         self.calls += 1
@@ -729,7 +734,7 @@ class TestMendingAPage:
     def test_every_plate_draw_records_the_paste(self) -> None:
         result, _, _ = self._run([said(True, 90)])
         paste = result.verdicts[0]["plate_paste"]
-        assert set(paste) == {"pasted", "restored", "drift"}
+        assert set(paste) == {"pasted", "restored", "drift", "figures"}
         assert paste["pasted"] is True
 
     def test_drift_outside_the_slot_is_gone_before_the_review(self) -> None:
@@ -747,32 +752,33 @@ class TestMendingAPage:
         assert _near(kept.getpixel((150, 600)), (60, 45, 35))
 
 
-class TestLookingAtTheHair:
-    """The portrait's hair is described once, and only when nobody picked it."""
+class TestLookingAtTheStar:
+    """The portrait's child is described once per book, picked hair or not."""
 
     @staticmethod
     def _seen(reviewer: Any, settings: CartoonSettings) -> tuple[str, BookRunner]:
         runner = runner_with(reviewer)
         art = Mock(settings=settings, portrait=b"portrait")
-        seen = asyncio.run(runner._hair_seen(art, book_id="b", user="u"))
+        seen = asyncio.run(runner._star_seen(art, book_id="b", user="u"))
         return seen, runner
 
-    def test_picked_hair_needs_no_look(self) -> None:
+    def test_picked_hair_is_still_described(self) -> None:
+        """The description is the likeness, not only the hair: every book gets one."""
         reviewer = ScriptedReviewer(answers=[])
         settings = CartoonSettings(hair_style=HairStyle.SHORT, hair_color=HairColour.BROWN)
-        assert self._seen(reviewer, settings)[0] == ""
-        assert reviewer.hair_calls == 0
+        assert "curly brown hair" in self._seen(reviewer, settings)[0]
+        assert reviewer.hair_calls == 1
 
-    def test_the_photos_hair_is_looked_at_once(self) -> None:
+    def test_the_portrait_is_described_once(self) -> None:
         reviewer = ScriptedReviewer(answers=[])
-        assert self._seen(reviewer, CartoonSettings())[0] == "Short curly brown hair."
+        assert "curly brown hair" in self._seen(reviewer, CartoonSettings())[0]
         assert reviewer.hair_calls == 1
 
     def test_a_reviewer_that_is_down_says_nothing_and_rests(self) -> None:
         class Down:
             name = "down"
 
-            def describe_hair(self, _portrait: bytes) -> str:
+            def describe_star(self, _portrait: bytes) -> str:
                 raise RuntimeError("no route")
 
         seen, runner = self._seen(Down(), CartoonSettings())
@@ -1058,7 +1064,10 @@ class TestTheLoopEndToEnd:
             def review(self, *_: Any, **__: Any) -> Any:
                 raise RuntimeError("the reviewer is down")
 
-            def describe_hair(self, portrait: bytes) -> str:
+            def describe_star(self, portrait: bytes) -> str:
+                raise RuntimeError("the reviewer is down")
+
+            def locate_figures(self, image: bytes) -> tuple[Any, ...]:
                 raise RuntimeError("the reviewer is down")
 
         payload = self._a_book(settings, tmp_path, ABigPainter(), AlwaysDown())

@@ -53,7 +53,7 @@ __all__ = [
     "build_fix_edit_prompt",
     "build_plate_edit_prompt",
     "render_book_page",
-    "star_hair",
+    "star_look",
 ]
 
 _DATA = prompt_text()
@@ -218,8 +218,10 @@ def _reference_map(
 ) -> str:
     """The per-page reference order, matching the images sent with this call.
 
-    A face kept without a cartoon (`photo_only`: "" for the child, else the
-    cast key) is one image, the photograph, not a portrait and a photograph.
+    The child is sent as one image, the approved portrait, on every page
+    (the photograph only for a book made before there was a portrait): the one
+    picture the reviewer and the judge hold every page to. A supporting face
+    kept without a cartoon (`photo_only`, by cast key) is its photograph alone.
     A page the child is not in sends no image of the child.
     """
     if not star_in_picture:
@@ -227,7 +229,7 @@ def _reference_map(
     elif "" in photo_only:
         entries = ["1) the child's photograph"]
     else:
-        entries = ["1) the child's cartoon portrait", "2) the child's photograph"]
+        entries = ["1) the child's approved cartoon portrait"]
     position = len(entries) + 1
     for name in character_photos:
         label = story.cast[name].label
@@ -384,7 +386,7 @@ def build_book_page_prompt(
     character_photos: Iterable[str] = (),
     photo_only: frozenset[str] = frozenset(),
     correction: str = "",
-    hair_seen: str = "",
+    star_seen: str = "",
 ) -> str:
     """Prompt for one picture-book page.
 
@@ -515,7 +517,7 @@ def build_book_page_prompt(
             story, character_photos, photo_only, star_in_picture=page.star_in_picture
         ),
         "" if page.star_in_picture else task_book["star_absent"].format(name=subs["name"]),
-        star_hair(settings, subs["name"], hair_seen) if page.star_in_picture else "",
+        star_look(settings, subs["name"], star_seen) if page.star_in_picture else "",
         task_book["full_frame"],
         *_scene_block(page.scene, page.emotion),
         correction,
@@ -546,7 +548,7 @@ def build_cover_prompt(
     story: StoryEdition,
     prompt_name: str,
     correction: str = "",
-    hair_seen: str = "",
+    star_seen: str = "",
 ) -> str:
     """Prompt for the book's one cover call.
 
@@ -577,7 +579,7 @@ def build_cover_prompt(
             intensity=_book_intensity_text(settings.cartoon_intensity)
         ),
         _common_character_block(settings, subs, _star_outfit(story, settings, name)),
-        star_hair(settings, name, hair_seen),
+        star_look(settings, name, star_seen),
         *_cover_cast(story, cover.cast),
         # The places and props on the cover are the book's own.
         wording.page_world.format(**subs),
@@ -802,7 +804,7 @@ def build_plate_edit_prompt(
     supplied_characters: Iterable[str] = (),
     retry_faults: Sequence[str] = (),
     retry_findings: str = "",
-    hair_seen: str = "",
+    star_seen: str = "",
 ) -> str:
     """Prompt for one edit call: paint the cast into an approved plate, acting.
 
@@ -846,8 +848,8 @@ def build_plate_edit_prompt(
         retry_findings: The reviewer's own description of the previous attempt
             (what is wrong and where), quoted after the fault list. Empty when
             no reviewer looked, or on a redraw the owner asked for.
-        hair_seen: The child's hair as the reviewer saw it in the portrait,
-            for a visitor who kept the photo's hair (`star_hair`).
+        star_seen: The book's one description of the child, read off the
+            approved portrait (`star_look`).
     """
     edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
     lines = [
@@ -859,7 +861,7 @@ def build_plate_edit_prompt(
             settings=settings,
             prompt_name=prompt_name,
             supplied_characters=supplied_characters,
-            hair_seen=hair_seen,
+            star_seen=star_seen,
             preserve=edit["preserve"],
             reference_images=edit["reference_images"],
             cover=cover,
@@ -885,7 +887,7 @@ def build_fix_edit_prompt(
     findings: str = "",
     cover: bool = False,
     supplied_characters: Iterable[str] = (),
-    hair_seen: str = "",
+    star_seen: str = "",
 ) -> str:
     """Prompt for a fix: send a nearly-right page back with what is wrong with it.
 
@@ -914,7 +916,7 @@ def build_fix_edit_prompt(
             settings=settings,
             prompt_name=prompt_name,
             supplied_characters=supplied_characters,
-            hair_seen=hair_seen,
+            star_seen=star_seen,
             preserve="",
             reference_images=fix["reference_images"],
             cover=cover,
@@ -934,7 +936,7 @@ def _edit_body(
     settings: CartoonSettings,
     prompt_name: str,
     supplied_characters: Iterable[str],
-    hair_seen: str,
+    star_seen: str,
     preserve: str,
     reference_images: str,
     cover: bool,
@@ -971,7 +973,9 @@ def _edit_body(
             star_outfit=_star_outfit(story, settings, prompt_name),
             supplied=frozenset(supplied_characters),
         ),
-        star_hair(settings, prompt_name, hair_seen) if page.star_in_picture else "",
+        star_look(settings, prompt_name, star_seen) if page.star_in_picture else "",
+        # The visitor's likeness dial, the same bar the reviewer holds the page to.
+        _LIKENESS_EMPHASIS[settings.likeness_strength] if page.star_in_picture else "",
         _show_clause(scene),
         edit["no_extras"],
         _avoid_clause(scene),
@@ -1038,32 +1042,27 @@ def _reference_line(
     return template.format(entries="; ".join(entries))
 
 
-def star_hair(settings: CartoonSettings, prompt_name: str, seen: str = "") -> str:
-    """The star's hair as one prompt line, or "" when there is nothing to say.
+def star_look(settings: CartoonSettings, prompt_name: str, seen: str = "") -> str:
+    """The star's look as one prompt line, or "" when there is nothing to say.
 
-    The visitor's hair picks win; where they kept the photo's hair, `seen` (the
-    reviewer's one sentence about the approved portrait) says what that hair
-    is. With neither — the photo's hair kept and no reviewer to look — the
-    portrait reference alone carries it, as it always did.
+    `seen` is the book's one description of the child, read off the approved
+    portrait by the reviewer (`describe_star`): the same words the reviewer and
+    the decision judge check every page against. The portrait was drawn from
+    the visitor's hair picks, so the description already carries them; only
+    when no reviewer could look do the picks stand in, on their own.
     """
-    picked = [
+    said = seen.strip() or " ".join(
         description
         for value, description in (
             (settings.hair_style, _HAIR_STYLE_DESCRIPTIONS[settings.hair_style]),
             (settings.hair_color, _HAIR_COLOUR_DESCRIPTIONS[settings.hair_color]),
         )
         if value not in (HairStyle.AS_UPLOADED, HairColour.AS_UPLOADED)
-    ]
-    seen = seen.strip()
-    if seen and len(picked) == 1:
-        # One pick, one kept from the photo: the pick governs, the portrait
-        # supplies the rest.
-        seen = f"Otherwise as in the portrait: {seen}"
-    said = " ".join([*picked, *([seen] if seen and len(picked) < 2 else [])])
+    )
     if not said:
         return ""
     edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
-    return edit["star_hair"].format(name=prompt_name, hair=said)
+    return edit["star_look"].format(name=prompt_name, look=said)
 
 
 def _slot_block(slots: Sequence[Slot], story: StoryEdition, *, cover: bool) -> str:

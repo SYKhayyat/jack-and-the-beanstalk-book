@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict
 
+from app.models.settings import LikenessStrength
 from app.prompt_data import prompt_text
 from app.services.gemini_web.attachment import Attachment
 from app.services.image_providers.base import ProviderError
@@ -232,6 +233,37 @@ class ReviewAnswer:
     note: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class Figure:
+    """One person or animal the reviewer found in a picture."""
+
+    what: str
+    #: (x, y, width, height) as shares of the picture, like a slot's rect.
+    rect: tuple[float, float, float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class StarLook:
+    """What the book's child looks like, and how closely every page must match.
+
+    One per book: `look` is the reviewer's description of the approved
+    portrait (`describe_star`), the same words every page was drawn from, and
+    `strength` is the visitor's likeness dial, the same bar the pages were
+    drawn to. The reviewer and the decision judge hold the child to both.
+    """
+
+    look: str = ""
+    strength: LikenessStrength = LikenessStrength.BALANCED
+
+    def rule(self) -> str:
+        """The reviewer's likeness rule for this book."""
+        review = prompt_text()["review"]
+        look = review["look_line"].format(look=self.look) if self.look else ""
+        return str(review["likeness_rule"]).format(
+            look_line=look, standard=review["likeness_standard"][self.strength.value]
+        )
+
+
 class ImageReviewer(Protocol):
     """The tier-2 contract: one picture in, one structured answer out."""
 
@@ -247,6 +279,7 @@ class ImageReviewer(Protocol):
         cast: str,
         plate: bytes | None = None,
         portrait: bytes | None = None,
+        star: StarLook | None = None,
     ) -> ReviewAnswer:
         """Judge one picture against one page's checklist.
 
@@ -257,20 +290,35 @@ class ImageReviewer(Protocol):
         `plate` is the empty background the picture was painted into, when
         there is one. A reviewer that can use it also checks the picture kept it.
         `portrait` is the book's approved portrait of the child, on a page the
-        child is in; a reviewer that can use it also checks the likeness.
+        child is in; a reviewer that can use it also checks the likeness, by
+        `star` (the book's description of the child and its likeness dial).
         """
         ...
 
-    def describe_hair(self, portrait: bytes) -> str:
-        """The child's hair in the approved portrait, as one painter's sentence.
+    def describe_star(self, portrait: bytes) -> str:
+        """The child in the approved portrait, in at most two painter's sentences.
 
-        Asked once per book when the visitor kept the photo's hair, so every
-        page prompt can say what that hair is (a hood or a nightcap otherwise
-        comes back with new hair under it).
+        Asked once per book. Every page prompt says it (a page drawn from the
+        portrait alone came back as a generic child, and a hood or a nightcap
+        with new hair under it), and the reviewer and the decision judge check
+        each page's child against the same words (`StarLook`).
 
         Raises:
             ProviderError: the model was reached and failed. The caller draws
-                the book without the sentence.
+                the book without the description.
+        """
+        ...
+
+    def locate_figures(self, image: bytes) -> tuple[Figure, ...]:
+        """Where every person and animal is in a drawn page, before the paste.
+
+        The plate paste never restores a pixel inside one of these boxes, so a
+        face as pale as the wall behind it is not painted over.
+
+        Raises:
+            ProviderError: the model was reached and failed, or answered
+                unparseably. The caller pastes without boxes, keeping the
+                drawing wherever it changed.
         """
         ...
 
@@ -294,12 +342,17 @@ class UnavailableReviewer:
         cast: str,
         plate: bytes | None = None,
         portrait: bytes | None = None,
+        star: StarLook | None = None,
     ) -> ReviewAnswer:
-        del image, media_type, page_title, story_line, cast, plate, portrait  # unused
+        del image, media_type, page_title, story_line, cast, plate, portrait, star  # unused
         raise ReviewerUnavailable("no reviewer is configured")
 
-    def describe_hair(self, portrait: bytes) -> str:
+    def describe_star(self, portrait: bytes) -> str:
         del portrait  # unused
+        raise ReviewerUnavailable("no reviewer is configured")
+
+    def locate_figures(self, image: bytes) -> tuple[Figure, ...]:
+        del image  # unused
         raise ReviewerUnavailable("no reviewer is configured")
 
 
@@ -350,6 +403,7 @@ class GeminiReviewer:
         cast: str,
         plate: bytes | None = None,
         portrait: bytes | None = None,
+        star: StarLook | None = None,
     ) -> ReviewAnswer:
         instruction = prompt_text()["review"]["instruction"].format(
             page_title=page_title,
@@ -357,7 +411,7 @@ class GeminiReviewer:
             cast=cast,
             pass_score=PASS_SCORE,
         )
-        del plate, portrait  # Gemini is asked the one-picture question only
+        del plate, portrait, star  # Gemini is asked the one-picture question only
         contents: list[Any] = [
             self._types.Part.from_bytes(data=image, mime_type=media_type),
             self._types.Part.from_text(text=instruction),
@@ -367,13 +421,21 @@ class GeminiReviewer:
         )
         return parse_answer(self._generate(contents))
 
-    def describe_hair(self, portrait: bytes) -> str:
+    def describe_star(self, portrait: bytes) -> str:
         contents: list[Any] = [
             self._types.Part.from_bytes(data=portrait, mime_type=media_type_for(portrait)),
-            self._types.Part.from_text(text=prompt_text()["review"]["hair"]),
+            self._types.Part.from_text(text=prompt_text()["review"]["star"]),
         ]
-        logger.info("review.hair model=%s image_bytes=%d", self._model, len(portrait))
-        return hair_sentence(self._generate(contents))
+        logger.info("review.star model=%s image_bytes=%d", self._model, len(portrait))
+        return star_sentence(self._generate(contents))
+
+    def locate_figures(self, image: bytes) -> tuple[Figure, ...]:
+        contents: list[Any] = [
+            self._types.Part.from_bytes(data=image, mime_type=media_type_for(image)),
+            self._types.Part.from_text(text=prompt_text()["review"]["figures"]),
+        ]
+        logger.info("review.figures model=%s image_bytes=%d", self._model, len(image))
+        return parse_figures(self._generate(contents))
 
     def _generate(self, contents: list[Any]) -> str:
         """One call, re-asked only while the service is busy; the answer's text."""
@@ -452,6 +514,7 @@ class OpenAIReviewer:
         cast: str,
         plate: bytes | None = None,
         portrait: bytes | None = None,
+        star: StarLook | None = None,
     ) -> ReviewAnswer:
         del media_type  # every picture is re-encoded as a JPEG before it is sent
         review = prompt_text()["review"]
@@ -474,7 +537,7 @@ class OpenAIReviewer:
                 }
             )
         if portrait is not None:
-            content.append({"type": "text", "text": review["likeness_rule"]})
+            content.append({"type": "text", "text": (star or StarLook()).rule()})
             content.append(
                 {"type": "image_url", "image_url": {"url": jpeg_data_url(portrait)}}
             )
@@ -488,13 +551,21 @@ class OpenAIReviewer:
         )
         return parse_answer(self._complete(content, json_answer=True))
 
-    def describe_hair(self, portrait: bytes) -> str:
+    def describe_star(self, portrait: bytes) -> str:
         content: list[dict[str, Any]] = [
-            {"type": "text", "text": prompt_text()["review"]["hair"]},
+            {"type": "text", "text": prompt_text()["review"]["star"]},
             {"type": "image_url", "image_url": {"url": jpeg_data_url(portrait)}},
         ]
-        logger.info("review.hair model=%s image_bytes=%d", self._model, len(portrait))
-        return hair_sentence(self._complete(content, json_answer=False))
+        logger.info("review.star model=%s image_bytes=%d", self._model, len(portrait))
+        return star_sentence(self._complete(content, json_answer=False))
+
+    def locate_figures(self, image: bytes) -> tuple[Figure, ...]:
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": prompt_text()["review"]["figures"]},
+            {"type": "image_url", "image_url": {"url": jpeg_data_url(image)}},
+        ]
+        logger.info("review.figures model=%s image_bytes=%d", self._model, len(image))
+        return parse_figures(self._complete(content, json_answer=True))
 
     def _complete(self, content: list[dict[str, Any]], *, json_answer: bool) -> str:
         """One Chat Completions call with `content` as the user turn; its text."""
@@ -521,19 +592,19 @@ class OpenAIReviewer:
         return response.choices[0].message.content or ""
 
 
-#: The longest hair sentence passed on to the painter: one sentence is far less.
-_HAIR_LIMIT = 200
+#: The longest description of the child passed on: two sentences are far less.
+_STAR_LIMIT = 400
 
 
-def hair_sentence(text: str) -> str:
-    """A model's hair description as one prompt-safe sentence, or "".
+def star_sentence(text: str) -> str:
+    """A model's description of the child as one prompt-safe line, or "".
 
     Flattened to one line, stripped of quote marks and capped, so a rambling or
     odd answer cannot grow every page prompt of the book.
     """
     flat = " ".join(text.replace('"', "").replace("`", "").split())
-    if len(flat) > _HAIR_LIMIT:
-        flat = flat[:_HAIR_LIMIT].rsplit(" ", 1)[0].rstrip(",;:")
+    if len(flat) > _STAR_LIMIT:
+        flat = flat[:_STAR_LIMIT].rsplit(" ", 1)[0].rstrip(",;:")
     if flat and flat[-1] not in ".!?":
         flat += "."
     return flat
@@ -564,6 +635,7 @@ class GeminiWebReviewer:
         cast: str,
         plate: bytes | None = None,
         portrait: bytes | None = None,
+        star: StarLook | None = None,
     ) -> ReviewAnswer:
         del media_type  # every picture is re-encoded as a JPEG before it is sent
         review = prompt_text()["review"]
@@ -584,7 +656,7 @@ class GeminiWebReviewer:
         if portrait is not None:
             images.append(Attachment(judge_jpeg(portrait)))
             order.append(review["web_portrait"])
-            rules.append(review["likeness_rule"])
+            rules.append((star or StarLook()).rule())
         text = "\n\n".join([review["web_order"].format(order="; ".join(order)), *rules])
         logger.info(
             "review.call model=gemini-web page=%r plate=%s portrait=%s",
@@ -594,10 +666,51 @@ class GeminiWebReviewer:
         )
         return parse_answer(self._client.ask(text, images))
 
-    def describe_hair(self, portrait: bytes) -> str:
-        logger.info("review.hair model=gemini-web image_bytes=%d", len(portrait))
-        hair = prompt_text()["review"]["hair"]
-        return hair_sentence(self._client.ask(hair, [Attachment(judge_jpeg(portrait))]))
+    def describe_star(self, portrait: bytes) -> str:
+        logger.info("review.star model=gemini-web image_bytes=%d", len(portrait))
+        ask = prompt_text()["review"]["star"]
+        return star_sentence(self._client.ask(ask, [Attachment(judge_jpeg(portrait))]))
+
+    def locate_figures(self, image: bytes) -> tuple[Figure, ...]:
+        logger.info("review.figures model=gemini-web image_bytes=%d", len(image))
+        ask = prompt_text()["review"]["figures"]
+        return parse_figures(self._client.ask(ask, [Attachment(judge_jpeg(image))]))
+
+
+def parse_figures(text: str) -> tuple[Figure, ...]:
+    """The figures in a model's answer, as clamped fractional rects.
+
+    A box the model gave the wrong way round is put right; a box with no area
+    after clamping, or an entry with no usable box, is dropped (one bad entry
+    must not lose the others). An answer with no `figures` list at all is a
+    failure: the caller must not read it as "nobody is here".
+    """
+    match = _JSON_OBJECT.search(text)
+    if match is None:
+        raise ProviderError("the figure answer had no JSON object in it")
+    try:
+        raw = json.loads(match.group(0))
+    except json.JSONDecodeError as exc:
+        raise ProviderError(f"the figure answer's JSON did not parse: {exc}") from None
+    items = raw.get("figures") if isinstance(raw, dict) else None
+    if not isinstance(items, list):
+        raise ProviderError("the figure answer had no `figures` list")
+    figures: list[Figure] = []
+    for item in items:
+        box = item.get("box") if isinstance(item, dict) else None
+        if not isinstance(box, list) or len(box) != 4:
+            continue
+        try:
+            x0, y0, x1, y1 = (min(1.0, max(0.0, float(v) / 1000.0)) for v in box)
+        except (TypeError, ValueError):
+            continue
+        x0, x1 = sorted((x0, x1))
+        y0, y1 = sorted((y0, y1))
+        if x1 - x0 <= 0.0 or y1 - y0 <= 0.0:
+            continue
+        what = " ".join(str(item.get("what", "")).split())[:80]
+        figures.append(Figure(what=what, rect=(x0, y0, x1 - x0, y1 - y0)))
+    return tuple(figures)
 
 
 def parse_answer(text: str) -> ReviewAnswer:

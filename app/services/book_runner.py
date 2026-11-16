@@ -46,7 +46,7 @@ from typing import Any, TypeVar, cast
 
 from app.errors import BookBusy
 from app.models.book import BookPage
-from app.models.settings import CartoonSettings, HairColour, HairStyle
+from app.models.settings import CartoonSettings
 from app.models.story import StoryEdition
 from app.prompt_data import prompt_text
 from app.services.book_document import COVER_KEY, COVER_NUMBER, BookDocument
@@ -95,6 +95,7 @@ from app.services.reviewer import (
     ImageReviewer,
     ReviewAnswer,
     ReviewerQuotaSpent,
+    StarLook,
     UnavailableReviewer,
     Verdict,
     verdict_passes,
@@ -361,11 +362,10 @@ class _Artwork:
     premades: Mapping[int, PinnedPremade] = field(default_factory=dict)
     #: The cast keys the visitor gave a photo of (fixed portraits are not these).
     visitor_cast: frozenset[str] = frozenset()
-    #: The reviewer's one sentence about the star's hair in the approved
-    #: portrait, for a visitor who kept the photo's hair: said on every page so
-    #: a hood or a cap does not get new hair under it. "" when not needed or
-    #: when there was no reviewer to ask.
-    hair_seen: str = ""
+    #: The reviewer's description of the child in the approved portrait (age,
+    #: face, eyes, glasses, skin, hair): the one description every draw, fix,
+    #: review and decision of the book uses. "" when no reviewer could look.
+    star_seen: str = ""
 
 
 class BookRunner:
@@ -1278,9 +1278,9 @@ class BookRunner:
             artwork = await asyncio.to_thread(self._artwork, record)
             loaded_at = monotonic()
             artwork = replace(
-                artwork, hair_seen=await self._hair_seen(artwork, book_id=book_id, user=user)
+                artwork, star_seen=await self._star_seen(artwork, book_id=book_id, user=user)
             )
-            hair_at = monotonic()
+            star_at = monotonic()
             edition = await asyncio.to_thread(self._templates.book_edition, book_id)
             pages = list(edition.pages)
             total = len(pages)
@@ -1303,11 +1303,11 @@ class BookRunner:
             )
             # The wait before page 1 starts, by step (audit 11-15 S1).
             logger.info(
-                "book.setup id=%s ms_artwork=%d ms_hair=%d ms_plan=%d",
+                "book.setup id=%s ms_artwork=%d ms_star=%d ms_plan=%d",
                 book_id,
                 (loaded_at - started) * 1000,
-                (hair_at - loaded_at) * 1000,
-                (monotonic() - hair_at) * 1000,
+                (star_at - loaded_at) * 1000,
+                (monotonic() - star_at) * 1000,
             )
             # What this job is, kept in every status write: a restart resumes
             # exactly it, with the fixes its owner asked for (`recover`).
@@ -1467,7 +1467,7 @@ class BookRunner:
                             faults=faults,
                             findings=findings,
                             supplied_characters=tuple(artwork.characters),
-                            hair_seen=artwork.hair_seen,
+                            star_seen=artwork.star_seen,
                         )
                     if plate is not None:
                         # The edit pass (T8): the approved plate is the world and
@@ -1481,7 +1481,7 @@ class BookRunner:
                             supplied_characters=tuple(artwork.characters),
                             retry_faults=faults,
                             retry_findings=findings,
-                            hair_seen=artwork.hair_seen,
+                            star_seen=artwork.star_seen,
                         )
                     # No pinned plate: compose the page from scratch.
                     return build_book_page_prompt(
@@ -1493,7 +1493,7 @@ class BookRunner:
                         character_photos=page_photos,
                         photo_only=photo_only,
                         correction=correction_for(faults, findings),
-                        hair_seen=artwork.hair_seen,
+                        star_seen=artwork.star_seen,
                     )
 
                 if plate is not None:
@@ -1891,7 +1891,7 @@ class BookRunner:
                     findings=findings,
                     cover=True,
                     supplied_characters=tuple(artwork.characters),
-                    hair_seen=artwork.hair_seen,
+                    star_seen=artwork.star_seen,
                 )
             if plate is not None:
                 return build_plate_edit_prompt(
@@ -1904,14 +1904,14 @@ class BookRunner:
                     supplied_characters=tuple(artwork.characters),
                     retry_faults=faults,
                     retry_findings=findings,
-                    hair_seen=artwork.hair_seen,
+                    star_seen=artwork.star_seen,
                 )
             return build_cover_prompt(
                 artwork.settings,
                 story=edition,
                 prompt_name=record.about.prompt_name,
                 correction=correction_for(faults, findings),
-                hair_seen=artwork.hair_seen,
+                star_seen=artwork.star_seen,
             )
 
         if plate is not None:
@@ -1919,11 +1919,10 @@ class BookRunner:
                 artwork, plate, edition.cover, star=edition.star
             )
         else:
+            # The approved portrait alone: the one picture of the child the
+            # reviewer and the judge hold the cover to.
             references = [artwork.portrait]
             media_types = [artwork.portrait_media_type]
-            if not artwork.photo_is_portrait:
-                references.append(artwork.photo)
-                media_types.append(artwork.photo_media_type)
 
         started = False
 
@@ -2027,11 +2026,15 @@ class BookRunner:
         # The approved portrait is what drew the child, so it is what the
         # child must look like; a page the child is not in has no likeness.
         portrait = artwork.portrait if star_in_picture else None
+        # One description and one dial for the child, the ones the page was
+        # drawn to, so the reviewer and the judge hold it to the same bar.
+        star = StarLook(artwork.star_seen, artwork.settings.likeness_strength)
         decision = await self._decide(
             image,
             brief=story_line,
             cast=cast_note,
             portrait=portrait,
+            star=star,
             book_id=book_id,
             page_number=page_number,
         )
@@ -2066,6 +2069,7 @@ class BookRunner:
                     cast=cast_note,
                     plate=plate.image if plate is not None else None,
                     portrait=portrait,
+                    star=star,
                 )
             except ReviewerQuotaSpent as exc:
                 self._reviewer_rests_until = exc.until
@@ -2159,6 +2163,7 @@ class BookRunner:
         brief: str,
         cast: str,
         portrait: bytes | None,
+        star: StarLook,
         book_id: str,
         page_number: int,
     ) -> Decision | None:
@@ -2172,6 +2177,7 @@ class BookRunner:
                 brief=brief,
                 cast=cast,
                 portrait=portrait,
+                star=star,
             )
         except Exception as exc:
             logger.warning(
@@ -2324,6 +2330,19 @@ class BookRunner:
                             raise
                         break
                     continue
+                # Where every person and animal is on the drawing, so the
+                # plate is never pasted over one, however pale it came out.
+                figures = (
+                    await self._locate_figures(
+                        drawn.data,
+                        book_id=book_id,
+                        page_number=page_number,
+                        attempt=attempt,
+                        user=user,
+                    )
+                    if plate is not None
+                    else ()
+                )
                 # One job on the image pool: the plate pasted back, tier 1 run
                 # and the judge's copy made from a single decode (`page_picture`).
                 prepared = await self._image_work(
@@ -2333,6 +2352,7 @@ class BookRunner:
                         plate=plate.image if plate is not None else None,
                         slots=plate.slots if plate is not None else (),
                         paint_areas=paint_areas,
+                        figures=figures,
                         expected_ratio=_ratio(str(artwork.settings.aspect_ratio)),
                     )
                 )
@@ -2517,37 +2537,84 @@ class BookRunner:
             return None
         return await asyncio.to_thread(self._templates.drawing_plate, pinned)
 
-    async def _hair_seen(self, artwork: _Artwork, *, book_id: str, user: str) -> str:
-        """What the star's hair looks like in the portrait, when the prompt needs it.
+    async def _locate_figures(
+        self,
+        image: bytes,
+        *,
+        book_id: str,
+        page_number: int,
+        attempt: int,
+        user: str,
+    ) -> tuple[tuple[float, float, float, float], ...] | None:
+        """The box of every person and animal on a drawing, or None if unknown.
 
-        Asked once per render, and only when the visitor kept the photo's hair
-        or colour: a picked hair is said from the pick, needing no look. Any
-        failure leaves the pages to the portrait reference alone, as before.
+        Asked of the reviewer before the plate is pasted back (a few tenths of
+        a cent): the paste never covers a box, which is what keeps a pale face
+        or a body under a blanket from being painted over by the plate. None —
+        no reviewer to ask, or it failed — means the page is not pasted at all.
         """
-        settings = artwork.settings
         if (
-            settings.hair_style is not HairStyle.AS_UPLOADED
-            and settings.hair_color is not HairColour.AS_UPLOADED
+            self._reviewer.name == "off"
+            or self.reviewer_resting_until is not None
+            or await self._review_budget_spent(book_id, user)
         ):
-            return ""
+            return None
+        try:
+            with cost_scope(purpose="book", book_id=book_id):
+                found = await asyncio.to_thread(self._reviewer.locate_figures, image)
+        except ReviewerQuotaSpent as exc:
+            self._reviewer_rests_until = exc.until
+            outcome = f"quota_spent resting_until={exc.until.isoformat()}"
+        except Exception as exc:
+            # Down for the figures is down for the review too: rest it, as _judge does.
+            self._reviewer_rests_until = datetime.now(UTC) + _REVIEWER_COOLDOWN
+            outcome = f"unavailable error={type(exc).__name__}: {exc}"
+        else:
+            logger.info(
+                "book.figures user=%s book=%s page=%d attempt=%d found=%d",
+                user,
+                book_id,
+                page_number,
+                attempt,
+                len(found),
+            )
+            return tuple(figure.rect for figure in found)
+        logger.warning(
+            "book.figures user=%s book=%s page=%d attempt=%d outcome=%s",
+            user,
+            book_id,
+            page_number,
+            attempt,
+            outcome,
+        )
+        return None
+
+    async def _star_seen(self, artwork: _Artwork, *, book_id: str, user: str) -> str:
+        """The reviewer's description of the child in the approved portrait.
+
+        Asked once per render, for every book: the same words then go into
+        every draw, fix, review and decision, so the child is drawn and judged
+        to one description. Any failure leaves the pages to the portrait
+        reference alone, and the picks stand in for the hair (`star_look`).
+        """
         if self._reviewer.name == "off" or self.reviewer_resting_until is not None:
             return ""
         try:
             with cost_scope(purpose="book", book_id=book_id):
-                return await asyncio.to_thread(self._reviewer.describe_hair, artwork.portrait)
+                return await asyncio.to_thread(self._reviewer.describe_star, artwork.portrait)
         except ReviewerQuotaSpent as exc:
             self._reviewer_rests_until = exc.until
             logger.warning(
-                "book.hair user=%s book=%s outcome=quota_spent resting_until=%s",
+                "book.star user=%s book=%s outcome=quota_spent resting_until=%s",
                 user,
                 book_id,
                 exc.until.isoformat(),
             )
         except Exception as exc:
-            # Down for the hair is down for the reviews too: rest it, as _judge does.
+            # Down for the description is down for the reviews too: rest it, as _judge does.
             self._reviewer_rests_until = datetime.now(UTC) + _REVIEWER_COOLDOWN
             logger.warning(
-                "book.hair user=%s book=%s outcome=unavailable error=%s",
+                "book.star user=%s book=%s outcome=unavailable error=%s",
                 user,
                 book_id,
                 f"{type(exc).__name__}: {exc}",
@@ -2828,17 +2895,16 @@ def _references(
 ) -> tuple[list[bytes], list[str]]:
     """Exactly the reference images for one page, in the order the prompt names.
 
-    A page the child is not in sends no image of the child.
+    The child is sent as the approved portrait alone, never the photograph
+    beside it: two pictures of one child let the drawing average them, and
+    the portrait is what every page is reviewed against. A page the child is
+    not in sends no image of the child.
     """
     references: list[bytes] = []
     media_types: list[str] = []
     if page.star_in_picture:
         references.append(artwork.portrait)
         media_types.append(artwork.portrait_media_type)
-    if page.star_in_picture and not artwork.photo_is_portrait:
-        # The same picture twice is a wasted reference slot.
-        references.append(artwork.photo)
-        media_types.append(artwork.photo_media_type)
     for name in page.cast:
         character = artwork.characters.get(name)
         if character is None:

@@ -54,7 +54,7 @@ from app.services.image_providers.base import (
     ImageRequest,
     TokenUsage,
 )
-from app.services.reviewer import ImageReviewer, ReviewAnswer
+from app.services.reviewer import Figure, ImageReviewer, ReviewAnswer, StarLook
 
 __all__ = [
     "CATEGORIES",
@@ -530,6 +530,7 @@ class MeteredReviewer:
         cast: str,
         plate: bytes | None = None,
         portrait: bytes | None = None,
+        star: StarLook | None = None,
     ) -> ReviewAnswer:
         started = time.monotonic()
         ok = False
@@ -542,19 +543,30 @@ class MeteredReviewer:
                 cast=cast,
                 plate=plate,
                 portrait=portrait,
+                star=star,
             )
             ok = True
             return answer
         finally:
             self._log(ok=ok, started=started)
 
-    def describe_hair(self, portrait: bytes) -> str:
+    def locate_figures(self, image: bytes) -> tuple[Figure, ...]:
         started = time.monotonic()
         ok = False
         try:
-            hair = self._inner.describe_hair(portrait)
+            figures = self._inner.locate_figures(image)
             ok = True
-            return hair
+            return figures
+        finally:
+            self._log(ok=ok, started=started)
+
+    def describe_star(self, portrait: bytes) -> str:
+        started = time.monotonic()
+        ok = False
+        try:
+            look = self._inner.describe_star(portrait)
+            ok = True
+            return look
         finally:
             self._log(ok=ok, started=started)
 
@@ -586,12 +598,20 @@ class MeteredDecisionJudge:
         self.name = inner.name
 
     def decide(
-        self, image: bytes, *, brief: str, cast: str, portrait: bytes | None = None
+        self,
+        image: bytes,
+        *,
+        brief: str,
+        cast: str,
+        portrait: bytes | None = None,
+        star: StarLook | None = None,
     ) -> Decision:
         started = time.monotonic()
         decision: Decision | None = None
         try:
-            decision = self._inner.decide(image, brief=brief, cast=cast, portrait=portrait)
+            decision = self._inner.decide(
+                image, brief=brief, cast=cast, portrait=portrait, star=star
+            )
             return decision
         finally:
             tokens = decision.input_tokens if decision is not None else 0

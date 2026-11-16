@@ -14,8 +14,8 @@ from app.models.settings import CartoonSettings, HairColour, HairStyle
 from app.models.story import page_from_content
 from app.prompt_data import prompt_text
 from app.services.plates import slots_for
-from app.services.prompts import build_fix_edit_prompt, build_plate_edit_prompt, star_hair
-from app.services.reviewer import hair_sentence
+from app.services.prompts import build_fix_edit_prompt, build_plate_edit_prompt, star_look
+from app.services.reviewer import star_sentence
 from app.services.template_store import _seed_pages
 
 from .helpers import edition_for
@@ -68,44 +68,39 @@ class TestTheFixPrompt:
         assert prompt_text()["book"]["edit"]["preserve"] not in fix
 
 
-class TestTheStarsHair:
-    def test_picked_hair_is_said(self) -> None:
+class TestTheStarsLook:
+    def test_the_portraits_description_is_said_and_governs(self) -> None:
         settings = CartoonSettings(hair_style=HairStyle.SHORT, hair_color=HairColour.BROWN)
-        line = star_hair(settings, "Mia", seen="Long blond hair.")
-        assert line.startswith("Mia's hair:")
+        line = star_look(settings, "Mia", seen="A girl of about six with long blond hair.")
+        assert "Mia looks exactly like the child in the approved portrait" in line
+        assert "long blond hair" in line
         assert "Under a hood" in line
-        # Both picked: what the photo showed has no say.
-        assert "blond" not in line
 
-    def test_the_photos_hair_is_said_from_the_portrait(self) -> None:
-        line = star_hair(CartoonSettings(), "Mia", seen="Short curly brown hair.")
-        assert "Short curly brown hair." in line
-
-    def test_one_pick_governs_and_the_portrait_supplies_the_rest(self) -> None:
+    def test_without_a_description_the_picks_stand_in(self) -> None:
         settings = CartoonSettings(hair_color=HairColour.BLACK)
-        line = star_hair(settings, "Mia", seen="Shoulder-length wavy hair.")
-        assert "Otherwise as in the portrait: Shoulder-length wavy hair." in line
+        line = star_look(settings, "Mia")
+        assert line.startswith("Mia looks exactly like")
 
     def test_nothing_known_says_nothing(self) -> None:
-        assert star_hair(CartoonSettings(), "Mia") == ""
+        assert star_look(CartoonSettings(), "Mia") == ""
 
-    def test_the_fix_prompt_carries_the_hair_seen(self) -> None:
+    def test_the_fix_prompt_carries_the_description(self) -> None:
         assert "Short curly brown hair." in _fix(
-            faults=("likeness",), hair_seen="Short curly brown hair."
+            faults=("likeness",), star_seen="Short curly brown hair."
         )
 
 
-class TestAHairSentence:
+class TestAStarSentence:
     def test_it_is_one_clean_line_ending_in_a_full_stop(self) -> None:
-        assert hair_sentence('  "Short,\n curly `brown` hair"  ') == "Short, curly brown hair."
+        assert star_sentence('  "Short,\n curly `brown` hair"  ') == "Short, curly brown hair."
 
     def test_a_rambling_answer_is_capped(self) -> None:
-        sentence = hair_sentence("very " * 100 + "long hair")
-        assert len(sentence) <= 201
+        sentence = star_sentence("very " * 200 + "long hair")
+        assert len(sentence) <= 401
         assert sentence.endswith(".")
 
     def test_an_empty_answer_stays_empty(self) -> None:
-        assert hair_sentence("   ") == ""
+        assert star_sentence("   ") == ""
 
 
 def _red_with(paint_areas: Any) -> dict[str, Any]:

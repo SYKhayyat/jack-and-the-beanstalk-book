@@ -258,8 +258,9 @@ class TestEditing:
                 for request in new_calls
             }
             assert redrawn == expected
-            # Every redrawn page received the new mother: four references.
-            assert all(len(request.reference_images) == 4 for request in new_calls)
+            # Every redrawn page received the new mother: the child's portrait
+            # and her two references.
+            assert all(len(request.reference_images) == 3 for request in new_calls)
 
     def test_a_character_with_no_page_is_refused_before_its_face_is_stored(
         self, client_factory, monkeypatch

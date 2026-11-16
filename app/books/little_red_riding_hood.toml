@@ -139,7 +139,7 @@ beat = "{name} tells the wolf where Grandmother lives, and points down the path.
 emotion = "open trust: {name} pointing helpfully; the wolf politely pleased, a greedy glint in his eye"
 caption = "{name} in the red hood points along the path towards Grandmother's cottage with its blue door: very small and far down the path, at least a hundred trees away, no bigger in the picture than {possessive} hand. The grey wolf in his dark-green coat, cream waistcoat and brown neckerchief stands beside {object}, leaning in with polite interest, one paw at his chest, a small greedy glint in his amber eyes. The basket hangs from {name}'s arm."
 subject_action = "pointing down the path with one hand, the basket on the other arm; the wolf leaning in to listen"
-environment = "the wood path running a long way ahead to a very small, distant cottage with a blue door and a curl of smoke, tall trees on both sides, ferns and leaves"
+environment = "the wood path running ahead between tall mossy trees and disappearing into ferns and bushes; far beyond, a very small, distant cottage with a blue door and a curl of smoke sits on a little green hill, a thin path winding up to it; ferns and leaves"
 time_of_day = "late morning, clear warm light"
 camera = "medium-wide shot along the path, running from the foreground away towards the distant blue door"
 must_include = ["{name} pointing towards the distant blue-doored cottage", "the grey wolf in his dark-green coat, cream waistcoat and brown neckerchief, leaning in to listen", "the covered basket on {name}'s arm", "the winding path and tall trees", "the child's figure keeps a natural head-to-body ratio"]
@@ -309,13 +309,13 @@ staging = "down_the_garden_path"
 story = "{name} ran out of the cottage and along the garden path. 'Help!' {subject} shouted as loud as {subject} could. 'Help! The wolf is in Grandmother's house!' The wood was quiet for one moment. Then, from the trees, came the sound of an axe set down and quick boots on the leaves."
 beat = "{name} runs outside and shouts for help; someone comes running from the wood."
 emotion = "fear turning to hope: {name} shouting with both hands cupped, eyes wide; the wood listening"
-caption = "{name} in the red hood runs down the cottage garden path, both hands cupped around {possessive} mouth, shouting towards the tall trees. The blue door stands open behind {object}. The garden is small and bright, with a low fence and flowers. Between the trees at the edge of the wood, a tall figure in green has just started running, boots on the leaves, an axe left standing in a stump out of the way."
-subject_action = "running and shouting with both hands cupped at {possessive} mouth; the woodcutter small and distant between the trees, starting to run"
+caption = "{name} in the red hood runs down the cottage garden path, both hands cupped around {possessive} mouth, shouting towards the tall trees. The blue door stands open behind {object}. The garden is small and bright, with a low fence and flowers. Between the trees at the edge of the wood, a tall figure in green has just started running out of the wood TOWARDS the cottage and {name}: his face and chest turned to us and to the child, his leading foot stepping forward onto the garden path, never his back to us and never heading deeper into the trees. An axe is left standing in a stump out of the way."
+subject_action = "running and shouting with both hands cupped at {possessive} mouth; the woodcutter small and distant between the trees, running towards the cottage and the child, facing us"
 environment = "Grandmother's cottage: a small stone cottage with a blue door and a small curtained window, behind a low wooden fence with small purple flowers, the tall trees of the wood around it; here the garden path and an axe standing in a stump at the wood's edge"
 time_of_day = "late morning, bright sun"
 camera = "wide shot from the garden path looking back at the cottage, the open blue door and the trees of the wood beyond"
-must_include = ["{name} in the red hood shouting with both hands cupped", "the open blue door behind", "the cottage garden path and low fence", "the woodcutter small between the trees, starting to run", "the child's figure keeps a natural head-to-body ratio"]
-must_avoid = ["an enlarged head, oversized face or close-up of {name}", "a bed, pillow or headboard seen through the open door", "the wolf", "a weapon held by anyone", "lettering or writing anywhere", "blood"]
+must_include = ["{name} in the red hood shouting with both hands cupped", "the open blue door behind", "the cottage garden path and low fence", "the woodcutter small between the trees, running towards the cottage and the child with his face and chest turned to us", "the child's figure keeps a natural head-to-body ratio"]
+must_avoid = ["an enlarged head, oversized face or close-up of {name}", "a bed, pillow or headboard seen through the open door", "the wolf", "the woodcutter running away from the cottage, deeper into the wood, or seen from behind", "a weapon held by anyone", "lettering or writing anywhere", "blood"]
 
 [[pages]]
 key = "the-woodcutter"

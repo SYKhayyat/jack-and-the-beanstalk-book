@@ -42,6 +42,7 @@ from app.prompt_data import prompt_text
 from app.services.gemini_web.attachment import Attachment
 from app.services.image_providers.base import ProviderError
 from app.services.media import jpeg_data_url, judge_jpeg
+from app.services.reviewer import StarLook
 
 if TYPE_CHECKING:
     from app.services.gemini_web.client import GeminiWeb
@@ -153,12 +154,19 @@ class DecisionJudge(Protocol):
     name: str
 
     def decide(
-        self, image: bytes, *, brief: str, cast: str, portrait: bytes | None = None
+        self,
+        image: bytes,
+        *,
+        brief: str,
+        cast: str,
+        portrait: bytes | None = None,
+        star: StarLook | None = None,
     ) -> Decision:
         """Raises ProviderError when the judge could not answer.
 
         `portrait` is the book's approved portrait of the child, on a page the
-        child is in; with it the judge also answers the likeness question.
+        child is in; with it the judge also answers the likeness question, at
+        the bar and against the description `star` gives (the reviewer's own).
         """
         ...
 
@@ -177,7 +185,13 @@ class OpenAIDecisionJudge:
         self._client = openai.OpenAI(api_key=api_key.strip(), timeout=timeout_seconds)
 
     def decide(
-        self, image: bytes, *, brief: str, cast: str, portrait: bytes | None = None
+        self,
+        image: bytes,
+        *,
+        brief: str,
+        cast: str,
+        portrait: bytes | None = None,
+        star: StarLook | None = None,
     ) -> Decision:
         words = prompt_text()["decision"]
         text = str(words["intro"]).format(brief=brief, cast=cast)
@@ -186,13 +200,9 @@ class OpenAIDecisionJudge:
             {"type": "input_image", "image_url": jpeg_data_url(image)},
         ]
         if portrait is not None:
-            content.append({"type": "input_text", "text": str(words["likeness_intro"])})
+            content.append({"type": "input_text", "text": _likeness_intro(star)})
             content.append({"type": "input_image", "image_url": jpeg_data_url(portrait)})
-        asked = {
-            name: question
-            for name, question in QUESTIONS.items()
-            if name != LIKENESS or portrait is not None
-        }
+        asked = _questions(portrait is not None, star)
         try:
             response = self._client.decisions.create(
                 model=self._model,
@@ -222,18 +232,20 @@ class GeminiWebDecisionJudge:
         self._client = client
 
     def decide(
-        self, image: bytes, *, brief: str, cast: str, portrait: bytes | None = None
+        self,
+        image: bytes,
+        *,
+        brief: str,
+        cast: str,
+        portrait: bytes | None = None,
+        star: StarLook | None = None,
     ) -> Decision:
         words = prompt_text()["decision"]
-        asked = {
-            name: question
-            for name, question in QUESTIONS.items()
-            if name != LIKENESS or portrait is not None
-        }
+        asked = _questions(portrait is not None, star)
         parts = [str(words["intro"]).format(brief=brief, cast=cast)]
         images = [Attachment(judge_jpeg(image))]
         if portrait is not None:
-            parts.append(str(words["likeness_intro"]))
+            parts.append(_likeness_intro(star))
             images.append(Attachment(judge_jpeg(portrait)))
         parts.append(
             str(words["web_answer"]).format(
@@ -243,6 +255,21 @@ class GeminiWebDecisionJudge:
         )
         answer = self._client.ask("\n\n".join(parts), images)
         return Decision(probabilities=_web_probabilities(answer, asked), model=self.model)
+
+
+def _questions(with_portrait: bool, star: StarLook | None) -> dict[str, str]:
+    """The questions to ask: likeness only beside a portrait, at the book's dial."""
+    asked = {name: q for name, q in QUESTIONS.items() if name != LIKENESS or with_portrait}
+    standards = prompt_text()["decision"]["likeness_standard"]
+    if with_portrait and star is not None and star.strength.value in standards:
+        asked[LIKENESS] = str(standards[star.strength.value])
+    return asked
+
+
+def _likeness_intro(star: StarLook | None) -> str:
+    look = star.look if star is not None else ""
+    line = str(prompt_text()["review"]["look_line"]).format(look=look) if look else ""
+    return str(prompt_text()["decision"]["likeness_intro"]).format(look_line=line).strip()
 
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)

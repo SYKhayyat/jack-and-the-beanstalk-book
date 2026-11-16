@@ -318,11 +318,11 @@ credit = "starring {about_name}"
 
 # Per-page scaffolding.
 [book.assembly]
-task = "TASK: Draw page {page_number} of {total_pages} of the picture book \"{book_title}\". Every page of the book shows the same child character: {name}. The reference images are the same person: the first is their cartoon portrait, the second is their original photograph."
+task = "TASK: Draw page {page_number} of {total_pages} of the picture book \"{book_title}\". Every page of the book shows the same child character: {name}. The child's reference image is their approved cartoon portrait: it is the one authority on how they look."
 # The cover is one extra call, made before the story pages, from the story's
 # own cover scene. The title itself is never drawn by the model (the PDF adds
 # it as real text), so the prompt asks for a calm title band instead.
-cover_task = "TASK: Draw the COVER ILLUSTRATION for the picture book \"{book_title}\". The cover stars the same child as every page of the book: {name}. The reference images are the same person: the first is their cartoon portrait, the second is their original photograph. This is the book's front cover, not a story page."
+cover_task = "TASK: Draw the COVER ILLUSTRATION for the picture book \"{book_title}\". The cover stars the same child as every page of the book: {name}. The child's reference image is their approved cartoon portrait: it is the one authority on how they look. This is the book's front cover, not a story page."
 cover_band = "THE TITLE BAND: leave the upper fifth of the picture calm and uncluttered — a simple sky or a quiet background with no important faces or objects there — because the book's title is added afterwards, outside this image. Draw no lettering, title or writing of any kind anywhere."
 # The whole story, one labelled line per page, so the model knows which line it
 # is illustrating and what the other lines mean. {story_lines} is built from the
@@ -425,12 +425,14 @@ retry_intro = "ANOTHER TRY. The previous attempt had these problems: {faults}. F
 # reviewer's sentence, flattened to one line and capped.
 retry_findings = "The reviewer saw: \"{findings}\""
 
-# The star's hair, said outright on every page they are drawn on. A portrait
-# shows the hair once; a page with a hood, a cap or a nightcap came back with
-# different hair under it, and the reviewer failed it as likeness. {hair} is the
-# visitor's hair picks, or what the reviewer saw in the portrait when the visitor
-# kept the photo's hair.
-star_hair = "{name}'s hair: {hair} Under a hood, hat or cap, the hair that shows is this same hair, the same colour and texture."
+# The star's look, said outright on every page they are drawn on: the same
+# words the reviewer and the decision judge check the page against (one shared
+# image, one shared description, one shared bar). A portrait shows the face
+# once; a page drawn from it alone came back as a generic child, and a page with
+# a hood or a nightcap came back with new hair under it. {look} is what the
+# reviewer saw in the approved portrait, asked once per book, or the visitor's
+# hair picks when no reviewer could look.
+star_look = "{name} looks exactly like the child in the approved portrait on every page, never a generic child: {look} Under a hood, hat or cap, the hair that shows is this same hair, the same colour and texture."
 
 # How a reviewer's fault name is said back to the model on a retry. Keyed by the
 # fault names in app/services/reviewer.py; a name with no phrase falls back to
@@ -720,9 +722,12 @@ Set "passed" to false if any fault other than "wrong_counts" or "other" is liste
 plate_rule = """The SECOND picture is the empty background plate the first picture was painted into. Add the fault "wrong_place" only if the first picture is clearly NOT the same place as the plate: a different room or landscape, or the whole scene redrawn so a viewer would not recognise it. A prop moved, redrawn or added, a changed chair, different light or a slightly different angle is NOT a fault and is not mentioned."""
 
 # Sent with the book's approved portrait of the child, on a page the child is
-# in. Only a clearly different child is a fault: a small, simple face in a wide
-# shot, an angle or an expression is not.
-likeness_rule = """The picture right after this sentence is the approved portrait of the book's child. Add the fault "likeness" only if the child in the FIRST picture is clearly NOT the same child: an unmistakably different skin tone, hair colour, or hair length (long hair become short), or a plainly different age. A cartoon style, a different angle, expression, pose or distance, a face drawn small and simple, or hair hidden under a hood is not a fault. Name what differs in the note."""
+# in. {look} is the book's one description of the child (the same words every
+# page was drawn from); {standard} is the visitor's likeness dial, said as a bar
+# (review.likeness_standard). A small, simple face in a wide shot is judged by
+# what can be seen at that size.
+likeness_rule = """The picture right after this sentence is the approved portrait of the book's child. {look_line}{standard} Judge at the picture's own distance: when the face is drawn small, judge by the age, the hair, the skin tone and any glasses; a cartoon style, an angle, an expression or a pose is never a fault, and neither is hair hidden under a hood. Name what differs in the note."""
+look_line = "The child looks like this: {look} "
 
 # Gemini in Chrome (the free local reviewer) takes every picture above the
 # text, so the rules' "after this sentence" is said once as an order. {order}
@@ -734,10 +739,18 @@ web_portrait = "last, the approved portrait of the book's child"
 
 page_title = "the picture book's page: "
 
-# Asked once per book, of the approved portrait, when the visitor kept the
-# photo's hair: the answer is written into every page prompt as the child's hair
-# (prompts.star_hair), so a hood or a nightcap does not get new hair under it.
-hair = "This is a cartoon portrait of a child. Describe only the child's hair, in one short sentence a painter can follow: its colour, length, texture (straight, wavy, curly or coiled) and style, for example \"Shoulder-length, wavy dark-brown hair with a side parting.\" No other words."
+# Asked once per book, of the approved portrait: the answer is written into
+# every page prompt as the child's look (book.edit.star_look) and is what the
+# reviewer and the decision judge compare each page's child against.
+star = "This is a cartoon portrait of a child. Describe what makes this child recognisable, in at most two short sentences a painter can follow: apparent age, face shape, eye shape and colour, glasses (frame shape and colour) or none, skin tone, and the hair's colour, length, texture (straight, wavy, curly or coiled) and style. For example: \"About six, with a round face, large dark-brown almond eyes, no glasses and light olive skin. Shoulder-length, wavy dark-brown hair with a side parting.\" No other words."
+# Asked of every drawn page before the plate is pasted back over it: where the
+# people and animals are, so the paste never covers any part of one (a face as
+# pale as the wall behind it came back see-through). Generous on purpose: a box
+# too big costs a little background drift, a box too small cuts a figure.
+figures = """Find every person and every animal in this picture, however small, partly hidden, in the background or tucked under bedclothes, including the shape a body makes under a blanket. For each, give a box that encloses the WHOLE figure with a little room to spare: hair, hat, raised hands, tail, feet, what it holds, and its shadow. Coordinates are 0-1000 across the picture's width (x) and down its height (y).
+
+Reply with one JSON object and nothing else, like {"figures": [{"what": "girl in a red cloak", "box": [x0, y0, x1, y1]}]}. With nobody in the picture, reply {"figures": []}."""
+
 # Who may appear on the page, said plainly after the description. {named} is the
 # cast's bible labels, the star as "the child". The reviewer and the decision
 # judge read the same sentence. A description can name someone in the
@@ -745,6 +758,14 @@ hair = "This is a cartoon portrait of a child. Describe only the child's hair, i
 # to it rather than calling them extra: a real run failed three good pages that way.
 cast_note = "Who may appear in this picture: {named}, and anyone the description above names. Nobody else. Only the description says who must be visible — someone on this list it does not mention may be absent."
 cast_note_absent = "Who may appear in this picture: {named}, and anyone the description above names. Nobody else — and NO CHILD: the book's child is not in this moment, so a child anywhere in the picture is an extra person."
+
+# How hard the reviewer and the decision judge hold the child to the portrait,
+# keyed by LikenessStrength: the same dial the pages were drawn to ([likeness]).
+[review.likeness_standard]
+strict = "Add the fault \"likeness\" if the child in the FIRST picture is not plainly this child: a different age, skin tone, hair colour, length or texture, glasses added, lost or changed, a different eye colour or face shape, or, where the face is large enough to read, a generic child's face rather than this child's."
+balanced = "Add the fault \"likeness\" if the child in the FIRST picture is clearly not this child: a different age, skin tone, hair colour, length or texture, glasses added or lost, or, where the face is large enough to read, a plainly generic child's face rather than this child's."
+loose = "Add the fault \"likeness\" only if the child in the FIRST picture is clearly NOT the same child: an unmistakably different skin tone, hair colour or hair length, glasses added or lost, or a plainly different age."
+
 
 # ---------------------------------------------------------------------------
 # The decision judge (app/services/decision_judge.py): typed yes/no questions
@@ -761,8 +782,9 @@ cast_note_absent = "Who may appear in this picture: {named}, and anyone the desc
 # The veto budget is the same deliberate overstatement as in [review].instruction.
 intro = "A page of a children's picture book. The picture it must be: {brief}\n{cast}\nAt most 4 of this book's 20 pictures may be sent back, and every one sent back is redrawn at real cost: answer yes to a fault only when it is gross and plain at a glance."
 # Added after the intro, with the portrait as the second image, on a page the
-# child is in; the likeness question is asked only then.
-likeness_intro = "The second image is the approved portrait of the book's child; the child in the first image must be this child."
+# child is in; the likeness question is asked only then. {look_line} is
+# review.look_line with the book's description of the child, or "".
+likeness_intro = "The second image is the approved portrait of the book's child; the child in the first image must be this child. {look_line}"
 
 # Gemini in Chrome (the free local judge) has no probability API: it is asked
 # for them as JSON. {questions} is one "name: question" line per question asked;
@@ -786,3 +808,9 @@ missing_item = "The description may end with \"It must plainly show:\" and a lis
 likeness = "Is the child in the first image clearly NOT the same child as the portrait in the second image — an unmistakably different skin tone, hair colour or hair length, or a plainly different age? A cartoon style, angle, expression, pose or distance, a face drawn small and simple, or hair hidden under a hood does not count."
 collage = "Is the frame plainly more than one picture: a grid of tiles, panels, a character sheet, or the same person shown twice?"
 frightening = "Does the picture show blood, a wound, a weapon being used on or pointed at someone, an attack in progress, or a child in real terror? A sly or toothy cartoon villain does not count, and neither does a tool being used for the job the description says (an axe chopping a tree)."
+
+# The likeness question at the visitor's dial, keyed by LikenessStrength: the
+# same bar as review.likeness_standard. Loose is questions.likeness above.
+[decision.likeness_standard]
+strict = "Is the child in the first image not plainly the same child as the portrait in the second image — a different age, skin tone, hair colour, length or texture, glasses added, lost or changed, a different eye colour or face shape, or, where the face is large enough to read, a generic child's face rather than this child's? A cartoon style, angle, expression or pose, or hair hidden under a hood, does not count; a face drawn small is judged by its age, hair, skin tone and glasses."
+balanced = "Is the child in the first image clearly NOT the same child as the portrait in the second image — a different age, skin tone, hair colour, length or texture, glasses added or lost, or, where the face is large enough to read, a plainly generic child's face rather than this child's? A cartoon style, angle, expression or pose, or hair hidden under a hood, does not count; a face drawn small is judged by its age, hair, skin tone and glasses."

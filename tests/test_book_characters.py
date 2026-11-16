@@ -256,7 +256,7 @@ class TestCharacterValidation:
 
 
 class TestPerPageReferences:
-    def test_no_character_photos_means_the_child_double_anchor_only(
+    def test_no_character_photos_means_the_childs_portrait_only(
         self, client: TestClient, provider: RecordingProvider
     ) -> None:
         portrait = _make_portrait(client)
@@ -267,10 +267,10 @@ class TestPerPageReferences:
         requests = _page_requests(provider)
         assert len(requests) == PAGE_COUNT
         for request in requests:
-            # Exactly the approved portrait and the original photograph.
-            assert len(request.reference_images) == 2, request.prompt[:200]
-        # The same two anchor bytes on every page: no page is left without
-        # them, and no page gains a third reference out of nowhere.
+            # Exactly the approved portrait: the photo is no second authority.
+            assert len(request.reference_images) == 1, request.prompt[:200]
+        # The same anchor bytes on every page: no page is left without it,
+        # and no page gains a second reference out of nowhere.
         assert len({request.reference_images for request in requests}) == 1
 
     def test_a_photographed_character_is_sent_only_on_their_pages(
@@ -285,18 +285,18 @@ class TestPerPageReferences:
         by_page = {_page_number(r.prompt): r for r in _page_requests(provider)}
         assert sorted(by_page) == list(range(1, PAGE_COUNT + 1))
 
-        # Both mother pages send four references (child portrait, child photo,
-        # mother portrait, mother photo) and the very same four, in order.
-        assert len(by_page[1].reference_images) == 4
-        assert len(by_page[3].reference_images) == 4
+        # Both mother pages send three references (child portrait, mother
+        # portrait, mother photo) and the very same three, in order.
+        assert len(by_page[1].reference_images) == 3
+        assert len(by_page[3].reference_images) == 3
         assert by_page[1].reference_images == by_page[3].reference_images
 
-        # The trade page casts only the old man: the child's two anchors and
+        # The trade page casts only the old man: the child's portrait and
         # nothing else — the mother's photograph is never sent there.
         trade = by_page[2].reference_images
-        assert len(trade) == 2
-        assert by_page[1].reference_images[:2] == trade
-        mother_photo = by_page[1].reference_images[3]
+        assert len(trade) == 1
+        assert by_page[1].reference_images[:1] == trade
+        mother_photo = by_page[1].reference_images[2]
         assert mother_photo not in trade
 
     def test_the_cast_sheet_is_byte_identical_across_the_book(
@@ -348,13 +348,13 @@ class TestPerPageReferences:
             for entry in prompts
             if entry["page"] != "cover"
         }
-        # The mother's pages name her two references after the child's two.
-        assert "3) Mother's cartoon portrait" in by_page[1]
-        assert "4) Mother's photograph" in by_page[1]
-        # The trade page does not: only the child's two references are sent.
+        # The mother's pages name her two references after the child's one.
+        assert "2) Mother's cartoon portrait" in by_page[1]
+        assert "3) Mother's photograph" in by_page[1]
+        # The trade page does not: only the child's portrait is sent.
         assert "Mother's" not in by_page[2]
-        assert "1) the child's cartoon portrait" in by_page[2]
-        assert "2) the child's photograph" in by_page[2]
+        assert "1) the child's approved cartoon portrait" in by_page[2]
+        assert "child's photograph" not in by_page[2]
 
 
 class TestCastPortraitPrompt:
