@@ -198,3 +198,26 @@ module while doing them, rather than adding to it.
    over 60 s?
 5. **Word placement.** Do we place words around detected face boxes the way all three friends do?
    If not, add it as A10.
+
+## Status (2026-11-16)
+
+Owner answers: stay on Render free with no keep-warm (A7 no); copy hero-less pages (A3 yes);
+Agnes local-only (R3); build head-crop edits now (A5); no word placement (Q5, the text band
+under the art never covers faces).
+
+| Item | State |
+|---|---|
+| A3 hero-less pages | Done. Red pages 7–10 have been approved pre-made pages on live since 2026-11-11. |
+| A5 scene edits | Code 154bb20, migration 0025, deployed (154bb20 live). Scenes for all 16 remaining star pages (1–6, 11–20) were drawn free in Gemini-web, checked by hand, and approved on live with `figure` boxes. |
+| R2 picture timeout | Done, 8cc7829: two minutes, not ten. |
+| R3 Agnes | Done: out of the production registry, local only. |
+| R4 config cleanup | Done, 921d35a. |
+| A9 time-left estimate | Done, 5717d6c. |
+| A7 keep-warm | Won't do (owner). Cold start measured at about 70 s on 2026-11-16. |
+
+Lessons from making the scenes. Every book keeps the supporting cast exactly as drawn, so:
+- check each scene against the cast portraits; Gemini added glasses to the woodcutter twice;
+- tell Gemini "no lines, arrows, numbers or labels", because it once drew measurement marks;
+- keep the figure box on the stand-in child alone, so the edit can't change anyone else.
+
+Still open: one timed live Red book to measure A5 end to end (at most 2 live books).
