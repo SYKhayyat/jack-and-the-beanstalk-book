@@ -23,6 +23,7 @@ from app.services.decision_judge import (
     classify,
 )
 from app.services.image_providers.base import ProviderError
+from app.services.image_review import review_image
 from app.services.reviewer import ReviewerQuotaSpent
 from tests.test_review_loop import ScriptedReviewer, artwork, grain, runner_with, said
 
@@ -72,11 +73,13 @@ def judge(reviewer: Any, decisions: list[Any]) -> tuple[Any, ScriptedJudge]:
     runner = runner_with(reviewer)
     scripted = ScriptedJudge(answers=decisions)
     runner._decision_judge = scripted
+    image = grain()
     verdict = asyncio.run(
         runner._judge(
             book_id="book",
             page_number=7,
-            image=grain(),
+            image=image,
+            tier1=review_image(image),
             plate=None,
             artwork=artwork(),
             page_title="t",
@@ -179,6 +182,7 @@ class TestTheCascade:
                     book_id="book",
                     page_number=7,
                     image=grain(),
+                    tier1=review_image(grain()),
                     plate=None,
                     artwork=artwork(),
                     page_title="t",
@@ -225,6 +229,7 @@ class TestLikeness:
                 book_id="book",
                 page_number=7,
                 image=grain(),
+                tier1=review_image(grain()),
                 plate=None,
                 artwork=art,
                 page_title="t",

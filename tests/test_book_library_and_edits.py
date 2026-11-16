@@ -397,7 +397,8 @@ class TestEditing:
             )
             assert first.status_code == 202, first.text
             assert provider.entered.wait(10), "the first edit never reached the provider"
-            assert _page_status(client, book_id, 2) == "making"
+            # Status writes are coalesced, so "making" lands a beat after the call.
+            assert _page_status_soon(client, book_id, 2, "making") == "making"
 
             second = client.post(
                 f"/api/book/{book_id}/edit",
@@ -416,6 +417,18 @@ def _page_status(client: TestClient, book_id: str, number: int) -> str:
     payload = client.get(f"/api/book/{book_id}").json()
     entry = next(page for page in payload["pages"] if page["number"] == number)
     return str(entry["status"])
+
+
+def _page_status_soon(
+    client: TestClient, book_id: str, number: int, wanted: str, seconds: float = 5.0
+) -> str:
+    """The page's status once it reads `wanted`, or the last one seen."""
+    deadline = time.monotonic() + seconds
+    status = _page_status(client, book_id, number)
+    while status != wanted and time.monotonic() < deadline:
+        time.sleep(0.03)
+        status = _page_status(client, book_id, number)
+    return status
 
 
 class BlockingPageProvider(ImageProvider):

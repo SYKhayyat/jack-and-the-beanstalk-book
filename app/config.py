@@ -384,7 +384,7 @@ class Settings(BaseSettings):
         ),
     )
     max_concurrent_generations: int = Field(
-        default=12,
+        default=24,
         ge=1,
         le=64,
         description=(
@@ -394,7 +394,7 @@ class Settings(BaseSettings):
         ),
     )
     book_page_concurrency: int = Field(
-        default=8,
+        default=24,
         ge=1,
         le=64,
         description=(
@@ -405,7 +405,10 @@ class Settings(BaseSettings):
             "above, which bounds model calls across the server. Pillow work is "
             "bounded on its own by IMAGE_WORK_THREADS and the two transcoding "
             "slots, which is what keeps the free plan's event loop alive "
-            "(Run 2)."
+            "(Run 2). The default lets a whole book (twenty pages and the "
+            "cover) start at once: a slot is an open request, not CPU, so "
+            "fewer only queues pages behind each other (Run 5: a book in "
+            "three waves of eight took minutes)."
         ),
     )
     image_work_threads: int = Field(

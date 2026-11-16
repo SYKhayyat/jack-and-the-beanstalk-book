@@ -17,6 +17,7 @@ from app.models.book import AboutPhotoChoice, BookPage
 from app.models.story import COVER_NUMBER
 from app.services.book_outline import book_year
 from app.services.book_store import BookRecord, BookStatus, BookStore
+from app.services.memory import release_memory
 from app.services.pdf import (
     PageArt,
     build_book_pdf,
@@ -61,21 +62,25 @@ class BookDocument:
         """The print edition's interior: the same pages, at the edition's trim.
 
         Built from the same stored pictures as the web PDF, read one page at a
-        time, at full resolution (A1).
+        time, at full resolution (A1). The memory the build used is handed back
+        before the cover is made: the two at once overran the free plan.
         """
         arts = [
             PageArt(image=partial(self._page_image, record.book_id, page.number), page=page)
             for page in rendered_pages
         ]
-        return build_print_interior(
-            record.about,
-            arts,
-            product,
-            portrait=self._book_store.read_portrait(record.book_id),
-            photo=self._about_photo(record),
-            publisher=self._publisher,
-            year=book_year(record.created_at),
-        )
+        try:
+            return build_print_interior(
+                record.about,
+                arts,
+                product,
+                portrait=self._book_store.read_portrait(record.book_id),
+                photo=self._about_photo(record),
+                publisher=self._publisher,
+                year=book_year(record.created_at),
+            )
+        finally:
+            release_memory()
 
     def print_cover(
         self, record: BookRecord, product: Product, size: CoverSize, *, subtitle: str
@@ -84,16 +89,19 @@ class BookDocument:
         cover = self._book_store.read_cover(record.book_id)
         if cover is None:
             return None
-        return build_print_cover(
-            record.title,
-            record.about,
-            cover,
-            size,
-            product,
-            subtitle=subtitle,
-            portrait=self._book_store.read_portrait(record.book_id),
-            photo=self._about_photo(record),
-        )
+        try:
+            return build_print_cover(
+                record.title,
+                record.about,
+                cover,
+                size,
+                product,
+                subtitle=subtitle,
+                portrait=self._book_store.read_portrait(record.book_id),
+                photo=self._about_photo(record),
+            )
+        finally:
+            release_memory()
 
     def _about_photo(self, record: BookRecord) -> bytes | None:
         """The original photo, read only when the About page will show it."""

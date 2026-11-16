@@ -310,3 +310,40 @@ class TestAssembly:
         assert len(pdf) < len(image), "the PDF grew instead of shrinking the art"
         # Copyright + two story pages + closing + About back cover.
         assert len(PdfReader(io.BytesIO(pdf)).pages) == 5
+
+
+class TestEmbedding:
+    """A stored page is already the JPEG the screen PDF needs (speed, Run 5)."""
+
+    @staticmethod
+    def _jpeg(size: tuple[int, int], **save: object) -> bytes:
+        out = io.BytesIO()
+        Image.new("RGB", size, (90, 140, 200)).save(out, format="JPEG", **save)
+        return out.getvalue()
+
+    def test_a_screen_size_jpeg_is_embedded_byte_for_byte(self) -> None:
+        from app.services.pdf import _image_for_pdf
+
+        page = self._jpeg((1152, 864), quality=90)
+        assert _image_for_pdf(page).getvalue() == page
+
+    @pytest.mark.parametrize(
+        ("size", "save"),
+        [((2400, 1800), {}), ((800, 600), {"progressive": True})],
+    )
+    def test_an_oversized_or_progressive_jpeg_is_re_encoded(
+        self, size: tuple[int, int], save: dict[str, object]
+    ) -> None:
+        from app.services.pdf import _image_for_pdf
+
+        page = self._jpeg(size, **save)
+        embedded = _image_for_pdf(page).getvalue()
+        assert embedded != page
+        with Image.open(io.BytesIO(embedded)) as opened:
+            assert max(opened.size) <= 1600
+
+    def test_a_print_picture_is_never_passed_through(self) -> None:
+        from app.services.pdf import _image_for_pdf
+
+        page = self._jpeg((1152, 864), quality=90)
+        assert _image_for_pdf(page, printed_at=(600.0, 450.0)).getvalue() != page

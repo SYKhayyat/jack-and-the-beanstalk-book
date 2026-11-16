@@ -15,7 +15,8 @@ except where something was meant to change:
   its slot, or the basket at a child's feet, is kept whole rather than cut.
 
 The seam is feathered. No image call is made: this is a few milliseconds of
-Pillow on a picture already paid for.
+Pillow on pixels already decoded (`page_picture` decodes a page once and hands
+the same pixels to the paste, the review and the screen copies).
 
 When the background differs everywhere (the model moved the camera or changed
 the whole scene) a paste would put the figures into a world they were not drawn
@@ -24,13 +25,11 @@ in, so the picture is returned untouched and the review judges it as drawn.
 
 from __future__ import annotations
 
-import io
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from PIL import Image, ImageChops, ImageFilter, ImageStat
 
-from app.services.media import FAST_PNG_LEVEL
 from app.services.template_store import Slot
 
 __all__ = ["CAMERA_MOVED_LIMIT", "PasteResult", "paste_plate_back"]
@@ -65,8 +64,7 @@ _FEATHER = 0.008
 class PasteResult:
     """The picture to judge, and what the paste did (for the attempt's record)."""
 
-    image: bytes
-    media_type: str
+    image: Image.Image
     #: True when the plate was pasted back; False when it was left untouched.
     pasted: bool
     #: Share of the frame restored from the plate, 0-1.
@@ -76,23 +74,20 @@ class PasteResult:
 
 
 def paste_plate_back(
-    drawn: bytes,
-    plate: bytes,
+    picture: Image.Image,
+    plate: Image.Image,
     slots: Sequence[Slot],
     paint_areas: Iterable[_Rect] = (),
-    *,
-    media_type: str = "image/png",
 ) -> PasteResult:
     """The drawn page with the plate restored outside the areas meant to change.
 
-    Never raises on a picture it cannot read: the drawing is then returned as
-    it came, and tier 1 of the review says what is wrong with it.
+    Both are decoded RGB pictures; a plate of another size is fitted to the
+    drawing. When nothing is pasted the drawing itself comes back, the same
+    object, so a caller can tell its bytes need no re-encoding.
     """
-    try:
-        picture = _open(drawn)
-        background = _open(plate).resize(picture.size, Image.Resampling.LANCZOS)
-    except (OSError, ValueError):
-        return PasteResult(drawn, media_type, pasted=False, restored=0.0, drift=0.0)
+    background = plate.convert("RGB") if plate.mode != "RGB" else plate
+    if background.size != picture.size:
+        background = background.resize(picture.size, Image.Resampling.BICUBIC)
 
     grid = (_GRID_WIDTH, max(1, round(_GRID_WIDTH * picture.height / picture.width)))
     change = ImageChops.difference(
@@ -105,20 +100,22 @@ def paste_plate_back(
     restored = _share(outside)
     drift = ImageStat.Stat(change, mask=outside).mean[0] if restored else 0.0
     if restored == 0.0 or drift > CAMERA_MOVED_LIMIT:
-        return PasteResult(drawn, media_type, pasted=False, restored=0.0, drift=drift)
+        return PasteResult(picture, pasted=False, restored=0.0, drift=drift)
 
-    radius = max(1.0, _FEATHER * picture.width)
-    mask = keep.resize(picture.size, Image.Resampling.BILINEAR).filter(
-        ImageFilter.GaussianBlur(radius)
-    )
-    out = io.BytesIO()
-    # The fast level (see `FAST_PNG_LEVEL`): this encode, at Pillow's default,
-    # was the costliest step of a render, up to three times per plate page.
-    Image.composite(picture, background, mask).save(
-        out, format="PNG", compress_level=FAST_PNG_LEVEL
+    # The feather is worked out at a quarter of the size and then enlarged: a
+    # blur this soft looks the same either way, at a sixteenth of the cost.
+    quarter = (max(1, picture.width // 4), max(1, picture.height // 4))
+    radius = max(0.25, _FEATHER * picture.width / 4)
+    mask = (
+        keep.resize(quarter, Image.Resampling.BILINEAR)
+        .filter(ImageFilter.GaussianBlur(radius))
+        .resize(picture.size, Image.Resampling.BILINEAR)
     )
     return PasteResult(
-        out.getvalue(), "image/png", pasted=True, restored=restored, drift=drift
+        Image.composite(picture, background, mask),
+        pasted=True,
+        restored=restored,
+        drift=drift,
     )
 
 
@@ -184,9 +181,3 @@ def _cells(rect: _Rect, grid: tuple[int, int]) -> tuple[int, int, int, int]:
 
 def _share(mask: Image.Image) -> float:
     return ImageStat.Stat(mask).mean[0] / 255.0
-
-
-def _open(data: bytes) -> Image.Image:
-    image = Image.open(io.BytesIO(data))
-    image.load()
-    return image.convert("RGB")

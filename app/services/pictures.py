@@ -1,8 +1,9 @@
 """A book's pictures on screen: which sizes exist, and the URLs that name them.
 
-The stored picture is the provider's full-size PNG (1 to 2 MB), which is what the
-PDF embeds. The screen gets WebP copies instead (P1, P2): 800 and 1600 px wide
-for the reader, chosen by the browser through ``srcset``, and 240 px for a
+The stored picture is the full-size page (a JPEG of a few hundred KB, or an
+older book's PNG of 1 to 2 MB), which is what the PDF embeds. The screen gets
+WebP copies instead (P1, P2): 800 and 1600 px wide for the reader, chosen by
+the browser through ``srcset``, and 240 px for a
 thumbnail. Each URL carries the picture's version — the first 16 hex digits of
 its SHA-256 — so the browser may keep it for a year: a redrawn picture hashes
 differently and arrives under a new address, never from an old copy.
@@ -34,12 +35,13 @@ __all__ = [
     "VARIANT_WIDTHS",
     "PictureSet",
     "encode_variant",
+    "encode_variants",
+    "file_variants",
     "page_slot",
     "picture_set",
     "short_version",
     "slot_page",
     "variant_locks",
-    "warm_variants",
 ]
 
 logger = logging.getLogger(__name__)
@@ -122,31 +124,25 @@ def picture_set(url: str, sha256: str | None) -> PictureSet:
     )
 
 
-def warm_variants(
-    store: BookStore, book_id: str, slot: str, widths: tuple[int, ...] = WARM_WIDTHS
+def file_variants(
+    store: BookStore, book_id: str, slot: str, sha: str, copies: dict[int, bytes]
 ) -> int:
-    """Make the copies a picture is normally viewed at, now that it is saved.
+    """File screen copies made from the picture whose SHA-256 is `sha`.
 
-    Runs on the render's image pool, right after the picture is stored, so a
-    reader opening the finished book finds the copies already there instead of
-    paying for them one at a time while the first page loads.
-
-    The copy is made from the picture read back out of the store and filed
-    under the hash the store recorded, so it can never belong to a picture
-    that has since been redrawn. Returns how many copies were made.
+    Called by the render right after it saves a picture, with copies it made
+    from the pixels it already had (`encode_variants`) — nothing is read back
+    out of the store. A copy is filed only while the slot still holds that
+    very picture, so it can never belong to one that has since been redrawn.
+    Returns how many copies were filed.
     """
-    sha = store.picture_sha(book_id, slot)
-    if sha is None:
-        return 0
-    picture = store.read_picture(book_id, slot)
-    if picture is None:
+    if store.picture_sha(book_id, slot) != sha:
         return 0
     made = 0
-    for width in widths:
+    for width, data in copies.items():
         with variant_locks.hold((book_id, slot, width, sha)):
             if store.read_variant(book_id, slot, width, sha) is not None:
                 continue
-            store.save_variant(book_id, slot, width, sha, encode_variant(picture, width))
+            store.save_variant(book_id, slot, width, sha, data)
             made += 1
     return made
 
@@ -157,15 +153,46 @@ def encode_variant(data: bytes, width: int) -> bytes:
     The original is never enlarged: a 1152 px page asked for at 1600 comes back
     at 1152, still as WebP, still a tenth of the PNG.
     """
-    if width not in VARIANT_WIDTHS:
-        raise ValueError(f"no variant is {width} px wide")
-    quality = _THUMB_QUALITY if width == THUMB_WIDTH else _WEBP_QUALITY
-    buffer = io.BytesIO()
+    return encode_variants(data, (width,))[width]
+
+
+def encode_variants(
+    source: bytes | Image.Image, widths: tuple[int, ...] = WARM_WIDTHS
+) -> dict[int, bytes]:
+    """WebP copies of one picture at each of `widths`, decoded once.
+
+    `source` is the stored bytes, or the pixels a caller already decoded.
+    The copies are made widest first, each shrunk from the one before (a
+    240 px thumbnail from the 800 px page, not from the 1536 px original),
+    which costs a fraction of shrinking the original each time and looks the
+    same at those sizes.
+    """
+    for width in widths:
+        if width not in VARIANT_WIDTHS:
+            raise ValueError(f"no variant is {width} px wide")
+    copies: dict[int, bytes] = {}
     with transcoding():
-        with Image.open(io.BytesIO(data)) as opened:
-            image = opened.convert("RGB")
-        if image.width > width:
-            height = max(1, round(image.height * width / image.width))
-            image = image.resize((width, height), Image.Resampling.LANCZOS)
-        image.save(buffer, format="WEBP", quality=quality, method=4)
-    return buffer.getvalue()
+        if isinstance(source, Image.Image):
+            image = source.convert("RGB") if source.mode != "RGB" else source
+        else:
+            with Image.open(io.BytesIO(source)) as opened:
+                # A JPEG is decoded straight at (about) the widest size asked.
+                widest = max(widths)
+                opened.draft("RGB", (widest, widest * opened.height // max(1, opened.width)))
+                image = opened.convert("RGB")
+        for width in sorted(set(widths), reverse=True):
+            if image.width > width:
+                height = max(1, round(image.height * width / image.width))
+                factor = image.width // (width * 2)
+                if factor >= 2:
+                    # Box-reduce first: LANCZOS over the whole original is the
+                    # costly part, and reduce() is exact for whole factors.
+                    image = image.reduce(factor)
+                image = image.resize((width, height), Image.Resampling.LANCZOS)
+            quality = _THUMB_QUALITY if width == THUMB_WIDTH else _WEBP_QUALITY
+            buffer = io.BytesIO()
+            # method=2 is a quarter of method=4's time at the same size, give
+            # or take a few percent, for a picture that is already lossy.
+            image.save(buffer, format="WEBP", quality=quality, method=2)
+            copies[width] = buffer.getvalue()
+    return copies

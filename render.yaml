@@ -143,8 +143,11 @@ services:
       # until the PDF and put full-size decodes behind two shared slots; 4 was
       # the safe floor after that. Back at 8 on trial (2026-11-11): watch the
       # memory graph on the next book and drop to 6 if it nears 512 MB.
+      # 24 since Run 5 (2026-11-15): a slot is an open request, not memory,
+      # once a page's Pillow work is behind IMAGE_WORK_THREADS and decodes
+      # once; at 8 a book drew in three waves and took minutes.
       - key: MAX_CONCURRENT_GENERATIONS
-        value: "8"
+        value: "24"
 
       # One book's pictures being drawn at once, and the threads for their
       # image work. Run 2 (2026-11-11) had all 21 pages in flight on a tenth of
@@ -152,9 +155,11 @@ services:
       # audit 11-15 S3 the slot covers only the model call (pasting and review
       # run outside it, their Pillow work behind IMAGE_WORK_THREADS), so it
       # matches the gate above. OPENAI_IMAGES_PER_MINUTE is the real ceiling:
-      # 21 pages cannot all start inside a minute at 18 a minute.
+      # 21 pages cannot all start inside a minute at 18 a minute. With Agnes
+      # there is no such ceiling, and all 21 start together (Run 5): the
+      # local work per page is now a tenth of what Run 2 choked on.
       - key: BOOK_PAGE_CONCURRENCY
-        value: "8"
+        value: "24"
       - key: IMAGE_WORK_THREADS
         value: "2"
 

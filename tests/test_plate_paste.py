@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import io
-
 from PIL import Image, ImageDraw
 
 from app.services.plate_paste import CAMERA_MOVED_LIMIT, paste_plate_back
@@ -16,22 +14,16 @@ FIGURE = (60, 45, 35)
 SLOT = Slot(cast_key="jack", rect=(0.1, 0.3, 0.25, 0.6), scale=0.6, facing="right")
 
 
-def _png(image: Image.Image) -> bytes:
-    out = io.BytesIO()
-    image.save(out, format="PNG")
-    return out.getvalue()
-
-
-def _plate() -> bytes:
+def _plate() -> Image.Image:
     image = Image.new("RGB", SIZE, SKY)
     # A lamp on the right: the kind of thing an edit moves or recolours.
     ImageDraw.Draw(image).rectangle((620, 100, 660, 300), fill=(240, 220, 90))
-    return _png(image)
+    return image
 
 
 def _drawn(
     *, drift_lamp: bool = True, extra: tuple[int, int, int, int] | None = None
-) -> bytes:
+) -> Image.Image:
     image = Image.new("RGB", SIZE, SKY)
     draw = ImageDraw.Draw(image)
     # The lamp came back moved: background drift outside every slot.
@@ -42,18 +34,17 @@ def _drawn(
     draw.rectangle((250, 300, 330, 330), fill=FIGURE)
     if extra is not None:
         draw.rectangle(extra, fill=(200, 40, 40))
-    return _png(image)
+    return image
 
 
-def _pixel(data: bytes, xy: tuple[int, int]) -> tuple[int, ...]:
-    return tuple(Image.open(io.BytesIO(data)).convert("RGB").getpixel(xy))
+def _pixel(image: Image.Image, xy: tuple[int, int]) -> tuple[int, ...]:
+    return tuple(image.convert("RGB").getpixel(xy))
 
 
 class TestPastingThePlateBack:
     def test_background_drift_is_undone_and_the_figure_kept(self) -> None:
         result = paste_plate_back(_drawn(), _plate(), (SLOT,))
         assert result.pasted is True
-        assert result.media_type == "image/png"
         # The lamp is back where the plate has it, and gone from where it drifted.
         assert _pixel(result.image, (640, 200)) == (240, 220, 90)
         assert _pixel(result.image, (575, 200)) == SKY
@@ -81,29 +72,23 @@ class TestPastingThePlateBack:
         """Pasting into a different scene would cut the figures out of their world."""
         elsewhere = Image.new("RGB", SIZE, (20, 90, 30))
         ImageDraw.Draw(elsewhere).ellipse((100, 200, 260, 540), fill=FIGURE)
-        drawn = _png(elsewhere)
+        drawn = elsewhere
         result = paste_plate_back(drawn, _plate(), (SLOT,))
         assert result.pasted is False
-        assert result.image == drawn
+        assert result.image is drawn
 
     def test_a_background_changed_everywhere_is_left_as_drawn(self) -> None:
         """A relit scene: not one strong change, but different all over."""
         relit = Image.new("RGB", SIZE, tuple(c + 36 for c in SKY))
         ImageDraw.Draw(relit).ellipse((100, 200, 260, 540), fill=FIGURE)
-        drawn = _png(relit)
+        drawn = relit
         result = paste_plate_back(drawn, _plate(), (SLOT,))
         assert result.pasted is False
-        assert result.image == drawn
+        assert result.image is drawn
         assert result.drift > CAMERA_MOVED_LIMIT
 
-    def test_a_picture_that_cannot_be_read_is_returned_as_it_came(self) -> None:
-        result = paste_plate_back(b"not a picture", _plate(), (SLOT,), media_type="image/jpeg")
-        assert result.pasted is False
-        assert result.image == b"not a picture"
-        assert result.media_type == "image/jpeg"
-
     def test_a_plate_of_another_size_is_fitted_to_the_drawing(self) -> None:
-        small = Image.open(io.BytesIO(_plate())).resize((400, 300))
-        result = paste_plate_back(_drawn(), _png(small), (SLOT,))
+        small = _plate().resize((400, 300))
+        result = paste_plate_back(_drawn(), small, (SLOT,))
         assert result.pasted is True
-        assert Image.open(io.BytesIO(result.image)).size == SIZE
+        assert result.image.size == SIZE

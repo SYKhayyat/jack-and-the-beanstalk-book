@@ -749,6 +749,11 @@ class TestTheStageIsNamed:
                 payload = blocking_client.get(f"/api/book/{book_id}").json()
                 stage = payload.get("stage")
                 page = payload.get("stage_page")
+                if page is None and not payload.get("stage_counts"):
+                    # Status writes are coalesced: the first one can still be
+                    # the book as it began, before any page reached a stage.
+                    time.sleep(0.02)
+                    continue
                 seen_stages.add(str(stage))
                 unfinished = {
                     entry["number"] for entry in payload["pages"] if entry["status"] != "done"

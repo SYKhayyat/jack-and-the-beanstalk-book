@@ -31,6 +31,7 @@ leaves the finished pages visible.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import socket
@@ -73,11 +74,12 @@ from app.services.image_providers.base import (
     ImageRequest,
     ProviderError,
 )
-from app.services.image_review import review_image
+from app.services.image_review import Tier1Review
 from app.services.media import media_type_for
-from app.services.pictures import page_slot, warm_variants
+from app.services.memory import release_memory
+from app.services.page_picture import prepare_page
+from app.services.pictures import encode_variants, file_variants, page_slot
 from app.services.pipeline import UnknownGeneration
-from app.services.plate_paste import paste_plate_back
 from app.services.print.products import CoverSize, Product
 from app.services.prompts import (
     build_book_page_prompt,
@@ -124,6 +126,11 @@ MAX_PAGE_ATTEMPTS = 3
 #: outlive a heartbeat, not the whole render.
 _JOB_LEASE_SECONDS = 120.0
 _JOB_HEARTBEAT_SECONDS = 30.0
+#: How long an edit waits for a job that has published its last status but is
+#: still closing its books (the cost report, the lease release): seconds, at
+#: most, of database round trips, so a reader who acts on "complete" at once is
+#: served rather than told the book is busy.
+_SETTLE_SECONDS = 10.0
 
 
 #: Faults that live in one part of a picture, so the second attempt sends that
@@ -206,6 +213,84 @@ class DrawingPaused(Exception):
 _STAGE_PAINTING = "painting"
 _STAGE_REVIEWING = "reviewing"
 _STAGE_RETRYING = "retrying"
+
+
+#: The least time between two of a rendering book's status writes. Each stage
+#: change used to wait for its own full write of the status document, under a
+#: lock, so twenty-one pages took turns at the database between their draws.
+#: Now a change only asks for a write; one writer sends the latest state, then
+#: at most one more after this pause, however many changes came in meanwhile.
+_PAINT_INTERVAL_SECONDS = 0.5
+
+
+class _StatusPainter:
+    """One rendering book's status writes, coalesced into a single writer.
+
+    `request` never waits: the poll document is a progress report, and the
+    newest state is the only one worth sending. `flush` writes now and raises
+    what the write raises; `close` lets a write in flight land, sends the
+    state still waiting, and stops, so nothing it sends can arrive after the
+    job's final status.
+    """
+
+    def __init__(
+        self,
+        write: Callable[[], Awaitable[None]],
+        *,
+        interval: float = _PAINT_INTERVAL_SECONDS,
+    ) -> None:
+        self._write = write
+        self._interval = interval
+        self._wanted = False
+        self._writing = False
+        self._closed = False
+        self._task: asyncio.Task[None] | None = None
+
+    def request(self) -> None:
+        if self._closed:
+            return
+        self._wanted = True
+        if self._task is None or self._task.done():
+            self._task = asyncio.create_task(self._run())
+
+    async def flush(self) -> None:
+        await self._settle()
+        self._wanted = False
+        await self._write()
+
+    async def close(self) -> None:
+        self._closed = True
+        await self._settle()
+        if self._wanted:
+            # The last state asked for is still sent: a failed job's status
+            # is written from it, and it must name every page that finished.
+            self._wanted = False
+            try:
+                await self._write()
+            except Exception:  # a progress report must never fail the book
+                logger.warning("book.status_write_failed", exc_info=True)
+
+    async def _run(self) -> None:
+        while self._wanted and not self._closed:
+            self._wanted = False
+            self._writing = True
+            try:
+                await self._write()
+            except Exception:  # a progress report must never fail the book
+                logger.warning("book.status_write_failed", exc_info=True)
+            finally:
+                self._writing = False
+            if self._wanted and not self._closed:
+                await asyncio.sleep(self._interval)
+
+    async def _settle(self) -> None:
+        """Wait for a write in flight; drop a pause between writes."""
+        task = self._task
+        if task is None or task.done():
+            return
+        if not self._writing:
+            task.cancel()
+        await asyncio.wait([task])
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,6 +467,9 @@ class BookRunner:
         self._budget_rested: set[str] = set()
         self._retry_rested: set[str] = set()
         self._heartbeats: dict[str, asyncio.Task[None]] = {}
+        # Books whose job has written its last status and is only closing its
+        # books: an edit waits for them (`_settle`) rather than being refused.
+        self._finishing: set[str] = set()
         # Set by `close`: a job cancelled because the server is stopping is
         # paused for the next boot to resume, not failed.
         self._stopping = False
@@ -571,7 +659,7 @@ class BookRunner:
                 task.cancel()
             return
 
-    async def _warm_picture(self, book_id: str, slot: str) -> None:
+    async def _warm_picture(self, book_id: str, slot: str, image: bytes) -> None:
         """Make a picture's usual screen copies while the book is still rendering.
 
         The full-size picture is what the PDF embeds, but a reader wants the
@@ -580,9 +668,17 @@ class BookRunner:
         somebody waits (S2/B12). The 1600 px copy stays lazy. A failure here is
         logged and never fails the page: the picture is saved, and the media
         route can still make the copy on demand.
+
+        The copies are made from `image`, the bytes just saved, never read
+        back from blob storage, and filed under their hash only while the slot
+        still holds that picture (`file_variants`).
         """
         try:
-            await self._image_work(warm_variants, self._book_store, book_id, slot)
+            sha = hashlib.sha256(image).hexdigest()
+            copies = await self._image_work(encode_variants, image)
+            await asyncio.to_thread(
+                file_variants, self._book_store, book_id, slot, sha, copies
+            )
         except Exception:
             logger.warning("book.warm_failed book=%s slot=%s", book_id, slot, exc_info=True)
 
@@ -705,6 +801,7 @@ class BookRunner:
         count are kept, and finished pictures outside the job's own pages count
         as done.
         """
+        await self._settle(book_id)
         self._ensure_idle(book_id)
         await self._claim(book_id)
         fixes = dict(requested_fixes or {})
@@ -993,6 +1090,21 @@ class BookRunner:
             book.book_id, pages=numbers - done, since=book.job_started_at
         )
 
+    async def _settle(self, book_id: str) -> None:
+        """Wait for a job that has finished the book but not yet ended.
+
+        A render publishes "complete" (or "failed") and then reports its cost
+        and gives its lease back. A reader who presses edit in that moment
+        would be refused a book the page already says is done, so the edit
+        waits for the job to end, up to `_SETTLE_SECONDS`; a job still drawing
+        is not waited for, and `_ensure_idle` refuses it as before.
+        """
+        current = self._active.get(book_id)
+        if current is None or current.done() or book_id not in self._finishing:
+            return
+        # `wait` neither raises the job's own error nor cancels it on timeout.
+        await asyncio.wait({current}, timeout=_SETTLE_SECONDS)
+
     def _ensure_idle(self, book_id: str) -> None:
         """Refuse a second job for a book that already has one running.
 
@@ -1009,7 +1121,29 @@ class BookRunner:
     ) -> asyncio.Task[None]:
         """Run one job per book; refuse a second concurrent edit of it."""
         self._ensure_idle(book_id)
-        task = asyncio.create_task(make_coro())
+        released = False
+
+        async def run() -> None:
+            nonlocal released
+            try:
+                await make_coro()
+            finally:
+                # Given back before the task ends, never after: a release left
+                # to the done callback ran on an executor thread and could land
+                # after the book's next job had claimed the lease, taking it
+                # from that job, whose heartbeat then cancelled it as lost.
+                try:
+                    await asyncio.to_thread(self._book_store.release_job, book_id, self._owner)
+                    released = True
+                except Exception:
+                    logger.warning("book.lease_release_failed id=%s", book_id, exc_info=True)
+                if not self._stopping:
+                    # The book is published and its lease free: hand back what
+                    # drawing it took, so the next book or print file starts
+                    # from the instance's resting size, not this one's peak.
+                    await asyncio.to_thread(release_memory)
+
+        task = asyncio.create_task(run())
         self._active[book_id] = task
         self._tasks.add(task)
         # The claim is the store's; the heartbeat is what keeps it while a
@@ -1021,11 +1155,14 @@ class BookRunner:
             self._forget_book_costs(book_id)
             if self._active.get(book_id) is done:
                 self._active.pop(book_id, None)
+            self._finishing.discard(book_id)
             beat = self._heartbeats.pop(book_id, None)
             if beat is not None:
                 beat.cancel()
-            # Released whoever ended the job — done, failed, cancelled — so the
-            # next boot or instance may pick the book up.
+            if released:
+                return
+            # A job cancelled before it ever ran, or whose own release failed,
+            # still frees the book for the next boot or instance.
             try:
                 done.get_loop().run_in_executor(
                     None, self._book_store.release_job, book_id, self._owner
@@ -1128,6 +1265,15 @@ class BookRunner:
         # picture and must not send it again (W2).
         before = await asyncio.to_thread(self._book_store.load_status, book_id)
         announce = (before or {}).get("status") != BookStatus.COMPLETE
+        # The job's status writer, once it has one: every way out of the job
+        # stops it first, so a progress write can never land after the
+        # job's last word.
+        painters: list[_StatusPainter] = []
+
+        async def stop_painting() -> None:
+            for painter in painters:
+                await painter.close()
+
         try:
             artwork = await asyncio.to_thread(self._artwork, record)
             loaded_at = monotonic()
@@ -1242,7 +1388,7 @@ class BookRunner:
                     "stage_counts": counts,
                 }
 
-            async def paint() -> None:
+            async def write_status() -> None:
                 async with status_lock:
                     await asyncio.to_thread(
                         self._book_store.save_status,
@@ -1261,6 +1407,12 @@ class BookRunner:
                             "job": job_note,
                         },
                     )
+
+            painter = _StatusPainter(write_status)
+            painters.append(painter)
+
+            async def paint() -> None:
+                painter.request()
 
             async def set_stage(name: str, page_number: int, attempt: int = 1) -> None:
                 stages[page_number] = name
@@ -1401,7 +1553,7 @@ class BookRunner:
                     attempts.image,
                     **_verdict(attempts),
                 )
-                await self._warm_picture(book_id, page_slot(page.number))
+                await self._warm_picture(book_id, page_slot(page.number), attempts.image)
                 await self._record_prompts(book_id, page.number, page.key or "", attempts)
                 costs[page.number] = (
                     "edit" if plate is not None else "compose",
@@ -1431,7 +1583,7 @@ class BookRunner:
                     premade.image,
                     **_verdict(premade_attempts),
                 )
-                await self._warm_picture(book_id, page_slot(page.number))
+                await self._warm_picture(book_id, page_slot(page.number), premade.image)
                 await self._record_prompts(
                     book_id,
                     page.number,
@@ -1560,7 +1712,8 @@ class BookRunner:
             # told the PDF is being put together instead of watching a
             # progress bar that has stopped moving.
             phase = _PHASE_ASSEMBLING
-            await paint()
+            await painter.flush()
+            await painter.close()
             # The About page and the title are written from the freshest
             # record, not the one this job started with: an About edit made
             # while the pictures were drawing used to be overwritten by the
@@ -1592,6 +1745,7 @@ class BookRunner:
             if announce:
                 await self._tell_the_parent(record, user=user)
         except asyncio.CancelledError:
+            await stop_painting()
             # A shutdown pauses the job: the book stays rendering, and the next
             # boot resumes it. A delete cancels the job and removes the book,
             # leaving nothing to write. Any other cancel fails the book, its
@@ -1614,6 +1768,7 @@ class BookRunner:
                 )
             raise
         except GateTimeout:
+            await stop_painting()
             await self._fail_off_loop(
                 book_id,
                 "The server was too busy to render this book's pages, so it "
@@ -1623,6 +1778,7 @@ class BookRunner:
                 elapsed_ms=(monotonic() - started) * 1000,
             )
         except TimeoutError:
+            await stop_painting()
             await self._fail_off_loop(
                 book_id,
                 "A page took too long to generate, so the book was stopped. The "
@@ -1631,6 +1787,7 @@ class BookRunner:
                 elapsed_ms=(monotonic() - started) * 1000,
             )
         except DrawingPaused:
+            await stop_painting()
             # The operator's switch (Idea 10), not a fault: the book stays
             # resumable with the pictures it has, and turning the switch off
             # starts it again where it stopped.
@@ -1638,6 +1795,7 @@ class BookRunner:
                 book_id, user=user, elapsed_ms=(monotonic() - started) * 1000
             )
         except OutOfFunds as exc:
+            await stop_painting()
             # A redraw is a purchase: the wallet could not cover the next
             # picture, so nothing more was drawn and everything made so far is
             # kept. The book page shows this sentence and the way back.
@@ -1650,6 +1808,7 @@ class BookRunner:
                 code="out_of_funds",
             )
         except Exception as exc:  # keep the completed pages visible whatever happened
+            await stop_painting()
             logger.exception("book.failed user=%s book=%s", user, book_id)
             await self._fail_off_loop(
                 book_id,
@@ -1658,6 +1817,9 @@ class BookRunner:
                 elapsed_ms=(monotonic() - started) * 1000,
             )
         finally:
+            # The book's last status is written; what is left is bookkeeping,
+            # which an edit may wait out rather than be refused over.
+            self._finishing.add(book_id)
             # However the job ended, what it spent is already spent: the
             # operator hears about a book over the alert line here, once (C4).
             await self._report_book_cost(book_id, user)
@@ -1800,7 +1962,7 @@ class BookRunner:
             attempts.image,
             **_verdict(attempts),
         )
-        await self._warm_picture(record.book_id, page_slot(COVER_NUMBER))
+        await self._warm_picture(record.book_id, page_slot(COVER_NUMBER), attempts.image)
         await self._record_prompts(record.book_id, COVER_NUMBER, COVER_KEY, attempts)
         await mark(COVER_NUMBER, "done")
         return attempts.image
@@ -1811,6 +1973,7 @@ class BookRunner:
         book_id: str,
         page_number: int,
         image: bytes,
+        tier1: Tier1Review,
         plate: PlateArt | None,
         artwork: _Artwork,
         page_title: str,
@@ -1840,14 +2003,7 @@ class BookRunner:
         parent a finished book (T10.2). Only when neither check could look does
         the verdict say tier 1 alone ran, so nothing mistakes it for a review.
         """
-        # Off the event loop: ~0.35 s of Pillow on a dev machine, ten times
-        # that on the free plan, and every request waited behind it.
-        tier1 = await self._image_work(
-            review_image,
-            image,
-            plate_bytes=plate.image if plate is not None else None,
-            expected_ratio=_ratio(str(artwork.settings.aspect_ratio)),
-        )
+        # Tier 1 already ran, on the pixels the paste produced (`page_picture`).
         verdict = Verdict(
             attempt=attempt,
             passed=tier1.passed,
@@ -2168,22 +2324,20 @@ class BookRunner:
                             raise
                         break
                     continue
-                paste: dict[str, Any] = {}
-                if plate is not None:
-                    pasted = await self._image_work(
-                        paste_plate_back,
+                # One job on the image pool: the plate pasted back, tier 1 run
+                # and the judge's copy made from a single decode (`page_picture`).
+                prepared = await self._image_work(
+                    partial(
+                        prepare_page,
                         drawn.data,
-                        plate.image,
-                        plate.slots,
-                        paint_areas,
-                        media_type=drawn.media_type,
+                        plate=plate.image if plate is not None else None,
+                        slots=plate.slots if plate is not None else (),
+                        paint_areas=paint_areas,
+                        expected_ratio=_ratio(str(artwork.settings.aspect_ratio)),
                     )
-                    drawn = replace(drawn, data=pasted.image, media_type=pasted.media_type)
-                    paste = {
-                        "pasted": pasted.pasted,
-                        "restored": round(pasted.restored, 3),
-                        "drift": round(pasted.drift, 1),
-                    }
+                )
+                drawn = replace(drawn, data=prepared.image, media_type=prepared.media_type)
+                paste = prepared.paste
                 previous = drawn
                 image = drawn.data
                 if on_stage is not None:
@@ -2192,6 +2346,7 @@ class BookRunner:
                     book_id=book_id,
                     page_number=page_number,
                     image=image,
+                    tier1=prepared.tier1,
                     plate=plate,
                     artwork=artwork,
                     page_title=page_title,
@@ -2260,18 +2415,22 @@ class BookRunner:
         the log is what is left: *this text* asked for it. Written after the
         attempt, which is why a failed book still keeps what it had got to.
         """
-        for index, verdict in enumerate(attempts.verdicts):
-            sent = attempts.prompts[index] if index < len(attempts.prompts) else ""
-            await asyncio.to_thread(
-                self._book_store.append_prompt,
-                book_id,
-                {
-                    "page": str(page_number),
-                    "key": key,
-                    "attempt": str(verdict["attempt"]),
-                    "prompt": sent,
-                },
-            )
+        entries = [
+            {
+                "page": str(page_number),
+                "key": key,
+                "attempt": str(verdict["attempt"]),
+                "prompt": attempts.prompts[index] if index < len(attempts.prompts) else "",
+            }
+            for index, verdict in enumerate(attempts.verdicts)
+        ]
+
+        def append_all() -> None:
+            for entry in entries:
+                self._book_store.append_prompt(book_id, entry)
+
+        # One trip to a worker thread for the page, not one per attempt.
+        await asyncio.to_thread(append_all)
 
     async def _on_worker_thread_with_slot(
         self, work: Callable[[], _T], *, on_slot: Callable[[], Awaitable[None]] | None = None

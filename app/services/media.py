@@ -20,16 +20,22 @@ import io
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Hashable
-from typing import TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar, cast
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 __all__ = [
     "FAST_PNG_LEVEL",
+    "PAGE_JPEG_QUALITY",
     "ShrunkCache",
+    "encode_page",
     "extension_for",
     "image_filename",
     "jpeg_data_url",
     "judge_jpeg",
     "media_type_for",
+    "remember_judge_copy",
 ]
 
 #: Pictures sent to a judging model (the reviewer, the decision judge) are at
@@ -45,6 +51,14 @@ _V = TypeVar("_V")
 #: machine, and ten times both on the free plan's sliver of a CPU, where the
 #: default encode was the costliest step of a whole render).
 FAST_PNG_LEVEL = 1
+
+#: JPEG quality of a stored book picture (a page or the cover after its plate
+#: is pasted back). With no chroma subsampling a red cloak's edge stays sharp,
+#: and at this quality the picture is indistinguishable from a PNG of it at
+#: print size. Encoding it costs a tenth of even the fast PNG (about 12 ms
+#: against 110 ms for a 1536 px page on a dev machine), and the screen PDF
+#: embeds it as it is instead of decoding and re-encoding every page.
+PAGE_JPEG_QUALITY = 90
 
 
 class ShrunkCache:
@@ -73,12 +87,17 @@ class ShrunkCache:
         # Made outside the lock: two threads may shrink the same picture once
         # each, which is cheaper than every other picture waiting on one.
         value = make()
+        self.put(data, params, value)
+        return value
+
+    def put(self, data: bytes, params: Hashable, value: object) -> None:
+        """Remember `value` for `data`, made by a caller that already had it."""
+        key = (hashlib.blake2b(data, digest_size=16).digest(), params)
         with self._lock:
             self._entries[key] = value
             self._entries.move_to_end(key)
             while len(self._entries) > self._size:
                 self._entries.popitem(last=False)
-        return value
 
 
 _JUDGE_COPIES = ShrunkCache()
@@ -112,13 +131,41 @@ def judge_jpeg(image: bytes, *, max_side: int = JUDGE_MAX_SIDE) -> bytes:
     return _JUDGE_COPIES.get(image, ("judge", max_side), lambda: _judge_jpeg(image, max_side))
 
 
+def remember_judge_copy(image: bytes, picture: Image.Image) -> None:
+    """File the judge's copy of `image`, made from `picture`, its decoded pixels.
+
+    A page is decoded once on its way through a render (`page_picture`); the
+    copy both judges are later sent is made from those pixels there, so
+    neither judge decodes the page again.
+    """
+    _JUDGE_COPIES.put(image, ("judge", JUDGE_MAX_SIDE), _shrunk_jpeg(picture, JUDGE_MAX_SIDE))
+
+
+def encode_page(picture: Image.Image) -> bytes:
+    """A book picture as the JPEG it is stored as (`PAGE_JPEG_QUALITY`)."""
+    buffer = io.BytesIO()
+    # Baseline on purpose (no optimize=, no progressive=): Pillow then encodes
+    # in chunks that release the GIL, and the event loop keeps running.
+    picture.convert("RGB").save(
+        buffer, format="JPEG", quality=PAGE_JPEG_QUALITY, subsampling=0
+    )
+    return buffer.getvalue()
+
+
 def _judge_jpeg(image: bytes, max_side: int) -> bytes:
     from PIL import Image
 
-    picture = Image.open(io.BytesIO(image)).convert("RGB")
-    picture.thumbnail((max_side, max_side))
+    with Image.open(io.BytesIO(image)) as opened:
+        # A JPEG is decoded straight at the size it is shrunk to.
+        opened.draft("RGB", (max_side, max_side))
+        return _shrunk_jpeg(opened.convert("RGB"), max_side)
+
+
+def _shrunk_jpeg(picture: Image.Image, max_side: int) -> bytes:
+    copy = picture.convert("RGB") if picture.mode != "RGB" else picture.copy()
+    copy.thumbnail((max_side, max_side))
     buffer = io.BytesIO()
-    picture.save(buffer, format="JPEG", quality=88)
+    copy.save(buffer, format="JPEG", quality=88)
     return buffer.getvalue()
 
 

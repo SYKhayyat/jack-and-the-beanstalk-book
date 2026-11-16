@@ -99,10 +99,18 @@ class Tier1Review:
         }
 
 
-def _open(data: bytes) -> Image.Image:
+def _open(data: bytes | Image.Image) -> Image.Image:
+    if isinstance(data, Image.Image):
+        return data.convert("RGB") if data.mode != "RGB" else data
     image = Image.open(io.BytesIO(data))
     image.load()
     return image.convert("RGB")
+
+
+#: Brightness and spread are measured on a copy about this wide: a mean and a
+#: standard deviation over a quarter-million pixels say what they say over two
+#: million, at a tenth of the cost.
+_STAT_WIDTH = 512
 
 
 def _mean_absolute_difference(a: Image.Image, b: Image.Image) -> float:
@@ -165,16 +173,18 @@ def count_seams(image: Image.Image) -> int:
 
 
 def review_image(
-    image_bytes: bytes,
+    image_bytes: bytes | Image.Image,
     *,
-    plate_bytes: bytes | None = None,
+    plate_bytes: bytes | Image.Image | None = None,
     expected_ratio: float | None = None,
 ) -> Tier1Review:
     """Run every free check on one picture and return its verdict.
 
     Args:
-        image_bytes: The picture the provider returned.
-        plate_bytes: For an edit pass, the plate it was asked to keep. Enables
+        image_bytes: The picture the provider returned, as bytes or as the
+            pixels a caller already decoded (`page_picture`).
+        plate_bytes: For an edit pass, the plate it was asked to keep (bytes
+            or pixels). Enables
             the two checks that make the edit pass meaningful.
         expected_ratio: Width / height the page should have, when it matters.
             A provider that ignores the aspect ratio gives a picture the PDF
@@ -201,7 +211,8 @@ def review_image(
             faults.append("wrong_aspect")
             score -= 25
 
-    stat = ImageStat.Stat(image)
+    factor = image.width // _STAT_WIDTH
+    stat = ImageStat.Stat(image.reduce(factor) if factor >= 2 else image)
     means = stat.mean
     deviations = stat.stddev
     brightness = sum(means) / len(means)

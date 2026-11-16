@@ -19,6 +19,7 @@ import shutil
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ from app.main import create_app
 from app.services import book_runner as book_runner_module
 from app.services.book_runner import BookRunner
 from app.services.image_providers.base import ProviderError
+from app.services.image_review import review_image
 from app.services.user_store import User
 from app.sessions import SESSION_COOKIE
 from tests.helpers import JACK_KEY, RecordingProvider, isolated_settings, make_photo_bytes
@@ -140,6 +142,7 @@ def _judged(runner: BookRunner) -> Any:
             book_id="book",
             page_number=5,
             image=grain(),
+            tier1=review_image(grain()),
             plate=None,
             artwork=artwork(plated=False),
             page_title="the kitchen",
@@ -217,13 +220,13 @@ def test_the_budget_is_read_from_the_ledger_once_in_a_while(
 # --- the retry budget ----------------------------------------------------------------
 
 
+@dataclass
 class _Drawn:
     """The little of a GeneratedImage the loop reads after a draw."""
 
-    def __init__(self, data: bytes) -> None:
-        self.data = data
-        self.media_type = "image/png"
-        self.model = "test"
+    data: bytes
+    media_type: str = "image/png"
+    model: str = "test"
 
 
 def prompt_only(faults: Any, findings: str, mend: bool) -> str:

@@ -1051,7 +1051,7 @@ def _shaping_supported() -> bool:
 def _image_for_pdf(
     image: bytes, *, printed_at: tuple[float, float] | None = None
 ) -> io.BytesIO:
-    """Re-encode one picture as a right-sized JPEG for embedding.
+    """One picture as a right-sized JPEG for embedding: as stored when it is one.
 
     `printed_at` is the picture's size on a print page, in points. A print
     picture keeps every pixel it has and, when that is under `_PRINT_PPI` at
@@ -1066,6 +1066,11 @@ def _image_for_pdf(
     """
     try:
         with Image.open(io.BytesIO(image)) as opened:
+            if printed_at is None and _embeds_as_is(opened):
+                # A page is stored as an RGB JPEG at screen size already: a
+                # decode and re-encode would cost a second of the free plan's
+                # CPU per page to change nothing anyone can see.
+                return io.BytesIO(image)
             has_alpha = opened.mode in ("RGBA", "LA") or "transparency" in opened.info
             frame = opened.convert("RGBA" if has_alpha else "RGB")
             if frame.mode == "RGBA":
@@ -1092,12 +1097,33 @@ def _image_for_pdf(
     return encoded
 
 
+def _embeds_as_is(opened: Image.Image) -> bool:
+    """Whether a screen PDF can take this picture's bytes without re-encoding.
+
+    Only a plain RGB JPEG no bigger than `_EMBED_LONG_EDGE`: the PDF carries
+    a JPEG as it is, while any other format, colour mode or size is re-encoded.
+    """
+    return (
+        opened.format == "JPEG"
+        and opened.mode == "RGB"
+        and not opened.info.get("progressive")
+        and max(opened.size) <= _EMBED_LONG_EDGE
+    )
+
+
 def _upscale_for_print(frame: Image.Image, printed_at: tuple[float, float]) -> Image.Image:
     """`frame` resampled up to `_PRINT_PPI` at its printed size, if it is under.
 
     Lanczos keeps the painted edges clean, and a light unsharp mask gives
     back the crispness resampling softens. A picture already at or above the
     density is returned untouched: a print picture is never downscaled.
+
+    The mask is applied to the picture before it is enlarged, not after: on
+    the full-size frame it was a second copy of a cover spread's 38 MB of
+    pixels, and with the server's resting memory that tipped the free plan's
+    512 MB over during a print order (2026-11-16 00:42Z). Sharpening first
+    keeps one full-size frame alive at a time; the radius is scaled down by
+    the same factor so the edge it works on is the same width on paper.
     """
     width_pt, height_pt = printed_at
     factor = max(
@@ -1108,8 +1134,10 @@ def _upscale_for_print(frame: Image.Image, printed_at: tuple[float, float]) -> I
         return frame
     size = (math.ceil(frame.width * factor), math.ceil(frame.height * factor))
     logger.info("pdf.print_upscale from=%dx%d to=%dx%d", frame.width, frame.height, *size)
-    resized = frame.resize(size, Image.Resampling.LANCZOS)
-    return resized.filter(ImageFilter.UnsharpMask(radius=1.2, percent=60, threshold=3))
+    sharpened = frame.filter(
+        ImageFilter.UnsharpMask(radius=max(0.5, 1.2 / factor), percent=60, threshold=3)
+    )
+    return sharpened.resize(size, Image.Resampling.LANCZOS)
 
 
 def _image_size(image: bytes) -> tuple[int, int]:

@@ -34,6 +34,8 @@ from app.services.image_providers.base import (
     ImageRequest,
     ProviderError,
 )
+from app.services.image_review import review_image
+from app.services.media import encode_page, media_type_for
 from app.services.prompts import build_plate_edit_prompt
 from app.services.reviewer import (
     GeminiReviewer,
@@ -119,6 +121,17 @@ def grain(colour: tuple[int, int, int] = (47, 125, 79), seed: int = 0) -> bytes:
 #: The colour the test plates are painted: `_write_plates` fills every one with
 #: this, so a painted page that keeps the background has to be close to it.
 PLATE_COLOUR = (120, 150, 190)
+
+
+def _near(pixel: Any, colour: tuple[int, int, int], within: int = 3) -> bool:
+    """A pixel within JPEG's rounding of the colour it was painted."""
+    return all(abs(a - b) <= within for a, b in zip(pixel, colour, strict=True))
+
+
+def _as_jpeg(png: bytes) -> bytes:
+    """The picture as the loop keeps it, so a draw that needs no paste survives as is."""
+    with Image.open(io.BytesIO(png)) as opened:
+        return encode_page(opened.convert("RGB"))
 
 
 def a_plate_with_someone_in_it(shift: int = 0) -> bytes:
@@ -260,7 +273,8 @@ def runner_with(reviewer: Any, attempts: int = MAX_PAGE_ATTEMPTS) -> BookRunner:
 
 def attempt_loop(runner: BookRunner, draws: list[bytes] | None = None, **overrides: Any):
     """Run one page through the loop with scripted pictures, and return it."""
-    images = draws or [a_plate_with_someone_in_it(shift) for shift in range(3)]
+    # JPEGs, as a page is kept: one that needs no paste is stored byte for byte.
+    images = draws or [_as_jpeg(a_plate_with_someone_in_it(shift)) for shift in range(3)]
 
     class Script:
         """Hands out the next picture per call, so attempts are distinguishable."""
@@ -273,7 +287,9 @@ def attempt_loop(runner: BookRunner, draws: list[bytes] | None = None, **overrid
             self.bases.append(base)
             image = images[self.calls]
             self.calls += 1
-            return GeneratedImage(data=image, media_type="image/png", model="painter-v2")
+            return GeneratedImage(
+                data=image, media_type=media_type_for(image), model="painter-v2"
+            )
 
     draw = Script()
     arguments = {
@@ -409,6 +425,7 @@ class TestTheAttemptLoop:
                 book_id="book",
                 page_number=5,
                 image=grain(),
+                tier1=review_image(grain()),
                 plate=None,
                 artwork=artwork(plated=False),
                 page_title="t",
@@ -432,6 +449,7 @@ class TestTheAttemptLoop:
                 book_id="book",
                 page_number=5,
                 image=grain(),
+                tier1=review_image(grain()),
                 plate=None,
                 artwork=artwork(),
                 page_title="t",
@@ -452,6 +470,7 @@ class TestTheAttemptLoop:
                 book_id="book",
                 page_number=5,
                 image=grain(),
+                tier1=review_image(grain()),
                 plate=None,
                 artwork=artwork(),
                 page_title="t",
@@ -665,9 +684,10 @@ class TestMendingAPage:
         )
         assert fixes == [False, True]
         assert draw.bases[0] is None
-        # The picture sent back is the first attempt as judged (plate pasted back).
+        # The picture sent back is the first attempt as judged (plate pasted back),
+        # kept as every page is: a JPEG.
         assert draw.bases[1] is not None
-        assert draw.bases[1].media_type == "image/png"
+        assert draw.bases[1].media_type == "image/jpeg"
         assert [verdict["kind"] for verdict in result.verdicts] == ["first", "fix"]
         assert result.chosen == 2
 
@@ -722,8 +742,9 @@ class TestMendingAPage:
             plate=a_flat_plate(),
         )
         kept = Image.open(io.BytesIO(result.image)).convert("RGB")
-        assert kept.getpixel((950, 110)) == PLATE_COLOUR
-        assert kept.getpixel((150, 600)) == (60, 45, 35)
+        # Kept as a JPEG, so "the same colour" is within a step or two.
+        assert _near(kept.getpixel((950, 110)), PLATE_COLOUR)
+        assert _near(kept.getpixel((150, 600)), (60, 45, 35))
 
 
 class TestLookingAtTheHair:
