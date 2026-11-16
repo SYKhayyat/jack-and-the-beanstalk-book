@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import statistics
 import threading
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -92,6 +93,11 @@ class UnreviewedImages(RuntimeError):
 
 
 logger = logging.getLogger(__name__)
+
+#: The progress estimate is the median of this many of the latest whole books
+#: (A9), and is not given until there are at least `TYPICAL_TIME_MIN_BOOKS`.
+TYPICAL_TIME_BOOKS = 30
+TYPICAL_TIME_MIN_BOOKS = 3
 
 
 class DatabaseBookStore(BookStore):
@@ -824,6 +830,28 @@ class DatabaseBookStore(BookStore):
                 .where(BookRow.id == book_id)
                 .values(pdf=stored, updated_at=_now())
             )
+
+    def record_drawn_seconds(self, book_id: str, seconds: float) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(
+                update(BookRow).where(BookRow.id == book_id).values(drawn_seconds=seconds)
+            )
+
+    def typical_drawn_seconds(self) -> float | None:
+        with self._engine.connect() as conn:
+            times = (
+                conn.execute(
+                    select(BookRow.drawn_seconds)
+                    .where(BookRow.drawn_seconds.is_not(None))
+                    .order_by(BookRow.created_at.desc())
+                    .limit(TYPICAL_TIME_BOOKS)
+                )
+                .scalars()
+                .all()
+            )
+        if len(times) < TYPICAL_TIME_MIN_BOOKS:
+            return None
+        return float(statistics.median(t for t in times if t is not None))
 
     def read_pdf(self, book_id: str) -> bytes | None:
         with self._engine.connect() as conn:

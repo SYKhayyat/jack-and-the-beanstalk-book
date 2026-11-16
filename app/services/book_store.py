@@ -475,6 +475,20 @@ class BookStore:
     def read_pdf(self, book_id: str) -> bytes | None:
         raise NotImplementedError
 
+    # --- how long a book takes (A9) ----------------------------------------------
+
+    def record_drawn_seconds(self, book_id: str, seconds: float) -> None:
+        """Keep how long a fresh book took to draw, start to PDF, in one go."""
+        raise NotImplementedError
+
+    def typical_drawn_seconds(self) -> float | None:
+        """The median of the last 30 kept times, or None with fewer than 3.
+
+        What a new book's progress says it has left is measured from this: a
+        median, so one book that waited on a slow provider does not move it.
+        """
+        raise NotImplementedError
+
     # --- URLs (identical in every implementation) ------------------------------
 
     def pdf_url(self, book_id: str) -> str:

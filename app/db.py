@@ -31,6 +31,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -143,6 +144,10 @@ class BookRow(Base):
     source_photo: Mapped[bytes | None] = mapped_column(BlobRef, nullable=True)
     cover: Mapped[bytes | None] = mapped_column(BlobRef, nullable=True)
     pdf: Mapped[bytes | None] = mapped_column(BlobRef, nullable=True)
+    #: Seconds from the job starting to the PDF being written, for a fresh
+    #: book drawn in one go: the progress estimate is the median of the last
+    #: 30 (A9, migration 0024). None for a book made any other way.
+    drawn_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     #: Which share links still work: a link carries the number it was minted
     #: under, and "Stop sharing" adds one (A10, migration 0020).
     share_generation: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

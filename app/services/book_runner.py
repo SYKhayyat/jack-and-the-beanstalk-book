@@ -41,7 +41,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from time import monotonic
+from time import monotonic, time
 from typing import Any, TypeVar, cast
 
 from app.errors import BookBusy
@@ -1280,6 +1280,29 @@ class BookRunner:
             # What this job is, kept in every status write: a restart resumes
             # exactly it, with the fixes its owner asked for (`recover`).
             job_note = _job_note(target, draw_cover, requested_fixes)
+            # A fresh book drawn in one go is timed, and told about how long it
+            # has left from the books before it (A9). An edit, a "finish this
+            # book" or a resume is a different length of job, so none is.
+            whole_book = (
+                announce
+                and not resumed
+                and not only_missing
+                and draw_cover
+                and target == {page.number for page in pages}
+            )
+            expected = (
+                await asyncio.to_thread(self._book_store.typical_drawn_seconds)
+                if whole_book
+                else None
+            )
+            timing = (
+                {
+                    "expected_seconds": round(expected),
+                    "job_started": round(time() - (monotonic() - started)),
+                }
+                if expected is not None
+                else {}
+            )
             status_lock = asyncio.Lock()
             # How many of one book's pictures are being drawn at once. Held
             # only for the model call, not through the paste-back and review
@@ -1373,6 +1396,7 @@ class BookRunner:
                             "pictures_drawn": len(drawn_pictures),
                             "page_attempts": self._page_attempts,
                             "job": job_note,
+                            **timing,
                         },
                     )
 
@@ -1702,6 +1726,10 @@ class BookRunner:
                     subtitle=edition.subtitle_for(record.about.prompt_name),
                 )
             )
+            if whole_book:
+                await asyncio.to_thread(
+                    self._book_store.record_drawn_seconds, book_id, monotonic() - started
+                )
             logger.info(
                 "book.complete user=%s book=%s pages=%d pdf_bytes=%d ms=%.0f "
                 "rss_mb=%.0f outcome=complete",

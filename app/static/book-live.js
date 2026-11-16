@@ -397,7 +397,7 @@ function apply(payload) {
     caption("Drawing is paused for a moment. Everything drawn so far is kept — this book carries on by itself.");
   } else if (payload.phase === "preparing") {
     // Audit 11-15 S4: the wait before the first page starts is work too.
-    caption("Step 1 of 2 · Getting the pictures ready — the first page starts in a moment.");
+    caption(withTimeLeft("Step 1 of 2 · Getting the pictures ready — the first page starts in a moment.", payload));
   } else if (payload.phase === "assembling") {
     caption("Step 2 of 2 · Putting the book together — every picture is drawn.");
   } else {
@@ -411,13 +411,35 @@ function apply(payload) {
     // is work, however long since the last one was accepted.
     const stage = stageCaption(payload, inFlight, done, total);
     caption(
-      stage ||
-        (quietPolls >= RESTING_AFTER_POLLS
-          ? `${done} of ${total} pages finished. The pencil is resting for a moment — it picks up again on its own.`
-          : `Your book is being drawn. ${done} of ${total} pages finished.`),
+      withTimeLeft(
+        stage ||
+          (quietPolls >= RESTING_AFTER_POLLS
+            ? `${done} of ${total} pages finished. The pencil is resting for a moment — it picks up again on its own.`
+            : `Your book is being drawn. ${done} of ${total} pages finished.`),
+        payload,
+      ),
     );
   }
   poll(0);
+}
+
+/**
+ * The caption with about how long the book has left (A9), when the server
+ * gave an estimate: the median time of the last whole books, counted from
+ * when this one started. Rounded so it does not tick like a stopwatch, and
+ * never a negative number: a book running over says it is nearly there, and
+ * one well past the estimate says nothing about time at all.
+ */
+function withTimeLeft(sentence, payload) {
+  const expected = Number(payload.expected_seconds);
+  const started = Number(payload.job_started);
+  if (!(expected > 0) || !(started > 0)) return sentence;
+  const left = expected - (Date.now() / 1000 - started);
+  if (left < -60) return sentence;
+  if (left <= 10) return `${sentence} Almost done.`;
+  if (left < 60) return `${sentence} About ${Math.ceil(left / 10) * 10} seconds left.`;
+  const minutes = Math.round(left / 60);
+  return `${sentence} About ${minutes} ${minutes === 1 ? "minute" : "minutes"} left.`;
 }
 
 /**
