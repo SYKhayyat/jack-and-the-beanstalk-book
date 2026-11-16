@@ -307,3 +307,58 @@ class TestReadingTheAnswer:
         metered.decide(b"", brief="b", cast="c")
         assert recorded[0]["cost_microusd"] == round(2073 * 0.10)
         assert recorded[0]["provider"] == "decisions" and recorded[0]["ok"] is True
+
+
+class TestTheReviewerOverturningTheJudge:
+    """Audit R1: how often the reviewer's call differs from the judge's own."""
+
+    def test_the_judge_s_own_call_is_kept_beside_the_reviewer_s(self) -> None:
+        overturned, _ = judge(ScriptedReviewer(answers=[said(True, 92)]), [UNSURE])
+        assert overturned.as_dict()["decision"]["alone"] == "fail"
+        agreed, _ = judge(ScriptedReviewer(answers=[said(False, 5, ("collage",))]), [BAD])
+        assert agreed.as_dict()["decision"]["alone"] == "fail"
+        good, _ = judge(ScriptedReviewer(answers=[said(True, 95)]), [BAD])
+        assert good.passed and good.as_dict()["decision"]["alone"] == "fail"
+
+    def test_the_status_page_counts_the_overturns(self) -> None:
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import Session
+
+        from app.db import Base, BookPageRow, BookRow
+        from app.services.operator_status import review_health
+
+        def verdict(passed: bool, alone: str | None) -> dict[str, Any]:
+            decision = {"outcome": "unsure"} | ({"alone": alone} if alone else {})
+            return {"passed": passed, "judged_by": "reviewer", "decision": decision}
+
+        engine = create_engine("sqlite://")
+        Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            session.add(
+                BookRow(
+                    id="b", status="done", generation_id="g", about={}, review_required=True
+                )
+            )
+            session.flush()
+            for number, review in enumerate(
+                [
+                    [verdict(True, "fail")],  # overturned
+                    [verdict(False, "fail")],  # agreed
+                    [verdict(True, None)],  # judge was down: not compared
+                ],
+                start=1,
+            ):
+                session.add(
+                    BookPageRow(
+                        book_id="b",
+                        page_number=number,
+                        image=b"png",
+                        media_type="image/png",
+                        review=review,
+                    )
+                )
+            session.commit()
+
+        health = review_health(engine)
+        assert health.judge_compared == 2
+        assert health.reviewer_overturned == 1

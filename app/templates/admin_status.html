@@ -13,6 +13,7 @@
   <tr><th scope="row">Attempts the reviewer judged</th><td class="wallet-amount">{{ h.tier2_ran }}</td></tr>
   <tr><th scope="row">Attempts the decision judge settled alone</th><td class="wallet-amount">{{ h.settled_by_decision }}</td></tr>
   <tr><th scope="row">Attempts the reviewer decided</th><td class="wallet-amount">{{ h.decided_by_reviewer }}</td></tr>
+  <tr><th scope="row">…where it overruled the decision judge</th><td class="wallet-amount">{{ h.reviewer_overturned }} of {{ h.judge_compared }}</td></tr>
   <tr><th scope="row">Attempts the reviewer could not judge</th><td class="wallet-amount{% if h.tier2_unavailable %} admin-bad{% endif %}">{{ h.tier2_unavailable }}</td></tr>
   <tr><th scope="row">Finished pictures with no verdict</th><td class="wallet-amount{% if h.unreviewed %} admin-bad{% endif %}">{{ h.unreviewed | length }}</td></tr>
 {%- endmacro %}

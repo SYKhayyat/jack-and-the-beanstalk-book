@@ -71,6 +71,11 @@ class ReviewHealth:
     settled_by_decision: int
     #: Attempts the reviewer's verdict decided.
     decided_by_reviewer: int
+    #: Of those, the ones where the decision judge's own ruling is on record
+    #: (R1) — and how many of them the reviewer ruled the other way. Close to
+    #: none means one of the two tiers is a call that changes nothing.
+    judge_compared: int
+    reviewer_overturned: int
     faults: tuple[tuple[str, int], ...]
     #: (book, page) of finished pictures that must have a verdict and do not.
     unreviewed: tuple[tuple[str, int], ...]
@@ -194,7 +199,7 @@ def review_health(engine: Engine, *, since: datetime | None = None) -> ReviewHea
     faults: Counter[str] = Counter()
     providers: Counter[str] = Counter()
     pictures = reviewed = first = redrawn = kept = unavailable = ran = 0
-    settled = by_reviewer = 0
+    settled = by_reviewer = compared = overturned = 0
     for review, best_effort in records:
         pictures += 1
         verdicts = list(review or [])
@@ -217,6 +222,11 @@ def review_health(engine: Engine, *, since: datetime | None = None) -> ReviewHea
                 settled += 1
             elif verdict.get("judged_by") == "reviewer":
                 by_reviewer += 1
+                alone = (verdict.get("decision") or {}).get("alone")
+                if alone in {"pass", "fail"}:
+                    compared += 1
+                    if (alone == "pass") != bool(verdict.get("passed")):
+                        overturned += 1
             if verdict.get("provider"):
                 providers[f"{verdict['provider']} · {verdict.get('model', '?')}"] += 1
     wanted = set(ids) if since is not None else None
@@ -231,6 +241,8 @@ def review_health(engine: Engine, *, since: datetime | None = None) -> ReviewHea
         tier2_ran=ran,
         settled_by_decision=settled,
         decided_by_reviewer=by_reviewer,
+        judge_compared=compared,
+        reviewer_overturned=overturned,
         faults=tuple(faults.most_common()),
         unreviewed=tuple(item for item in missing if wanted is None or item[0] in wanted),
         providers=tuple(providers.most_common()),

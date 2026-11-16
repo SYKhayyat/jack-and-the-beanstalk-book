@@ -2113,6 +2113,13 @@ class BookRunner:
         faults = _confirmed_faults(answer.faults, decision)
         passed = verdict_passes(answer.score, faults)
         judged_by = "reviewer"
+        if decision is not None and decided is not None:
+            # What the decision judge would have ruled on its own, by the same
+            # rule as when it decides alone: the operator's page counts how
+            # often the reviewer overturns it, to learn whether both tiers
+            # earn their call (audit 2026-11-15, R1).
+            alone = decision.outcome is not Outcome.REJECT and not decision.faults(COIN)
+            decided = {**decided, "alone": "pass" if alone else "fail"}
         # The checks' scores answer different questions, so the combined score
         # is the strictest: a page is only as good as its worst check.
         verdict = Verdict(
