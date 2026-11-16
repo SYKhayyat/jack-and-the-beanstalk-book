@@ -2,12 +2,12 @@
 
 Compared against three friends' apps (cloned at HEAD on 2026-11-15):
 
-- [Ozer7/storybook-print](https://github.com/Ozer7/storybook-print)
+- [Ozer7/storybook-print](https://github.com/Ozer7/storybook-print) (Oriel's: the site the owner calls "beautiful and fast")
 - [eliTouro/jack-and-the-beanstalk](https://github.com/eliTouro/jack-and-the-beanstalk)
 - [yosefdwolf/jackAndTheGiantBeanstalk](https://github.com/yosefdwolf/jackAndTheGiantBeanstalk)
 
-Oriel's site wasn't compared because we have no repo for it. The head-crop idea credited to Oriel in
-memory is the same thing Ozer7 does (A5).
+Ozer7 is Oriel. Oriel's speed comes partly from a paid host: the app runs on Render Starter
+($7/mo) because the free plan was too slow for it (A7, Q1).
 
 ## Summary
 
@@ -26,7 +26,7 @@ order time; they print at 136–171 dpi), CI (none of them have any), share link
 
 ## The three repos at a glance
 
-| | Ozer7 | eliTouro | yosefdwolf | **Ours** |
+| | Ozer7 (Oriel) | eliTouro | yosefdwolf | **Ours** |
 |---|---|---|---|---|
 | Stack | Node 22, Express, pdf-lib | Node 22, Express 5, pdfkit | Python 3.12, FastAPI, reportlab | Python, FastAPI |
 | Host | Render Starter ($7/mo) | Render free + keep-warm ping | Railway | Render free |
@@ -117,8 +117,9 @@ Content refusals (400/401/403/422) aren't retried at all (eliTouro `src/quality.
 ### A7. Keep-warm ping — P2 (only if we stay on Render free)
 
 **What they do.** eliTouro has a GitHub Action that pings the site every 10 minutes so the free
-instance never sleeps (`.github/workflows/keep-warm.yml`). Ozer7 moved to Starter ($7/mo) because
-free was too slow.
+instance never sleeps (`.github/workflows/keep-warm.yml`). Ozer7 (Oriel) moved to Starter ($7/mo)
+because free was too slow, so the site that feels fast to us isn't on the free plan.
+eliTouro is on free and measured 29–55 s.
 
 **For us.** A cold start lands on the first book of the session. Add a cron workflow next to
 `ci.yml` that requests `/healthz`. This is a decision for the owner (Q1).
@@ -190,7 +191,7 @@ module while doing them, rather than adding to it.
 ## Questions for the owner
 
 1. **Render plan.** Stay on free and add a keep-warm ping (A7), or move to Starter at $7/mo like
-   Ozer7?
+   Oriel (Ozer7)?
 2. **Same hero-less pages in every book (A3).** OK? All three friends ship it this way.
 3. **Agnes (R3).** Keep it in production, or local-only?
 4. **Head-crop edits (A5).** Worth the rewrite once A1–A4 are measured, or only if we're still
