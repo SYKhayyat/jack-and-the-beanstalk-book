@@ -193,4 +193,9 @@ def isolated_settings(root: Path, seeded_template: Path) -> Settings:
         # A stable signing key, as every real deployment has: without one the
         # studio refuses to mint share links (A10).
         session_secret="test-session-secret",
+        # The book deadline and the backup call race the clock: a loaded test
+        # machine would change which pictures are drawn. Their own tests turn
+        # them on (tests/test_deadline_and_backup.py).
+        book_deadline_seconds=0,
+        backup_call_seconds=0,
     )

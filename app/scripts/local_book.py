@@ -86,6 +86,10 @@ LOCAL_ENV: dict[str, str] = {
     # Every job waits its turn for the one browser, and a reached limit waits
     # until it lifts: a page may take hours, never fail for the wait.
     "GENERATION_TIMEOUT_SECONDS": str(24 * 3600),
+    # A browser model takes minutes a picture and costs nothing: no book
+    # deadline, and no backup call racing the one browser tab.
+    "BOOK_DEADLINE_SECONDS": "0",
+    "BACKUP_CALL_SECONDS": "0",
 }
 
 

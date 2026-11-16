@@ -55,6 +55,8 @@ def build_provider(settings: Settings) -> ImageProvider:
             quality=settings.openai_quality,
             timeout_seconds=settings.generation_timeout_seconds,
             images_per_minute=settings.openai_images_per_minute,
+            plate_max_edge=settings.plate_max_edge,
+            reference_max_edge=settings.reference_max_edge,
         )
     if provider_cls is AgnesImageProvider:
         return AgnesImageProvider(

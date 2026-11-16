@@ -72,12 +72,21 @@ from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
     ImageRequest,
-    ProviderError,
 )
 from app.services.image_review import Tier1Review
 from app.services.media import media_type_for
 from app.services.memory import release_memory
-from app.services.page_picture import prepare_page
+from app.services.page_attempts import (
+    FIXABLE_FAULTS,
+    STAGE_PAINTING,
+    STAGE_RETRYING,
+    STAGE_REVIEWING,
+    AttemptHooks,
+    Attempts,
+    Box,
+    draw_until_pass,
+)
+from app.services.page_picture import PreparedPage, prepare_page
 from app.services.pictures import encode_variants, file_variants, page_slot
 from app.services.pipeline import UnknownGeneration
 from app.services.print.products import CoverSize, Product
@@ -134,32 +143,6 @@ _JOB_HEARTBEAT_SECONDS = 30.0
 _SETTLE_SECONDS = 10.0
 
 
-#: Faults that live in one part of a picture, so the second attempt sends that
-#: picture back to be mended rather than drawing the page again from the plate:
-#: a redraw rolls every part of it again to fix one hand. Not here, so redrawn:
-#: a collage or a background redrawn into another place (the whole picture is
-#: wrong), and tier 1's mechanical faults (nothing worth keeping came back).
-FIXABLE_FAULTS = frozenset(
-    {
-        "wrong_moment",
-        "missing_character",
-        "extra_person",
-        "text_in_image",
-        "face_obscured",
-        "frightening",
-        "missing_item",
-        "wrong_counts",
-        "deformed",
-        "likeness",
-        "other",
-    }
-)
-
-#: Which attempt may be a fix. Only the second: the third is always a clean
-#: redraw from the plate, so a fix that made things worse is not built on, and
-#: an edit is never made of an edit.
-_FIX_ATTEMPT = 2
-
 logger = logging.getLogger(__name__)
 
 #: How long a reviewer that has just failed is left alone before it is asked again.
@@ -206,14 +189,6 @@ class DrawingPaused(Exception):
     Raised inside a job and handled by it, never by the page loop: it stops the
     whole book rather than failing the page it happened to reach.
     """
-
-
-#: The named stages a job reports while it works (T12). A percentage says how
-#: much is left; a stage says what is happening, which is the difference between
-#: "45% for two minutes" looking stuck and looking like work.
-_STAGE_PAINTING = "painting"
-_STAGE_REVIEWING = "reviewing"
-_STAGE_RETRYING = "retrying"
 
 
 #: The least time between two of a rendering book's status writes. Each stage
@@ -294,24 +269,7 @@ class _StatusPainter:
         await asyncio.wait([task])
 
 
-@dataclass(frozen=True, slots=True)
-class _Attempts:
-    """What one page's attempt loop produced (T9.3).
-
-    `prompts` is per attempt, not just the winner's: the prompt record is meant
-    to be what was actually sent, and a retry sends different text — the same
-    sentence for every attempt would hide the very retry it documents.
-    """
-
-    image: bytes
-    prompt: str
-    prompts: tuple[str, ...]
-    verdicts: tuple[dict[str, Any], ...]
-    chosen: int
-    best_effort: bool
-
-
-def _verdict(attempts: _Attempts) -> dict[str, Any]:
+def _verdict(attempts: Attempts) -> dict[str, Any]:
     """The verdict arguments `save_page` and `save_cover` take with the art.
 
     One write, not two: a page whose art landed and whose verdict did not is a
@@ -380,6 +338,8 @@ class BookRunner:
         templates: TemplateStore,
         gate: ConcurrencyGate,
         page_timeout_seconds: int,
+        book_deadline_seconds: int = 0,
+        backup_call_seconds: int = 0,
         wallet: Wallet | None = None,
         reviewer: ImageReviewer | None = None,
         decision_judge: DecisionJudge | None = None,
@@ -426,6 +386,11 @@ class BookRunner:
         self._templates = templates
         self._gate = gate
         self._page_timeout = page_timeout_seconds
+        #: How long a book aims to take (A1): retries that cannot finish inside
+        #: it are not started. 0 is no deadline.
+        self._book_deadline = book_deadline_seconds
+        #: When a still-running picture call gets a backup (A2); 0 never.
+        self._backup_after = backup_call_seconds
         # None when payments are off: the book is still rendered, and nothing
         # is charged. An owned book made in that mode is simply free.
         self._document = BookDocument(
@@ -1260,6 +1225,9 @@ class BookRunner:
         record = loaded
         user = record.user_id or "-"
         started = monotonic()
+        # The book's deadline (A1) runs from here: an edit is a job of its own,
+        # with the same time to finish in.
+        deadline = started + self._book_deadline if self._book_deadline > 0 else None
         # "Your book is ready" is a message about a book that has just been
         # finished. An edit of a book that was already complete redraws a
         # picture and must not send it again (W2).
@@ -1369,7 +1337,7 @@ class BookRunner:
                 # Reviewing is more worth reporting than painting: it is the
                 # stage a reader has never seen before, and the one that
                 # explains a pause after a picture appears.
-                for wanted in (_STAGE_REVIEWING, _STAGE_RETRYING, _STAGE_PAINTING):
+                for wanted in (STAGE_REVIEWING, STAGE_RETRYING, STAGE_PAINTING):
                     for number in sorted(stages):
                         if stages[number] != wanted:
                             continue
@@ -1382,7 +1350,7 @@ class BookRunner:
                             "stage_counts": counts,
                         }
                 return {
-                    "stage": _STAGE_PAINTING,
+                    "stage": STAGE_PAINTING,
                     "stage_page": None,
                     "stage_attempt": 1,
                     "stage_counts": counts,
@@ -1417,7 +1385,7 @@ class BookRunner:
             async def set_stage(name: str, page_number: int, attempt: int = 1) -> None:
                 stages[page_number] = name
                 attempts_by_page[page_number] = attempt
-                if name == _STAGE_REVIEWING:
+                if name == STAGE_REVIEWING:
                     # Reviewing starts the moment an attempt's picture is in.
                     drawn_pictures.add((page_number, attempt))
                 await paint()
@@ -1545,6 +1513,7 @@ class BookRunner:
                     paint_areas=page.paint_areas,
                     on_stage=lambda name, attempt: set_stage(name, page.number, attempt),
                     requested=tuple(requested_fixes.get(page.number, ())),
+                    deadline=deadline,
                 )
                 await asyncio.to_thread(
                     self._book_store.save_page,
@@ -1656,6 +1625,7 @@ class BookRunner:
                     set_stage,
                     draw_slot=draw_slot,
                     picture_payment=picture_payment,
+                    deadline=deadline,
                 )
 
             cover_job = [run_cover()] if draw_cover else []
@@ -1866,6 +1836,7 @@ class BookRunner:
         *,
         draw_slot: asyncio.Semaphore,
         picture_payment: Callable[[str], None] | None = None,
+        deadline: float | None = None,
     ) -> bytes:
         """Draw and persist the cover, alongside the pages.
 
@@ -1954,6 +1925,7 @@ class BookRunner:
             prompt_for=prompt_for,
             paint_areas=edition.cover.paint_areas,
             on_stage=on_stage,
+            deadline=deadline,
         )
         await asyncio.to_thread(
             self._book_store.save_cover,
@@ -2222,212 +2194,78 @@ class BookRunner:
         paint_areas: Sequence[tuple[float, float, float, float]] = (),
         on_stage: Callable[[str, int], Awaitable[None]] | None = None,
         requested: Sequence[str] = (),
-    ) -> _Attempts:
-        """Draw one page up to `MAX_PAGE_ATTEMPTS` times and keep the best (T9.3).
+        deadline: float | None = None,
+    ) -> Attempts:
+        """One page's attempt loop (`page_attempts`), bound to this runner.
 
-        The loop is bounded and it stops the moment a review passes: a retry is
-        a billable call, and "good enough" is the whole point. A retry carries
-        the faults the reviewer named and its own description of what it saw and
-        where, so the second attempt is aimed at what was wrong rather than
-        being the same prompt with the dice rolled again.
-
-        On a plate page the second attempt mends the first when everything
-        wrong with it lives in part of the picture (`FIXABLE_FAULTS`): that
-        picture goes back with what is wrong, instead of the page being drawn
-        again. The third attempt is always a clean draw from the plate, so a
-        mend is never mended. After every plate draw the plate is pasted back
-        outside the cast's slots and the page's paint areas, so background drift
-        is undone for free instead of failing the page.
+        The loop decides the order of attempts and which one is kept; this binds
+        what it asks of the book: the retry budget, the figure boxes, the plate
+        paste on the image pool and both review tiers.
 
         Args:
-            draw: One billable attempt, given the prompt to send and the picture
-                to mend (None to draw from the plate, or from scratch). The
-                prompt is built here, once, so the text recorded is exactly the
-                text sent.
-            prompt_for: The prompt for the faults and findings to aim at, and
-                whether it is a mend of the previous attempt.
             paint_areas: Where the page's story puts something outside the
                 slots, kept from the drawing when the plate is pasted back.
-            on_stage: Told "painting" or "reviewing" and which attempt it is, so
-                the reader's progress says what is happening (T12). Optional:
-                a caller with nowhere to report to passes nothing.
-            requested: What the book's owner said was wrong when they asked
-                for this redraw (`PageFault` names). Every attempt carries it,
-                and each attempt's record keeps it, so the operator can see
-                what was asked for next to what the reviewer found.
-
-        Returns:
-            The chosen image, the prompt that produced it, every attempt's prompt
-            and verdict, the chosen attempt number, and whether it was a page
-            that never passed (kept anyway, and marked best-effort).
+            deadline: The `monotonic()` time the book should be finished by
+                (A1); None for no deadline.
         """
-        verdicts: list[dict[str, Any]] = []
-        prompts: list[str] = []
-        best: tuple[int, int, bytes] | None = None  # (passed, score, ...) by rank
-        best_image = b""
-        best_prompt = ""
-        chosen = 1
-        best_index = 0  # the chosen attempt's place in `verdicts` (a blocked one has none)
-        asked = tuple(dict.fromkeys(requested))
-        faults: tuple[str, ...] = asked
-        findings = ""
-        # The previous attempt's picture, when it was drawn (not blocked): only
-        # that picture can be mended.
-        previous: GeneratedImage | None = None
-        for attempt in range(1, self._page_attempts + 1):
-            # The book's retry budget (C4): a page that did not pass is only
-            # drawn again while the book can still afford it — and only when
-            # there is a picture to keep. A first attempt the provider's safety
-            # system blocked leaves nothing behind, so the page is still drawn
-            # once: the ceiling is about redraws, never a hole in the book.
-            if (
-                attempt > 1
-                and best is not None
-                and await self._retry_budget_spent(book_id, user)
-            ):
-                if verdicts:
-                    verdicts[-1]["retry_budget_stopped"] = True
-                break
-            mend = (
-                previous
-                if (
-                    plate is not None
-                    and attempt == _FIX_ATTEMPT
-                    and previous is not None
-                    and faults
-                    and set(faults) <= FIXABLE_FAULTS
-                )
-                else None
-            )
-            kind = "fix" if mend is not None else "first" if attempt == 1 else "redraw"
-            prompt = prompt_for(faults, findings, mend is not None)
-            previous = None
-            if on_stage is not None:
-                await on_stage(_STAGE_RETRYING if attempt > 1 else _STAGE_PAINTING, attempt)
-            # Both billable calls of this attempt — the picture and its review —
-            # are filed in the cost ledger under this book, page and attempt.
-            with cost_scope(
-                purpose="book", book_id=book_id, page_number=page_number, attempt=attempt
-            ):
-                try:
-                    drawn = await draw(prompt, mend)
-                except ProviderError as exc:
-                    # The provider's safety system refused this picture. That is
-                    # a verdict on one drawing, not on the book: keep the best
-                    # earlier attempt, or ask again if there is none yet.
-                    if "moderation_blocked" not in str(exc):
-                        raise
-                    logger.warning(
-                        "book.page_blocked user=%s book=%s page=%d attempt=%d kept_earlier=%s",
-                        user,
-                        book_id,
-                        page_number,
-                        attempt,
-                        best is not None,
-                    )
-                    if best is not None or attempt == self._page_attempts:
-                        if best is None:
-                            raise
-                        break
-                    continue
-                # Where every person and animal is on the drawing, so the
-                # plate is never pasted over one, however pale it came out.
-                figures = (
-                    await self._locate_figures(
-                        drawn.data,
-                        book_id=book_id,
-                        page_number=page_number,
-                        attempt=attempt,
-                        user=user,
-                    )
-                    if plate is not None
-                    else ()
-                )
-                # One job on the image pool: the plate pasted back, tier 1 run
-                # and the judge's copy made from a single decode (`page_picture`).
-                prepared = await self._image_work(
-                    partial(
-                        prepare_page,
-                        drawn.data,
-                        plate=plate.image if plate is not None else None,
-                        slots=plate.slots if plate is not None else (),
-                        paint_areas=paint_areas,
-                        figures=figures,
-                        expected_ratio=_ratio(str(artwork.settings.aspect_ratio)),
-                    )
-                )
-                drawn = replace(drawn, data=prepared.image, media_type=prepared.media_type)
-                paste = prepared.paste
-                previous = drawn
-                image = drawn.data
-                if on_stage is not None:
-                    await on_stage(_STAGE_REVIEWING, attempt)
-                verdict = await self._judge(
-                    book_id=book_id,
-                    page_number=page_number,
-                    image=image,
-                    tier1=prepared.tier1,
-                    plate=plate,
-                    artwork=artwork,
-                    page_title=page_title,
-                    story_line=story_line,
-                    cast_note=cast_note,
-                    star_in_picture=star_in_picture,
-                    attempt=attempt,
-                    user=user,
-                )
-            verdicts.append(
-                {
-                    **verdict.as_dict(),
-                    # Which backend drew this attempt: books outlive a provider
-                    # switch, and "was this page an Agnes page" must be
-                    # answerable from the page itself.
-                    "provider": self._provider.name,
-                    "model": drawn.model,
-                    # A first draw, a mend of the previous attempt, or a redraw.
-                    "kind": kind,
-                    **({"plate_paste": paste} if paste else {}),
-                    **({"requested": list(asked)} if asked else {}),
-                }
-            )
-            prompts.append(prompt)
-            # Rank on the verdict, never on the attempt number: the earliest
-            # attempt wins a tie, so a passing first try is never replaced by an
-            # equally-good second that cost money for nothing.
-            rank = (1 if verdict.passed else 0, verdict.score)
-            if best is None or rank > best[:2]:
-                best = (rank[0], rank[1], image)
-                best_image, best_prompt, chosen = image, prompt, attempt
-                best_index = len(verdicts) - 1
-            if verdict.passed:
-                break
-            faults = tuple(dict.fromkeys((*verdict.faults, *asked)))
-            # The reviewer's own words go to the artist with the fault names:
-            # "extra_person" says what kind of thing is wrong, "a second girl in
-            # a red cloak at the far right" says which one to remove.
-            findings = verdict.note if 2 in verdict.tiers_run else ""
 
-        best_effort = not any(verdict["passed"] for verdict in verdicts)
-        if best_effort:
-            logger.warning(
-                "book.best_effort user=%s book=%s page=%d attempts=%d faults=%s",
-                user,
-                book_id,
-                page_number,
-                len(verdicts),
-                ",".join(verdicts[best_index].get("faults", [])) or "-",
+        async def locate(image: bytes, attempt: int) -> Sequence[Box] | None:
+            return await self._locate_figures(
+                image, book_id=book_id, page_number=page_number, attempt=attempt, user=user
             )
-        return _Attempts(
-            image=best_image,
-            prompt=best_prompt,
-            prompts=tuple(prompts),
-            verdicts=tuple(verdicts),
-            chosen=chosen,
-            best_effort=best_effort,
+
+        async def prepare(image: bytes, figures: Sequence[Box] | None) -> PreparedPage:
+            return await self._image_work(
+                partial(
+                    prepare_page,
+                    image,
+                    plate=plate.image if plate is not None else None,
+                    slots=plate.slots if plate is not None else (),
+                    paint_areas=paint_areas,
+                    figures=figures,
+                    expected_ratio=_ratio(str(artwork.settings.aspect_ratio)),
+                )
+            )
+
+        async def judge(image: bytes, tier1: Tier1Review, attempt: int) -> Verdict:
+            return await self._judge(
+                book_id=book_id,
+                page_number=page_number,
+                image=image,
+                tier1=tier1,
+                plate=plate,
+                artwork=artwork,
+                page_title=page_title,
+                story_line=story_line,
+                cast_note=cast_note,
+                star_in_picture=star_in_picture,
+                attempt=attempt,
+                user=user,
+            )
+
+        hooks = AttemptHooks(
+            attempts=self._page_attempts,
+            provider_name=self._provider.name,
+            draws_on_plate=plate is not None,
+            retry_budget_spent=partial(self._retry_budget_spent, book_id, user),
+            locate_figures=locate,
+            prepare=prepare,
+            judge=judge,
+            deadline=deadline,
+        )
+        return await draw_until_pass(
+            hooks,
+            book_id=book_id,
+            page_number=page_number,
+            user=user,
+            draw=draw,
+            prompt_for=prompt_for,
+            on_stage=on_stage,
+            requested=requested,
         )
 
     async def _record_prompts(
-        self, book_id: str, page_number: int, key: str, attempts: _Attempts
+        self, book_id: str, page_number: int, key: str, attempts: Attempts
     ) -> None:
         """Write one page's prompt record, in attempt order (the prompt log).
 
@@ -2460,17 +2298,64 @@ class BookRunner:
         The page timeout binds the slot wait and the work together. If the work
         outlives it, ownership of the slot transfers to the worker: it is still
         running (and possibly still billing), and only it knows when it ends.
+        A call still running after `backup_call_seconds` may get a backup
+        (`_first_back`); whichever call is left running keeps its slot the
+        same way.
         """
         async with self._gate.lease(timeout=self._page_timeout) as slot:
             if on_slot is not None:
                 await on_slot()
             hop = asyncio.create_task(asyncio.to_thread(work))
             try:
-                return await asyncio.wait_for(asyncio.shield(hop), timeout=self._page_timeout)
-            except BaseException:
+                return await asyncio.wait_for(
+                    self._first_back(work, hop), timeout=self._page_timeout
+                )
+            finally:
                 if not hop.done():
                     _hand_slot_to_worker(slot, hop)
-                raise
+
+    async def _first_back(self, work: Callable[[], _T], hop: asyncio.Task[_T]) -> _T:
+        """`hop`'s result, or that of an identical backup call if it is back first (A2).
+
+        One call in a book now and then hangs for most of a minute while the
+        rest take twenty seconds, and the book waits for it. When the call is
+        still running at `backup_call_seconds`, the same call is started again
+        on its own gate slot — only if one is free right now, so a backup never
+        holds up a picture that has not started — and the first good answer is
+        kept. Both are paid for, and both are in the cost ledger: each call is
+        metered inside its own thread, under the attempt's cost scope.
+
+        A call that fails while the other is still running is not the answer:
+        the other one is waited for, and only when both have failed is the
+        first call's error raised. The call that loses keeps running on its
+        thread; it is never cancelled, because a thread cannot be.
+        """
+        if self._backup_after <= 0:
+            return await asyncio.shield(hop)
+        done, _ = await asyncio.wait({hop}, timeout=self._backup_after)
+        if done:
+            return hop.result()
+        backup_slot = await self._gate.try_take()
+        if backup_slot is None:
+            logger.info("book.backup_call outcome=skipped reason=gate_full")
+            return await asyncio.shield(hop)
+        backup = asyncio.create_task(asyncio.to_thread(work))
+        _release_when_done(backup_slot, backup)
+        logger.info("book.backup_call outcome=started after_s=%d", self._backup_after)
+        pending: set[asyncio.Task[_T]] = {hop, backup}
+        while pending:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for finished in (hop, backup):
+                if finished in done and finished.exception() is None:
+                    logger.info(
+                        "book.backup_call outcome=%s",
+                        "backup_won" if finished is backup else "first_won",
+                    )
+                    return finished.result()
+        # Both failed: the first call's error is the one the page reports.
+        error = hop.exception()
+        assert error is not None
+        raise error
 
     # --- one page ---------------------------------------------------------------
 
@@ -2920,7 +2805,23 @@ def _references(
 def _hand_slot_to_worker(slot: Slot, hop: asyncio.Task[object]) -> None:
     """Give the slot to work that outlives the awaited request."""
     slot.transfer()
-    hop.add_done_callback(lambda _finished: slot.release())
+    _release_when_done(slot, hop)
+
+
+def _release_when_done(slot: Slot, hop: asyncio.Task[Any]) -> None:
+    """Free `slot` when `hop` ends, and take its error so it is not reported as lost.
+
+    The work's outcome is no longer anyone's answer (it timed out, or lost to
+    its backup), so an error it ends with is expected and must not surface as
+    asyncio's "exception was never retrieved".
+    """
+
+    def finished(task: asyncio.Task[Any]) -> None:
+        slot.release()
+        if not task.cancelled():
+            task.exception()
+
+    hop.add_done_callback(finished)
 
 
 def _premade_for(
@@ -2942,7 +2843,7 @@ def _premade_for(
     return premade
 
 
-def _premade_attempts(premade: PremadeArt) -> _Attempts:
+def _premade_attempts(premade: PremadeArt) -> Attempts:
     """A pre-made page's record: one attempt, passed, with nothing sent."""
     verdict: dict[str, Any] = {
         "attempt": 1,
@@ -2956,7 +2857,7 @@ def _premade_attempts(premade: PremadeArt) -> _Attempts:
         "provider": "premade",
         "premade_id": premade.premade_id,
     }
-    return _Attempts(
+    return Attempts(
         image=premade.image,
         prompt="",
         prompts=("",),

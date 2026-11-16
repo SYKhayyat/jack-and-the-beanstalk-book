@@ -123,7 +123,26 @@ class ConcurrencyGate:
                 slot.release()
             raise
         else:
-            slot.release()
+            # Transferred on the way out too: a call that lost a race to its
+            # backup is still running, and only it knows when it ends.
+            if not slot._transferred:
+                slot.release()
+
+    async def try_take(self) -> Slot | None:
+        """A slot now, or None when every slot is busy: never waits.
+
+        For extra work that is only worth starting when there is room, such as
+        a backup call for a slow picture: it must not queue behind, or take a
+        slot from, a picture that has not started yet (`locked` is also true
+        while anyone is queued).
+        """
+        semaphore = self._semaphore()
+        if semaphore.locked():
+            return None
+        # An unlocked semaphore is acquired without suspending, so nothing can
+        # run between the check and the take.
+        await semaphore.acquire()
+        return Slot(semaphore)
 
     async def _take(self, *, timeout: float | None = None) -> Slot:
         semaphore = self._semaphore()

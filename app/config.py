@@ -102,6 +102,25 @@ class Settings(BaseSettings):
             "images-per-minute limit; 0 turns pacing off."
         ),
     )
+    plate_max_edge: int = Field(
+        default=1024,
+        ge=256,
+        le=2048,
+        description=(
+            "Longest edge, in pixels, of the first picture sent with a page "
+            "call: the plate being drawn onto (audit 2026-11-15, A4). Smaller "
+            "is faster and cheaper; the output size does not change."
+        ),
+    )
+    reference_max_edge: int = Field(
+        default=512,
+        ge=128,
+        le=2048,
+        description=(
+            "Longest edge, in pixels, of every later picture sent with a call: "
+            "the portrait, the photo and the cast sheets (audit 2026-11-15, A4)."
+        ),
+    )
     gemini_model: str = Field(
         # Not gemini-2.5-flash-image: Google deprecated it and scheduled
         # shutdown for 2026-10-02, naming these two as the migration targets.
@@ -370,7 +389,10 @@ class Settings(BaseSettings):
     )
     max_upload_mb: int = Field(default=10, ge=1, le=50)
     generation_timeout_seconds: int = Field(
-        default=600,
+        # Two minutes, as every friend's app has it (audit 2026-11-15, R2): a
+        # low-quality picture comes back in 15-40 s, so a call still running
+        # at two minutes has hung, and waiting ten for it cost whole books.
+        default=120,
         # No floor on purpose: this is the operator's control, and a test that
         # asserts the timeout fires should not have to wait minutes to do it.
         ge=1,
@@ -381,6 +403,30 @@ class Settings(BaseSettings):
             "Wall-clock ceiling for one API request, covering upload decoding and "
             "the model call. Also applied to the provider's HTTP client so an "
             "in-flight request is actually aborted, not just abandoned."
+        ),
+    )
+    book_deadline_seconds: int = Field(
+        default=50,
+        ge=0,
+        le=7 * 24 * 3600,
+        description=(
+            "How long one book's job aims to take, from start to the last page "
+            "(audit 2026-11-15, A1). A page that did not pass is only drawn "
+            "again when the retry can finish inside it, judged by how long that "
+            "page's attempts took; otherwise its best attempt is kept. A first "
+            "attempt always runs. 0 turns the deadline off."
+        ),
+    )
+    backup_call_seconds: int = Field(
+        default=21,
+        ge=0,
+        le=3600,
+        description=(
+            "When a picture's model call is still running after this many "
+            "seconds, a second, identical call is started and the first one back "
+            "is kept (audit 2026-11-15, A2). Both are paid for and both are in "
+            "the cost ledger. The backup takes its own slot on the generation "
+            "gate and is skipped when the gate is full. 0 turns it off."
         ),
     )
     max_concurrent_generations: int = Field(

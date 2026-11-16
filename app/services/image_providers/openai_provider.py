@@ -16,8 +16,9 @@ going in usually cost more. Each response reports its own token counts, so
 every image returned carries its call's `TokenUsage` and the cost ledger prices
 the call from what was actually billed. To keep that input small, the first
 reference (the plate, or the photo being edited) is sent at most
-`REFERENCE_MAX_EDGE` pixels on its long edge and every later one (a portrait,
-read only for a face and a look) at most `PORTRAIT_MAX_EDGE`.
+`plate_max_edge` pixels on its long edge and every later one (a portrait,
+read only for a face and a look) at most `reference_max_edge` (settings
+PLATE_MAX_EDGE and REFERENCE_MAX_EDGE, audit 2026-11-15 A4).
 
 No retry loop for failures, like every other provider here: a failed call fails
 loudly rather than quietly spending a second call's worth of money. The one
@@ -94,12 +95,12 @@ _SIZE_BY_ASPECT: dict[str, str] = {
 _MULTIPLE_OF = 16
 _MIN_PIXELS = 655_360
 _MAX_PIXELS = 8_294_400
-#: The longest edge a reference is uploaded at. Input image tokens grow with
+#: The default longest edge the first reference is uploaded at. Input image tokens grow with
 #: resolution, and the picture that comes back is about 1K: the plate needs its
 #: layout, poses and colours and the portraits their faces, which all survive
 #: at 1024. Smaller references are sent untouched, never enlarged.
 REFERENCE_MAX_EDGE = 1024
-#: The longest edge of every reference after the first. Those are portraits:
+#: The default longest edge of every reference after the first. Those are portraits:
 #: the model reads a face, hair and outfit from them, never a layout, and they
 #: survive at 512 for about a quarter of the image tokens.
 PORTRAIT_MAX_EDGE = 512
@@ -154,8 +155,10 @@ class OpenAIImageProvider(ImageProvider):
         api_key: str,
         model: str = "gpt-image-2.5-flare",
         quality: str = "low",
-        timeout_seconds: int = 600,
+        timeout_seconds: int = 120,
         images_per_minute: int = 0,
+        plate_max_edge: int = REFERENCE_MAX_EDGE,
+        reference_max_edge: int = PORTRAIT_MAX_EDGE,
     ) -> None:
         # Strip before use: a key pasted into an environment variable often
         # carries a trailing newline, which produces an illegal Authorization
@@ -192,6 +195,7 @@ class OpenAIImageProvider(ImageProvider):
         # Spaces calls under OpenAI's images-per-minute cap, so they wait here
         # rather than being rejected. 0 turns pacing off.
         self._pacer = ImagePacer(images_per_minute) if images_per_minute > 0 else None
+        self._edges = (plate_max_edge, reference_max_edge)
 
     def health_check(self) -> tuple[bool, str]:
         return True, f"openai ready (model={self._model}, quality={self._quality})"
@@ -209,7 +213,7 @@ class OpenAIImageProvider(ImageProvider):
 
         size = size_for_aspect_ratio(request.aspect_ratio)
         references = [
-            _as_upload(data, media_type, index)
+            _as_upload(data, media_type, index, self._edges)
             for index, (data, media_type) in enumerate(
                 zip(
                     request.reference_images,
@@ -320,9 +324,17 @@ class OpenAIImageProvider(ImageProvider):
 _REFERENCE_COPIES = ShrunkCache()
 
 
-def _as_upload(data: bytes, media_type: str, index: int) -> io.BytesIO:
-    """Wrap reference bytes in a named stream, which is how the SDK builds multipart."""
-    limit = REFERENCE_MAX_EDGE if index == 0 else PORTRAIT_MAX_EDGE
+def _as_upload(
+    data: bytes,
+    media_type: str,
+    index: int,
+    edges: tuple[int, int] = (REFERENCE_MAX_EDGE, PORTRAIT_MAX_EDGE),
+) -> io.BytesIO:
+    """Wrap reference bytes in a named stream, which is how the SDK builds multipart.
+
+    `edges` is the cap for the first reference (the plate) and for every later one.
+    """
+    limit = edges[0] if index == 0 else edges[1]
     data, media_type = _fit_reference(data, media_type, limit)
     extension = _EXTENSION_BY_MEDIA_TYPE.get(media_type, "png")
     stream = io.BytesIO(data)

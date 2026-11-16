@@ -245,6 +245,8 @@ def build_container(
             templates=templates,
             gate=gate,
             page_timeout_seconds=settings.generation_timeout_seconds,
+            book_deadline_seconds=settings.book_deadline_seconds,
+            backup_call_seconds=settings.backup_call_seconds,
             wallet=wallet if resolved_payments is not None else None,
             # Built here, at start-up, so a production deployment with no
             # reviewer key fails before the first parent spends a credit rather
