@@ -7,11 +7,14 @@ this rule existed still cannot print something inappropriate.
 
 This is a deterministic local check on purpose — no model call, no key, no
 network — so it costs nothing, cannot fail because a service is down, and a
-test can pin exactly what it does. It is a blocklist plus a name-shape rule,
+test can pin exactly what it does. It is the floor, not the whole check: what
+it passes is then asked of a decision model (app/services/content_screen.py),
+which catches what a list cannot — misspellings, joined-up insults, other
+languages, a notorious figure's name. It is a blocklist plus a name-shape rule,
 not a name dictionary: it can reject an insult or an epithet and it can reject
 text that is unmistakably explicit, but it cannot prove that "Blorp" is not a
-real name. That limitation is stated in the print page's help copy and in the
-write-up rather than hidden.
+real name. Whether a name sounds like a real one is the content screen's
+question.
 
 The two entry points:
 
@@ -28,6 +31,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 __all__ = [
+    "NAME_FIELDS",
+    "PRINTED_FIELDS",
     "ContentIssue",
     "about_issues",
     "first_issue_message",
@@ -290,6 +295,12 @@ _PRINTED_FIELDS = (
     ("details", "the About page details"),
 )
 
+#: The printed fields in order, with their wording; the content screen asks
+#: about exactly these.
+PRINTED_FIELDS: tuple[tuple[str, str], ...] = _PRINTED_FIELDS
+#: The fields that are names, judged by the name rule rather than the text rule.
+NAME_FIELDS = frozenset({"prompt_name", "about_name"})
+
 
 def about_issues(about: Mapping[str, object] | object) -> list[ContentIssue]:
     """Every printer-safety problem with an About Me record.
@@ -311,7 +322,7 @@ def about_issues(about: Mapping[str, object] | object) -> list[ContentIssue]:
             continue
         issue = (
             name_issue(value, field=field)
-            if field in {"prompt_name", "about_name"}
+            if field in NAME_FIELDS
             else text_issue(value, field=field)
         )
         if issue is not None and field not in seen:

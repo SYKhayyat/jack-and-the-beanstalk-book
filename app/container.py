@@ -24,6 +24,7 @@ from app.services.book_runner import BookRunner
 from app.services.book_store import BookStore
 from app.services.child_profiles import ChildProfileStore, DatabaseChildProfileStore
 from app.services.concurrency import ConcurrencyGate
+from app.services.content_screen import ContentScreen, OpenAIContentScreen
 from app.services.costs import (
     CostLedger,
     MeteredDecisionJudge,
@@ -99,6 +100,9 @@ class Container:
     #: Printed copies: approval, address and the test print job. Constructed
     #: even when printing is off, so every route can ask without a None check.
     print_service: PrintService
+    #: The decision model's look at the words a visitor typed, after the word
+    #: list; None when it is off (no key, or mock mode).
+    content_screen: ContentScreen | None
     #: Every portrait shown in the studio and every take picked (operator only).
     portraits: PortraitLog
     #: The one child each account asked the studio to remember, so the next
@@ -143,9 +147,10 @@ def build_container(
     payments: PaymentProvider | None = None,
     reviewer: ImageReviewer | None = None,
     decision_judge: DecisionJudge | None = None,
+    content_screen: ContentScreen | None = None,
 ) -> Container:
-    """Construct the graph. Pass `provider`/`payments`/`reviewer`/`decision_judge`
-    to override (tests do)."""
+    """Construct the graph. Pass `provider`/`payments`/`reviewer`/`decision_judge`/
+    `content_screen` to override (tests do)."""
     unmetered = provider or build_provider(settings)
     resolved_payments: PaymentProvider | None = payments
     if resolved_payments is None and settings.payments_enabled:
@@ -203,6 +208,16 @@ def build_container(
         )
     elif settings.print_provider == "mock":
         print_provider = MockPrintProvider()
+    screen: ContentScreen | None = content_screen or (
+        OpenAIContentScreen(
+            settings.openai_api_key,
+            model=settings.decision_judge_model,
+            ledger=costs,
+            usd_per_million=settings.decision_judge_usd_per_million_tokens,
+        )
+        if settings.content_screen_enabled
+        else None
+    )
     print_service = PrintService(
         store=PrintOrderStore(engine),
         provider=print_provider or MockPrintProvider(),
@@ -210,6 +225,7 @@ def build_container(
         # charge, so the service reports itself disabled and the page explains.
         wallet=wallet if resolved_payments is not None else None,
         enabled=settings.print_enabled,
+        content_screen=screen,
     )
     # The one mail this app sends (W2). Off — no key, or no From address — is a
     # complete answer: a book finishes and nothing is mailed, exactly as a
@@ -309,6 +325,7 @@ def build_container(
         payments=resolved_payments,
         costs=costs,
         print_service=print_service,
+        content_screen=screen,
         portraits=PortraitLog(engine),
         child_profiles=DatabaseChildProfileStore(engine),
         switches=switches,

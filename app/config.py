@@ -222,6 +222,16 @@ class Settings(BaseSettings):
         default="gpt-6-luna",
         description="The decision model. gpt-6-luna is the one the Decisions API serves.",
     )
+    content_screen: bool = Field(
+        default=True,
+        description=(
+            "After the word list, ask the decision model whether the names look "
+            "like names and the About Me words are fit to print (same model and "
+            "key as the decision judge). Checked when a book starts and again "
+            "before a print order, which is refused if it cannot be checked. "
+            "Needs OPENAI_API_KEY; off in mock mode."
+        ),
+    )
     decision_judge_usd_per_million_tokens: float = Field(
         default=0.10,
         ge=0,
@@ -694,6 +704,15 @@ class Settings(BaseSettings):
             self.openai_api_key.strip()
         )
         return self.decision_judge and keyed and self.image_provider is not ProviderName.MOCK
+
+    @property
+    def content_screen_enabled(self) -> bool:
+        """Whether typed words get the model's look: asked for, keyed, and not mock."""
+        return (
+            self.content_screen
+            and bool(self.openai_api_key.strip())
+            and self.image_provider is not ProviderName.MOCK
+        )
 
     @property
     def uses_gemini_web(self) -> bool:

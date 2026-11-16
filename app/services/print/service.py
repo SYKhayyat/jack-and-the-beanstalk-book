@@ -28,7 +28,9 @@ from collections.abc import Callable, Mapping
 
 from pypdf import PdfReader
 
-from app.moderation import about_issues, first_issue_message
+from app.moderation import ContentIssue, about_issues, first_issue_message
+from app.services.content_screen import ContentScreen
+from app.services.image_providers.base import ProviderError
 from app.services.print.base import (
     PrintError,
     PrintJob,
@@ -68,11 +70,13 @@ class PrintService:
         provider: PrintProvider,
         wallet: Wallet | None,
         enabled: bool = True,
+        content_screen: ContentScreen | None = None,
     ) -> None:
         self._store = store
         self._provider = provider
         self._wallet = wallet
         self._enabled = enabled
+        self._content_screen = content_screen
 
     @property
     def provider_name(self) -> str:
@@ -91,6 +95,23 @@ class PrintService:
         quietly ship for free.
         """
         return self._enabled and self._wallet is not None
+
+    def _screened(self, about: object) -> list[ContentIssue]:
+        """The decision model's look at the words, before anything is charged.
+
+        Printing is the step that puts the words on paper, so an unreachable
+        screen refuses the order rather than letting it through unchecked.
+        """
+        if self._content_screen is None:
+            return []
+        try:
+            return self._content_screen.screen(about)
+        except ProviderError as exc:
+            logger.warning("print.content_screen_unreachable error=%s", exc)
+            raise PrintError(
+                "We could not check this book's words just now, so it was not "
+                "ordered and nothing was charged. Please try again in a minute."
+            ) from None
 
     def latest(self, book_id: str) -> PrintOrder | None:
         return self._store.latest_for_book(book_id)
@@ -239,7 +260,7 @@ class PrintService:
         problems = address.issues()
         if problems:
             raise PrintError(" ".join(problems))
-        issues = about_issues(about)
+        issues = about_issues(about) or self._screened(about)
         if issues:
             raise PrintError(
                 "This book cannot be printed as it is: " + first_issue_message(issues)

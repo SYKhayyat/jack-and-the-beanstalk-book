@@ -65,6 +65,7 @@ from app.routes.book_access import new_book_edition
 from app.routes.book_access import user_id as _user_id
 from app.services.book_runner import CharacterReference
 from app.services.book_store import BookRecord, BookStatus, BookSummary
+from app.services.image_providers.base import ProviderError
 from app.services.pipeline import UnknownGeneration
 from app.services.prompts import book_name_for, render_book_page
 from app.services.storage import Draft
@@ -270,6 +271,7 @@ async def start_book(
         about_photo,
         dedication,
     )
+    await _screen_about(container, about)
     characters = await asyncio.to_thread(_character_references, character, container, edition)
     # The person the book belongs to. In Google mode every request here has a
     # session (the guard guarantees it); a password or open deployment has no
@@ -498,6 +500,7 @@ async def edit_book(
             about_photo or record.about.about_photo,
             dedication,
         )
+        await _screen_about(container, about)
         await asyncio.to_thread(
             lambda: container.book_store.update_about(
                 book_id, about, title=edition.title_for(about.prompt_name)
@@ -885,6 +888,25 @@ def _about_from_form(
     if issues:
         raise InvalidSettings(first_issue_message(issues))
     return about
+
+
+async def _screen_about(container: Container, about: AboutMe) -> None:
+    """The decision model's look at the typed words, after the word list passed them.
+
+    Under a second, before the book starts or the edit is saved. A screen that
+    cannot be reached does not stop the book: the word list has passed it and
+    the print order screens again, refusing the order if it still cannot.
+    """
+    screen = container.content_screen
+    if screen is None:
+        return
+    try:
+        issues = await asyncio.to_thread(screen.screen, about)
+    except ProviderError as exc:
+        logger.warning("book.content_screen_unreachable error=%s", exc)
+        return
+    if issues:
+        raise InvalidSettings(first_issue_message(issues))
 
 
 def _with_page_shape(
