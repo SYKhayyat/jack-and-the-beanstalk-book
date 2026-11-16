@@ -4,7 +4,7 @@ Revision ID: 0025
 Revises: 0024
 Create Date: 2026-11-16
 
-Audit 11-15 friends' repos A5: a pre-made picture may now be of a page the
+Audit 11-15, other implementations A5: a pre-made picture may now be of a page the
 star is in, painted once with a stand-in child; `figure` is that child's box
 (x, y, width, height as shares of the picture). A book cuts out only that box,
 has the image model turn the stand-in into its own child, and blends it back.

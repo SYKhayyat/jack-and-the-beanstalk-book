@@ -370,7 +370,7 @@ class Settings(BaseSettings):
     )
     max_upload_mb: int = Field(default=10, ge=1, le=50)
     generation_timeout_seconds: int = Field(
-        # Two minutes, as every friend's app has it (audit 2026-11-15, R2): a
+        # Two minutes, as other implementations have it (audit 2026-11-15, R2): a
         # low-quality picture comes back in 15-40 s, so a call still running
         # at two minutes has hung, and waiting ten for it cost whole books.
         default=120,

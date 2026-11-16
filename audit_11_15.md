@@ -1,6 +1,6 @@
 # Audit 2026-11-15 — why a book takes minutes, not a minute
 
-Found while running the storybook review on the live site (Red Riding Hood, book `91dcd144`, commit 53fb091). Owner's report: "my friends generate a whole book in under a minute", and the progress caption began with "the pencil is resting".
+Found while running the storybook review on the live site (Red Riding Hood, book `91dcd144`, commit 53fb091). Owner's report: "other implementations generate a whole book in under a minute", and the progress caption began with "the pencil is resting".
 
 Evidence is from the Render logs, the `books` and `api_calls` tables (read-only) and a local timing test. Nothing here has been fixed yet.
 

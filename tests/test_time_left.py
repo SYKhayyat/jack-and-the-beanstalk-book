@@ -1,4 +1,4 @@
-"""About how long a new book has left (audit 11-15 friends' repos A9).
+"""About how long a new book has left (audit 11-15, other implementations A9).
 
 A fresh book drawn in one go keeps how long it took; the next one is told the
 median of the last 30 of those, and the browser counts down from when it
