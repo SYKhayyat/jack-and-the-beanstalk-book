@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -113,9 +114,31 @@ def approve(
         follow_redirects=False,
     )
     assert response.status_code == 303, response.text
-    order = client.app.state.container.print_service.approval(book_id)
-    assert order is not None
-    return order
+    assert response.headers["location"] == f"/books/{book_id}/print"
+    return _approval(client, book_id)
+
+
+def _approval(client: TestClient, book_id: str, seconds: float = 30.0) -> PrintOrder:
+    """The approval the background build stores, once it has."""
+    service = client.app.state.container.print_service
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        order = service.approval(book_id)
+        if order is not None:
+            return order
+        time.sleep(0.02)
+    raise AssertionError("the print files were never made")
+
+
+def _settled(client: TestClient, book_id: str, seconds: float = 30.0) -> None:
+    """Wait until no print build is running for this book."""
+    preparer = client.app.state.container.print_preparer
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if book_id not in preparer._tasks:
+            return
+        time.sleep(0.02)
+    raise AssertionError("the print build never finished")
 
 
 def quote(client: TestClient, book_id: str, order: PrintOrder) -> PrintOrder:
@@ -274,6 +297,71 @@ def test_an_unknown_edition_is_refused(settings: Settings) -> None:
         )
         assert response.status_code == 200
         assert "choose one of the editions" in response.text
+        assert client.app.state.container.print_service.approval(book_id) is None
+
+
+def test_approving_returns_at_once_and_the_page_shows_the_files_being_made(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The print files build in the background; the request does not wait."""
+    with print_world(settings) as (client, book_id):
+        runner = client.app.state.container.book_runner
+        real = runner.print_interior
+        release = threading.Event()
+        builds: list[str] = []
+
+        def slow_interior(book: str, product: Product) -> bytes | None:
+            builds.append(book)
+            assert release.wait(30)
+            return real(book, product)
+
+        monkeypatch.setattr(runner, "print_interior", slow_interior)
+        first = client.post(
+            f"/books/{book_id}/print/approve",
+            data={"trim": "square", "binding": "hardcover"},
+            follow_redirects=False,
+        )
+        assert first.status_code == 303
+        page = client.get(f"/books/{book_id}/print")
+        assert 'id="print-preparing"' in page.text
+        assert "print-preparing.js" in page.text
+        assert 'id="approve-print"' not in page.text
+
+        # A second press while it builds joins the build, not a second one.
+        again = client.post(
+            f"/books/{book_id}/print/approve",
+            data={"trim": "square", "binding": "hardcover"},
+            follow_redirects=False,
+        )
+        assert again.status_code == 303
+        release.set()
+        order = _approval(client, book_id)
+        _settled(client, book_id)
+        assert builds == [book_id]
+
+        page = client.get(f"/books/{book_id}/print")
+        assert 'id="print-preparing"' not in page.text
+        assert 'name="street1"' in page.text
+        assert order.page_count > 0
+
+
+def test_a_print_build_that_fails_shows_why_and_offers_the_button_again(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with print_world(settings) as (client, book_id):
+        runner = client.app.state.container.book_runner
+        monkeypatch.setattr(runner, "print_cover", lambda *_args: None)
+        response = client.post(
+            f"/books/{book_id}/print/approve",
+            data={"trim": "square", "binding": "hardcover"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        _settled(client, book_id)
+        page = client.get(f"/books/{book_id}/print")
+        assert "no cover picture to print" in page.text
+        assert 'id="approve-print"' in page.text
+        assert 'id="print-preparing"' not in page.text
         assert client.app.state.container.print_service.approval(book_id) is None
 
 

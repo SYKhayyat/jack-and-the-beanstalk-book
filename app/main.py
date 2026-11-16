@@ -240,6 +240,7 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await task
         # Pauses the books still rendering, for the next boot to resume.
         await container.book_runner.close()
+        await container.print_preparer.close()
 
 
 def create_app(

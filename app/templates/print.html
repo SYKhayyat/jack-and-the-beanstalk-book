@@ -72,6 +72,14 @@
     <a class="button" href="{{ pdf_url }}" download>Download the book (PDF)</a>
   </section>
 
+  {% elif preparing %}
+  <section class="card print-card" id="print-preparing" aria-labelledby="preparing-title" aria-live="polite">
+    <h2 id="preparing-title">Making the print files…</h2>
+    <p>The printer needs the pages at full print size, and a cover sized for this book’s spine.
+      This takes about a minute. This page will move on by itself when they are ready; you can also leave and come back.</p>
+    <noscript><p><a class="button" href="/books/{{ book.book_id }}/print">Check again</a></p></noscript>
+  </section>
+
   {% elif not approved %}
   <section class="card print-card" id="print-review" aria-labelledby="review-title">
     <h2 id="review-title">1. Read the book, then choose an edition</h2>
@@ -149,3 +157,4 @@
   {% endif %}
   {% endif %}
 {% endblock %}
+{% block scripts %}{% if preparing %}<script type="module" src="{{ static_url }}/print-preparing.js"></script>{% endif %}{% endblock %}

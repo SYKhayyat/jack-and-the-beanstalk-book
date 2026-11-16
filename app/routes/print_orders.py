@@ -4,7 +4,8 @@ The order of these steps is the feature:
 
 1. The owner opens the finished PDF, picks an edition (trim and binding) and
    presses "I've reviewed this book". The approval records the web PDF's
-   hash and builds the print interior and cover then, storing both (A1, A3).
+   hash and builds the print interior and cover in the background, storing
+   both (A1, A3); the page shows them being made until they are.
    If the book is edited later the hash no longer matches and the page asks
    for a new review.
 2. The delivery address is priced by the print provider itself, so the buyer
@@ -124,6 +125,10 @@ def _print_context(
     approval = service.approval(book_id)
     latest = service.latest(book_id)
     approved = approval is not None and approval.pdf_sha256 == current_sha
+    preparing = None if approved else container.print_preparer.state(book_id, current_sha)
+    if preparing is not None and preparing.error and not error:
+        # A build that failed in the background: the reason, then the button.
+        error = preparing.error
     order = approval if approved else None
     quoted = order is not None and order.quoted_at is not None
     total = order.total_cents if order is not None and quoted else 0
@@ -153,6 +158,7 @@ def _print_context(
         "provider_name": service.provider_name,
         "provider_mode": service.mode,
         "approved": approved,
+        "preparing": preparing is not None and preparing.running,
         "approval": order,
         "latest": latest,
         "submitted": latest if latest is not None and latest.state == "submitted" else None,
@@ -236,7 +242,7 @@ async def approve_print(
     trim: str = Form("square", max_length=16),
     binding: str = Form("hardcover", max_length=16),
 ) -> Response:
-    """Record that the owner has read this book, and build its print files."""
+    """Record that the owner has read this book; its print files build in the background."""
     owner = _owner(session)
     await asyncio.to_thread(_complete_book, book_id, owner, container)
     try:
@@ -249,22 +255,25 @@ async def approve_print(
     if pdf is None:
         raise HTTPException(status_code=409, detail="The book has no PDF yet.")
     runner = container.book_runner
-    try:
-        await asyncio.to_thread(
-            lambda: container.print_service.approve(
-                book_id=book_id,
-                user_id=owner,
-                pdf=pdf,
-                product=product,
-                build_interior=lambda chosen: runner.print_interior(book_id, chosen),
-                build_cover=lambda chosen, size: runner.print_cover(book_id, chosen, size),
-            )
-        )
-    except (PrintError, ValueError) as exc:
-        # A book too long for the binding, or a provider that could not size
-        # the cover: keep the owner on the print page with the reason.
-        return await _page(request, container, session, book_id, error=str(exc))
-    return RedirectResponse(url=f"/books/{book_id}/print?approved=1", status_code=303)
+    service = container.print_service
+    # The interior and cover take most of a minute on the free plan, so they
+    # are built in the background: the page shows them being made and
+    # refreshes until the approval is stored, or shows why it could not be.
+    # A second press while one build runs joins it instead of starting another.
+    container.print_preparer.start(
+        book_id,
+        pdf=pdf,
+        product_key=product.key,
+        build=lambda: service.approve(
+            book_id=book_id,
+            user_id=owner,
+            pdf=pdf,
+            product=product,
+            build_interior=lambda chosen: runner.print_interior(book_id, chosen),
+            build_cover=lambda chosen, size: runner.print_cover(book_id, chosen, size),
+        ),
+    )
+    return RedirectResponse(url=f"/books/{book_id}/print", status_code=303)
 
 
 def _address_form(

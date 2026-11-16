@@ -49,6 +49,7 @@ from app.services.portrait_log import PortraitLog
 from app.services.print.base import PrintProvider
 from app.services.print.lulu import LuluPrintProvider
 from app.services.print.mock import MockPrintProvider
+from app.services.print.preparing import PrintPreparer
 from app.services.print.service import PrintService
 from app.services.print.store import PrintOrderStore
 from app.services.rate_limit import GenerationRateLimiter
@@ -111,6 +112,9 @@ class Container:
     mailer: Mailer | None
     #: Sends the operator's alerts when what is wrong changes (Idea 10).
     alert_post: OperatorPost
+    #: Builds the print files after an approval, off the request (one at a
+    #: time: each build peaks at a few hundred MiB on a 512 MiB plan).
+    print_preparer: PrintPreparer = field(default_factory=PrintPreparer)
     # Bounds concurrent generations per process. Image models are slow and
     # rate-limited, so without a ceiling a burst of traffic becomes a burst of
     # billable requests and 429s.
