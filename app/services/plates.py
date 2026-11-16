@@ -191,8 +191,8 @@ _STAGINGS: dict[str, tuple[_Spot, ...]] = {
         ((0.02, 0.18, 0.18, 0.74), "right"),
     ),
     "bed_and_wolf": (
-        ((0.04, 0.30, 0.20, 0.32), "right", "in_bed"),
-        ((0.40, 0.22, 0.16, 0.58), "left"),
+        ((0.06, 0.24, 0.20, 0.30), "right", "in_bed"),
+        ((0.58, 0.24, 0.16, 0.62), "left"),
     ),
     "wolf_in_bed": (((0.38, 0.08, 0.24, 0.30), "toward", "in_bed"),),
     # The star at the door, then at the bedside; the wolf stays in the bed.

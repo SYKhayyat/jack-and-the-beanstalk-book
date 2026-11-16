@@ -221,7 +221,7 @@ key = "the-cupboard"
 title = "The cupboard"
 cast = ["grandmother", "wolf"]
 # The whole quilt: the body under it makes a hump the plate does not have.
-paint_areas = [[0.00, 0.48, 0.40, 0.40]]
+paint_areas = [[0.02, 0.42, 0.52, 0.34]]
 staging = "bed_and_wolf"
 star_in_picture = false
 story = "Grandmother sat up in bed and saw the wolf's grey face. She opened her mouth to call out, but the wolf raised one paw. 'Not a sound,' he said, 'and no one will be hurt.' He took her hand and helped her into the tall wooden cupboard, and shut the door. Then he put on her cap and her shawl and climbed into her bed."
