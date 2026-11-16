@@ -29,6 +29,7 @@ from app.config import Settings, get_settings
 from app.container import Container, build_container
 from app.db import database_secrets
 from app.errors import register_exception_handlers
+from app.event_loop_guard import allow_blocking
 from app.logging_context import (
     install_request_id_logging,
     new_request_id,
@@ -278,9 +279,13 @@ def create_app(
     )
 
     app.state.settings = resolved
-    app.state.container = build_container(
-        resolved, provider=provider, payments=payments, reviewer=reviewer
-    )
+    # `uvicorn --factory` calls this on the event loop's own thread, before any
+    # request is served: the migration and the seed are the boot work the
+    # loop guard is told to allow.
+    with allow_blocking():
+        app.state.container = build_container(
+            resolved, provider=provider, payments=payments, reviewer=reviewer
+        )
     app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
     # Every page can show the shelf's stories (the signed-out login page too)
     # and the footer's retention line, so both are template globals. The shelf
