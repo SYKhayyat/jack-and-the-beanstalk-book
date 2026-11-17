@@ -932,6 +932,7 @@ def build_fix_edit_prompt(
 def build_figure_edit_prompt(
     page: BookPage,
     *,
+    story: StoryEdition,
     settings: CartoonSettings,
     prompt_name: str,
     star_seen: str = "",
@@ -946,16 +947,28 @@ def build_figure_edit_prompt(
     swaps who the child is (face, hair and every patch of visible skin) and
     says to keep everything else, the framing included, so the drawing blends
     back where it came from. The moment is given only for the expression.
+
+    A story with a costume keeps the stand-in's clothes, which are that
+    costume already. A story whose outfit the visitor picks (Jack's) drew its
+    scenes in placeholder clothes, so the edit dresses the child in the pick.
     """
     figure = cast("Mapping[str, str]", _DATA["book"]["figure"])
     edit = cast("Mapping[str, str]", _DATA["book"]["edit"])
     subs = _substitutions(settings, prompt_name, picture=True)
+    if story.star_member.costume:
+        clothes = [figure["keep"]]
+    else:
+        outfit = _star_outfit(story, settings, prompt_name)
+        clothes = [
+            figure["redress"].format(name=prompt_name, outfit=outfit),
+            figure["keep_redressed"],
+        ]
     lines = [
         figure["task"].format(name=prompt_name),
         figure["replace"].format(name=prompt_name),
         star_look(settings, prompt_name, star_seen),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
-        figure["keep"],
+        *clothes,
         figure["moment"].format(caption=page.formatted(subs).scene.caption),
     ]
     if retry_faults:

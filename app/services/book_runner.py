@@ -1444,12 +1444,7 @@ class BookRunner:
                 # reviewer causes is the app's own quality control and is part
                 # of what the one charge buys.
                 await _pay_for_picture(picture_payment, f"Page {page.number}")
-                scene = _scene_for(
-                    page,
-                    artwork,
-                    requested_fixes,
-                    fixed_costume=bool(edition.star_member.costume),
-                )
+                scene = _scene_for(page, artwork, requested_fixes)
                 if scene is not None:
                     attempts, mode, sent = await _draw_scene(page, scene)
                 else:
@@ -1528,6 +1523,7 @@ class BookRunner:
                     # mend to ask for: `_fix` is the same prompt.
                     return build_figure_edit_prompt(
                         page,
+                        story=edition,
                         settings=artwork.settings,
                         prompt_name=prompt_name,
                         star_seen=artwork.star_seen,
@@ -2968,22 +2964,20 @@ def _scene_for(
     page: BookPage,
     artwork: _Artwork,
     requested_fixes: Mapping[int, Sequence[str]],
-    *,
-    fixed_costume: bool,
 ) -> PinnedPremade | None:
     """The page's approved scene, when this book may draw only its child into it.
 
     A scene is a finished page with a stand-in child at its figure box (A5).
-    Only for a page the star is in, in a story that dresses the star in a fixed
-    costume (the stand-in's clothes are kept, so a story whose outfit the
-    visitor picks cannot use one), with nobody else on the page the visitor
+    Only for a page the star is in, with nobody else on the page the visitor
     gave a photo of, and no redraw the owner asked for: a fix request is a
-    request for a new picture, drawn whole.
+    request for a new picture, drawn whole. The edit keeps a costume story's
+    clothes and dresses a picked-outfit story's child in the pick
+    (`build_figure_edit_prompt`), so both kinds of story use their scenes.
     """
     premade = artwork.premades.get(page.number)
     if premade is None or premade.figure is None or not page.star_in_picture:
         return None
-    if not fixed_costume or requested_fixes.get(page.number):
+    if requested_fixes.get(page.number):
         return None
     if any(name in artwork.visitor_cast for name in page.cast):
         return None

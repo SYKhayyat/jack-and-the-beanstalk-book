@@ -483,6 +483,10 @@ wrong = "WHAT IS WRONG: {faults}. Fix exactly this, in place, and nothing else."
 task = "TASK: EDIT this crop of a finished picture-book page. Image 1 is the crop: it shows a stand-in child in the middle of it. Image 2 is the portrait of {name}. Turn the stand-in into {name}, and change nothing else."
 replace = "MAKE THE STAND-IN {name}: the face, the eyes, the hair (its colour, texture, length and style) and the skin tone all come from the portrait. Recolour ALL of the stand-in's visible skin, not just the face (neck, ears, hands, arms and legs too), and all of their hair, to match {name}; no patch of the stand-in's own skin or hair may stay."
 keep = "KEEP EVERYTHING ELSE EXACTLY: the pose, the gesture, the clothes and their colours, the size and position of the figure, every other character and object, the background, the light and shadows, the line and the art style. The picture keeps the same framing and the same edges: do not zoom, crop, pan or extend it."
+# A story whose outfit the visitor picks: the stand-in's clothes are a
+# placeholder, so the edit dresses the child in the pick instead of keeping them.
+redress = "DRESS {name} IN: {outfit} These clothes replace ALL of the stand-in's clothes; none of the stand-in's own clothing may stay. They fit the same pose and gesture, and hang and fold the way the pose makes them."
+keep_redressed = "KEEP EVERYTHING ELSE EXACTLY: the pose, the gesture, the size and position of the figure, every other character and object, the background, the light and shadows, the line and the art style. The picture keeps the same framing and the same edges: do not zoom, crop, pan or extend it."
 moment = "THE MOMENT this page shows, for the expression: {caption}"
 retry = "ANOTHER TRY. The previous attempt had these problems: {faults}. Fix only those."
 

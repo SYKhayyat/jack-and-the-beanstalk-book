@@ -23,7 +23,7 @@ import pytest
 from PIL import Image, ImageChops
 from sqlalchemy import Engine
 
-from app.models.settings import CartoonSettings
+from app.models.settings import CartoonSettings, Outfit
 from app.scripts.import_premades import ImportError_
 from app.scripts.import_premades import run as import_run
 from app.services.book_runner import _premade_for, _scene_for
@@ -39,6 +39,7 @@ from app.services.figure_crop import (
 from app.services.page_picture import prepare_page
 from app.services.prompts import build_figure_edit_prompt
 from app.services.template_store import PinnedPremade, TemplateError
+from tests.helpers import edition_for, jack
 
 from .test_review_loop import ScriptedReviewer, attempt_loop, runner_with, said
 from .test_template_portraits import _approve_every_plate
@@ -55,6 +56,12 @@ from .test_template_premades import (
 
 FIGURE = (0.4, 0.3, 0.2, 0.5)
 STAR_PAGE = 1
+RED_BOOK = edition_for("little_red_riding_hood")
+JACK = jack()
+
+
+def _jack_star_page():
+    return next(p for p in JACK.pages if p.star_in_picture)
 
 
 def _scene_jpeg(size: tuple[int, int] = (400, 300)) -> bytes:
@@ -205,7 +212,7 @@ class TestImporter:
         store = _store(engine)
         _approve_every_plate(store, RED)
         result = import_run(
-            story=RED,
+            story=RED_BOOK,
             store=store,
             directory=directory,
             operator=OPERATOR,
@@ -243,16 +250,34 @@ class TestImporter:
 class TestPrompt:
     def test_it_swaps_the_child_skin_and_hair_and_keeps_the_rest(self) -> None:
         prompt = build_figure_edit_prompt(
-            _red_page(STAR_PAGE), settings=CartoonSettings(), prompt_name="Ada"
+            _red_page(STAR_PAGE), story=RED_BOOK, settings=CartoonSettings(), prompt_name="Ada"
         )
         assert "Image 2 is the portrait of Ada" in prompt
         assert "Recolour ALL of the stand-in's visible skin" in prompt
+        assert "the clothes and their colours" in prompt
+        assert "DRESS Ada IN" not in prompt
         assert "do not zoom, crop, pan or extend it" in prompt
         assert "ANOTHER TRY" not in prompt
+
+    def test_a_picked_outfit_story_dresses_the_child_in_the_pick(self) -> None:
+        """Jack's scenes are drawn in placeholder clothes: the edit replaces
+        them with the visitor's outfit, and no longer says to keep them."""
+        prompt = build_figure_edit_prompt(
+            _jack_star_page(),
+            story=JACK,
+            settings=CartoonSettings(outfit=Outfit.HOODED_CLOAK),
+            prompt_name="Ada",
+        )
+        assert "DRESS Ada IN:" in prompt
+        assert "hooded travelling cloak" in prompt
+        assert "none of the stand-in's own clothing may stay" in prompt
+        assert "the clothes and their colours" not in prompt
+        assert "do not zoom, crop, pan or extend it" in prompt
 
     def test_a_retry_names_the_faults(self) -> None:
         prompt = build_figure_edit_prompt(
             _red_page(STAR_PAGE),
+            story=RED_BOOK,
             settings=CartoonSettings(),
             prompt_name="Ada",
             retry_faults=("star_not_like_reference",),
@@ -264,23 +289,25 @@ class TestPrompt:
 
 
 class TestRunner:
-    def test_a_fixed_costume_star_page_uses_its_scene(self) -> None:
+    def test_a_costume_star_page_uses_its_scene(self) -> None:
         pinned = _scene_pinned()
         artwork = _artwork({STAR_PAGE: pinned})
-        assert _scene_for(_red_page(STAR_PAGE), artwork, {}, fixed_costume=True) is pinned
+        assert _scene_for(_red_page(STAR_PAGE), artwork, {}) is pinned
 
     def test_a_scene_is_never_used_whole(self) -> None:
         artwork = _artwork({STAR_PAGE: _scene_pinned()})
         assert _premade_for(_red_page(STAR_PAGE), artwork, {}) is None
 
-    def test_an_outfit_the_visitor_picks_draws_the_page_whole(self) -> None:
-        artwork = _artwork({STAR_PAGE: _scene_pinned()})
-        assert _scene_for(_red_page(STAR_PAGE), artwork, {}, fixed_costume=False) is None
+    def test_a_picked_outfit_story_uses_its_scene_too(self) -> None:
+        """Red and Jack share the path: the outfit is the prompt's job."""
+        page = _jack_star_page()
+        pinned = _scene_pinned(page.number)
+        assert _scene_for(page, _artwork({page.number: pinned}), {}) is pinned
 
     def test_a_requested_fix_draws_the_page_whole(self) -> None:
         artwork = _artwork({STAR_PAGE: _scene_pinned()})
         fixes = {STAR_PAGE: ["other"]}
-        assert _scene_for(_red_page(STAR_PAGE), artwork, fixes, fixed_costume=True) is None
+        assert _scene_for(_red_page(STAR_PAGE), artwork, fixes) is None
 
     def test_a_visitor_photo_of_someone_else_on_the_page_draws_it_whole(self) -> None:
         page = _red_page(STAR_PAGE)
@@ -288,12 +315,12 @@ class TestRunner:
         if not others:
             pytest.skip("page 1 has nobody but the star")
         artwork = _artwork({STAR_PAGE: _scene_pinned()}, visitor=frozenset(others[:1]))
-        assert _scene_for(page, artwork, {}, fixed_costume=True) is None
+        assert _scene_for(page, artwork, {}) is None
 
     def test_a_starless_premade_is_not_a_scene(self) -> None:
         starless = PinnedPremade(page_number=CUPBOARD, premade_id="p" * 32)
         artwork = _artwork({CUPBOARD: starless})
-        assert _scene_for(_red_page(CUPBOARD), artwork, {}, fixed_costume=True) is None
+        assert _scene_for(_red_page(CUPBOARD), artwork, {}) is None
 
     def test_the_drawn_crop_is_blended_back_before_review(self) -> None:
         scene_bytes = _scene_jpeg()
