@@ -9,8 +9,8 @@ import pytest
 from PIL import Image
 from pypdf import PdfReader
 
-from app.models.book import AboutMe
-from app.services.pdf import PageArt, build_book_pdf
+from app.models.book import AboutMe, BookFormat
+from app.services.pdf import PageArt, build_book_pdf, screen_template
 from app.services.typography import book_text
 from tests.helpers import jack
 
@@ -143,19 +143,15 @@ class TestAssembly:
             opening = opening[:40]
             assert any(opening in text for text in texts), page.key
 
-    def test_every_page_is_the_art_plus_one_story_margin(self, book_with_cover: bytes) -> None:
-        """One template: the art's width, its height plus the same margin.
-
-        Used to pin a 720x540 page (the art alone, text over it). The story is
-        now set under the art, so the page is taller than the art, and every
-        page — cover and About included — has the same size.
-        """
+    def test_every_page_is_the_books_square_trim(self, book_with_cover: bytes) -> None:
+        """One template: every page, cover and About included, is the square
+        book's 8.5 x 8.5 in trim, the art above and the story beneath it."""
         reader = PdfReader(io.BytesIO(book_with_cover))
-        sizes = {(float(p.mediabox.width), float(p.mediabox.height)) for p in reader.pages}
-        assert len(sizes) == 1
-        width, height = sizes.pop()
-        assert width == pytest.approx(720)
-        assert height > 540
+        sizes = {
+            (round(float(p.mediabox.width)), round(float(p.mediabox.height)))
+            for p in reader.pages
+        }
+        assert sizes == {(612, 612)}
 
     def test_about_me_carries_the_typed_words(self) -> None:
         data = build_book_pdf(
@@ -199,10 +195,12 @@ class TestAssembly:
         Every glyph of a story page is set in the margin below the art box
         (PDF y runs upwards, so "below" means a y under the margin's height).
         """
+        layout = screen_template(
+            BookFormat.SQUARE, 864 / 1152, [book_text(page.story) for page in BOOK_PAGES]
+        )
         reader = PdfReader(io.BytesIO(book_bytes))
         for page in reader.pages[1 : 1 + len(BOOK_PAGES)]:
-            height = float(page.mediabox.height)
-            margin = height - 540
+            margin = float(page.mediabox.height) - layout.art_height
             ys: list[float] = []
 
             def visit(text, cm, tm, font, size, ys=ys):  # type: ignore[no-untyped-def]

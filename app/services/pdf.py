@@ -40,7 +40,7 @@ from pathlib import Path
 from fpdf import FPDF
 from PIL import Image, ImageFilter, ImageStat, UnidentifiedImageError
 
-from app.models.book import AboutMe, AboutPhotoChoice, BookPage
+from app.models.book import AboutMe, AboutPhotoChoice, BookFormat, BookPage
 from app.prompt_data import prompt_text
 from app.services.book_outline import MATTER_LEAVES, Leaf, book_leaves, copyright_lines
 from app.services.print.products import CoverSize, Product
@@ -51,10 +51,8 @@ __all__ = [
     "COVER_TITLE_BAND_FRACTION",
     "PAPER_RGB",
     "PageArt",
-    "PrintGeometry",
-    "TemplateGeometry",
+    "PageGeometry",
     "TitleBandReport",
-    "book_template",
     "build_book_pdf",
     "build_print_cover",
     "build_print_interior",
@@ -62,7 +60,9 @@ __all__ = [
     "draw_closing_page",
     "draw_copyright_page",
     "draw_cover_page",
+    "page_template",
     "print_template",
+    "screen_template",
     "title_band_report",
 ]
 
@@ -84,17 +84,16 @@ _FONT_FILES: tuple[tuple[str, str, str], ...] = (
 #: code adds this to the edition's page count to get the PDF's page count.
 BOOK_MATTER_PAGES = MATTER_LEAVES
 
-# Geometry. The art box's short edge is 720 pt (10 in); everything else is
-# relative to the page so any aspect ratio prints well.
-_PAGE_SHORT_EDGE = 720.0
+# Geometry. A page is its format's trim (`BookFormat.page_inches`); everything
+# else is relative to it, so every format reads and prints well.
 _SIDE_MARGIN = 0.08  # text block side inset, as a fraction of page width
 _STORY_FONT_MAX = 19.0  # the size a page of story is set at when it fits
 _MIN_STORY_FONT = 14.0  # nothing beneath this stays readable
 _LINE_FACTOR = 1.45
 _MARGIN_PAD_TOP = 26.0  # pt between the art's edge and the first line
-_MARGIN_PAD_BOTTOM = 40.0  # pt below the last line, room for the folio
-_MARGIN_CAP = 0.50  # the margin may take this fraction of the art height before
-#                     the font shrinks; past the floor it grows instead
+_FACING_FONT_MAX = 26.0  # a wide book's words have a page of their own
+_FOLIO_SIZE = 10.0  # the page number under the words
+_SCREEN_INSET = 0.5 * 72.0  # pt; the reading PDF keeps print's safety margin
 
 # The page's paper. Public because the template check samples the drawn page
 # against it (tests/test_page_template.py), not because callers may change it.
@@ -159,51 +158,38 @@ class PageArt:
 
 
 @dataclass(frozen=True, slots=True)
-class TemplateGeometry:
-    """The one template every story page is set in.
+class PageGeometry:
+    """The one template every story page of a book is set in.
 
-    Explicit data rather than values recomputed per page: the art box, the text
-    band beneath it, and the one font size the whole book is set at. Every
-    derived point (where the band starts, how much room the words get) is a
-    property of this object, so a test can assert the geometry without parsing
-    a PDF and the renderer cannot drift from it.
+    Explicit data rather than values recomputed per page, so a test can assert
+    the geometry without parsing a PDF and the renderer cannot drift from it.
+    The page is the book's format (plus bleed, in print). On a square or tall
+    page the art runs across the full width at its own proportions and the
+    story is set in the band beneath it; only when the words need more room
+    than the art leaves does the art box shrink, and the picture is then
+    centred on cream rather than cropped or stretched (A11). On a wide page
+    (`facing`) a story page is two: the picture filling one, its words set on
+    the page facing it.
     """
 
-    art_width: float
+    page_width: float
+    page_height: float
     art_height: float
-    text_band_height: float
     font_size: float
-
-    @property
-    def page_width(self) -> float:
-        return self.art_width
+    text_width: float
+    text_top: float
+    text_bottom: float
+    folio_top: float
+    facing: bool = False
 
     @property
     def line_height(self) -> float:
         return self.font_size * _LINE_FACTOR
 
     @property
-    def page_height(self) -> float:
-        return self.art_height + self.text_band_height
-
-    @property
-    def text_width(self) -> float:
-        return self.art_width * (1 - 2 * _SIDE_MARGIN)
-
-    @property
-    def text_band_top(self) -> float:
-        """Where the text band begins: the art's bottom edge."""
-        return self.art_height
-
-    @property
-    def text_top(self) -> float:
-        """Where the first line may sit, after the band's top padding."""
-        return self.art_height + _MARGIN_PAD_TOP
-
-    @property
     def text_room(self) -> float:
         """The vertical space the words may occupy."""
-        return self.text_band_height - _MARGIN_PAD_TOP - _MARGIN_PAD_BOTTOM
+        return self.text_bottom - self.text_top
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,13 +249,15 @@ def build_book_pdf(
     photo: bytes | None = None,
     publisher: str = "Storybook Studio",
     year: int | None = None,
+    book_format: BookFormat = BookFormat.SQUARE,
 ) -> bytes:
     """Assemble the book: cover, copyright page, story, The End, back cover.
 
-    Every page has the same size: the art's shape plus one story margin, so
-    the book prints and reads as one object. `portrait` (the cartoon) and
-    `photo` (the original) are framed on the back cover as
-    `about.about_photo` asks.
+    Every page is the book's format (`screen_template`): the same page the
+    printed edition trims to, so the PDF reads as the book that is printed. A
+    wide book sets each story page as two, its picture and then its words.
+    `portrait` (the cartoon) and `photo` (the original) are framed on the back
+    cover as `about.about_photo` asks.
 
     The order is the one a printed picture book has: the front cover, the
     copyright page (the first inside page), the story starting on the page
@@ -293,9 +281,9 @@ def build_book_pdf(
     )
     if shape_image is None:
         raise ValueError("A book needs at least one picture.")
-    art_width, art_height = _page_shape(shape_image)
-    layout = book_template(
-        art_width, art_height, [book_text(entry.page.story) for entry in pages]
+    art_w, art_h = _image_size(shape_image)
+    layout = screen_template(
+        book_format, art_h / art_w, [book_text(entry.page.story) for entry in pages]
     )
 
     pdf = FPDF(unit="pt", format=(layout.page_width, layout.page_height))
@@ -317,39 +305,100 @@ def build_book_pdf(
             draw_copyright_page(pdf, about, publisher, year or datetime.now(UTC).year)
         elif leaf is Leaf.STORY:
             number, entry = next(stories)
-            _draw_page(pdf, entry, number, layout)
+            _draw_story(pdf, entry, number, layout)
         elif leaf is Leaf.END:
             draw_closing_page(pdf)
         else:
-            draw_about_page(pdf, about, portrait, photo)
+            draw_about_page(pdf, about, portrait, photo, inset=_SCREEN_INSET)
 
     output = io.BytesIO()
     pdf.output(output)
     return output.getvalue()
 
 
-def book_template(
-    art_width: float, art_height: float, stories: Sequence[str]
-) -> TemplateGeometry:
-    """One font size and one text band for the whole book.
+def screen_template(
+    book_format: BookFormat, art_ratio: float, stories: Sequence[str]
+) -> PageGeometry:
+    """The reading PDF's template: the format's trimmed page, without bleed.
 
-    The largest size at which every page's story fits inside the capped band
-    wins. If even the floor does not fit, the band grows to hold the longest
-    page: a story is never truncated, and a short page keeps the same band as
-    every other page of the book.
+    `art_ratio` is the art's height over its width. The words keep the print
+    edition's safety margin, so what is read on screen is what is printed.
     """
-    text_width = art_width * (1 - 2 * _SIDE_MARGIN)
-    cap = art_height * _MARGIN_CAP
+    width, height = book_format.page_inches
+    return page_template(
+        width * _POINTS_PER_INCH,
+        height * _POINTS_PER_INCH,
+        _SCREEN_INSET,
+        art_ratio,
+        stories,
+        facing=book_format.facing,
+    )
+
+
+def page_template(
+    page_width: float,
+    page_height: float,
+    inset: float,
+    art_ratio: float,
+    stories: Sequence[str],
+    *,
+    facing: bool = False,
+) -> PageGeometry:
+    """One font size and one art box for every story page of a book.
+
+    `inset` is how far from the page edge words may sit. Beneath the art, the
+    largest font at which every story fits under the art at its natural height
+    wins; past the floor the art box gives up height instead, so no story is
+    ever cut. On facing pages the words have a page of their own, so they are
+    set larger: the largest size at which the longest story fits that page.
+    """
+    text_width = page_width - 2 * max(inset, page_width * _SIDE_MARGIN)
+    folio_top = page_height - inset - _FOLIO_SIZE * 1.4
+    text_bottom = folio_top - _FOLIO_SIZE
+    if facing:
+        text_top = max(inset, page_height * _SIDE_MARGIN)
+        size = _FACING_FONT_MAX
+        while True:
+            block = _longest_block(stories, size, text_width)
+            if block <= text_bottom - text_top or size <= _MIN_STORY_FONT:
+                return PageGeometry(
+                    page_width=page_width,
+                    page_height=page_height,
+                    art_height=page_height,
+                    font_size=size,
+                    text_width=text_width,
+                    text_top=text_top,
+                    text_bottom=max(text_bottom, text_top + block),
+                    folio_top=folio_top,
+                    facing=True,
+                )
+            size = max(_MIN_STORY_FONT, size - 0.5)
+    natural = min(page_width * art_ratio, page_height)
     size = _STORY_FONT_MAX
     while True:
-        lines = max(
-            (len(_wrap(story, _FAMILY, "", size, text_width)) for story in stories if story),
-            default=0,
-        )
-        needed = _MARGIN_PAD_TOP + lines * size * _LINE_FACTOR + _MARGIN_PAD_BOTTOM
-        if needed <= cap or size <= _MIN_STORY_FONT:
-            return TemplateGeometry(art_width, art_height, max(needed, cap * 0.6), size)
+        room = text_bottom - _MARGIN_PAD_TOP - _longest_block(stories, size, text_width)
+        if room >= natural or size <= _MIN_STORY_FONT:
+            art_height = max(0.0, min(natural, room))
+            return PageGeometry(
+                page_width=page_width,
+                page_height=page_height,
+                art_height=art_height,
+                font_size=size,
+                text_width=text_width,
+                text_top=art_height + _MARGIN_PAD_TOP,
+                text_bottom=text_bottom,
+                folio_top=folio_top,
+            )
         size = max(_MIN_STORY_FONT, size - 0.5)
+
+
+def _longest_block(stories: Sequence[str], size: float, text_width: float) -> float:
+    """The height the longest story takes at `size`, wrapped to `text_width`."""
+    lines = max(
+        (len(_wrap(story, _FAMILY, "", size, text_width)) for story in stories if story),
+        default=0,
+    )
+    return lines * size * _LINE_FACTOR
 
 
 def draw_cover_page(
@@ -537,25 +586,46 @@ def _shadowed_cell(
     pdf.text_mode = "FILL"
 
 
-def _draw_page(pdf: FPDF, entry: PageArt, number: int, layout: TemplateGeometry) -> None:
-    """One story page: art on top, the story in the band beneath it.
+def _draw_story(
+    pdf: FPDF,
+    entry: PageArt,
+    number: int,
+    layout: PageGeometry,
+    *,
+    for_print: bool = False,
+) -> None:
+    """One story page: the art and the story set beneath it, or facing it.
 
     A page whose picture could not be drawn keeps its story and gets a marked
     frame saying so, rather than taking the rest of the book down with it.
+    Story page n prints "n" on its words; the pages around the story carry
+    none (P4), and the reader prints the same number.
     """
     pdf.add_page()
     pdf.set_fill_color(*PAPER_RGB)
     pdf.rect(0, 0, pdf.w, pdf.h, style="F")
     image = entry.image
-    if image is None:
-        _draw_missing_art(pdf, layout)
+    if layout.facing:
+        # The picture fills its page edge to edge (into the bleed, in print);
+        # the words turn over onto the page facing it.
+        if image is None:
+            _draw_missing_art(pdf, pdf.w, pdf.h)
+        else:
+            _fill_art(pdf, image, for_print=for_print)
+        pdf.add_page()
+        pdf.set_fill_color(*PAPER_RGB)
+        pdf.rect(0, 0, pdf.w, pdf.h, style="F")
     else:
-        _place_art(pdf, image, 0, 0, layout.art_width, layout.art_height)
-
-    # A thin gold rule where the picture meets the page.
-    pdf.set_draw_color(*_GOLD)
-    pdf.set_line_width(1.6)
-    pdf.line(0, layout.text_band_top, pdf.w, layout.text_band_top)
+        if image is None:
+            _draw_missing_art(pdf, layout.page_width, layout.art_height)
+        else:
+            _place_art(
+                pdf, image, 0, 0, layout.page_width, layout.art_height, for_print=for_print
+            )
+        # A thin gold rule where the picture meets the page.
+        pdf.set_draw_color(*_GOLD)
+        pdf.set_line_width(1.6)
+        pdf.line(0, layout.art_height, pdf.w, layout.art_height)
 
     story = book_text(entry.page.story)
     if story.strip():
@@ -566,21 +636,37 @@ def _draw_page(pdf: FPDF, entry: PageArt, number: int, layout: TemplateGeometry)
         pdf.set_text_color(*_INK)
         _centred_lines(pdf, lines, y, layout.line_height)
 
-    # The folio: story page n prints "n"; the pages around the story carry
-    # none (P4), and the reader prints the same number.
-    pdf.set_font(_FAMILY, "I", 10.0)
+    pdf.set_font(_FAMILY, "I", _FOLIO_SIZE)
     pdf.set_text_color(*_GOLD)
-    pdf.set_xy(0, pdf.h - _MARGIN_PAD_BOTTOM * 0.75)
-    pdf.cell(pdf.w, 14.0, str(number), align="C")
+    pdf.set_xy(0, layout.folio_top)
+    pdf.cell(pdf.w, _FOLIO_SIZE * 1.4, str(number), align="C")
 
 
-def _draw_missing_art(pdf: FPDF, layout: TemplateGeometry) -> None:
-    """The marked but undrawn page: a gold frame and a sentence saying why.
+def _fill_art(pdf: FPDF, image: bytes, *, for_print: bool = False) -> None:
+    """The picture covering the whole page, centred, its overflow trimmed off.
+
+    Only a wide book's picture page does this: 4:3 art on an 11 x 8.5 page
+    loses about three percent at the sides, which the scenes leave clear.
+    """
+    art_w, art_h = _image_size(image)
+    scale = max(pdf.w / art_w, pdf.h / art_h)
+    drawn_w, drawn_h = art_w * scale, art_h * scale
+    with pdf.rect_clip(0, 0, pdf.w, pdf.h):
+        pdf.image(
+            _image_for_pdf(image, printed_at=(drawn_w, drawn_h) if for_print else None),
+            x=(pdf.w - drawn_w) / 2,
+            y=(pdf.h - drawn_h) / 2,
+            w=drawn_w,
+            h=drawn_h,
+        )
+
+
+def _draw_missing_art(pdf: FPDF, width: float, height: float) -> None:
+    """The marked but undrawn picture: a gold frame and a sentence saying why.
 
     It has to look deliberate on paper — it is printed and bound with the
     rest — and it names the one action left: finish this book.
     """
-    width, height = layout.art_width, layout.art_height
     inset = min(width, height) * 0.06
     pdf.set_draw_color(*_GOLD)
     pdf.set_line_width(1.2)
@@ -673,74 +759,17 @@ def draw_about_page(
 # --- the print edition (Q2, A1, A2, A11) ------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class PrintGeometry:
-    """The one template every story page of a print interior is set in.
-
-    The page is the trim plus bleed, whatever shape the art is. The art runs
-    across the full width at its own proportions, and the story is set in the
-    band beneath it, inside the safety margin. Only when the words need more
-    room than the art leaves does the art box shrink, and the picture is then
-    centred on cream rather than cropped or stretched (A11).
-    """
-
-    page_width: float
-    page_height: float
-    art_height: float
-    font_size: float
-    text_width: float
-    text_bottom: float
-    folio_top: float
-
-    @property
-    def line_height(self) -> float:
-        return self.font_size * _LINE_FACTOR
-
-    @property
-    def text_top(self) -> float:
-        return self.art_height + _MARGIN_PAD_TOP
-
-    @property
-    def text_room(self) -> float:
-        return self.text_bottom - self.text_top
-
-
-_FOLIO_SIZE = 10.0
-
-
-def print_template(
-    product: Product, art_ratio: float, stories: Sequence[str]
-) -> PrintGeometry:
-    """One font size and one art box for the whole printed interior.
-
-    `art_ratio` is the art's height over its width. The largest font at which
-    every story fits beneath the art at its natural height wins; past the
-    floor the art box gives up height instead, so no story is ever cut.
-    """
+def print_template(product: Product, art_ratio: float, stories: Sequence[str]) -> PageGeometry:
+    """The printed interior's template: the trim plus bleed, words in the safety."""
     page_width, page_height = product.page_size
-    inset = product.interior_inset
-    text_width = page_width - 2 * max(inset, page_width * _SIDE_MARGIN)
-    folio_top = page_height - inset - _FOLIO_SIZE * 1.4
-    text_bottom = folio_top - _FOLIO_SIZE
-    natural = min(page_width * art_ratio, page_height)
-    size = _STORY_FONT_MAX
-    while True:
-        lines = max(
-            (len(_wrap(story, _FAMILY, "", size, text_width)) for story in stories if story),
-            default=0,
-        )
-        room = text_bottom - _MARGIN_PAD_TOP - lines * size * _LINE_FACTOR
-        if room >= natural or size <= _MIN_STORY_FONT:
-            return PrintGeometry(
-                page_width=page_width,
-                page_height=page_height,
-                art_height=max(0.0, min(natural, room)),
-                font_size=size,
-                text_width=text_width,
-                text_bottom=text_bottom,
-                folio_top=folio_top,
-            )
-        size = max(_MIN_STORY_FONT, size - 0.5)
+    return page_template(
+        page_width,
+        page_height,
+        product.interior_inset,
+        art_ratio,
+        stories,
+        facing=product.trim.facing,
+    )
 
 
 def build_print_interior(
@@ -782,7 +811,7 @@ def build_print_interior(
             draw_copyright_page(pdf, about, publisher, year or datetime.now(UTC).year)
         elif leaf is Leaf.STORY:
             number, entry = next(stories)
-            _draw_print_page(pdf, entry, layout, number)
+            _draw_story(pdf, entry, number, layout, for_print=True)
         elif leaf is Leaf.END:
             draw_closing_page(pdf)
         elif leaf is Leaf.ABOUT:
@@ -857,37 +886,6 @@ def build_print_cover(
         pdf.cell(usable, title_size * 1.4, line, align="C")
         top += title_size * 1.4
     return _output(pdf)
-
-
-def _draw_print_page(pdf: FPDF, entry: PageArt, layout: PrintGeometry, number: int) -> None:
-    """One printed story page: the art across the top, the story beneath."""
-    pdf.add_page()
-    pdf.set_fill_color(*PAPER_RGB)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-    image = entry.image
-    art = TemplateGeometry(layout.page_width, layout.art_height, 0.0, layout.font_size)
-    if image is None:
-        _draw_missing_art(pdf, art)
-    else:
-        _place_art(pdf, image, 0, 0, layout.page_width, layout.art_height, for_print=True)
-    pdf.set_draw_color(*_GOLD)
-    pdf.set_line_width(1.6)
-    pdf.line(0, layout.art_height, pdf.w, layout.art_height)
-
-    story = book_text(entry.page.story)
-    if story.strip():
-        lines = _wrap(story, _FAMILY, "", layout.font_size, layout.text_width)
-        block = len(lines) * layout.line_height
-        y = layout.text_top + max(0.0, (layout.text_room - block) / 2)
-        pdf.set_font(_FAMILY, "", layout.font_size)
-        pdf.set_text_color(*_INK)
-        _centred_lines(pdf, lines, y, layout.line_height)
-
-    # Story page n prints "n", as on screen and in the reading PDF (P4).
-    pdf.set_font(_FAMILY, "I", _FOLIO_SIZE)
-    pdf.set_text_color(*_GOLD)
-    pdf.set_xy(0, layout.folio_top)
-    pdf.cell(pdf.w, _FOLIO_SIZE * 1.4, str(number), align="C")
 
 
 def _place_art(
@@ -1147,14 +1145,6 @@ def _image_size(image: bytes) -> tuple[int, int]:
             return int(width), int(height)
     except (OSError, UnidentifiedImageError) as exc:
         raise ValueError("A page image was unreadable; cannot assemble the book.") from exc
-
-
-def _page_shape(image: bytes) -> tuple[float, float]:
-    """The art box in pt for the art's aspect ratio, short edge 720."""
-    width, height = _image_size(image)
-    if width >= height:
-        return _PAGE_SHORT_EDGE, round(_PAGE_SHORT_EDGE * height / width, 2)
-    return round(_PAGE_SHORT_EDGE * width / height, 2), _PAGE_SHORT_EDGE
 
 
 def _wrap(text: str, family: str, style: str, size: float, max_width: float) -> list[str]:

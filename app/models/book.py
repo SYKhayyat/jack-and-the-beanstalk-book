@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.models.scenes import Scene
 from app.prompt_data import prompt_text
 
-__all__ = ["AboutMe", "AboutPhotoChoice", "BookPage"]
+__all__ = ["AboutMe", "AboutPhotoChoice", "BookFormat", "BookPage"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +87,53 @@ class BookPage:
             beat=fill(self.beat) if self.beat else "",
             emotion=fill(self.emotion),
         )
+
+
+class BookFormat(StrEnum):
+    """The page shape a book is set in, on screen, in its PDF and in print.
+
+    Chosen when the book is made and changeable in the viewer without a
+    redraw: only the PDF is set again.
+    """
+
+    #: 8.5 x 8.5 in, the words beneath the picture.
+    SQUARE = "square"
+    #: 8.5 x 11 in (US Letter, upright), the words beneath the picture.
+    LETTER = "letter"
+    #: 11 x 8.5 in, read open: each picture fills a page and its words are
+    #: set on the page facing it.
+    WIDE = "wide"
+
+    @property
+    def page_inches(self) -> tuple[float, float]:
+        return _FORMAT_INCHES[self]
+
+    @property
+    def facing(self) -> bool:
+        """Whether a story page is two pages, the picture and then its words."""
+        return self is BookFormat.WIDE
+
+    @property
+    def label(self) -> str:
+        """What the size choices call it, here and in print."""
+        return _FORMAT_LABELS[self]
+
+    @property
+    def short_label(self) -> str:
+        """The one word the viewer's size switch shows."""
+        return _FORMAT_LABELS[self].split(",", 1)[0]
+
+
+_FORMAT_INCHES: dict[BookFormat, tuple[float, float]] = {
+    BookFormat.SQUARE: (8.5, 8.5),
+    BookFormat.LETTER: (8.5, 11.0),
+    BookFormat.WIDE: (11.0, 8.5),
+}
+_FORMAT_LABELS: dict[BookFormat, str] = {
+    BookFormat.SQUARE: "Square, 8.5 \u00d7 8.5 in \u2014 the words under each picture",
+    BookFormat.LETTER: "Tall, 8.5 \u00d7 11 in \u2014 the words under each picture",
+    BookFormat.WIDE: "Wide, 11 \u00d7 8.5 in \u2014 each picture faces its words, read open",
+}
 
 
 class AboutPhotoChoice(StrEnum):

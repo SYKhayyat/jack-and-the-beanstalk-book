@@ -153,6 +153,7 @@ class BookDocument:
             photo=photo,
             publisher=self._publisher,
             year=book_year(record.created_at),
+            book_format=record.book_format,
         )
         self._book_store.save_pdf(record.book_id, pdf_bytes)
         # The document exists now, so this is the moment its fee belongs to.

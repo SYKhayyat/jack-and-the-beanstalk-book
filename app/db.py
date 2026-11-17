@@ -163,6 +163,13 @@ class BookRow(Base):
     #: data have no `stories` row to point at, and the pin below is the strong
     #: link for every book made on a template.
     story_key: Mapped[str] = mapped_column(String(64), default=DEFAULT_STORY_KEY)
+    #: The page shape the book is set in: "square", "letter" (tall) or "wide"
+    #: (picture and words on facing pages). Chosen when the book is made and
+    #: changeable in the viewer; the reader, the PDF and the printed edition
+    #: all follow it (migration 0026).
+    book_format: Mapped[str] = mapped_column(
+        String(16), default="square", server_default="square"
+    )
     #: The resolved cover title ("Noa and the Wolf"): the story's title with the
     #: star's name in it, rewritten when the About edit changes the name.
     title: Mapped[str] = mapped_column(String(255), default="")

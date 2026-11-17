@@ -1897,12 +1897,16 @@ dialog.modal form {
 /* The reader is a book, not a slideshow (G4). Every page is one surface: the
    art to its edges, the words set on the same paper in the book's face, and a
    folio at the foot, as the PDF prints it. reader-layout.js measures the
-   window and writes --page-w, --art-h, --band-h and --story-size, and picks
-   data-layout: "stacked" (words under the art) or "spread" (art left, words
-   right). Before it runs, the stacked page simply takes the column's width. */
+   window and writes --page-w, --page-h, --art-h and --story-size, and picks
+   data-layout: "page" (a square or tall book: words under the art), "spread"
+   (a wide book open flat: picture left, words right) or "single" (a wide book
+   on an upright screen: the picture, then its words, one page at a time).
+   Every leaf is one page of the book's own shape, the cover and the copyright
+   page included. */
 
 .reader {
   --page-w: min(100%, 760px);
+  --page-h: var(--page-w);
   --story-size: 21px;
   position: relative;
   margin: 0 auto 8px;
@@ -1928,8 +1932,12 @@ dialog.modal form {
 }
 .leaf {
   position: relative;
+  display: flex;
+  flex-direction: column;
   width: var(--page-w);
+  height: var(--page-h);
   margin: 0;
+  container-type: inline-size;
   background: var(--page-paper);
   border-radius: 3px 8px 8px 3px;
   box-shadow: var(--shadow-book);
@@ -1968,6 +1976,7 @@ dialog.modal form {
   background: var(--marigold-soft);
 }
 .reader[style*="--art-h"] .leaf-art {
+  flex: none;
   aspect-ratio: auto;
   height: var(--art-h);
 }
@@ -1987,19 +1996,27 @@ dialog.modal form {
   aspect-ratio: auto;
   border-radius: 0;
 }
-/* Stacked, the cover is the whole page: art and word band together, so it is
-   exactly as big as every page after it. */
-.reader[data-layout="stacked"] .leaf.is-cover .leaf-art {
+/* The cover is the whole page, exactly as big as every page after it. */
+.reader .leaf.is-cover .leaf-art {
   aspect-ratio: auto;
-  height: calc(var(--art-h) + var(--band-h));
+  height: var(--page-h);
+}
+/* A square or tall page whose words are long gives up art, as the PDF does:
+   the picture keeps its whole shape, centred on the paper. */
+.reader[data-layout="page"] .leaf[data-kind="story"] .leaf-art:has(> img) {
+  background: var(--page-paper);
+}
+.reader[data-layout="page"] .leaf[data-kind="story"] .leaf-art > img {
+  object-fit: contain;
 }
 .leaf-text {
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 0 7.5% calc(var(--story-size) * 1.6);
-  min-height: var(--band-h, auto);
   border-top: 2px solid var(--page-gold);
   color: var(--page-ink);
   font-family: var(--font-display);
@@ -2056,14 +2073,15 @@ dialog.modal form {
   margin: 0;
 }
 
-/* Spread: the book lies open, the picture on the left page, the words on the right. */
-.reader[data-layout="spread"] .leaf:not(.is-cover) {
+/* Spread: a wide book lies open, the picture filling the left page and its
+   words on the facing right page. Only story leaves open flat; the cover,
+   copyright page, The End and About are one page each. */
+.reader[data-layout="spread"] .leaf[data-kind="story"] {
   display: grid;
   grid-template-columns: var(--page-w) var(--page-w);
   width: calc(var(--page-w) * 2);
-  height: var(--art-h);
 }
-.reader[data-layout="spread"] .leaf:not(.is-cover)::before {
+.reader[data-layout="spread"] .leaf[data-kind="story"]::before {
   /* the gutter where the two pages meet */
   content: "";
   position: absolute;
@@ -2073,14 +2091,20 @@ dialog.modal form {
   z-index: 1;
   pointer-events: none;
 }
-.reader[data-layout="spread"] .leaf-text {
-  min-height: 0;
-  height: var(--art-h);
-  border-top: 0;
-  padding-top: calc(var(--story-size) * 0.4);
+.reader[data-layout="spread"] .leaf[data-kind="story"] .leaf-art,
+.reader[data-layout="spread"] .leaf[data-kind="story"] .leaf-text,
+.reader[data-layout="single"] .leaf[data-kind="story"] .leaf-art,
+.reader[data-layout="single"] .leaf[data-kind="story"] .leaf-text {
+  height: var(--page-h);
 }
-.reader[data-layout="spread"] .story-text {
-  text-align: left;
+.reader[data-layout="spread"] .leaf-text,
+.reader[data-layout="single"] .leaf-text {
+  border-top: 0;
+}
+/* Single: a wide book on an upright screen shows one of its two pages. */
+.reader[data-layout="single"][data-half="art"] .leaf[data-kind="story"] .leaf-text,
+.reader[data-layout="single"][data-half="words"] .leaf[data-kind="story"] .leaf-art {
+  display: none;
 }
 
 .spread-waiting {
@@ -2132,8 +2156,14 @@ dialog.modal form {
 .about-spread {
   cursor: default;
 }
-.about-art {
+.reader .leaf.about-spread .about-art {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
   background: var(--page-paper);
+}
+.reader .leaf.about-spread .about-text {
+  flex: none;
 }
 .about-frames {
   display: flex;
@@ -2183,8 +2213,9 @@ dialog.modal form {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  min-height: var(--band-h, 60vh);
-  padding: 12% 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8% 6%;
   text-align: center;
   background: var(--page-paper);
   color: var(--page-ink);
@@ -2194,8 +2225,9 @@ dialog.modal form {
 }
 .copyright-line {
   margin: 0;
-  /* The PDF's point sizes, scaled to the page on screen. */
-  font-size: calc(var(--line-size) * 1.15px);
+  /* The PDF's point sizes, scaled to the page on screen (the page is the
+     container): 612pt across the PDF's page, never too small to read. */
+  font-size: clamp(calc(var(--line-size) * 0.8px), calc(var(--line-size) * 0.19cqw), calc(var(--line-size) * 1.15px));
   line-height: 1.5;
   max-width: 34em;
 }
@@ -2258,7 +2290,7 @@ dialog.modal form {
   font-size: 15px;
   color: var(--ink);
 }
-.reader[data-layout="stacked"] .reader-bar {
+.reader:not([data-layout="spread"]) .reader-bar {
   max-width: calc(var(--page-w) + 112px);
 }
 .reader-where {
@@ -2266,6 +2298,21 @@ dialog.modal form {
   align-items: center;
   gap: 10px;
   font-weight: 600;
+}
+/* The size switch beside the page label: small, so it never crowds the bar. */
+.reader-size select {
+  padding: 4px 28px 4px 10px;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  background-color: var(--card);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+.reader.story-time .reader-size {
+  display: none;
 }
 .reader-tools {
   display: inline-flex;
@@ -2293,6 +2340,34 @@ dialog.modal form {
 }
 .tool-button[hidden] {
   display: none;
+}
+/* Redraw this page: the one edit a reader needs on the page, so it stands
+   out from the reading tools, in story time too. */
+.tool-button.redraw-tool {
+  border-color: var(--bean);
+  background: var(--bean);
+  color: #fff;
+  font-weight: 600;
+}
+.tool-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ready-note {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--bean-dark);
+}
+.ready-note[hidden] {
+  display: none;
+}
+.reader.story-time .ready-note {
+  color: #f6d98b;
+}
+.redraw-photo {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
 }
 .tool-icon {
   width: 16px;
@@ -2334,6 +2409,11 @@ dialog.modal form {
   border-color: rgba(255, 255, 255, 0.22);
   color: #f6efe2;
 }
+.reader.story-time .tool-button.redraw-tool {
+  background: var(--bean);
+  border-color: var(--bean);
+  color: #fff;
+}
 .reader.story-time .tool-button[aria-pressed="true"] {
   background: rgba(60, 122, 78, 0.5);
 }
@@ -2346,7 +2426,7 @@ body.in-story-time {
   .reader-bar {
     padding: 0;
   }
-  .reader[data-layout="stacked"] .reader-bar {
+  .reader:not([data-layout="spread"]) .reader-bar {
     max-width: none;
   }
   /* On a phone the buttons sit on the picture's edges; swiping works too. */
@@ -3927,4 +4007,7 @@ body.in-story-time {
     grid-template-columns: 1fr;
     gap: 2px;
   }
+}
+.chip[hidden] {
+  display: none;
 }

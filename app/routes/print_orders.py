@@ -2,7 +2,8 @@
 
 The order of these steps is the feature:
 
-1. The owner opens the finished PDF, picks an edition (trim and binding) and
+1. The owner opens the finished PDF, picks a binding (the size is the book's
+   own, chosen in the viewer) and
    presses "I've reviewed this book". The approval records the web PDF's
    hash and builds the print interior and cover in the background, storing
    both (A1, A3); the page shows them being made until they are.
@@ -32,6 +33,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from app.dependencies import ContainerDep
+from app.models.book import BookFormat
 from app.routes.auth import CurrentSessionDep
 from app.routes.book_access import ensure_book, no_store
 from app.routes.wallet import start_topup
@@ -95,7 +97,8 @@ def _complete_book(book_id: str, owner: str, container: ContainerDep) -> Any:
     return record
 
 
-def _editions() -> list[dict[str, Any]]:
+def _editions(book_format: BookFormat) -> list[dict[str, Any]]:
+    """The editions of a book in its size: the viewer picks the size (B-size)."""
     return [
         {
             "key": product.key,
@@ -105,6 +108,7 @@ def _editions() -> list[dict[str, Any]]:
             "price_label": format_cents(product.retail_cents),
         }
         for product in PRODUCTS.values()
+        if product.trim is book_format
     ]
 
 
@@ -142,7 +146,8 @@ def _print_context(
         "title": record.title,
         "about_heading": heading,
         "about_sentences": sentences,
-        "editions": _editions(),
+        "editions": _editions(record.book_format),
+        "format_label": record.book_format.label,
         "edition_label": product.label if product is not None else "",
         "page_count": order.page_count if order is not None else 0,
         "price_label": format_cents(order.retail_cents) if order is not None else "",
@@ -239,14 +244,17 @@ async def approve_print(
     request: Request,
     container: ContainerDep,
     session: CurrentSessionDep,
-    trim: str = Form("square", max_length=16),
     binding: str = Form("hardcover", max_length=16),
 ) -> Response:
-    """Record that the owner has read this book; its print files build in the background."""
+    """Record that the owner has read this book; its print files build in the background.
+
+    The size is the book's own, the one it is read in: printing never asks for
+    another, so the copy is the book that was reviewed.
+    """
     owner = _owner(session)
-    await asyncio.to_thread(_complete_book, book_id, owner, container)
+    record = await asyncio.to_thread(_complete_book, book_id, owner, container)
     try:
-        product = product_for(trim, binding)
+        product = product_for(record.book_format, binding)
     except ValueError:
         return await _page(
             request, container, session, book_id, error="Please choose one of the editions."

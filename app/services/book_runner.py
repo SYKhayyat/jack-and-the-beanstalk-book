@@ -1794,6 +1794,10 @@ class BookRunner:
             latest = await asyncio.to_thread(self._book_store.load_record, book_id)
             if latest is not None:
                 record = latest
+            # Nothing is drawn from here on, and `assemble` publishes "complete"
+            # from inside its thread: an edit pressed the moment the page says
+            # so waits out this job's last steps rather than being refused.
+            self._finishing.add(book_id)
             pdf_bytes = await asyncio.to_thread(
                 partial(
                     self._document.assemble,

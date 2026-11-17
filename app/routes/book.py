@@ -34,6 +34,7 @@ import logging
 import threading
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Form, Request, Response, status
@@ -52,6 +53,7 @@ from app.models import (
     AboutMe,
     AboutPhotoChoice,
     AspectRatio,
+    BookFormat,
     BookPage,
     CartoonSettings,
     PageFault,
@@ -197,6 +199,15 @@ async def start_book(
             "shape the star's portrait was made with."
         ),
     ),
+    book_format: str = Form(
+        BookFormat.SQUARE,
+        max_length=16,
+        description=(
+            "The book's size: `square` (8.5 x 8.5 in), `letter` (8.5 x 11 in) "
+            "or `wide` (11 x 8.5 in, each picture facing its words). The viewer "
+            "may change it later without a redraw."
+        ),
+    ),
     character: list[str] = Form(
         default=[],
         description=(
@@ -260,6 +271,7 @@ async def start_book(
             "Make the star's portrait from the child's own photo."
         )
     settings = _with_page_shape(draft.settings, aspect_ratio, edition)
+    chosen_format = _book_format(book_format)
     about = _about_from_form(
         edition,
         child_name,
@@ -288,6 +300,7 @@ async def start_book(
         character,
         settings,
         edition,
+        chosen_format,
     )
     book_id = record.book_id
     if reused:
@@ -350,6 +363,7 @@ def _start_or_reuse(
     character: list[str],
     settings: CartoonSettings,
     edition: StoryEdition,
+    book_format: BookFormat,
 ) -> tuple[BookRecord, bool]:
     """The book this request already started, or a newly recorded one.
 
@@ -364,6 +378,10 @@ def _start_or_reuse(
     for a book that is really about to render. A retry that finds its book
     started nothing, so it spends nothing — and a request that is over the
     brake fails before a record exists to clean up.
+
+    The size is not in the fingerprint: it draws nothing differently and the
+    viewer can change it, so a retry that finds its book sets the size it asked
+    for on that book rather than start a second one.
     """
     fingerprint = _request_fingerprint(
         user_id=user_id,
@@ -381,6 +399,9 @@ def _start_or_reuse(
         if existing is not None:
             record = container.book_store.load_record(existing)
             if record is not None:
+                if record.book_format != book_format:
+                    container.book_store.set_format(existing, book_format)
+                    record = replace(record, book_format=book_format)
                 return record, True
         _require_funds(container, user_id)
         _check_rate(client_key, container)
@@ -393,6 +414,7 @@ def _start_or_reuse(
             edition=edition,
             fingerprint=fingerprint,
             settings=settings,
+            book_format=book_format,
         )
     return (
         BookRecord(
@@ -405,6 +427,7 @@ def _start_or_reuse(
             title=edition.title_for(about.prompt_name),
             fingerprint=fingerprint,
             settings=settings,
+            book_format=book_format,
         ),
         False,
     )
@@ -454,6 +477,7 @@ async def edit_book(
     details: str = Form("", max_length=1000),
     dedication: str = Form("", max_length=140),
     about_photo: str = Form(""),
+    book_format: str = Form("", max_length=16),
     reason: list[str] = Form(default=[]),
 ) -> dict[str, object]:
     """Edit a finished book without starting a new one.
@@ -475,6 +499,8 @@ async def edit_book(
       the whole book plus the cover.
     * `cover` — redraw only the cover. One image call.
     * `about` — rewrite the PDF text only. No image call.
+    * `format` — set the book in another size (`book_format`); the PDF is set
+      again from the pictures it has. No image call, and printing follows it.
     * `retry` — pick up the pages (and cover) a failed book never finished.
     * `delete` — remove the book and every artefact.
 
@@ -506,12 +532,14 @@ async def edit_book(
                 book_id, about, title=edition.title_for(about.prompt_name)
             )
         )
-        status_payload = (
-            await asyncio.to_thread(container.book_store.load_status, book_id) or {}
-        )
-        if status_payload.get("status") == BookStatus.COMPLETE:
-            await asyncio.to_thread(container.book_runner.rebuild_pdf, book_id)
+        await _rebuild_if_complete(container, book_id)
         return _edit_started(book_id, "about")
+
+    if action == "format":
+        chosen = _book_format(book_format)
+        await asyncio.to_thread(container.book_store.set_format, book_id, chosen)
+        await _rebuild_if_complete(container, book_id)
+        return _edit_started(book_id, "format")
 
     if action == "delete":
         # Stop the job, and let it unwind, before the store disappears: a
@@ -679,6 +707,17 @@ def _picture_payment(
             ) from None
 
     return pay
+
+
+async def _rebuild_if_complete(container: Container, book_id: str) -> None:
+    """Set a finished book's PDF again after a change that draws nothing.
+
+    A book still drawing reads its record again before it writes its PDF, so
+    only a finished one needs it here.
+    """
+    status_payload = await asyncio.to_thread(container.book_store.load_status, book_id)
+    if (status_payload or {}).get("status") == BookStatus.COMPLETE:
+        await asyncio.to_thread(container.book_runner.rebuild_pdf, book_id)
 
 
 def _edit_started(book_id: str, action: str) -> dict[str, object]:
@@ -907,6 +946,17 @@ async def _screen_about(container: Container, about: AboutMe) -> None:
         return
     if issues:
         raise InvalidSettings(first_issue_message(issues))
+
+
+def _book_format(value: str) -> BookFormat:
+    """The size a form asked for, or a plain refusal naming the three."""
+    try:
+        return BookFormat(value)
+    except ValueError as exc:
+        raise InvalidSettings(
+            f"Unknown book size {value!r}. "
+            f"Valid values: {', '.join(choice.value for choice in BookFormat)}."
+        ) from exc
 
 
 def _with_page_shape(

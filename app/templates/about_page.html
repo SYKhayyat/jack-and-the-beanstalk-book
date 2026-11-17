@@ -57,6 +57,17 @@
       {% endfor %}
     </fieldset>
 
+    <fieldset class="choice-cards" id="book-format-choice">
+      <legend>The book’s size</legend>
+      {% for value, label, _short in format_choices %}
+      <label class="choice-card">
+        <input type="radio" name="book_format" value="{{ value }}" {% if loop.first %}checked{% endif %}>
+        <span>{{ label }}</span>
+      </label>
+      {% endfor %}
+      <p class="field-help">You can change it while reading the book; a printed copy comes in the size you choose there.</p>
+    </fieldset>
+
     <p class="locked-in" id="about-cast-summary" data-cast='{{ cast|tojson }}'></p>
 
     <div class="generate-row">

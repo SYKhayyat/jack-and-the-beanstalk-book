@@ -31,7 +31,7 @@ from pypdf import PdfReader
 
 from app.config import Settings
 from app.main import create_app
-from app.models.book import AboutMe
+from app.models.book import AboutMe, BookFormat
 from app.services.print.base import (
     PrintError,
     PrintJob,
@@ -108,9 +108,11 @@ def _wait(client: TestClient, book_id: str, seconds: float = 60.0) -> dict[str, 
 def approve(
     client: TestClient, book_id: str, trim: str = "square", binding: str = "hardcover"
 ) -> PrintOrder:
+    # The size is the book's own, set in the viewer; printing only binds it.
+    client.app.state.container.book_store.set_format(book_id, BookFormat(trim))
     response = client.post(
         f"/books/{book_id}/print/approve",
-        data={"trim": trim, "binding": binding},
+        data={"binding": binding},
         follow_redirects=False,
     )
     assert response.status_code == 303, response.text
@@ -203,6 +205,8 @@ def test_nothing_is_sent_before_the_book_is_approved(settings: Settings) -> None
         ("square", "paperback"),
         ("letter", "hardcover"),
         ("letter", "paperback"),
+        ("wide", "hardcover"),
+        ("wide", "paperback"),
     ],
 )
 def test_approval_builds_print_files_at_the_editions_size(
@@ -292,9 +296,7 @@ def test_an_invalid_address_is_not_quoted(settings: Settings) -> None:
 
 def test_an_unknown_edition_is_refused(settings: Settings) -> None:
     with print_world(settings) as (client, book_id):
-        response = client.post(
-            f"/books/{book_id}/print/approve", data={"trim": "a4", "binding": "spiral"}
-        )
+        response = client.post(f"/books/{book_id}/print/approve", data={"binding": "spiral"})
         assert response.status_code == 200
         assert "choose one of the editions" in response.text
         assert client.app.state.container.print_service.approval(book_id) is None
@@ -318,7 +320,7 @@ def test_approving_returns_at_once_and_the_page_shows_the_files_being_made(
         monkeypatch.setattr(runner, "print_interior", slow_interior)
         first = client.post(
             f"/books/{book_id}/print/approve",
-            data={"trim": "square", "binding": "hardcover"},
+            data={"binding": "hardcover"},
             follow_redirects=False,
         )
         assert first.status_code == 303
@@ -330,7 +332,7 @@ def test_approving_returns_at_once_and_the_page_shows_the_files_being_made(
         # A second press while it builds joins the build, not a second one.
         again = client.post(
             f"/books/{book_id}/print/approve",
-            data={"trim": "square", "binding": "hardcover"},
+            data={"binding": "hardcover"},
             follow_redirects=False,
         )
         assert again.status_code == 303
@@ -353,7 +355,7 @@ def test_a_print_build_that_fails_shows_why_and_offers_the_button_again(
         monkeypatch.setattr(runner, "print_cover", lambda *_args: None)
         response = client.post(
             f"/books/{book_id}/print/approve",
-            data={"trim": "square", "binding": "hardcover"},
+            data={"binding": "hardcover"},
             follow_redirects=False,
         )
         assert response.status_code == 303

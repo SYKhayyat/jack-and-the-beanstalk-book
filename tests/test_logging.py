@@ -86,6 +86,17 @@ def _lines(caplog, logger: str, prefix: str) -> list[str]:
     ]
 
 
+def _await_line(caplog, logger: str, prefix: str, seconds: float = 10.0) -> None:
+    """Wait for a line the job writes just after it publishes its status.
+
+    "complete" reaches the reader first; the job logs `book.complete` a moment
+    later. A test that stops capturing the instant the status says so races it.
+    """
+    deadline = time.monotonic() + seconds
+    while not _lines(caplog, logger, prefix) and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+
 class FailingPageProvider(ImageProvider):
     """Fails on one named page, like the book API's own failing provider."""
 
@@ -161,6 +172,7 @@ class TestBookLogTrail:
             portrait = _make_portrait(client)
             book_id = _start_book(client, portrait)
             _wait_for_book(client, book_id)
+            _await_line(caplog, "app.services.book_runner", "book.complete")
 
         done = _lines(caplog, "app.services.book_runner", "book.complete")
         assert len(done) == 1, done
@@ -185,6 +197,7 @@ class TestBookLogTrail:
             portrait = _make_portrait(client)
             book_id = _start_book(client, portrait)
             final = _wait_for_book(client, book_id)
+            _await_line(caplog, "app.services.book_runner", "book.complete")
         assert final["status"] == "complete", final
 
         failed_pages = _lines(caplog, "app.services.book_runner", "book.page")

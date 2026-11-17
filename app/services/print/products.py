@@ -1,10 +1,11 @@
-"""The printed books a buyer can choose: two trims, two bindings (Q2).
+"""The printed books a buyer can choose: three trims, two bindings (Q2).
 
 Every number here is Lulu's, from its product spec sheet and Book Creation
 Guide (AUDIT.md §10 records the sources):
 
-* trims **8.5 x 8.5 in** (square) and **8.5 x 11 in** (US Letter, portrait);
-  Lulu has no 8 x 10, so Letter is the tall choice;
+* trims **8.5 x 8.5 in** (square), **8.5 x 11 in** (US Letter, portrait) and
+  **11 x 8.5 in** (US Letter landscape, the open-book edition whose pictures
+  face their words); Lulu has no 8 x 10, so Letter is the tall choice;
 * bindings **hardcover casewrap** and **paperback perfect bound**, both premium
   full colour on 80# white coated paper with a gloss cover;
 * every file carries a **0.125 in bleed** on each side, so an interior page is
@@ -24,6 +25,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from app.models.book import BookFormat
+
 __all__ = [
     "BLEED_IN",
     "DEFAULT_PRODUCT",
@@ -41,9 +44,9 @@ BLEED_IN = 0.125
 INTERIOR_SAFETY_IN = 0.5
 
 
-class Trim(StrEnum):
-    SQUARE = "square"
-    LETTER = "letter"
+#: A printed trim is the book's own format: the shape the owner chose when
+#: making it, which the reader and the PDF are set in too.
+Trim = BookFormat
 
 
 class Binding(StrEnum):
@@ -51,11 +54,16 @@ class Binding(StrEnum):
     PAPERBACK = "paperback"
 
 
-_TRIM_INCHES: dict[Trim, tuple[float, float]] = {
-    Trim.SQUARE: (8.5, 8.5),
-    Trim.LETTER: (8.5, 11.0),
+_TRIM_CODE: dict[Trim, str] = {
+    Trim.SQUARE: "0850X0850",
+    Trim.LETTER: "0850X1100",
+    Trim.WIDE: "1100X0850",
 }
-_TRIM_CODE: dict[Trim, str] = {Trim.SQUARE: "0850X0850", Trim.LETTER: "0850X1100"}
+_TRIM_SHAPE: dict[Trim, str] = {
+    Trim.SQUARE: "square",
+    Trim.LETTER: "US Letter",
+    Trim.WIDE: "landscape",
+}
 _BINDING_CODE: dict[Binding, str] = {Binding.HARDCOVER: "CW", Binding.PAPERBACK: "PB"}
 
 #: Hardcover spine width by interior page count (Lulu's table; inches).
@@ -117,12 +125,12 @@ class Product:
 
     @property
     def trim_inches(self) -> tuple[float, float]:
-        return _TRIM_INCHES[self.trim]
+        return self.trim.page_inches
 
     @property
     def label(self) -> str:
         width, height = self.trim_inches
-        shape = "square" if self.trim == Trim.SQUARE else "US Letter"
+        shape = _TRIM_SHAPE[self.trim]
         binding = "Hardcover" if self.binding == Binding.HARDCOVER else "Paperback"
         return f"{binding}, {width:g} \u00d7 {height:g} in {shape}"
 
@@ -217,6 +225,8 @@ PRODUCTS: dict[str, Product] = {
         Product(Trim.SQUARE, Binding.PAPERBACK, 32, 800, 1799, 216, 21.48),
         Product(Trim.LETTER, Binding.HARDCOVER, 24, 800, 2999, 1098, 21.48),
         Product(Trim.LETTER, Binding.PAPERBACK, 32, 800, 1799, 216, 21.48),
+        Product(Trim.WIDE, Binding.HARDCOVER, 24, 800, 2999, 1098, 21.48),
+        Product(Trim.WIDE, Binding.PAPERBACK, 32, 800, 1799, 216, 21.48),
     )
 }
 

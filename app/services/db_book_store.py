@@ -46,7 +46,7 @@ from app.db import (
     StoryRow,
     WalletTransactionRow,
 )
-from app.models.book import AboutMe
+from app.models.book import AboutMe, BookFormat
 from app.models.settings import CartoonSettings
 from app.models.story import COVER_NUMBER, StoryEdition
 from app.services.book_store import (
@@ -85,6 +85,7 @@ _RECORD_COLUMNS = (
     BookRow.user_id,
     BookRow.request_fingerprint,
     BookRow.settings,
+    BookRow.book_format,
 )
 
 
@@ -157,6 +158,7 @@ class DatabaseBookStore(BookStore):
         edition: StoryEdition,
         fingerprint: str | None = None,
         settings: CartoonSettings | None = None,
+        book_format: BookFormat = BookFormat.SQUARE,
     ) -> None:
         if not edition.page_ids:
             raise ValueError("a book is pinned to stored revisions; this edition has none")
@@ -173,6 +175,7 @@ class DatabaseBookStore(BookStore):
                     settings=(settings or CartoonSettings()).model_dump(mode="json"),
                     story_key=edition.key,
                     title=title,
+                    book_format=str(book_format),
                     template_version_id=edition.template_version_id,
                     # The file store has always written the pending document
                     # with the record; do the same here, or a poll landing
@@ -213,7 +216,18 @@ class DatabaseBookStore(BookStore):
             user_id=row.user_id,
             fingerprint=row.request_fingerprint,
             settings=CartoonSettings.model_validate(row.settings or {}),
+            book_format=BookFormat(row.book_format),
         )
+
+    def set_format(self, book_id: str, book_format: BookFormat) -> None:
+        with self._engine.begin() as conn:
+            changed = conn.execute(
+                update(BookRow)
+                .where(BookRow.id == book_id)
+                .values(book_format=str(book_format), updated_at=_now())
+            ).rowcount
+        if not changed:
+            raise KeyError(f"No record for book {book_id!r}.")
 
     def update_about(self, book_id: str, about: AboutMe, *, title: str) -> None:
         with self._engine.begin() as conn:

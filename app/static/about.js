@@ -43,7 +43,7 @@ function restoreFields() {
     if (saved[name] !== undefined) field(name).value = saved[name];
   }
   if (saved.details || saved.dedication) document.getElementById("about-more").open = true;
-  for (const name of ["about_photo"]) {
+  for (const name of ["about_photo", "book_format"]) {
     if (!saved[name]) continue;
     const radio = form.querySelector(`input[name="${name}"][value="${saved[name]}"]`);
     if (radio) radio.checked = true;
@@ -58,7 +58,7 @@ function rememberFields() {
   // The name belongs to the studio's first step; keep it as it is.
   const about = { about_name: draft.about?.about_name || "" };
   for (const name of TEXT_FIELDS) about[name] = field(name).value;
-  for (const name of ["about_photo"]) {
+  for (const name of ["about_photo", "book_format"]) {
     about[name] = form.querySelector(`input[name="${name}"]:checked`)?.value || "";
   }
   draft.about = about;
@@ -123,7 +123,7 @@ async function startBook() {
     const value = field(key).value.trim();
     if (value) body.append(key, value);
   }
-  for (const key of ["about_photo"]) {
+  for (const key of ["about_photo", "book_format"]) {
     const value = form.querySelector(`input[name="${key}"]:checked`)?.value;
     if (value) body.append(key, value);
   }

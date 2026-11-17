@@ -115,7 +115,8 @@ async def cartoonify(client: httpx.AsyncClient, url: str, seed: int) -> str:
     response = await client.post(
         f"{url}/api/cartoonify",
         files={"photo": ("me.png", a_photo(seed), "image/png")},
-        data={"story": "jack_and_the_beanstalk"},
+        # The photo's boy/girl has no default on purpose (settings_form.py).
+        data={"story": "jack_and_the_beanstalk", "photo_gender": "boy"},
     )
     response.raise_for_status()
     return str(response.json()["generation_id"])
@@ -278,7 +279,9 @@ async def run(args: argparse.Namespace) -> int:
 
         async def one(book: Book) -> None:
             async with limit:
-                await run_book(client, args.url, book, f"Reader {book.index + 1}")
+                # A letter, not a number: the name screen refuses digits.
+                name = f"Reader {chr(ord('A') + book.index % 26)}"
+                await run_book(client, args.url, book, name)
 
         await asyncio.gather(*(one(book) for book in books))
     return report(books, args)

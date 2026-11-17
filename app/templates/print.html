@@ -82,7 +82,7 @@
 
   {% elif not approved %}
   <section class="card print-card" id="print-review" aria-labelledby="review-title">
-    <h2 id="review-title">1. Read the book, then choose an edition</h2>
+    <h2 id="review-title">1. Read the book, then choose a binding</h2>
     <p>This PDF holds every page that will be printed: the front cover with the title and the child’s name,
       the copyright page and publisher, the story, and the About Me back cover. Check the name, the words
       and every picture before you approve it.</p>
@@ -95,8 +95,7 @@
         {% for edition in editions %}<li>{{ edition.label }} — {{ edition.price_label }} <small>plus shipping</small></li>{% endfor %}
       </ul>
       <div class="print-fields">
-        <div class="field"><label for="print-trim">Shape</label>
-          <select id="print-trim" name="trim"><option value="square" selected>8.5 × 8.5 in square</option><option value="letter">8.5 × 11 in US Letter</option></select></div>
+        <p class="field" id="print-size"><strong>Size</strong> {{ format_label }}. <a href="/books/{{ book.book_id }}">Change it in the book</a> — the copy is printed in the size you read it in.</p>
         <div class="field"><label for="print-binding">Binding</label>
           <select id="print-binding" name="binding"><option value="hardcover" selected>Hardcover</option><option value="paperback">Paperback</option></select></div>
       </div>

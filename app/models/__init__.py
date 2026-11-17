@@ -4,7 +4,7 @@ Re-exported here so callers can `from app.models import CartoonSettings`
 without knowing the internal module layout.
 """
 
-from app.models.book import AboutMe, AboutPhotoChoice, BookPage
+from app.models.book import AboutMe, AboutPhotoChoice, BookFormat, BookPage
 from app.models.feedback import (
     PAGE_FAULT_LABELS,
     REJECTION_CLAUSES,
@@ -39,6 +39,7 @@ __all__ = [
     "AboutPhotoChoice",
     "ApparentAge",
     "AspectRatio",
+    "BookFormat",
     "BookPage",
     "CartoonSettings",
     "CartoonStyle",

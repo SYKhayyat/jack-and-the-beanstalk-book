@@ -68,6 +68,7 @@ let lastDone = -1;
 let lastDrawn = -1;
 let quietPolls = 0;
 let shownFill = 0; // the bar's width only grows while a job runs
+let finishedWhileReading = false; // the book finished during story time
 
 layout.fit();
 show(initialIndex(), { animate: false });
@@ -121,9 +122,34 @@ function spreadName(position) {
   return { hash: `page-${number}`, label: `Page ${number} of ${storyPages}` };
 }
 
-function show(wanted, { animate = true } = {}) {
+/* A wide book on an upright screen shows a story leaf one half at a time:
+   the picture, then its words (reader-layout.js "single"). */
+function setHalf(half) {
+  reader.dataset.half = half;
+}
+
+/* One turn forward or back. In halves, a story leaf turns from its picture to
+   its words before the next leaf, and back from a picture lands on the words
+   of the leaf before. Everywhere else it is a whole leaf. */
+function step(delta) {
+  const halves = layout.halves();
+  const story = kindOf(index) === "story";
+  if (halves && story && delta > 0 && reader.dataset.half === "art") {
+    setHalf("words");
+    return;
+  }
+  if (halves && story && delta < 0 && reader.dataset.half === "words") {
+    setHalf("art");
+    return;
+  }
+  const target = Math.max(0, Math.min(lastIndex, index + delta));
+  show(target, { half: delta < 0 && halves && kindOf(target) === "story" ? "words" : "art" });
+}
+
+function show(wanted, { animate = true, half = "art" } = {}) {
   const next = Math.max(0, Math.min(lastIndex, wanted));
   if (next === index && !spreads[next].hidden) return;
+  setHalf(half);
   const previous = spreads[index];
   const direction = next >= index ? "forward" : "back";
   index = next;
@@ -136,9 +162,12 @@ function show(wanted, { animate = true } = {}) {
   document.getElementById("turn-next").disabled = index === lastIndex;
   const picture = pictureAt(index);
   mapTiles.forEach((tile) => tile.classList.toggle("current", Number(tile.dataset.goto) === picture));
-  // The cover and the About page have their own buttons in the strip, so
-  // "Redraw this page" only appears on a story page.
-  document.getElementById("edit-page").hidden = kindOf(index) !== "story";
+  // "Redraw this page" stays put; a page with no picture greys it out.
+  for (const id of ["edit-page", "redraw-here"]) {
+    const button = document.getElementById(id);
+    button.disabled = !isPicture(index);
+    button.title = isPicture(index) ? "" : "This page has no picture to redraw";
+  }
   preloadAround(index);
   readHere();
 }
@@ -156,11 +185,11 @@ function preloadAround(position) {
 function wireTurning() {
   document.getElementById("turn-back").addEventListener("click", () => {
     userNavigated = true;
-    show(index - 1);
+    step(-1);
   });
   document.getElementById("turn-next").addEventListener("click", () => {
     userNavigated = true;
-    show(index + 1);
+    step(1);
   });
   // Tap the left third to go back, anywhere else to go on, as with a book.
   slot.addEventListener("click", (event) => {
@@ -168,15 +197,15 @@ function wireTurning() {
     if (swiped) return;
     const box = slot.getBoundingClientRect();
     userNavigated = true;
-    show(event.clientX - box.left < box.width / 3 ? index - 1 : index + 1);
+    step(event.clientX - box.left < box.width / 3 ? -1 : 1);
   });
   document.addEventListener("keydown", (event) => {
     if (event.target.closest("input, textarea, select, dialog")) return;
     if (["ArrowRight", "PageDown", "ArrowLeft", "PageUp", "Home", "End"].includes(event.key)) {
       userNavigated = true;
     }
-    if (event.key === "ArrowRight" || event.key === "PageDown") show(index + 1);
-    else if (event.key === "ArrowLeft" || event.key === "PageUp") show(index - 1);
+    if (event.key === "ArrowRight" || event.key === "PageDown") step(1);
+    else if (event.key === "ArrowLeft" || event.key === "PageUp") step(-1);
     else if (event.key === "Home") show(0);
     else if (event.key === "End") show(lastIndex);
     else if (event.key === "Escape" && reader.classList.contains("story-time")) setStoryTime(false);
@@ -209,8 +238,16 @@ function wireTurning() {
     if (Math.abs(dx) < 40) return;
     swiped = true;
     userNavigated = true;
-    show(dx < 0 ? index + 1 : index - 1);
+    step(dx < 0 ? 1 : -1);
   });
+}
+
+/* The finished book has an About spread and downloads the server renders; a
+   reload is the honest way to show them. A book just drawn opens on its
+   cover; an edit keeps your page. */
+function openFinishedBook() {
+  if (!editing) history.replaceState(null, "", "#cover");
+  window.location.reload();
 }
 
 /* --- reading tools: play/pause, story time ------------------------------------ */
@@ -265,6 +302,7 @@ function setStoryTime(on) {
   }
   slot.focus({ preventScroll: true });
   layout.fit();
+  if (!on && finishedWhileReading) openFinishedBook();
 }
 
 function readHere() {
@@ -362,18 +400,23 @@ function apply(payload) {
   document.getElementById("reader-tools")?.classList.toggle("hidden", !readable);
 
   if (state === "complete") {
-    // The finished book has an About spread and downloads the server renders;
-    // a reload is the honest way to show them. A book that has just been
-    // drawn opens on its cover with a little celebration; an edit keeps your page.
+    // A book that has just been drawn opens with a little celebration.
     if (!editing) {
       try {
         window.sessionStorage.setItem(CELEBRATE_KEY, "1");
       } catch {
         // no storage: the book still opens, without the confetti
       }
-      history.replaceState(null, "", "#cover");
     }
-    window.location.reload();
+    polling = false;
+    // A reload would throw a reader out of story time (todo 11-17 #3). They
+    // are told, and the finished book opens when they leave it themselves.
+    if (reader.classList.contains("story-time")) {
+      finishedWhileReading = true;
+      document.getElementById("ready-note").hidden = false;
+      return;
+    }
+    openFinishedBook();
     return;
   }
   if (state === "failed") {
@@ -389,6 +432,7 @@ function apply(payload) {
     document.getElementById("failed-message").classList.toggle("hidden", broke);
     showFundsNotice(broke ? message : "");
     document.getElementById("edit-strip").classList.remove("hidden");
+    document.getElementById("redraw-here").classList.remove("hidden");
     return;
   }
   if (payload.phase === "paused") {
@@ -397,25 +441,25 @@ function apply(payload) {
     caption("Drawing is paused for a moment. Everything drawn so far is kept — this book carries on by itself.");
   } else if (payload.phase === "preparing") {
     // Audit 11-15 S4: the wait before the first page starts is work too.
-    caption(withTimeLeft("Step 1 of 2 · Getting the pictures ready — the first page starts in a moment.", payload));
+    caption(withTimeLeft("Getting the pictures ready — the drawing starts in a moment.", payload));
   } else if (payload.phase === "assembling") {
-    caption("Step 2 of 2 · Putting the book together — every picture is drawn.");
+    caption("Every picture is drawn — putting the book together.");
   } else {
     const drawn = Number(payload.pictures_drawn) || 0;
     quietPolls = done > lastDone || drawn > lastDrawn ? 0 : quietPolls + 1;
     lastDone = Math.max(lastDone, done);
     lastDrawn = Math.max(lastDrawn, drawn);
-    // Say what is happening, not only how much is left. "45% for two minutes"
-    // looks stuck; "4 being drawn, 2 being checked" looks like work. Resting is
-    // said only when nothing at all is in flight: a page being drawn or checked
-    // is work, however long since the last one was accepted.
-    const stage = stageCaption(payload, inFlight, done, total);
+    // One number, the one a reader can see: pictures ready of pictures in the
+    // book. Pictures drawn and then turned down by the check, and how many
+    // are at which stage, made "0 finished, 5 drawn" — true and confusing.
+    // Resting is said only when nothing at all is in flight: a page being
+    // drawn or checked is work, however long since the last one was accepted.
+    const tally = `${done} of ${total} pictures ready`;
     caption(
       withTimeLeft(
-        stage ||
-          (quietPolls >= RESTING_AFTER_POLLS
-            ? `${done} of ${total} pages finished. The pencil is resting for a moment — it picks up again on its own.`
-            : `Your book is being drawn. ${done} of ${total} pages finished.`),
+        isWorking(payload, inFlight) || quietPolls < RESTING_AFTER_POLLS
+          ? `Drawing your book — ${tally}.`
+          : `${tally}. The pencil is resting for a moment — it picks up again on its own.`,
         payload,
       ),
     );
@@ -442,30 +486,10 @@ function withTimeLeft(sentence, payload) {
   return `${sentence} About ${minutes} ${minutes === 1 ? "minute" : "minutes"} left.`;
 }
 
-/**
- * What the job is doing right now, as a sentence, or "" when there is nothing
- * specific to say. The pages are drawn in parallel, so the caption names the
- * step the whole book is on and how many pages are at each stage of it, rather
- * than one page that may already be finished by the time it is read. Pictures
- * drawn run ahead of pages finished — the check turns some down and they are
- * drawn again — so both are said, and the count never sits still while work
- * goes on.
- */
-function stageCaption(payload, inFlight, done, total) {
-  const counts = inFlight.length ? countStages(inFlight) : payload.stage_counts || {};
-  // A page being redrawn is simply a page being drawn: the check and its
-  // retries are not something the reader is told about.
-  const drawing = (Number(counts.painting) || 0) + (Number(counts.retrying) || 0);
-  const checking = Number(counts.reviewing) || 0;
-  const parts = [];
-  if (drawing) parts.push(`${drawing} being drawn`);
-  if (checking) parts.push(`${checking} being checked`);
-  if (!parts.length) return "";
-  const drawn = Number(payload.pictures_drawn) || 0;
-  const tally = drawn
-    ? `${done} of ${total} pages finished, ${drawn} ${drawn === 1 ? "picture" : "pictures"} drawn so far`
-    : `${done} of ${total} pages finished`;
-  return `Step 1 of 2 · Drawing the pictures — ${tally}. Right now: ${parts.join(", ")}.`;
+/** Whether any page is being drawn or checked right now. */
+function isWorking(payload, inFlight) {
+  if (inFlight.length) return true;
+  return Object.values(payload.stage_counts || {}).some((count) => Number(count) > 0);
 }
 
 /* While the book is being drawn, follow it: once the page being looked at has
@@ -481,12 +505,6 @@ function followThePictures(pages, state) {
     if (entry.status === "done" && position > newest) newest = position;
   }
   if (newest > index) show(newest, { animate: !reducedMotion });
-}
-
-function countStages(inFlight) {
-  const counts = {};
-  for (const { stage } of inFlight) counts[stage] = (counts[stage] || 0) + 1;
-  return counts;
 }
 
 /* How far along a page in flight is, as a share of one page: each try is a
@@ -667,27 +685,64 @@ function wireFundsNotice() {
 
 function wireEdits() {
   const redrawDialog = document.getElementById("redraw-dialog");
-  const faceDialog = document.getElementById("face-dialog");
   const aboutDialog = document.getElementById("about-dialog");
+  const photo = wirePhotoPicker();
+  const newPhoto = document.getElementById("redraw-new-photo");
+  const chips = document.getElementById("redraw-chips");
+  const go = document.getElementById("redraw-go");
+  const showPhotoPicker = (on) => {
+    document.getElementById("redraw-photo").classList.toggle("hidden", !on);
+    go.textContent = on ? go.dataset.photoWords : go.dataset.pageWords;
+    if (!on) photo.reset();
+  };
+  newPhoto.addEventListener("change", () => showPhotoPicker(newPhoto.checked));
 
-  document.getElementById("edit-page").addEventListener("click", () => {
-    if (kindOf(index) !== "story") return;
-    document.getElementById("redraw-page-label").textContent = `page ${pictureAt(index)}`;
+  // One button, wherever it is pressed: the reader bar (story time too) or
+  // the edit strip. On the cover it redraws the cover; on a page with no
+  // picture it says so instead of doing nothing (todo 11-17 #7).
+  const openRedraw = () => {
+    if (!isPicture(index)) {
+      say("This page has no picture to redraw — turn to the cover or a story page.", true);
+      return;
+    }
+    const cover = kindOf(index) === "cover";
+    document.getElementById("redraw-page-label").textContent = cover ? "the cover" : `page ${pictureAt(index)}`;
+    // The cover is drawn from its own prompt, which takes no page faults.
+    for (const chip of chips.querySelectorAll('input[name="reason"]')) {
+      chip.checked = false;
+      chip.closest(".chip").hidden = cover;
+    }
+    document.getElementById("redraw-help").textContent = cover
+      ? "The cover is drawn again from scratch; the story pages stay as they are."
+      : "Tick what went wrong. Every tick is a tested instruction; the rest of the book stays as it is.";
+    newPhoto.checked = false;
+    showPhotoPicker(false);
     redrawDialog.showModal();
-  });
+  };
+  document.getElementById("edit-page").addEventListener("click", openRedraw);
+  document.getElementById("redraw-here").addEventListener("click", openRedraw);
+
   redrawDialog.addEventListener("close", () => {
+    const chosen = photo.take();
     if (redrawDialog.returnValue !== "save") return;
+    if (newPhoto.checked) {
+      if (!chosen) {
+        say("Choose a photo first, then redraw.", true);
+        return;
+      }
+      void replaceFace(document.getElementById("face-character").value, chosen);
+      return;
+    }
+    if (kindOf(index) === "cover") {
+      void runEdit(edit({ action: "cover" }), "Redrawing the cover…");
+      return;
+    }
     const picture = pictureAt(index);
     const form = edit({ action: "page", page_number: String(picture) });
-    for (const chip of redrawDialog.querySelectorAll('input[name="reason"]:checked')) {
+    for (const chip of chips.querySelectorAll('input[name="reason"]:checked')) {
       form.append("reason", chip.value);
-      chip.checked = false;
     }
     void runEdit(form, `Redrawing page ${picture}…`);
-  });
-
-  document.getElementById("edit-cover").addEventListener("click", () => {
-    void runEdit(edit({ action: "cover" }), "Redrawing the cover…");
   });
 
   // The same press, on a failed book and on a finished book that is missing a
@@ -699,16 +754,38 @@ function wireEdits() {
     });
   }
 
+  document.getElementById("book-size")?.addEventListener("change", (event) => {
+    void changeSize(event.currentTarget);
+  });
+
   document.getElementById("edit-about").addEventListener("click", () => aboutDialog.showModal());
   aboutDialog.addEventListener("close", () => {
     if (aboutDialog.returnValue !== "save") return;
     void saveAbout(new FormData(document.getElementById("about-edit-form")));
   });
 
-  wireFaceDialog(faceDialog);
-
   document.getElementById("delete-book").addEventListener("click", () => void deleteBook());
   wireFundsNotice();
+}
+
+/* The book's size, changed while reading: the server sets the PDF again (no
+   picture is redrawn) and the page reloads on the same leaf in the new shape. */
+async function changeSize(select) {
+  const previous = reader.dataset.format;
+  select.disabled = true;
+  try {
+    say("Setting the book in its new size…");
+    await api.edit(edit({ action: "format", book_format: select.value }));
+    window.location.reload();
+  } catch (error) {
+    if (error.status === 401) {
+      window.location.assign(`/login?next=/books/${bookId}`);
+      return;
+    }
+    select.value = previous;
+    select.disabled = false;
+    say(error.message || "The size couldn't be changed — try again.", true);
+  }
 }
 
 async function saveAbout(fields) {
@@ -730,9 +807,12 @@ async function saveAbout(fields) {
   }
 }
 
-function wireFaceDialog(dialog) {
-  const camera = createCameraSource(document.getElementById("face-video"));
+/* The photo picker inside the redraw dialog: camera or upload, one preview.
+   `take()` hands over the chosen photo and puts the camera away; `reset()`
+   forgets it. */
+function wirePhotoPicker() {
   const video = document.getElementById("face-video");
+  const camera = createCameraSource(video);
   const shutter = document.getElementById("face-shutter");
   const fileInput = document.getElementById("face-file");
   const previewFrame = document.getElementById("face-preview-frame");
@@ -756,12 +836,6 @@ function wireFaceDialog(dialog) {
     shutter.classList.add("hidden");
   };
 
-  document.getElementById("edit-face").addEventListener("click", () => {
-    photo = null;
-    previewFrame.classList.add("hidden");
-    tell("");
-    dialog.showModal();
-  });
   fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
     fileInput.value = "";
@@ -792,16 +866,23 @@ function wireFaceDialog(dialog) {
       })
       .catch((error) => tell(error.message));
   });
-  dialog.addEventListener("close", () => {
-    stopCamera();
-    if (dialog.returnValue !== "save") return;
-    const key = document.getElementById("face-character").value;
-    if (!photo) {
-      say("Choose a photo first, then replace the face.", true);
-      return;
-    }
-    void replaceFace(key, photo);
-  });
+
+  return {
+    take() {
+      stopCamera();
+      const chosen = photo;
+      photo = null;
+      previewFrame.classList.add("hidden");
+      tell("");
+      return chosen;
+    },
+    reset() {
+      stopCamera();
+      photo = null;
+      previewFrame.classList.add("hidden");
+      tell("");
+    },
+  };
 }
 
 async function replaceFace(key, photo) {

@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from app.models.book import AboutMe
+from app.models.book import AboutMe, BookFormat
 from app.models.settings import CartoonSettings
 from app.models.story import StoryEdition
 from app.services.pictures import slot_page
@@ -145,6 +145,8 @@ class BookRecord:
     #: The settings the portrait and every page were made with. Persisted so a
     #: page (or the cover) can be regenerated long after the draft expires.
     settings: CartoonSettings = field(default_factory=CartoonSettings)
+    #: The page shape the book is set in; the viewer may change it.
+    book_format: BookFormat = BookFormat.SQUARE
 
 
 class BookStore:
@@ -170,6 +172,7 @@ class BookStore:
         edition: StoryEdition,
         fingerprint: str | None = None,
         settings: CartoonSettings | None = None,
+        book_format: BookFormat = BookFormat.SQUARE,
     ) -> None:
         """Persist the book's request and pin the edition it is made from.
 
@@ -181,6 +184,10 @@ class BookStore:
 
     def update_about(self, book_id: str, about: AboutMe, *, title: str) -> None:
         """Replace the About fields and the title they name (PDF text only)."""
+        raise NotImplementedError
+
+    def set_format(self, book_id: str, book_format: BookFormat) -> None:
+        """Change the page shape the book is set in (its PDF is set again after)."""
         raise NotImplementedError
 
     def list_for_owner(self, user_id: str, *, limit: int = 50) -> list[BookSummary]:

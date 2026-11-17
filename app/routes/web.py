@@ -34,7 +34,7 @@ from app.models import (
     PortraitBackground,
     SkinTone,
 )
-from app.models.book import AboutPhotoChoice, BookPage
+from app.models.book import AboutPhotoChoice, BookFormat, BookPage
 from app.models.feedback import PAGE_FAULT_LABELS, REJECTION_LABELS, PageFault, RejectionReason
 from app.models.labels import choices_for, intensity_label
 from app.models.story import COVER_NUMBER, StoryEdition
@@ -64,6 +64,9 @@ _ABOUT_PHOTO_LABELS = (
     (AboutPhotoChoice.PHOTO, "The photo"),
     (AboutPhotoChoice.BOTH, "Both"),
 )
+
+#: The sizes a book can be set in, offered when it is made and in the viewer.
+_FORMAT_CHOICES = tuple((str(size), size.label, size.short_label) for size in BookFormat)
 
 _IN_PROGRESS = frozenset({BookStatus.PENDING, BookStatus.RENDERING})
 
@@ -196,6 +199,7 @@ def about_screen(
             "steps": _steps(edition),
             "names": dict(edition.names),
             "about_photo_choices": _ABOUT_PHOTO_LABELS,
+            "format_choices": _FORMAT_CHOICES,
             "cast": [
                 ("star", "Star"),
                 *((member.key, member.label) for member in edition.photoable_cast),
@@ -290,11 +294,12 @@ def book_page(
             # charges has a price to name (the book's own fee was taken once).
             "edit_note": (
                 f"Each new picture costs {format_cents(container.wallet.picture_price_cents)}"
-                " — a page, the cover, or a face's pages, taken as it is drawn. "
+                " — a page or the cover, taken as it is drawn; a new photo redraws its pages. "
                 "The book's own fee was taken once."
             )
             if chrome["wallet_enabled"]
-            else "Changes are free: redraw a page, the cover or a face as often as you need.",
+            else "Changes are free: redraw a page or the cover, or use a new photo, as often "
+            "as you need.",
             "pdf_url": f"/book-media/{book_id}/pdf" if state == BookStatus.COMPLETE else None,
             "sources_url": f"/book-media/{book_id}/sources.zip",
             # The footer has always promised seven days; this book says which
@@ -304,6 +309,7 @@ def book_page(
             "characters": [(member.key, member.label) for member in edition.photoable_cast],
             "page_faults": _page_faults(),
             "about_photo_choices": _ABOUT_PHOTO_LABELS,
+            "format_choices": _FORMAT_CHOICES,
             "max_upload_mb": container.settings.max_upload_mb,
             "max_attempts": container.settings.page_attempts,
             # The read-only link, shown with the download buttons (W3): on,

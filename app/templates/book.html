@@ -5,12 +5,12 @@
 {% block header_title %}<span class="header-title">{{ title }}{% if subtitle %} <em class="header-subtitle">{{ subtitle }}</em>{% endif %}</span>{% endblock %}
 {% block main_class %}page book-screen{% endblock %}
 {% block content %}
-  {#- The book, laid out as the PDF is: every page one surface, the art to its
-      edges and the words set on the page in the book's face. On a wide, short
-      screen a page opens as a spread (art left, words right); everywhere else
-      the words sit beneath the art, exactly as printed. reader-layout.js sizes
-      it to the window so nothing is under the fold. #}
-  <section class="reader" id="reader" aria-label="The book" data-layout="stacked" style="--art-ratio: {{ art_ratio }}">
+  {#- The book, laid out as its PDF is, in the size it was made in: every page
+      one surface of that shape. A square or tall book sets the words beneath
+      the art; a wide one opens flat on a landscape screen (picture left, words
+      right) and shows one page at a time on an upright one. reader-layout.js
+      sizes it to the window so nothing is under the fold. #}
+  <section class="reader" id="reader" aria-label="The book" data-format="{{ book.book_format }}" data-layout="page" data-half="art" style="--art-ratio: {{ art_ratio }}">
     <div class="reader-book">
       <button type="button" class="turn turn-back" id="turn-back" aria-label="Previous page"><span aria-hidden="true">‹</span></button>
       <div class="book-slot" id="book-slot" tabindex="0" aria-roledescription="book" aria-label="{{ title }} — use the arrow keys to turn the pages">
@@ -69,7 +69,18 @@
       <button type="button" class="turn turn-next" id="turn-next" aria-label="Next page"><span aria-hidden="true">›</span></button>
     </div>
     <div class="reader-bar">
-      <span class="reader-where"><span id="page-label">Cover</span></span>
+      <span class="reader-where"><span id="page-label">Cover</span>
+        {#- The book's size, changeable while reading: only the PDF is set
+            again, and a printed copy comes in the size chosen here. #}
+        <label class="reader-size" for="book-size"><span class="visually-hidden">Book size</span>
+          <select id="book-size" name="book_format" title="The book's size — the PDF and a printed copy follow it">
+            {% for value, label, short in format_choices %}<option value="{{ value }}" title="{{ label }}"{% if value == book.book_format %} selected{% endif %}>{{ short }}</option>{% endfor %}
+          </select>
+        </label>
+      </span>
+      {#- Finished during story time: said here, and the finished book opens
+          when the reader leaves story time, not under them (todo 11-17 #3). #}
+      <span class="ready-note" id="ready-note" role="status" hidden>✨ Your book is ready — it opens when you leave story time.</span>
       {# Nothing to read aloud or turn yet while only the cover exists (U2). #}
       <span class="reader-tools{% if status != 'complete' and done_count <= 1 %} hidden{% endif %}" id="reader-tools">
         {#- One transport button, not a mute toggle: it plays the page and pauses
@@ -88,6 +99,12 @@
           <span data-role="label">Story time</span>
         </button>
       </span>
+      {#- The one way to change a picture, on the page itself and in story
+          time too: the reasons, a new photo among them, are inside (todo 11-17 #7). #}
+      <button type="button" class="tool-button redraw-tool{% if status not in ('complete', 'failed') %} hidden{% endif %}" id="redraw-here" aria-haspopup="dialog">
+        <svg class="tool-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2v3.5H10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span data-role="label">Redraw this page</span>
+      </button>
     </div>
   </section>
 
@@ -150,7 +167,7 @@
       <div class="progress-fill" id="progress-fill" style="width: {{ (100 * done_count / tiles|length)|round(1) }}%"></div>
     </div>
     <p class="progress-caption" id="progress-caption" role="status" aria-live="polite">
-      {% if status == "failed" %}{{ done_count }} of {{ tiles|length }} pictures — this book stopped early.{% else %}Your book is being drawn. {{ done_count }} of {{ tiles|length }} pages finished.{% endif %}
+      {% if status == "failed" %}{{ done_count }} of {{ tiles|length }} pictures — this book stopped early.{% else %}Drawing your book — {{ done_count }} of {{ tiles|length }} pictures ready.{% endif %}
     </p>
     {#- Ran out of wallet money: said once, and easy to put away. The button
         that reads the rest is in the failed row below (B4). #}
@@ -189,45 +206,43 @@
     <h2 id="edit-title">Edit this book</h2>
     <p class="field-help">{{ edit_note }}</p>
     <div class="edit-actions">
-      <button type="button" class="button" id="edit-page">Redraw this page{% if picture_price %} — {{ picture_price }}{% endif %}</button>
-      <button type="button" class="button" id="edit-cover">Redraw the cover{% if picture_price %} — {{ picture_price }}{% endif %}</button>
-      <button type="button" class="button" id="edit-face">Replace a face{% if picture_price %} — {{ picture_price }} a picture{% endif %}</button>
+      <button type="button" class="button primary" id="edit-page" aria-haspopup="dialog">Redraw this page{% if picture_price %} — {{ picture_price }}{% endif %}</button>
       <button type="button" class="button" id="edit-about">Edit the About page</button>
       <button type="button" class="button danger" id="delete-book">Delete this book</button>
     </div>
     <p class="inline-message hidden" id="edit-message" role="status" aria-live="polite"></p>
   </section>
 
+  {#- One dialog for every redraw: the cover or a story page, with what went
+      wrong ticked. "Use a different photo" is a reason like the others; it
+      opens the photo picker, because a new face redraws every page that face
+      is on, not only this one. #}
   <dialog class="modal" id="redraw-dialog" aria-labelledby="redraw-title">
-    <form method="dialog">
+    <form method="dialog" id="redraw-form">
       <div class="modal-head"><h2 id="redraw-title">Redraw <span id="redraw-page-label">this page</span></h2><button type="submit" value="cancel" class="icon-button" aria-label="Close">✕</button></div>
-      <p class="field-help">Tick what went wrong. Every tick is a tested instruction; the rest of the book stays as it is.</p>
+      <p class="field-help" id="redraw-help">Tick what went wrong. Every tick is a tested instruction; the rest of the book stays as it is.</p>
       <div class="chips" id="redraw-chips">
         {% for fault in page_faults %}
         <label class="chip"><input type="checkbox" name="reason" value="{{ fault.value }}"><span>{{ fault.label }}</span></label>
         {% endfor %}
+        <label class="chip"><input type="checkbox" id="redraw-new-photo"><span>Use a different photo of someone</span></label>
       </div>
-      <div class="modal-actions"><button type="submit" value="cancel" class="button">Cancel</button><button type="submit" value="save" class="button primary">Redraw it{% if picture_price %} — {{ picture_price }}{% endif %}</button></div>
-    </form>
-  </dialog>
-
-  <dialog class="modal" id="face-dialog" aria-labelledby="face-title">
-    <form method="dialog" id="face-form">
-      <div class="modal-head"><h2 id="face-title">Replace a face</h2><button type="submit" value="cancel" class="icon-button" aria-label="Close">✕</button></div>
-      <label class="setting" for="face-character">Whose face?</label>
-      <select id="face-character" name="character_key">
-        <option value="star">The star ({{ about.prompt_name }}) — redraws every picture</option>
-        {% for key, label in characters %}<option value="{{ key }}">{{ label }} — redraws their pages</option>{% endfor %}
-      </select>
-      <div class="photo-actions">
-        <button type="button" class="button" id="face-camera">Take a photo</button>
-        <label class="button file-button">Upload a photo<input type="file" class="visually-hidden" id="face-file" accept="image/jpeg,image/png,image/webp"></label>
+      <div class="redraw-photo hidden" id="redraw-photo">
+        <label class="setting" for="face-character">Whose photo?</label>
+        <select id="face-character" name="character_key">
+          <option value="star">{{ about.prompt_name }} — redraws every picture and the cover</option>
+          {% for key, label in characters %}<option value="{{ key }}">{{ label }} — redraws every page they are on</option>{% endfor %}
+        </select>
+        <div class="photo-actions">
+          <button type="button" class="button" id="face-camera">Take a photo</button>
+          <label class="button file-button">Upload a photo<input type="file" class="visually-hidden" id="face-file" accept="image/jpeg,image/png,image/webp"></label>
+        </div>
+        <video id="face-video" class="hidden" autoplay playsinline muted></video>
+        <button type="button" class="button hidden" id="face-shutter">Take the picture</button>
+        <span class="plate-frame small hidden" id="face-preview-frame"><img id="face-preview" alt="The new photo"></span>
+        <p class="inline-message hidden" id="face-message" role="status" aria-live="polite"></p>
       </div>
-      <video id="face-video" class="hidden" autoplay playsinline muted></video>
-      <button type="button" class="button hidden" id="face-shutter">Take the picture</button>
-      <span class="plate-frame small hidden" id="face-preview-frame"><img id="face-preview" alt="The replacement photo"></span>
-      <p class="inline-message hidden" id="face-message" role="status" aria-live="polite"></p>
-      <div class="modal-actions"><button type="submit" value="cancel" class="button">Cancel</button><button type="submit" value="save" class="button primary">Replace this face{% if picture_price %} — {{ picture_price }} a picture{% endif %}</button></div>
+      <div class="modal-actions"><button type="submit" value="cancel" class="button">Cancel</button><button type="submit" value="save" class="button primary" id="redraw-go" data-page-words="Redraw it{% if picture_price %} — {{ picture_price }}{% endif %}" data-photo-words="Use this photo{% if picture_price %} — {{ picture_price }} a picture{% endif %}">Redraw it{% if picture_price %} — {{ picture_price }}{% endif %}</button></div>
     </form>
   </dialog>
 

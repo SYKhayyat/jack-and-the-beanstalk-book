@@ -323,6 +323,37 @@ class TestEditing:
             # it with the rest and draws nothing (Idea 5).
             assert "For Grandpa, who reads it twice." in text
 
+    def test_a_book_is_made_in_the_size_chosen_and_resized_without_redrawing(
+        self, client_factory
+    ) -> None:
+        """Sizes are chosen at "Make the book" and changed in the viewer: only the
+        PDF is set again, and the viewer reads the book in its new shape."""
+        provider = ChangingProvider()
+        with client_factory(provider) as client:
+            book_id = _start(client, book_format="letter")
+            _wait(client, book_id)
+            first = PdfReader(io.BytesIO(client.get(f"/book-media/{book_id}/pdf").content))
+            assert [round(float(v)) for v in first.pages[1].mediabox[2:]] == [612, 792]
+            calls_before = len(provider.requests)
+
+            response = client.post(
+                f"/api/book/{book_id}/edit", data={"action": "format", "book_format": "wide"}
+            )
+            assert response.status_code == 202, response.text
+            assert len(provider.requests) == calls_before, "a new size drew a picture"
+            wide = PdfReader(io.BytesIO(client.get(f"/book-media/{book_id}/pdf").content))
+            assert [round(float(v)) for v in wide.pages[1].mediabox[2:]] == [792, 612]
+            # Each picture faces its words: two pages a story page.
+            assert len(wide.pages) > len(first.pages)
+            html = client.get(f"/books/{book_id}").text
+            assert 'data-format="wide"' in html
+            assert re.search(r'<option value="wide"[^>]*selected', html)
+
+            refused = client.post(
+                f"/api/book/{book_id}/edit", data={"action": "format", "book_format": "a4"}
+            )
+            assert refused.status_code == 422, refused.text
+
     def test_an_about_edit_during_a_render_reaches_the_pdf(self, client_factory) -> None:
         """B10: the job assembles from the latest record, not its own snapshot.
 

@@ -183,8 +183,10 @@ def test_the_book_progress_tells_the_truth_while_pages_are_in_flight() -> None:
     source = _strip_js_comments(_read("book-live.js"))
     assert "payload.page_stages" in source
     assert "payload.pictures_drawn" in source
-    assert "stage ||" in source  # the stage sentence wins over resting
-    assert "inFlight.length ? countStages(inFlight)" in source
+    assert "isWorking(payload, inFlight) ||" in source  # work in flight wins over resting
+    # One count only: "0 finished, 5 drawn" read as nonsense (todo 11-17 #2).
+    assert "pictures drawn so far" not in source and "being checked" not in source
+    assert "pictures ready" in source
     assert "shareDone(page)" in source
     css = _read("style.css")
     assert ".progress-track.working .progress-fill" in css
@@ -513,6 +515,24 @@ def test_the_about_screen_holds_the_book_wide_choices(about_html: str) -> None:
     assert '<select id="about-age"' in about_html
     assert 'id="make-book"' in about_html
     assert "What do they want to be?" in about_html
+    # The book's size is chosen here, square first (todo 11-17).
+    for value in ("square", "letter", "wide"):
+        assert f'name="book_format" value="{value}"' in about_html
+    assert re.search(r'name="book_format" value="square" checked', about_html)
+
+
+def test_the_reader_reads_in_the_books_size_and_can_change_it(book_html: str) -> None:
+    """Every leaf is one page of the book's shape; the size switches in the viewer."""
+    assert 'data-format="square"' in book_html
+    assert 'data-layout="page"' in book_html
+    assert '<select id="book-size"' in book_html
+    assert re.search(r'<option value="square"[^>]*selected>Square</option>', book_html)
+    assert ">Tall</option>" in book_html and ">Wide</option>" in book_html
+    script = (STATIC / "book-live.js").read_text()
+    assert 'action: "format"' in script
+    layout = (STATIC / "reader-layout.js").read_text()
+    # Only story art states the page's shape, never the cover's 3:4 portrait.
+    assert '.leaf[data-kind="story"] > .leaf-art > img' in layout
 
 
 def test_no_fee_line_without_money(about_html: str) -> None:

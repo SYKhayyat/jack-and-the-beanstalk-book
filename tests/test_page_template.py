@@ -17,15 +17,15 @@ import pytest
 from PIL import Image
 from pypdf import PdfReader
 
-from app.models.book import AboutMe, BookPage
+from app.models.book import AboutMe, BookFormat, BookPage
 from app.services.pdf import (
     COVER_TITLE_BAND_FRACTION,
     PAPER_RGB,
     PageArt,
-    TemplateGeometry,
+    PageGeometry,
     TitleBandReport,
-    book_template,
     build_book_pdf,
+    screen_template,
     title_band_report,
 )
 from tests.helpers import jack
@@ -41,8 +41,7 @@ def get_book_page(key: str):
 
 
 ART_WIDTH, ART_HEIGHT = 1152, 864  # 4:3, the shape the book is drawn in
-PAGE_WIDTH = 720.0
-ART_BOX_HEIGHT = PAGE_WIDTH * ART_HEIGHT / ART_WIDTH  # 540 pt
+ART_RATIO = ART_HEIGHT / ART_WIDTH
 
 ABOUT = AboutMe(prompt_name="Shai", about_name="Shai")
 
@@ -81,29 +80,42 @@ class TestStoryPageGeometry:
         pages = twenty("A short line of story.")
         pages[7] = story_page("A very long tale indeed. " * 40)
         reader = PdfReader(io.BytesIO(build_book_pdf("Jack and the Beanstalk", ABOUT, pages)))
+        geometry = screen_template(
+            BookFormat.SQUARE, ART_RATIO, [entry.page.story for entry in pages]
+        )
+        art_bottom = geometry.page_height - geometry.art_height  # PDF y grows upward
 
-        for index, page in enumerate(reader.pages[:-1], start=1):
+        for index, page in enumerate(reader.pages[1 : 1 + len(pages)], start=1):
             ys = drawn_text_y(page)
             assert ys, f"page {index} has no story text"
-            assert max(ys) < ART_BOX_HEIGHT, f"page {index} set words over the picture"
+            assert max(ys) < art_bottom, f"page {index} set words over the picture"
 
-    def test_every_story_page_shares_one_band_and_one_font_size(self) -> None:
+    @pytest.mark.parametrize("book_format", list(BookFormat))
+    def test_every_page_is_the_formats_page_and_shares_one_font_size(
+        self, book_format: BookFormat
+    ) -> None:
         pages = twenty("A short line of story.")
         pages[3] = story_page("A much longer page. " * 25)
-        data = build_book_pdf("Jack and the Beanstalk", ABOUT, pages)
+        data = build_book_pdf("Jack and the Beanstalk", ABOUT, pages, book_format=book_format)
         reader = PdfReader(io.BytesIO(data))
-        geometry = book_template(
-            PAGE_WIDTH, ART_BOX_HEIGHT, [entry.page.story for entry in pages]
+        geometry = screen_template(
+            book_format, ART_RATIO, [entry.page.story for entry in pages]
         )
+        width, height = book_format.page_inches
 
-        heights = {round(float(page.mediabox.height), 2) for page in reader.pages}
-        assert heights == {round(geometry.page_height, 2)}
+        shapes = {
+            (round(float(page.mediabox.width), 2), round(float(page.mediabox.height), 2))
+            for page in reader.pages
+        }
+        assert shapes == {(width * 72, height * 72)}
 
-        # The copyright page comes first and The End sits after the story;
-        # both are front/back matter with their own sizes, so only the story
+        # Front matter and The End have their own type sizes, so only the story
         # pages are compared with the template's one size.
+        per_story = 2 if book_format.facing else 1
         sizes: set[float] = set()
-        for page in reader.pages[1 : 1 + len(pages)]:
+        # Story pages sit just before The End and About.
+        first = len(reader.pages) - 2 - per_story * len(pages)
+        for page in reader.pages[first : first + per_story * len(pages)]:
 
             def visit(text, cm, tm, font, size):  # type: ignore[no-untyped-def]
                 if len(text.strip()) > 3:
@@ -112,20 +124,44 @@ class TestStoryPageGeometry:
             page.extract_text(visitor_text=visit)
         assert sizes == {round(geometry.font_size, 1)}
 
+    def test_a_wide_book_sets_the_words_facing_the_picture(self) -> None:
+        """Wide: each story is two pages, a full picture then its words."""
+        pages = twenty("A short line of story.")
+        reader = PdfReader(
+            io.BytesIO(
+                build_book_pdf(
+                    "Jack and the Beanstalk", ABOUT, pages, book_format=BookFormat.WIDE
+                )
+            )
+        )
+        # copyright, 20 x (picture, words), The End, About (no cover given)
+        assert len(reader.pages) == 1 + 2 * len(pages) + 2
+        picture, words = reader.pages[1], reader.pages[2]
+        assert not (picture.extract_text() or "").strip()
+        assert "A short line of story." in (words.extract_text() or "")
+        geometry = screen_template(BookFormat.WIDE, ART_RATIO, ["A short line of story."])
+        assert geometry.facing
+        assert (
+            geometry.font_size
+            > screen_template(
+                BookFormat.SQUARE, ART_RATIO, ["A short line of story."]
+            ).font_size
+        )
+
     def test_a_short_page_keeps_the_books_band(self) -> None:
         """The band is a book property, not a per-page one: short pages don't shrink it."""
-        short = book_template(PAGE_WIDTH, ART_BOX_HEIGHT, ["One line."])
-        mixed = book_template(
-            PAGE_WIDTH, ART_BOX_HEIGHT, ["One line.", "A much longer page. " * 25]
+        short = screen_template(BookFormat.SQUARE, ART_RATIO, ["One line."])
+        mixed = screen_template(
+            BookFormat.SQUARE, ART_RATIO, ["One line.", "A much longer page. " * 25]
         )
-        assert mixed.text_band_height > short.text_band_height
+        assert mixed.text_room >= short.text_room
         assert mixed.font_size < short.font_size
 
     def test_a_page_too_long_for_the_band_grows_the_band(self) -> None:
-        """Never truncate: the band grows past the cap instead."""
+        """Never truncate: the art gives up height instead."""
         long_story = "A very long tale indeed. " * 40
-        geometry: TemplateGeometry = book_template(PAGE_WIDTH, ART_BOX_HEIGHT, [long_story])
-        assert geometry.text_band_height > ART_BOX_HEIGHT * 0.5
+        geometry: PageGeometry = screen_template(BookFormat.SQUARE, ART_RATIO, [long_story])
+        assert geometry.art_height < geometry.page_width * ART_RATIO
 
         # Two pages prove the rendering; the geometry above proves the band.
         data = build_book_pdf(

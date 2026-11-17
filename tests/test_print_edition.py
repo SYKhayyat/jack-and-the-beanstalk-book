@@ -33,17 +33,22 @@ def _sizes(pdf: bytes) -> list[tuple[float, float]]:
     ]
 
 
-def test_four_products_with_lulu_codes_and_the_owners_prices() -> None:
+def test_six_products_with_lulu_codes_and_the_owners_prices() -> None:
     assert set(PRODUCTS) == {
         "square-hardcover",
         "square-paperback",
         "letter-hardcover",
         "letter-paperback",
+        "wide-hardcover",
+        "wide-paperback",
     }
     assert SQUARE_HARD.pod_package_id == "0850X0850.FC.PRE.CW.080CW444.GXX"
     assert LETTER_SOFT.pod_package_id == "0850X1100.FC.PRE.PB.080CW444.GXX"
     assert SQUARE_HARD.retail_cents == 2999 and LETTER_SOFT.retail_cents == 1799
     assert SQUARE_HARD.label == "Hardcover, 8.5 \u00d7 8.5 in square"
+    wide = product_for("wide", "paperback")
+    assert wide.pod_package_id == "1100X0850.FC.PRE.PB.080CW444.GXX"
+    assert wide.label == "Paperback, 11 \u00d7 8.5 in landscape"
     with pytest.raises(ValueError):
         product_for("a4", "hardcover")
     with pytest.raises(ValueError):
