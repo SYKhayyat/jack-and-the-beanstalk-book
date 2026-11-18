@@ -18,6 +18,7 @@ import pytest
 from PIL import Image
 
 from app.config import ProviderName, Settings
+from app.prompt_data import prompt_text
 from app.services.costs import MeteredProvider, image_call_price, review_call_price
 from app.services.decision_judge import LIKENESS, QUESTIONS, GeminiWebDecisionJudge
 from app.services.gemini_web.attachment import Attachment
@@ -283,9 +284,41 @@ class TestTheReviewer:
         assert len(images) == 3
         assert all(i.media_type == "image/jpeg" for i in images)
         assert (
-            "first, the picture to judge; second, the empty background plate; last," in prompt
+            "first, the picture to judge; second, the empty background plate; then," in prompt
         )
         assert "Jack plants the beans" in prompt
+        assert prompt_text()["review"]["web_stand_in"] not in prompt
+
+    def test_a_scene_page_adds_the_stand_in_after_the_portrait(self) -> None:
+        client = FakeClient('{"passed": true, "score": 88, "faults": []}')
+        GeminiWebReviewer(client).review(  # type: ignore[arg-type]
+            _png(),
+            media_type="image/png",
+            page_title="t",
+            story_line="s",
+            cast="c",
+            portrait=_png(),
+            stand_in=_png(),
+        )
+        _, prompt, images = client.calls[0]
+        assert len(images) == 3
+        order = prompt.split("\n\n", 1)[0]
+        assert order.index("approved portrait") < order.index("stand-in child")
+        assert prompt.rstrip().endswith(prompt_text()["review"]["stand_in_rule"])
+
+    def test_a_stand_in_without_a_portrait_is_not_sent(self) -> None:
+        client = FakeClient('{"passed": true, "score": 88, "faults": []}')
+        GeminiWebReviewer(client).review(  # type: ignore[arg-type]
+            _png(),
+            media_type="image/png",
+            page_title="t",
+            story_line="s",
+            cast="c",
+            stand_in=_png(),
+        )
+        _, prompt, images = client.calls[0]
+        assert len(images) == 1
+        assert prompt_text()["review"]["web_stand_in"] not in prompt
 
     def test_without_a_plate_or_portrait_it_sees_one_picture(self) -> None:
         client = FakeClient('{"passed": false, "score": 30, "faults": ["extra_person"]}')
@@ -335,6 +368,18 @@ class TestTheDecisionJudge:
         _, prompt, images = client.calls[0]
         assert len(images) == 2
         assert f"{LIKENESS}:" in prompt
+        assert "stand-in" not in prompt
+
+    def test_the_stand_in_is_the_third_image_and_joins_the_likeness_question(self) -> None:
+        client = FakeClient(self._answer(list(QUESTIONS)))
+        GeminiWebDecisionJudge(client).decide(  # type: ignore[arg-type]
+            _png(), brief="b", cast="c", portrait=_png(), stand_in=_png()
+        )
+        _, prompt, images = client.calls[0]
+        assert len(images) == 3
+        words = prompt_text()["decision"]
+        assert words["stand_in_intro"] in prompt
+        assert words["stand_in_likeness"] in prompt
 
     @pytest.mark.parametrize(
         "answer",

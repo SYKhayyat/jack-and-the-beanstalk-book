@@ -15,6 +15,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from app.models.settings import LikenessStrength
+from app.prompt_data import prompt_text
 from app.services.decision_judge import (
     QUESTIONS,
     Decision,
@@ -24,7 +26,7 @@ from app.services.decision_judge import (
 )
 from app.services.image_providers.base import ProviderError
 from app.services.image_review import review_image
-from app.services.reviewer import ReviewerQuotaSpent
+from app.services.reviewer import ReviewerQuotaSpent, StarLook
 from tests.test_review_loop import ScriptedReviewer, artwork, grain, runner_with, said
 
 #: Page 1 of the plated OpenAI book: the mother hands over the basket.
@@ -57,6 +59,7 @@ class ScriptedJudge:
     answers: list[Any] = field(default_factory=list)
     calls: int = 0
     portraits: list[bytes | None] = field(default_factory=list)
+    stand_ins: list[bytes | None] = field(default_factory=list)
 
     def decide(
         self,
@@ -66,9 +69,11 @@ class ScriptedJudge:
         cast: str,
         portrait: bytes | None = None,
         star: Any = None,
+        stand_in: bytes | None = None,
     ) -> Decision:
         self.calls += 1
         self.portraits.append(portrait)
+        self.stand_ins.append(stand_in)
         answer = self.answers.pop(0)
         if isinstance(answer, BaseException):
             raise answer
@@ -223,7 +228,9 @@ class TestTheCascade:
 class TestLikeness:
     """The approved portrait drew the child, so it is what the child must look like."""
 
-    def _judged(self, *, star_in_picture: bool) -> tuple[ScriptedReviewer, ScriptedJudge]:
+    def _judged(
+        self, *, star_in_picture: bool, stand_in: bytes | None = None
+    ) -> tuple[ScriptedReviewer, ScriptedJudge]:
         reviewer = ScriptedReviewer(answers=[said(True, 90)])
         runner = runner_with(reviewer)
         scripted = ScriptedJudge(answers=[UNSURE])
@@ -244,9 +251,25 @@ class TestLikeness:
                 star_in_picture=star_in_picture,
                 attempt=1,
                 user="-",
+                stand_in=stand_in,
             )
         )
         return reviewer, scripted
+
+    def test_a_scene_page_sends_the_stand_in_to_both_checks(self) -> None:
+        reviewer, scripted = self._judged(star_in_picture=True, stand_in=b"the-stand-in")
+        assert scripted.stand_ins == [b"the-stand-in"]
+        assert reviewer.stand_ins == [b"the-stand-in"]
+
+    def test_a_page_drawn_whole_sends_no_stand_in(self) -> None:
+        reviewer, scripted = self._judged(star_in_picture=True)
+        assert scripted.stand_ins == [None]
+        assert reviewer.stand_ins == [None]
+
+    def test_no_portrait_means_no_stand_in_either(self) -> None:
+        reviewer, scripted = self._judged(star_in_picture=False, stand_in=b"the-stand-in")
+        assert scripted.stand_ins == [None]
+        assert reviewer.stand_ins == [None]
 
     def test_a_page_with_the_child_sends_the_portrait_to_both_checks(self) -> None:
         reviewer, scripted = self._judged(star_in_picture=True)
@@ -277,6 +300,31 @@ class TestLikeness:
         assert "likeness" not in without and "likeness" in with_
         assert len(sent[0]["input"][0]["content"]) == 2
         assert len(sent[1]["input"][0]["content"]) == 4
+
+    def test_the_stand_in_joins_the_likeness_question_at_the_dial(self) -> None:
+        from app.services.decision_judge import OpenAIDecisionJudge
+
+        sent: list[dict[str, Any]] = []
+
+        class Decisions:
+            def create(self, **kwargs: Any) -> Any:
+                sent.append(kwargs)
+                raise RuntimeError("stop here")
+
+        judge_ = OpenAIDecisionJudge("test-key-not-real", model="m")
+        judge_._client = Mock(decisions=Decisions())
+        star = StarLook("", LikenessStrength.LOOSE)
+        with pytest.raises(ProviderError):
+            judge_.decide(
+                grain(), brief="b", cast="c", portrait=grain(), star=star, stand_in=grain()
+            )
+        content = sent[0]["input"][0]["content"]
+        assert len(content) == 6
+        assert content[4]["text"] == prompt_text()["decision"]["stand_in_intro"]
+        (likeness,) = (q for q in sent[0]["questions"] if q["name"] == "likeness")
+        words = prompt_text()["decision"]
+        assert likeness["instructions"].startswith(words["questions"]["likeness"])
+        assert likeness["instructions"].endswith(words["stand_in_likeness"])
 
 
 class TestReadingTheAnswer:

@@ -197,6 +197,7 @@ class ScriptedReviewer:
     hair_calls: int = 0
     figure_calls: int = 0
     portraits: list[bytes | None] = field(default_factory=list)
+    stand_ins: list[bytes | None] = field(default_factory=list)
 
     def describe_star(self, portrait: bytes) -> str:
         self.hair_calls += 1
@@ -209,6 +210,7 @@ class ScriptedReviewer:
     def review(self, image: bytes, **kwargs: Any) -> Any:
         self.calls += 1
         self.portraits.append(kwargs.get("portrait"))
+        self.stand_ins.append(kwargs.get("stand_in"))
         if not self.answers:
             if self.default is None:
                 raise AssertionError("the loop asked for more reviews than were scripted")
@@ -596,7 +598,7 @@ class TestTheAttemptLoop:
             store=Mock(),
             book_store=Mock(),
             templates=Mock(),
-            gate=Mock(),
+            gate=Mock(limit=1),
             page_timeout_seconds=60,
             page_attempts=3,
         )

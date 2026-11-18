@@ -10,10 +10,12 @@ So every image that passes tier 1 goes to a vision model with one page's
 checklist and must come back as one strict JSON object. Three design decisions
 matter more than the wording:
 
-* **The reviewer never sees the child.** Not their photograph, not their name,
-  not the About text. A reviewer shown "this should be Emma" is being asked to
-  be polite about Emma. Identity is tier 1's business and the portrait's
-  approval step; this tier judges the *scene*.
+* **The reviewer never sees the child's photograph or name.** Not the photo,
+  not the name, not the About text: a reviewer shown "this should be Emma" is
+  being asked to be polite about Emma. On a page the child is in it is shown
+  the approved cartoon portrait (and, on a scene page, the stand-in it
+  replaced) and asked only whether the drawn child matches it, worded so that
+  doubt is never a fault.
 * **A verdict is only a review when both tiers ran.** A missing reviewer key
   fails at boot in production rather than silently shipping unreviewed pictures
   (T9.6). In local, test and mock mode tier 2 is off, every verdict is stamped
@@ -280,6 +282,7 @@ class ImageReviewer(Protocol):
         plate: bytes | None = None,
         portrait: bytes | None = None,
         star: StarLook | None = None,
+        stand_in: bytes | None = None,
     ) -> ReviewAnswer:
         """Judge one picture against one page's checklist.
 
@@ -292,6 +295,10 @@ class ImageReviewer(Protocol):
         `portrait` is the book's approved portrait of the child, on a page the
         child is in; a reviewer that can use it also checks the likeness, by
         `star` (the book's description of the child and its likeness dial).
+        `stand_in` is the stand-in child an approved scene was painted with,
+        on a page drawn from one; a reviewer that can use it also checks the
+        child is the portrait's rather than still the stand-in. It is only
+        sent with a portrait.
         """
         ...
 
@@ -343,8 +350,10 @@ class UnavailableReviewer:
         plate: bytes | None = None,
         portrait: bytes | None = None,
         star: StarLook | None = None,
+        stand_in: bytes | None = None,
     ) -> ReviewAnswer:
         del image, media_type, page_title, story_line, cast, plate, portrait, star  # unused
+        del stand_in  # unused
         raise ReviewerUnavailable("no reviewer is configured")
 
     def describe_star(self, portrait: bytes) -> str:
@@ -404,6 +413,7 @@ class GeminiReviewer:
         plate: bytes | None = None,
         portrait: bytes | None = None,
         star: StarLook | None = None,
+        stand_in: bytes | None = None,
     ) -> ReviewAnswer:
         instruction = prompt_text()["review"]["instruction"].format(
             page_title=page_title,
@@ -411,7 +421,7 @@ class GeminiReviewer:
             cast=cast,
             pass_score=PASS_SCORE,
         )
-        del plate, portrait, star  # Gemini is asked the one-picture question only
+        del plate, portrait, star, stand_in  # Gemini is asked the one-picture question only
         contents: list[Any] = [
             self._types.Part.from_bytes(data=image, mime_type=media_type),
             self._types.Part.from_text(text=instruction),
@@ -515,6 +525,7 @@ class OpenAIReviewer:
         plate: bytes | None = None,
         portrait: bytes | None = None,
         star: StarLook | None = None,
+        stand_in: bytes | None = None,
     ) -> ReviewAnswer:
         del media_type  # every picture is re-encoded as a JPEG before it is sent
         review = prompt_text()["review"]
@@ -541,13 +552,19 @@ class OpenAIReviewer:
             content.append(
                 {"type": "image_url", "image_url": {"url": jpeg_data_url(portrait)}}
             )
+            if stand_in is not None:
+                content.append({"type": "text", "text": review["stand_in_rule"]})
+                content.append(
+                    {"type": "image_url", "image_url": {"url": jpeg_data_url(stand_in)}}
+                )
         logger.info(
-            "review.call model=%s page=%r image_bytes=%d plate=%s portrait=%s",
+            "review.call model=%s page=%r image_bytes=%d plate=%s portrait=%s stand_in=%s",
             self._model,
             page_title,
             len(image),
             plate is not None,
             portrait is not None,
+            portrait is not None and stand_in is not None,
         )
         return parse_answer(self._complete(content, json_answer=True))
 
@@ -614,7 +631,7 @@ class GeminiWebReviewer:
     """Tier 2 on Gemini in a local Chrome: free, for books made on this machine.
 
     Shown what the OpenAI reviewer is shown (the picture, the plate, the
-    portrait) and asked the same instruction. Gemini puts every attached
+    portrait, the stand-in) and asked the same instruction. Gemini puts every attached
     picture above the text, so the rules' positions are said once as an order.
     The client waits out signed-out spells and daily limits by itself; what
     reaches here as an error is a real failure.
@@ -636,6 +653,7 @@ class GeminiWebReviewer:
         plate: bytes | None = None,
         portrait: bytes | None = None,
         star: StarLook | None = None,
+        stand_in: bytes | None = None,
     ) -> ReviewAnswer:
         del media_type  # every picture is re-encoded as a JPEG before it is sent
         review = prompt_text()["review"]
@@ -657,12 +675,17 @@ class GeminiWebReviewer:
             images.append(Attachment(judge_jpeg(portrait)))
             order.append(review["web_portrait"])
             rules.append((star or StarLook()).rule())
+            if stand_in is not None:
+                images.append(Attachment(judge_jpeg(stand_in)))
+                order.append(review["web_stand_in"])
+                rules.append(review["stand_in_rule"])
         text = "\n\n".join([review["web_order"].format(order="; ".join(order)), *rules])
         logger.info(
-            "review.call model=gemini-web page=%r plate=%s portrait=%s",
+            "review.call model=gemini-web page=%r plate=%s portrait=%s stand_in=%s",
             page_title,
             plate is not None,
             portrait is not None,
+            portrait is not None and stand_in is not None,
         )
         return parse_answer(self._client.ask(text, images))
 

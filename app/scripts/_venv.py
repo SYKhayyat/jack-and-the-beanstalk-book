@@ -32,7 +32,7 @@ _PROJECT_DEPENDENCIES = ("PIL", "fastapi", "sqlalchemy", "pydantic")
 
 def _venv_python() -> Path | None:
     """The project's virtualenv interpreter, when this checkout has one."""
-    root = Path(__file__).resolve().parents[2]  # app/scripts/_venv.py -> project
+    root = _project_root()
     for relative in ("bin/python", "Scripts/python.exe"):
         candidate = root / ".venv" / relative
         if candidate.exists():
@@ -51,7 +51,7 @@ def _missing_dependency() -> str | None:
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[2]  # app/scripts/_venv.py -> project
 
 
 def _module_name(caller_file: str) -> str | None:

@@ -253,6 +253,22 @@ On Chat Completions `gpt-6-luna` allows tool calling only at
 `reasoning_effort: "none"`, and a checklist answer needs no reasoning, so the
 reviewer sends `none` for the gpt-6 family and nothing for older models.
 
+## 16. Future option: girls' outfits (not built)
+
+Today every child wears the same outfits: Jack's picker offers trousers,
+tunics and the like, and Red's costume is a single cape-and-tunic look, so the
+clothes suit any child but no outfit is a dress or skirt. A later option is
+to offer girls a choice of outfits too:
+
+- **Jack:** add a few dress/skirt outfits to the picker, each with its own
+  approved stand-in scenes, as the existing outfits have.
+- **Red:** add a girl version of the costume. Her scene pages would then have
+  to swap the clothes as well as the child, which the stand-in redraw does
+  not do today, so each scene needs a second approved version or a clothes
+  edit step.
+
+Recorded as a future option only; nothing in code depends on it.
+
 ## What is left for you (not done in code)
 
 These need your accounts, your money, or your judgement, so they are documented

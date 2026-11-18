@@ -31,6 +31,7 @@ leaves the finished pages visible.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import logging
 import os
@@ -375,6 +376,15 @@ class BookRunner:
         self._image_pool = ThreadPoolExecutor(
             max_workers=max(1, image_threads), thread_name_prefix="book-image"
         )
+        # The model calls get a pool of their own too. They run for most of a
+        # minute, and on the default pool (`asyncio.to_thread`) a few of them
+        # fill it on a small machine, so every quick database or store write a
+        # finished page needs queues behind a call that has not come back.
+        # Every call holds a gate slot while it runs (a backup takes its own),
+        # so the gate's limit is all the threads they can ever use.
+        self._call_pool = ThreadPoolExecutor(
+            max_workers=gate.limit, thread_name_prefix="book-call"
+        )
         # Tier 2 of the review. `None` means this runner was built without one
         # (tests that predate the loop); the stand-in is used instead so every
         # verdict is stamped `tiers_run: [1]` rather than claiming a review.
@@ -674,6 +684,7 @@ class BookRunner:
         # books straight back to the next boot (B9).
         await asyncio.gather(*tasks, return_exceptions=True)
         self._image_pool.shutdown(wait=False, cancel_futures=True)
+        self._call_pool.shutdown(wait=False, cancel_futures=True)
 
     @property
     def reviewer_name(self) -> str:
@@ -1541,6 +1552,7 @@ class BookRunner:
                     star_in_picture=True,
                     plate=None,
                     scene=crop,
+                    stand_in=cut_out,
                     artwork=artwork,
                     draw=_drawer(page, references, media_types),
                     prompt_for=prompt_for,
@@ -2059,6 +2071,7 @@ class BookRunner:
         star_in_picture: bool,
         attempt: int,
         user: str,
+        stand_in: bytes | None = None,
     ) -> Verdict:
         """Both tiers for one picture, combined into one verdict (T9, T10).
 
@@ -2104,6 +2117,9 @@ class BookRunner:
         # The approved portrait is what drew the child, so it is what the
         # child must look like; a page the child is not in has no likeness.
         portrait = artwork.portrait if star_in_picture else None
+        # On a scene page the stand-in goes beside it, so a child who is still
+        # the stand-in is told apart from one who is the star (A5).
+        stand_in = stand_in if portrait is not None else None
         # One description and one dial for the child, the ones the page was
         # drawn to, so the reviewer and the judge hold it to the same bar.
         star = StarLook(artwork.star_seen, artwork.settings.likeness_strength)
@@ -2113,6 +2129,7 @@ class BookRunner:
             cast=cast_note,
             portrait=portrait,
             star=star,
+            stand_in=stand_in,
             book_id=book_id,
             page_number=page_number,
         )
@@ -2148,6 +2165,7 @@ class BookRunner:
                     plate=plate.image if plate is not None else None,
                     portrait=portrait,
                     star=star,
+                    stand_in=stand_in,
                 )
             except ReviewerQuotaSpent as exc:
                 self._reviewer_rests_until = exc.until
@@ -2249,6 +2267,7 @@ class BookRunner:
         cast: str,
         portrait: bytes | None,
         star: StarLook,
+        stand_in: bytes | None,
         book_id: str,
         page_number: int,
     ) -> Decision | None:
@@ -2263,6 +2282,7 @@ class BookRunner:
                 cast=cast,
                 portrait=portrait,
                 star=star,
+                stand_in=stand_in,
             )
         except Exception as exc:
             logger.warning(
@@ -2309,6 +2329,7 @@ class BookRunner:
         requested: Sequence[str] = (),
         deadline: float | None = None,
         scene: SceneCrop | None = None,
+        stand_in: bytes | None = None,
     ) -> Attempts:
         """One page's attempt loop (`page_attempts`), bound to this runner.
 
@@ -2323,6 +2344,9 @@ class BookRunner:
                 (A1); None for no deadline.
             scene: The approved scene a drawn crop is blended back into (A5);
                 None when the page is drawn whole.
+            stand_in: The scene's stand-in child, as cut for the model, shown
+                to both review checks beside the portrait so they can tell
+                the star from the stand-in it replaced.
         """
 
         async def locate(image: bytes, attempt: int) -> Sequence[Box] | None:
@@ -2358,6 +2382,7 @@ class BookRunner:
                 star_in_picture=star_in_picture,
                 attempt=attempt,
                 user=user,
+                stand_in=stand_in,
             )
 
         hooks = AttemptHooks(
@@ -2422,7 +2447,7 @@ class BookRunner:
         async with self._gate.lease(timeout=self._page_timeout) as slot:
             if on_slot is not None:
                 await on_slot()
-            hop = asyncio.create_task(asyncio.to_thread(work))
+            hop = asyncio.create_task(self._model_call(work))
             try:
                 return await asyncio.wait_for(
                     self._first_back(work, hop), timeout=self._page_timeout
@@ -2430,6 +2455,17 @@ class BookRunner:
             finally:
                 if not hop.done():
                     _hand_slot_to_worker(slot, hop)
+
+    async def _model_call(self, work: Callable[[], _T]) -> _T:
+        """One blocking model call on the runner's call pool, with this context.
+
+        `contextvars` are copied in, as `asyncio.to_thread` would: the cost
+        scope that meters the call lives in them.
+        """
+        context = contextvars.copy_context()
+        return await asyncio.get_running_loop().run_in_executor(
+            self._call_pool, partial(context.run, work)
+        )
 
     async def _first_back(self, work: Callable[[], _T], hop: asyncio.Task[_T]) -> _T:
         """`hop`'s result, or that of an identical backup call if it is back first (A2).
@@ -2456,7 +2492,7 @@ class BookRunner:
         if backup_slot is None:
             logger.info("book.backup_call outcome=skipped reason=gate_full")
             return await asyncio.shield(hop)
-        backup = asyncio.create_task(asyncio.to_thread(work))
+        backup = asyncio.create_task(self._model_call(work))
         _release_when_done(backup_slot, backup)
         logger.info("book.backup_call outcome=started after_s=%d", self._backup_after)
         pending: set[asyncio.Task[_T]] = {hop, backup}

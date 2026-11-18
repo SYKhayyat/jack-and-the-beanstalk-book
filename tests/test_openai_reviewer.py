@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from app.config import Settings
+from app.prompt_data import prompt_text
 from app.services.costs import review_call_price
 from app.services.image_providers.base import ProviderError
 from app.services.reviewer import OpenAIReviewer, build_reviewer
@@ -117,6 +118,28 @@ class TestTheRequest:
         built, completions = reviewer()
         review(built, plate=PNG)
         assert self.images_sent(completions) == 2
+
+    def test_a_scene_page_sends_the_stand_in_last_with_its_rule(self) -> None:
+        built, completions = reviewer()
+        built.review(
+            PNG,
+            media_type="image/png",
+            page_title="p",
+            story_line="s",
+            cast="c",
+            portrait=PNG,
+            stand_in=PNG,
+        )
+        content = completions.calls[0]["messages"][0]["content"]
+        assert self.images_sent(completions) == 3
+        assert content[-2]["text"] == prompt_text()["review"]["stand_in_rule"]
+
+    def test_a_stand_in_without_a_portrait_is_not_sent(self) -> None:
+        built, completions = reviewer()
+        built.review(
+            PNG, media_type="image/png", page_title="p", story_line="s", cast="c", stand_in=PNG
+        )
+        assert self.images_sent(completions) == 1
 
     def test_a_good_answer_is_read(self) -> None:
         built, _ = reviewer()

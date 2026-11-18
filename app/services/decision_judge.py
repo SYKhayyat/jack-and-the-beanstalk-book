@@ -161,12 +161,17 @@ class DecisionJudge(Protocol):
         cast: str,
         portrait: bytes | None = None,
         star: StarLook | None = None,
+        stand_in: bytes | None = None,
     ) -> Decision:
         """Raises ProviderError when the judge could not answer.
 
         `portrait` is the book's approved portrait of the child, on a page the
         child is in; with it the judge also answers the likeness question, at
         the bar and against the description `star` gives (the reviewer's own).
+        `stand_in`, on a page drawn from an approved scene, is the stand-in
+        child it was painted with: the likeness question then also asks
+        whether the child is still the stand-in. It is only sent with a
+        portrait.
         """
         ...
 
@@ -192,6 +197,7 @@ class OpenAIDecisionJudge:
         cast: str,
         portrait: bytes | None = None,
         star: StarLook | None = None,
+        stand_in: bytes | None = None,
     ) -> Decision:
         words = prompt_text()["decision"]
         text = str(words["intro"]).format(brief=brief, cast=cast)
@@ -199,10 +205,14 @@ class OpenAIDecisionJudge:
             {"type": "input_text", "text": text},
             {"type": "input_image", "image_url": jpeg_data_url(image)},
         ]
+        with_stand_in = portrait is not None and stand_in is not None
         if portrait is not None:
             content.append({"type": "input_text", "text": _likeness_intro(star)})
             content.append({"type": "input_image", "image_url": jpeg_data_url(portrait)})
-        asked = _questions(portrait is not None, star)
+        if portrait is not None and stand_in is not None:
+            content.append({"type": "input_text", "text": str(words["stand_in_intro"])})
+            content.append({"type": "input_image", "image_url": jpeg_data_url(stand_in)})
+        asked = _questions(portrait is not None, star, stand_in=with_stand_in)
         try:
             response = self._client.decisions.create(
                 model=self._model,
@@ -239,14 +249,19 @@ class GeminiWebDecisionJudge:
         cast: str,
         portrait: bytes | None = None,
         star: StarLook | None = None,
+        stand_in: bytes | None = None,
     ) -> Decision:
         words = prompt_text()["decision"]
-        asked = _questions(portrait is not None, star)
+        with_stand_in = portrait is not None and stand_in is not None
+        asked = _questions(portrait is not None, star, stand_in=with_stand_in)
         parts = [str(words["intro"]).format(brief=brief, cast=cast)]
         images = [Attachment(judge_jpeg(image))]
         if portrait is not None:
             parts.append(_likeness_intro(star))
             images.append(Attachment(judge_jpeg(portrait)))
+        if portrait is not None and stand_in is not None:
+            parts.append(str(words["stand_in_intro"]))
+            images.append(Attachment(judge_jpeg(stand_in)))
         parts.append(
             str(words["web_answer"]).format(
                 example=json.dumps(dict.fromkeys(asked, 0.1)),
@@ -257,12 +272,21 @@ class GeminiWebDecisionJudge:
         return Decision(probabilities=_web_probabilities(answer, asked), model=self.model)
 
 
-def _questions(with_portrait: bool, star: StarLook | None) -> dict[str, str]:
-    """The questions to ask: likeness only beside a portrait, at the book's dial."""
+def _questions(
+    with_portrait: bool, star: StarLook | None, *, stand_in: bool = False
+) -> dict[str, str]:
+    """The questions to ask: likeness only beside a portrait, at the book's dial.
+
+    With the stand-in sent too, the likeness question also asks whether the
+    child is still the stand-in, in the same question so it stays one fault.
+    """
     asked = {name: q for name, q in QUESTIONS.items() if name != LIKENESS or with_portrait}
-    standards = prompt_text()["decision"]["likeness_standard"]
+    words = prompt_text()["decision"]
+    standards = words["likeness_standard"]
     if with_portrait and star is not None and star.strength.value in standards:
         asked[LIKENESS] = str(standards[star.strength.value])
+    if with_portrait and stand_in:
+        asked[LIKENESS] = f"{asked[LIKENESS]} {words['stand_in_likeness']}"
     return asked
 
 

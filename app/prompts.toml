@@ -708,7 +708,7 @@ instruction = """You are checking one picture for a children's picture book befo
 
 You may fail at most 4 of this book's 20 pictures, and every picture you fail is redrawn at real cost. Spend a fail only on a picture a parent would reject.
 
-You are given the picture and a description of the picture it is supposed to be. Judge likeness only if a portrait of the child is supplied below, and only by comparing against it.
+You are given the picture and a description of the picture it is supposed to be. Judge likeness only if a portrait of the child is supplied below, and only by comparing against it (and against the stand-in, when one is supplied too).
 
 Answer about this page: "{page_title}". The picture it must be: {story_line}
 {cast}
@@ -747,13 +747,21 @@ plate_rule = """The SECOND picture is the empty background plate the first pictu
 likeness_rule = """The picture right after this sentence is the approved portrait of the book's child. {look_line}{standard} Judge at the picture's own distance: when the face is drawn small, judge by the age, the hair, the skin tone and any glasses; a cartoon style, an angle, an expression or a pose is never a fault, and neither is hair hidden under a hood. Name what differs in the note."""
 look_line = "The child looks like this: {look} "
 
+# Sent after the portrait on a page drawn from an approved scene (audit 11-15
+# A5): the scene was painted with a stand-in child and only the child was
+# redrawn, so the one likeness failure particular to it is the stand-in coming
+# back unchanged. Asked as a comparison, not a hunt: the stand-in's clothes and
+# pose are meant to stay, and a child who could be either is not a fault.
+stand_in_rule = """The picture right after this sentence is the stand-in child the scene was first painted with; the book's child was painted over the stand-in, in the same place and pose. Compare the child in the FIRST picture with the portrait and with this stand-in. Clothes, pose and position are meant to match the stand-in and are never a fault. Add the fault "likeness" only if the child's face and hair are plainly still the stand-in's rather than the portrait's; when the child looks like the portrait, or could be either, it is not a fault. If you add it, say in the note which of the stand-in's features remain."""
+
 # Gemini in Chrome (the free local reviewer) takes every picture above the
 # text, so the rules' "after this sentence" is said once as an order. {order}
 # joins the names below that apply to this review.
 web_order = "The pictures are attached in this order: {order}. Every rule below that points at a picture means the one this list names."
 web_picture = "first, the picture to judge"
 web_plate = "second, the empty background plate"
-web_portrait = "last, the approved portrait of the book's child"
+web_portrait = "then, the approved portrait of the book's child"
+web_stand_in = "then, the stand-in child the scene was first painted with"
 
 page_title = "the picture book's page: "
 
@@ -803,6 +811,11 @@ intro = "A page of a children's picture book. The picture it must be: {brief}\n{
 # child is in; the likeness question is asked only then. {look_line} is
 # review.look_line with the book's description of the child, or "".
 likeness_intro = "The second image is the approved portrait of the book's child; the child in the first image must be this child. {look_line}"
+# Added after the likeness intro, with the stand-in as the third image, on a
+# page drawn from an approved scene (see review.stand_in_rule); the likeness
+# question, at the book's dial, then gets stand_in_likeness added.
+stand_in_intro = "The third image is the stand-in child the scene was first painted with; the book's child was painted over the stand-in, in the same place and pose."
+stand_in_likeness = "Also yes if the child's face and hair are plainly still the stand-in's (third image) rather than the portrait's. Clothes, pose and position are meant to match the stand-in and do not count, and a child who looks like the portrait, or could be either, is no."
 
 # Gemini in Chrome (the free local judge) has no probability API: it is asked
 # for them as JSON. {questions} is one "name: question" line per question asked;
@@ -823,7 +836,7 @@ deformed = "Does any figure plainly have extra or missing limbs, extra fingers, 
 # nothing to miss, so the answer is no.
 missing_item = "The description may end with \"It must plainly show:\" and a list. Is any thing on that list absent from the picture, or impossible to make out? If the description has no such list, the answer is no. Any other prop does not count."
 # Asked only when the portrait is sent (see likeness_intro).
-likeness = "Is the child in the first image clearly NOT the same child as the portrait in the second image — an unmistakably different skin tone, hair colour or hair length, or a plainly different age? A cartoon style, angle, expression, pose or distance, a face drawn small and simple, or hair hidden under a hood does not count."
+likeness = "Is the child in the first image clearly NOT the same child as the portrait in the second image — an unmistakably different skin tone, hair colour or hair length, glasses added or lost, or a plainly different age? A cartoon style, angle, expression, pose or distance, a face drawn small and simple, or hair hidden under a hood does not count."
 collage = "Is the frame plainly more than one picture: a grid of tiles, panels, a character sheet, or the same person shown twice?"
 frightening = "Does the picture show blood, a wound, a weapon being used on or pointed at someone, an attack in progress, or a child in real terror? A sly or toothy cartoon villain does not count, and neither does a tool being used for the job the description says (an axe chopping a tree)."
 

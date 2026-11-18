@@ -531,6 +531,7 @@ class MeteredReviewer:
         plate: bytes | None = None,
         portrait: bytes | None = None,
         star: StarLook | None = None,
+        stand_in: bytes | None = None,
     ) -> ReviewAnswer:
         started = time.monotonic()
         ok = False
@@ -544,6 +545,7 @@ class MeteredReviewer:
                 plate=plate,
                 portrait=portrait,
                 star=star,
+                stand_in=stand_in,
             )
             ok = True
             return answer
@@ -605,12 +607,18 @@ class MeteredDecisionJudge:
         cast: str,
         portrait: bytes | None = None,
         star: StarLook | None = None,
+        stand_in: bytes | None = None,
     ) -> Decision:
         started = time.monotonic()
         decision: Decision | None = None
         try:
             decision = self._inner.decide(
-                image, brief=brief, cast=cast, portrait=portrait, star=star
+                image,
+                brief=brief,
+                cast=cast,
+                portrait=portrait,
+                star=star,
+                stand_in=stand_in,
             )
             return decision
         finally:

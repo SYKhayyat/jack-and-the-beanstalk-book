@@ -396,13 +396,34 @@ class TestTheOperatorCommandsRunWithWhateverPythonYouTyped:
     the interpreter is already correct (that would be an infinite exec loop).
     """
 
-    def test_the_shim_finds_the_projects_virtualenv(self) -> None:
+    @pytest.fixture
+    def checkout_with_venv(self, tmp_path, monkeypatch):
+        """A checkout that has a `.venv`, which CI's checkout does not."""
+        from app.scripts import _venv
+
+        interpreter = tmp_path / ".venv" / "bin" / "python"
+        interpreter.parent.mkdir(parents=True)
+        interpreter.write_text("")
+        monkeypatch.setattr(_venv, "_project_root", lambda: tmp_path)
+        return interpreter
+
+    def test_the_shim_finds_the_projects_virtualenv(self, checkout_with_venv) -> None:
         from app.scripts._venv import _venv_python
 
-        interpreter = _venv_python()
-        assert interpreter is not None
-        assert interpreter.exists()
-        assert interpreter.parent.name == "bin" or interpreter.name == "python.exe"
+        assert _venv_python() == checkout_with_venv
+
+    def test_no_virtualenv_leaves_the_import_error_to_speak(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        from app.scripts import _venv
+
+        monkeypatch.delenv(_venv._REEXEC_MARKER, raising=False)
+        monkeypatch.setattr(_venv, "_project_root", lambda: tmp_path)
+        monkeypatch.setattr(_venv, "_missing_dependency", lambda: "PIL")
+        called: list[object] = []
+        monkeypatch.setattr(_venv.os, "execv", lambda *a: called.append(a))
+        _venv.ensure_venv("app/scripts/plate_prompts.py")
+        assert called == []
 
     def test_a_correct_interpreter_is_left_alone(self, monkeypatch) -> None:
         """Under the project's own Python there is nothing to repair."""
@@ -414,7 +435,9 @@ class TestTheOperatorCommandsRunWithWhateverPythonYouTyped:
         _venv.ensure_venv()
         assert called == []
 
-    def test_a_missing_dependency_hands_the_command_to_the_venv(self, monkeypatch) -> None:
+    def test_a_missing_dependency_hands_the_command_to_the_venv(
+        self, monkeypatch, checkout_with_venv
+    ) -> None:
         from app.scripts import _venv
 
         monkeypatch.delenv(_venv._REEXEC_MARKER, raising=False)
@@ -422,7 +445,8 @@ class TestTheOperatorCommandsRunWithWhateverPythonYouTyped:
         handed: list[list[str]] = []
         monkeypatch.setattr(_venv.os, "execv", lambda _exe, argv: handed.append(list(argv)))
         monkeypatch.setattr(_venv.sys, "argv", ["/x/plate_prompts.py", "--story", "jack"])
-        _venv.ensure_venv("app/scripts/plate_prompts.py")
+        checkout = checkout_with_venv.parents[2]
+        _venv.ensure_venv(str(checkout / "app" / "scripts" / "plate_prompts.py"))
 
         assert len(handed) == 1
         argv = handed[0]
