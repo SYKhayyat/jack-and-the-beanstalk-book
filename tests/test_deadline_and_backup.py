@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
@@ -124,6 +125,7 @@ class _Calls:
 def _racer(*, limit: int = 2, backup_after: float = 0.05) -> BookRunner:
     runner = BookRunner.__new__(BookRunner)
     runner._gate = ConcurrencyGate(limit)
+    runner._call_pool = ThreadPoolExecutor(max_workers=limit)
     runner._page_timeout = 10
     runner._backup_after = backup_after  # type: ignore[assignment]
     return runner
